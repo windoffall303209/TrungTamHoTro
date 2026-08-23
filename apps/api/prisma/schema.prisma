@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum EnrollmentStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique @db.VarChar(191)
+  passwordHash  String       @map("password_hash") @db.VarChar(255)
+  displayName   String       @map("display_name") @db.VarChar(150)
+  status        UserStatus   @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  roles         UserRole[]
+  ownedCourses  Course[]     @relation("CourseOwner")
+  enrollments   Enrollment[]
+  files         FileAsset[]
+  questions     Question[]
+  forumPosts    ForumPost[]
+  classSessions ClassSession[] @relation("SessionHost")
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(50)
+  name        String           @db.VarChar(100)
+  description String?          @db.VarChar(500)
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(100)
+  description String?          @db.VarChar(500)
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  code        String       @unique @db.VarChar(50)
+  name        String       @db.VarChar(200)
+  description String?      @db.Text
+  status      CourseStatus @default(DRAFT)
+  ownerId     String       @map("owner_id")
+  owner       User         @relation("CourseOwner", fields: [ownerId], references: [id])
+  enrollments Enrollment[]
+  files       FileAsset[]
+  questions   Question[]
+  forumPosts  ForumPost[]
+  sessions    ClassSession[]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@map("courses")
+}
+
+model Enrollment {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  courseId  String           @map("course_id")
+  status    EnrollmentStatus @default(PENDING)
+  joinedAt  DateTime?        @map("joined_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([courseId, status])
+  @@map("enrollments")
+}
+
+model FileAsset {
+  id          String   @id @default(cuid())
+  courseId    String?  @map("course_id")
+  ownerId     String   @map("owner_id")
+  objectKey   String   @unique @map("object_key") @db.VarChar(500)
+  originalName String  @map("original_name") @db.VarChar(255)
+  mimeType    String   @map("mime_type") @db.VarChar(150)
+  sizeBytes   BigInt   @map("size_bytes")
+  checksum    String?  @db.VarChar(128)
+  createdAt   DateTime @default(now()) @map("created_at")
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  owner       User     @relation(fields: [ownerId], references: [id])
+
+  @@index([courseId])
+  @@index([ownerId])
+  @@map("file_assets")
+}
+
+model Question {
+  id          String        @id @default(cuid())
+  courseId    String        @map("course_id")
+  authorId    String        @map("author_id")
+  type        QuestionType
+  content     String        @db.Text
+  answerData  Json          @map("answer_data")
+  difficulty  Int           @default(1) @db.TinyInt
+  status      ContentStatus @default(DRAFT)
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  course      Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  author      User          @relation(fields: [authorId], references: [id])
+
+  @@index([courseId, status])
+  @@index([authorId])
+  @@map("questions")
+}
+
+model ForumPost {
+  id        String        @id @default(cuid())
+  courseId  String        @map("course_id")
+  authorId  String        @map("author_id")
+  parentId  String?       @map("parent_id")
+  title     String?       @db.VarChar(255)
+  content   String        @db.Text
+  status    ContentStatus @default(PUBLISHED)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+  course    Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  author    User          @relation(fields: [authorId], references: [id])
+  parent    ForumPost?    @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   ForumPost[]   @relation("PostReplies")
+
+  @@index([courseId, status, createdAt])
+  @@index([parentId])
+  @@map("forum_posts")
+}
+
+model ClassSession {
+  id          String        @id @default(cuid())
+  courseId    String        @map("course_id")
+  hostId      String        @map("host_id")
+  title       String        @db.VarChar(255)
+  startsAt    DateTime      @map("starts_at")
+  endsAt      DateTime      @map("ends_at")
+  provider    String        @db.VarChar(50)
+  providerRef String?       @map("provider_ref") @db.VarChar(255)
+  joinUrl     String?       @map("join_url") @db.VarChar(1000)
+  status      SessionStatus @default(SCHEDULED)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  course      Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  host        User          @relation("SessionHost", fields: [hostId], references: [id])
+
+  @@index([courseId, startsAt])
+  @@index([hostId])
+  @@map("class_sessions")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorId     String?  @map("actor_id")
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String?  @map("entity_id") @db.VarChar(191)
+  requestId   String?  @map("request_id") @db.VarChar(100)
+  context     Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
