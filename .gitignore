@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+apps/api/src/generated/
+.codex-temp/
+outputs/
+npm-debug.log*
+pnpm-debug.log*
+
