@@ -527,28 +527,378 @@ export class LearningService {
     return { ...item, answers: { ...item.answers } };
   }
 
-  listTopics(): ForumTopic[] { return this.topics.map((item) => ({ ...item, tags: [...item.tags] })); }
-  createTopic(classId: string, input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">, authorId = "usr-instructor"): ForumTopic { this.findClass(classId); const item: ForumTopic = { ...input, id: id("topic"), classId, authorId, isLocked: false, createdAt: now() }; this.topics.unshift(item); return { ...item, tags: [...item.tags] }; }
-  listPosts(topicId: string): ForumPost[] { this.findTopic(topicId); return this.posts.filter((item) => item.topicId === topicId).map((item) => ({ ...item })); }
-  createPost(topicId: string, body: string, authorId = "usr-learner", parentId?: string): ForumPost { const topic = this.findTopic(topicId); if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa."); if (parentId && !this.posts.some((item) => item.id === parentId && item.topicId === topicId)) throw new BadRequestException("Bài cha không hợp lệ."); const item: ForumPost = { id: id("post"), topicId, authorId, body: body.trim(), parentId, status: "VISIBLE", createdAt: now() }; this.posts.push(item); return { ...item }; }
-  reportContent(input: Omit<ContentReport, "id" | "status">): ContentReport { if (this.reports.some((item) => item.targetId === input.targetId && item.reporterId === input.reporterId && item.status === "OPEN")) throw new ConflictException("Bạn đã báo cáo nội dung này."); const item: ContentReport = { ...input, id: id("report"), status: "OPEN" }; this.reports.unshift(item); return { ...item }; }
-  listReports(): ContentReport[] { return this.reports.map((item) => ({ ...item })); }
-  resolveReport(reportId: string, status: "RESOLVED" | "REJECTED", resolution: string): ContentReport { const item = this.reports.find((report) => report.id === reportId); if (!item) throw new NotFoundException("Không tìm thấy báo cáo."); item.status = status; item.resolution = resolution; if (status === "RESOLVED" && item.targetType === "POST") { const post = this.posts.find((candidate) => candidate.id === item.targetId); if (post) post.status = "HIDDEN"; } return { ...item }; }
+  async listTopics(): Promise<ForumTopic[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.forumTopic.findMany({ orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }] });
+      return rows.map((row) => this.mapTopic(row));
+    }
+    return this.topics.map((item) => ({ ...item, tags: [...item.tags] }));
+  }
 
-  listSessions(): LiveSession[] { return this.sessions.map((item) => ({ ...item })); }
-  createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">): LiveSession { this.findClass(classId); if (new Date(input.endsAt) <= new Date(input.startsAt)) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu."); const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt)); if (overlaps) throw new ConflictException("Lịch học bị trùng."); const token = randomUUID(); const item: LiveSession = { ...input, id: id("session"), classId, status: "SCHEDULED", hostUrl: `https://meet.jit.si/${token}-host`, attendeeUrl: `https://meet.jit.si/${token}` }; this.sessions.unshift(item); return { ...item }; }
-  transitionSession(sessionId: string, status: LiveSession["status"]): LiveSession { const item = this.findSession(sessionId); const allowed: Record<LiveSession["status"], LiveSession["status"][]> = { SCHEDULED: ["LIVE", "CANCELLED"], LIVE: ["COMPLETED"], COMPLETED: [], CANCELLED: [] }; if (!allowed[item.status].includes(status)) throw new BadRequestException(`Không thể chuyển ${item.status} → ${status}.`); item.status = status; return { ...item }; }
-  joinSession(sessionId: string, learnerId = "usr-learner"): { attendeeUrl: string; joinedAt: string } { const item = this.findSession(sessionId); const classItem = this.findClass(item.classId); if (!classItem.learnerIds.includes(learnerId)) throw new BadRequestException("Học viên không thuộc lớp."); if (item.status === "CANCELLED" || item.status === "COMPLETED") throw new BadRequestException("Buổi học không còn cho phép tham gia."); const joinedAt = now(); const existing = this.attendance.find((record) => record.sessionId === sessionId && record.learnerId === learnerId); if (existing) { existing.joinedAt = existing.joinedAt ?? joinedAt; } else this.attendance.push({ sessionId, learnerId, joinedAt, attendedMinutes: 0, status: "PRESENT" }); return { attendeeUrl: item.attendeeUrl, joinedAt }; }
-  updateAttendance(sessionId: string, learnerId: string, status: AttendanceRecord["status"], attendedMinutes: number, adjustmentReason: string): AttendanceRecord { this.findSession(sessionId); let record = this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId); if (!record) { record = { sessionId, learnerId, attendedMinutes, status, adjustmentReason }; this.attendance.push(record); } else Object.assign(record, { status, attendedMinutes, adjustmentReason }); return { ...record }; }
-  attachRecording(sessionId: string, recordingUrl: string): LiveSession { const item = this.findSession(sessionId); if (item.status !== "COMPLETED") throw new BadRequestException("Chỉ gắn bản ghi sau khi buổi học kết thúc."); item.recordingUrl = recordingUrl; return { ...item }; }
-  getSessionSummary(sessionId: string, learnerId = "usr-learner"): object { const session = this.findSession(sessionId); return { session: { ...session, hostUrl: undefined }, attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } }; }
+  async createTopic(
+    classId: string,
+    input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">,
+    authorId = "usr-instructor",
+  ): Promise<ForumTopic> {
+    const prisma = this.database();
+    if (prisma) {
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      return this.mapTopic(await prisma.forumTopic.create({
+        data: {
+          id: id("topic"), classId, authorId, title: input.title.trim(), body: input.body.trim(),
+          tags: input.tags, isPinned: input.isPinned,
+        },
+      }));
+    }
+    this.findClass(classId);
+    const item: ForumTopic = { ...input, id: id("topic"), classId, authorId, isLocked: false, createdAt: now() };
+    this.topics.unshift(item);
+    return { ...item, tags: [...item.tags] };
+  }
 
-  listTickets(role: string): SupportTicket[] { return this.tickets.filter((item) => role === "LEARNER" ? item.reporterId === "usr-learner" : true).map((item) => ({ ...item })); }
-  createTicket(input: Pick<SupportTicket, "category" | "severity" | "description">, reporterId = "usr-learner"): SupportTicket { const item: SupportTicket = { ...input, id: id("ticket"), reporterId, status: "OPEN", createdAt: now() }; this.tickets.unshift(item); return { ...item }; }
-  updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>): SupportTicket { const item = this.tickets.find((ticket) => ticket.id === ticketId); if (!item) throw new NotFoundException("Không tìm thấy ticket."); if ((input.status === "RESOLVED" || input.status === "CLOSED") && !input.resolution) throw new BadRequestException("Cần ghi nội dung xử lý trước khi đóng."); Object.assign(item, input); return { ...item }; }
+  async listPosts(topicId: string): Promise<ForumPost[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const topic = await prisma.forumTopic.findUnique({ where: { id: topicId } });
+      if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
+      const rows = await prisma.forumPost.findMany({ where: { topicId }, orderBy: { createdAt: "asc" } });
+      return rows.map((row) => this.mapPost(row));
+    }
+    this.findTopic(topicId);
+    return this.posts.filter((item) => item.topicId === topicId).map((item) => ({ ...item }));
+  }
 
-  getOperationalReport(): object { const classes = this.classes.filter((item) => item.status === "ACTIVE").length; const materials = this.materials.filter((item) => item.visibility === "PUBLISHED").length; return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.length, openReports: this.reports.filter((item) => item.status === "OPEN").length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status)).length, generatedAt: now() }; }
-  getClassReports(): object[] { return this.classes.map((classItem) => { const classExams = this.exams.filter((exam) => exam.classId === classItem.id); const classAttempts = this.attempts.filter((attempt) => classExams.some((exam) => exam.id === attempt.examId)); const classSessions = this.sessions.filter((session) => session.classId === classItem.id); const attendanceRows = this.attendance.filter((record) => classSessions.some((session) => session.id === record.sessionId)); const graded = classAttempts.filter((attempt) => attempt.score !== undefined); return { classId: classItem.id, classCode: classItem.code, className: classItem.name, learners: classItem.learnerIds.length, instructors: classItem.instructorIds.length, publishedMaterials: this.materials.filter((material) => material.classId === classItem.id && material.visibility === "PUBLISHED").length, exams: classExams.length, submittedAttempts: classAttempts.filter((attempt) => attempt.status !== "IN_PROGRESS").length, averageScore: graded.length ? Math.round((graded.reduce((sum, attempt) => sum + (attempt.score ?? 0), 0) / graded.length) * 100) / 100 : 0, sessions: classSessions.length, attendanceRate: classItem.learnerIds.length && classSessions.length ? Math.round((attendanceRows.filter((row) => row.status === "PRESENT" || row.status === "LATE").length / (classItem.learnerIds.length * classSessions.length)) * 100) : 0, status: classItem.status }; }); }
+  async createPost(topicId: string, body: string, authorId = "usr-learner", parentId?: string): Promise<ForumPost> {
+    const prisma = this.database();
+    if (prisma) {
+      const topic = await prisma.forumTopic.findUnique({ where: { id: topicId } });
+      if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
+      if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
+      if (parentId) {
+        const parent = await prisma.forumPost.findFirst({ where: { id: parentId, topicId } });
+        if (!parent) throw new BadRequestException("Bài cha không hợp lệ.");
+      }
+      return this.mapPost(await prisma.forumPost.create({
+        data: { id: id("post"), topicId, authorId, body: body.trim(), parentId },
+      }));
+    }
+    const topic = this.findTopic(topicId);
+    if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
+    if (parentId && !this.posts.some((item) => item.id === parentId && item.topicId === topicId)) throw new BadRequestException("Bài cha không hợp lệ.");
+    const item: ForumPost = { id: id("post"), topicId, authorId, body: body.trim(), parentId, status: "VISIBLE", createdAt: now() };
+    this.posts.push(item);
+    return { ...item };
+  }
+
+  async reportContent(input: Omit<ContentReport, "id" | "status">): Promise<ContentReport> {
+    const prisma = this.database();
+    if (prisma) {
+      const targetExists = input.targetType === "POST"
+        ? Boolean(await prisma.forumPost.findUnique({ where: { id: input.targetId }, select: { id: true } }))
+        : Boolean(await prisma.forumTopic.findUnique({ where: { id: input.targetId }, select: { id: true } }));
+      if (!targetExists) throw new NotFoundException("Không tìm thấy nội dung cần báo cáo.");
+      try {
+        return this.mapReport(await prisma.contentReport.create({
+          data: { id: id("report"), ...input },
+        }));
+      } catch (error) {
+        if (isUniqueConstraintError(error)) throw new ConflictException("Bạn đã báo cáo nội dung này.");
+        throw error;
+      }
+    }
+    if (this.reports.some((item) => item.targetId === input.targetId && item.reporterId === input.reporterId && item.status === "OPEN")) throw new ConflictException("Bạn đã báo cáo nội dung này.");
+    const item: ContentReport = { ...input, id: id("report"), status: "OPEN" };
+    this.reports.unshift(item);
+    return { ...item };
+  }
+
+  async listReports(): Promise<ContentReport[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.contentReport.findMany({ orderBy: { createdAt: "desc" } });
+      return rows.map((row) => this.mapReport(row));
+    }
+    return this.reports.map((item) => ({ ...item }));
+  }
+
+  async resolveReport(reportId: string, status: "RESOLVED" | "REJECTED", resolution: string): Promise<ContentReport> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const item = await transaction.contentReport.findUnique({ where: { id: reportId } });
+        if (!item) throw new NotFoundException("Không tìm thấy báo cáo.");
+        if (item.status !== "OPEN") throw new ConflictException("Báo cáo đã được xử lý trước đó.");
+        if (status === "RESOLVED" && item.targetType === "POST") {
+          await transaction.forumPost.updateMany({ where: { id: item.targetId }, data: { status: "ARCHIVED" } });
+        }
+        return this.mapReport(await transaction.contentReport.update({
+          where: { id: reportId }, data: { status, resolution: resolution.trim() },
+        }));
+      });
+    }
+    const item = this.reports.find((report) => report.id === reportId);
+    if (!item) throw new NotFoundException("Không tìm thấy báo cáo.");
+    item.status = status;
+    item.resolution = resolution;
+    if (status === "RESOLVED" && item.targetType === "POST") {
+      const post = this.posts.find((candidate) => candidate.id === item.targetId);
+      if (post) post.status = "HIDDEN";
+    }
+    return { ...item };
+  }
+
+  async listSessions(): Promise<LiveSession[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.liveSession.findMany({ orderBy: { startsAt: "desc" } });
+      return rows.map((row) => this.mapSession(row));
+    }
+    return this.sessions.map((item) => ({ ...item }));
+  }
+
+  async createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">): Promise<LiveSession> {
+    if (new Date(input.endsAt) <= new Date(input.startsAt)) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
+    const prisma = this.database();
+    if (prisma) {
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      const overlaps = await prisma.liveSession.count({
+        where: {
+          classId, status: { not: "CANCELLED" },
+          startsAt: { lt: new Date(input.endsAt) }, endsAt: { gt: new Date(input.startsAt) },
+        },
+      });
+      if (overlaps) throw new ConflictException("Lịch học bị trùng.");
+      const token = randomUUID();
+      return this.mapSession(await prisma.liveSession.create({
+        data: {
+          id: id("session"), classId, hostId: "usr-instructor", title: input.title.trim(),
+          startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt), provider: input.provider,
+          hostUrl: `https://meet.jit.si/${token}-host`, attendeeUrl: `https://meet.jit.si/${token}`,
+        },
+      }));
+    }
+    this.findClass(classId);
+    const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt));
+    if (overlaps) throw new ConflictException("Lịch học bị trùng.");
+    const token = randomUUID();
+    const item: LiveSession = { ...input, id: id("session"), classId, status: "SCHEDULED", hostUrl: `https://meet.jit.si/${token}-host`, attendeeUrl: `https://meet.jit.si/${token}` };
+    this.sessions.unshift(item);
+    return { ...item };
+  }
+
+  async transitionSession(sessionId: string, status: LiveSession["status"]): Promise<LiveSession> {
+    const allowed: Record<LiveSession["status"], LiveSession["status"][]> = { SCHEDULED: ["LIVE", "CANCELLED"], LIVE: ["COMPLETED"], COMPLETED: [], CANCELLED: [] };
+    const prisma = this.database();
+    if (prisma) {
+      const item = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!item) throw new NotFoundException("Không tìm thấy buổi học.");
+      if (!allowed[item.status].includes(status)) throw new BadRequestException(`Không thể chuyển ${item.status} → ${status}.`);
+      return this.mapSession(await prisma.liveSession.update({ where: { id: sessionId }, data: { status } }));
+    }
+    const item = this.findSession(sessionId);
+    if (!allowed[item.status].includes(status)) throw new BadRequestException(`Không thể chuyển ${item.status} → ${status}.`);
+    item.status = status;
+    return { ...item };
+  }
+
+  async joinSession(sessionId: string, learnerId = "usr-learner"): Promise<{ attendeeUrl: string; joinedAt: string }> {
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      const enrollment = await prisma.classEnrollment.findFirst({ where: { classId: session.classId, learnerId, status: "ACTIVE" } });
+      if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
+      if (["CANCELLED", "COMPLETED"].includes(session.status)) throw new BadRequestException("Buổi học không còn cho phép tham gia.");
+      const joinedAt = new Date();
+      const existingAttendance = await prisma.attendanceRecord.findUnique({
+        where: { sessionId_learnerId: { sessionId, learnerId } }, select: { joinedAt: true },
+      });
+      await prisma.attendanceRecord.upsert({
+        where: { sessionId_learnerId: { sessionId, learnerId } },
+        update: { joinedAt: existingAttendance?.joinedAt ?? joinedAt, status: "PRESENT" },
+        create: { sessionId, learnerId, joinedAt, status: "PRESENT" },
+      });
+      return { attendeeUrl: session.attendeeUrl, joinedAt: joinedAt.toISOString() };
+    }
+    const item = this.findSession(sessionId);
+    const classItem = this.findClass(item.classId);
+    if (!classItem.learnerIds.includes(learnerId)) throw new BadRequestException("Học viên không thuộc lớp.");
+    if (item.status === "CANCELLED" || item.status === "COMPLETED") throw new BadRequestException("Buổi học không còn cho phép tham gia.");
+    const joinedAt = now();
+    const existing = this.attendance.find((record) => record.sessionId === sessionId && record.learnerId === learnerId);
+    if (existing) existing.joinedAt = existing.joinedAt ?? joinedAt;
+    else this.attendance.push({ sessionId, learnerId, joinedAt, attendedMinutes: 0, status: "PRESENT" });
+    return { attendeeUrl: item.attendeeUrl, joinedAt };
+  }
+
+  async updateAttendance(sessionId: string, learnerId: string, status: AttendanceRecord["status"], attendedMinutes: number, adjustmentReason: string): Promise<AttendanceRecord> {
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      const enrollment = await prisma.classEnrollment.findFirst({ where: { classId: session.classId, learnerId, status: "ACTIVE" } });
+      if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
+      const row = await prisma.attendanceRecord.upsert({
+        where: { sessionId_learnerId: { sessionId, learnerId } },
+        update: { status, attendedMinutes, adjustmentReason: adjustmentReason.trim() },
+        create: { sessionId, learnerId, status, attendedMinutes, adjustmentReason: adjustmentReason.trim() },
+      });
+      return this.mapAttendance(row);
+    }
+    this.findSession(sessionId);
+    let record = this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId);
+    if (!record) {
+      record = { sessionId, learnerId, attendedMinutes, status, adjustmentReason };
+      this.attendance.push(record);
+    } else Object.assign(record, { status, attendedMinutes, adjustmentReason });
+    return { ...record };
+  }
+
+  async attachRecording(sessionId: string, recordingUrl: string): Promise<LiveSession> {
+    const prisma = this.database();
+    if (prisma) {
+      const item = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!item) throw new NotFoundException("Không tìm thấy buổi học.");
+      if (item.status !== "COMPLETED") throw new BadRequestException("Chỉ gắn bản ghi sau khi buổi học kết thúc.");
+      return this.mapSession(await prisma.liveSession.update({ where: { id: sessionId }, data: { recordingUrl } }));
+    }
+    const item = this.findSession(sessionId);
+    if (item.status !== "COMPLETED") throw new BadRequestException("Chỉ gắn bản ghi sau khi buổi học kết thúc.");
+    item.recordingUrl = recordingUrl;
+    return { ...item };
+  }
+
+  async getSessionSummary(sessionId: string, learnerId = "usr-learner"): Promise<object> {
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      const attendance = await prisma.attendanceRecord.findUnique({ where: { sessionId_learnerId: { sessionId, learnerId } } });
+      const mapped = this.mapSession(session);
+      return { session: { ...mapped, hostUrl: undefined }, attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
+    }
+    const session = this.findSession(sessionId);
+    return { session: { ...session, hostUrl: undefined }, attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
+  }
+
+  async listTickets(role: string): Promise<SupportTicket[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.supportTicket.findMany({
+        where: role === "LEARNER" ? { reporterId: "usr-learner" } : undefined,
+        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      });
+      return rows.map((row) => this.mapTicket(row));
+    }
+    return this.tickets.filter((item) => role === "LEARNER" ? item.reporterId === "usr-learner" : true).map((item) => ({ ...item }));
+  }
+
+  async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description">, reporterId = "usr-learner"): Promise<SupportTicket> {
+    const prisma = this.database();
+    if (prisma) {
+      const slaHours: Record<SupportTicket["severity"], number> = { P0: 4, P1: 24, P2: 72, P3: 120 };
+      return this.mapTicket(await prisma.supportTicket.create({
+        data: {
+          id: id("ticket"), reporterId, category: input.category.trim(), severity: input.severity,
+          description: input.description.trim(), dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000),
+        },
+      }));
+    }
+    const item: SupportTicket = { ...input, id: id("ticket"), reporterId, status: "OPEN", createdAt: now() };
+    this.tickets.unshift(item);
+    return { ...item };
+  }
+
+  async updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>): Promise<SupportTicket> {
+    if ((input.status === "RESOLVED" || input.status === "CLOSED") && !input.resolution) throw new BadRequestException("Cần ghi nội dung xử lý trước khi đóng.");
+    const prisma = this.database();
+    if (prisma) {
+      const item = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
+      if (!item) throw new NotFoundException("Không tìm thấy ticket.");
+      if (input.assigneeId) {
+        const assignee = await prisma.user.findUnique({ where: { id: input.assigneeId } });
+        if (!assignee || assignee.status !== "ACTIVE") throw new BadRequestException("Người xử lý không hợp lệ.");
+      }
+      return this.mapTicket(await prisma.supportTicket.update({
+        where: { id: ticketId },
+        data: { status: input.status, assigneeId: input.assigneeId, resolution: input.resolution?.trim() },
+      }));
+    }
+    const item = this.tickets.find((ticket) => ticket.id === ticketId);
+    if (!item) throw new NotFoundException("Không tìm thấy ticket.");
+    Object.assign(item, input);
+    return { ...item };
+  }
+
+  async getOperationalReport(): Promise<object> {
+    const prisma = this.database();
+    if (prisma) {
+      const [courses, classes, activeClasses, learnerRows, materials, publishedMaterials, questions, exams, liveSessions, openReports, openTickets] = await prisma.$transaction([
+        prisma.course.count(),
+        prisma.learningClass.count(),
+        prisma.learningClass.count({ where: { status: "ACTIVE" } }),
+        prisma.classEnrollment.findMany({ where: { status: "ACTIVE" }, distinct: ["learnerId"], select: { learnerId: true } }),
+        prisma.material.count(),
+        prisma.material.count({ where: { visibility: "PUBLISHED" } }),
+        prisma.question.count(),
+        prisma.exam.count(),
+        prisma.liveSession.count(),
+        prisma.contentReport.count({ where: { status: "OPEN" } }),
+        prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] } } }),
+      ]);
+      return { courses, classes, activeClasses, learners: learnerRows.length, materials, publishedMaterials, questions, exams, liveSessions, openReports, openTickets, generatedAt: now() };
+    }
+    const classes = this.classes.filter((item) => item.status === "ACTIVE").length;
+    const materials = this.materials.filter((item) => item.visibility === "PUBLISHED").length;
+    return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.length, openReports: this.reports.filter((item) => item.status === "OPEN").length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status)).length, generatedAt: now() };
+  }
+
+  async getClassReports(): Promise<object[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const classes = await prisma.learningClass.findMany({
+        include: {
+          instructors: true,
+          enrollments: { where: { status: "ACTIVE" } },
+          materials: { where: { visibility: "PUBLISHED" }, select: { id: true } },
+          exams: { include: { attempts: true } },
+          sessions: { include: { attendance: true } },
+        },
+        orderBy: { startAt: "desc" },
+      });
+      return classes.map((classItem) => {
+        const attempts = classItem.exams.flatMap((exam) => exam.attempts);
+        const graded = attempts.filter((attempt) => attempt.score !== null);
+        const attendance = classItem.sessions.flatMap((session) => session.attendance);
+        const attendanceDenominator = classItem.enrollments.length * classItem.sessions.length;
+        return {
+          classId: classItem.id,
+          classCode: classItem.code,
+          className: classItem.name,
+          learners: classItem.enrollments.length,
+          instructors: classItem.instructors.length,
+          publishedMaterials: classItem.materials.length,
+          exams: classItem.exams.length,
+          submittedAttempts: attempts.filter((attempt) => attempt.status !== "IN_PROGRESS").length,
+          averageScore: graded.length ? Math.round((graded.reduce((sum, attempt) => sum + Number(attempt.score), 0) / graded.length) * 100) / 100 : 0,
+          sessions: classItem.sessions.length,
+          attendanceRate: attendanceDenominator ? Math.round((attendance.filter((row) => row.status === "PRESENT" || row.status === "LATE").length / attendanceDenominator) * 100) : 0,
+          status: classItem.status,
+        };
+      });
+    }
+    return this.classes.map((classItem) => {
+      const classExams = this.exams.filter((exam) => exam.classId === classItem.id);
+      const classAttempts = this.attempts.filter((attempt) => classExams.some((exam) => exam.id === attempt.examId));
+      const classSessions = this.sessions.filter((session) => session.classId === classItem.id);
+      const attendanceRows = this.attendance.filter((record) => classSessions.some((session) => session.id === record.sessionId));
+      const graded = classAttempts.filter((attempt) => attempt.score !== undefined);
+      return { classId: classItem.id, classCode: classItem.code, className: classItem.name, learners: classItem.learnerIds.length, instructors: classItem.instructorIds.length, publishedMaterials: this.materials.filter((material) => material.classId === classItem.id && material.visibility === "PUBLISHED").length, exams: classExams.length, submittedAttempts: classAttempts.filter((attempt) => attempt.status !== "IN_PROGRESS").length, averageScore: graded.length ? Math.round((graded.reduce((sum, attempt) => sum + (attempt.score ?? 0), 0) / graded.length) * 100) / 100 : 0, sessions: classSessions.length, attendanceRate: classItem.learnerIds.length && classSessions.length ? Math.round((attendanceRows.filter((row) => row.status === "PRESENT" || row.status === "LATE").length / (classItem.learnerIds.length * classSessions.length)) * 100) : 0, status: classItem.status };
+    });
+  }
 
   private database(): PrismaService | undefined {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
@@ -643,6 +993,92 @@ export class LearningService {
       score: row.score === null ? undefined : Number(row.score),
       feedback: row.feedback ?? undefined,
     };
+  }
+
+  private mapTopic(row: Prisma.ForumTopicGetPayload<Record<string, never>>): ForumTopic {
+    return {
+      id: row.id,
+      classId: row.classId,
+      title: row.title,
+      body: row.body,
+      authorId: row.authorId,
+      tags: this.toStringArray(row.tags),
+      isPinned: row.isPinned,
+      isLocked: row.isLocked,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private mapPost(row: Prisma.ForumPostGetPayload<Record<string, never>>): ForumPost {
+    return {
+      id: row.id,
+      topicId: row.topicId,
+      authorId: row.authorId,
+      body: row.body,
+      parentId: row.parentId ?? undefined,
+      status: row.status === "PUBLISHED" ? "VISIBLE" : "HIDDEN",
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private mapReport(row: Prisma.ContentReportGetPayload<Record<string, never>>): ContentReport {
+    if (row.targetType !== "TOPIC" && row.targetType !== "POST") throw new BadRequestException("Loại nội dung báo cáo không hợp lệ.");
+    return {
+      id: row.id,
+      targetType: row.targetType,
+      targetId: row.targetId,
+      reporterId: row.reporterId,
+      reason: row.reason,
+      details: row.details,
+      status: row.status,
+      resolution: row.resolution ?? undefined,
+    };
+  }
+
+  private mapSession(row: Prisma.LiveSessionGetPayload<Record<string, never>>): LiveSession {
+    if (!this.isLiveProvider(row.provider)) throw new BadRequestException(`Nhà cung cấp lớp trực tuyến ${row.provider} không được hỗ trợ.`);
+    return {
+      id: row.id,
+      classId: row.classId,
+      title: row.title,
+      startsAt: row.startsAt.toISOString(),
+      endsAt: row.endsAt.toISOString(),
+      provider: row.provider,
+      status: row.status,
+      hostUrl: row.hostUrl,
+      attendeeUrl: row.attendeeUrl,
+      recordingUrl: row.recordingUrl ?? undefined,
+    };
+  }
+
+  private mapAttendance(row: Prisma.AttendanceRecordGetPayload<Record<string, never>>): AttendanceRecord {
+    return {
+      sessionId: row.sessionId,
+      learnerId: row.learnerId,
+      joinedAt: row.joinedAt?.toISOString(),
+      leftAt: row.leftAt?.toISOString(),
+      attendedMinutes: row.attendedMinutes,
+      status: row.status,
+      adjustmentReason: row.adjustmentReason ?? undefined,
+    };
+  }
+
+  private mapTicket(row: Prisma.SupportTicketGetPayload<Record<string, never>>): SupportTicket {
+    return {
+      id: row.id,
+      reporterId: row.reporterId,
+      category: row.category,
+      severity: row.severity,
+      description: row.description,
+      status: row.status,
+      assigneeId: row.assigneeId ?? undefined,
+      resolution: row.resolution ?? undefined,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private isLiveProvider(value: string): value is LiveSession["provider"] {
+    return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI";
   }
 
   private async getDatabaseClass(
