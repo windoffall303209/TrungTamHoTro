@@ -1,6 +1,6 @@
 "use client";
 
-import { Flag, MessageCircle, Pin, Plus, Send } from "lucide-react";
+import { Bell, Flag, MessageCircle, Paperclip, Pin, Plus, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -10,7 +10,9 @@ import type {
   ContentReport,
   ForumPost,
   ForumTopic,
+  LearningNotification,
   LearningClass,
+  Material,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -23,10 +25,14 @@ export default function ForumPage() {
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [reports, setReports] = useState<ContentReport[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [notifications, setNotifications] = useState<LearningNotification[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [post, setPost] = useState("");
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
   const [reportTarget, setReportTarget] = useState<ForumTopic | null>(null);
   const [reportForm, setReportForm] = useState({ reason: "Nội dung không phù hợp", details: "" });
@@ -40,7 +46,7 @@ export default function ForumPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [topicData, classData, reportData] = await Promise.all([
+      const [topicData, classData, reportData, materialData, notificationData] = await Promise.all([
         apiRequest<ForumTopic[]>("/forum/topics", {
           roleCode: session.roleCode,
         }),
@@ -52,10 +58,18 @@ export default function ForumPage() {
           : learner
             ? apiRequest<ContentReport[]>("/learner/content-reports", { roleCode: session.roleCode })
             : Promise.resolve([]),
+        learner
+          ? apiRequest<Material[]>("/materials", { roleCode: session.roleCode })
+          : Promise.resolve([]),
+        learner
+          ? apiRequest<LearningNotification[]>("/learner/notifications", { roleCode: session.roleCode })
+          : Promise.resolve([]),
       ]);
       setTopics(topicData);
       setClasses(classData);
       setReports(reportData);
+      setMaterials(materialData);
+      setNotifications(notificationData);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tải được diễn đàn.",
@@ -71,6 +85,9 @@ export default function ForumPage() {
   }, [load]);
   const choose = async (topic: ForumTopic) => {
     setSelected(topic);
+    setAttachmentIds([]);
+    setMentionedUserIds([]);
+    setReplyTo(null);
     try {
       setPosts(
         await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
@@ -117,9 +134,16 @@ export default function ForumPage() {
       await apiRequest(`/learner/forum/topics/${selected.id}/posts`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({ body: post, parentId: replyTo?.id }),
+        body: JSON.stringify({
+          body: post,
+          parentId: replyTo?.id,
+          attachmentIds,
+          mentionedUserIds,
+        }),
       });
       setPost("");
+      setAttachmentIds([]);
+      setMentionedUserIds([]);
       setReplyTo(null);
       notify(replyTo ? "Đã gửi phản hồi theo luồng." : "Đã gửi bình luận.");
       await choose(selected);
@@ -128,6 +152,20 @@ export default function ForumPage() {
         error instanceof Error ? error.message : "Không gửi được bình luận.",
         "error",
       );
+    }
+  };
+  const markNotificationRead = async (item: LearningNotification) => {
+    if (item.readAt) return;
+    try {
+      const updated = await apiRequest<LearningNotification>(
+        `/learner/notifications/${item.id}/read`,
+        { method: "PATCH", roleCode: session.roleCode },
+      );
+      setNotifications((current) =>
+        current.map((candidate) => candidate.id === item.id ? updated : candidate),
+      );
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không cập nhật được thông báo.", "error");
     }
   };
   const report = async (event: React.FormEvent) => {
@@ -188,6 +226,25 @@ export default function ForumPage() {
           ) : undefined
         }
       />
+      {learner && notifications.length ? (
+        <section className="mb-6 border-y border-slate-200 py-3">
+          <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-sky-700">
+            <Bell size={14} /> Thông báo diễn đàn
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {notifications.map((item) => (
+              <button
+                className={`rounded-full px-3 py-1.5 text-xs font-bold ${item.readAt ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-800"}`}
+                key={item.id}
+                onClick={() => void markNotificationRead(item)}
+                type="button"
+              >
+                {item.title}{item.readAt ? " · Đã đọc" : " · Mới"}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {manager && reports.length ? (
         <section className="mb-7">
           <h2 className="mb-3 text-xs font-extrabold uppercase tracking-widest text-rose-600">
@@ -271,6 +328,21 @@ export default function ForumPage() {
                     posts.map((item) => (
                       <div className={`rounded-xl bg-slate-50 p-4 ${item.parentId ? "ml-6 border-l-2 border-sky-200" : ""}`} key={item.id}>
                         <p className="text-sm leading-6">{item.body}</p>
+                        {item.mentionedUserIds.length ? (
+                          <p className="mt-2 text-xs font-bold text-violet-700">
+                            Nhắc: {item.mentionedUserIds.map((userId) => `@${userId}`).join(", ")}
+                          </p>
+                        ) : null}
+                        {item.attachmentIds.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {item.attachmentIds.map((materialId) => (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-sky-700" key={materialId}>
+                                <Paperclip size={12} />
+                                {materials.find((material) => material.id === materialId)?.name ?? materialId}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         <p className="mt-2 text-[10px] font-bold text-slate-400">
                           {new Date(item.createdAt).toLocaleString("vi-VN")}
                         </p>
@@ -296,6 +368,34 @@ export default function ForumPage() {
                     <Button aria-label="Gửi phản hồi" type="submit">
                       <Send size={16} />
                     </Button>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <Field label="Đính kèm học liệu đã phát hành">
+                        <select
+                          className={inputClass}
+                          multiple
+                          size={Math.min(4, Math.max(2, materials.filter((item) => item.classId === selected.classId).length))}
+                          value={attachmentIds}
+                          onChange={(event) => setAttachmentIds(Array.from(event.target.selectedOptions, (option) => option.value))}
+                        >
+                          {materials.filter((item) => item.classId === selected.classId).map((item) => (
+                            <option key={item.id} value={item.id}>{item.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Nhắc thành viên trong lớp">
+                        <select
+                          className={inputClass}
+                          multiple
+                          size={Math.min(4, Math.max(2, (classes.find((item) => item.id === selected.classId)?.learnerIds.length ?? 0) + (classes.find((item) => item.id === selected.classId)?.instructorIds.length ?? 0)))}
+                          value={mentionedUserIds}
+                          onChange={(event) => setMentionedUserIds(Array.from(event.target.selectedOptions, (option) => option.value))}
+                        >
+                          {[...(classes.find((item) => item.id === selected.classId)?.learnerIds ?? []), ...(classes.find((item) => item.id === selected.classId)?.instructorIds ?? [])]
+                            .filter((userId) => userId !== "usr-learner")
+                            .map((userId) => <option key={userId} value={userId}>{userId}</option>)}
+                        </select>
+                      </Field>
                     </div>
                   </form>
                 ) : null}

@@ -1,5 +1,5 @@
 import {
-  ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber,
+  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber,
   IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength,
 } from "class-validator";
 import type { LearningQuestion } from "./learning.types.js";
@@ -87,6 +87,8 @@ export class CreateTopicDto {
 export class CreatePostDto {
   @IsString() @MinLength(2) body!: string;
   @IsOptional() @IsString() parentId?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) attachmentIds: string[] = [];
+  @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) mentionedUserIds: string[] = [];
 }
 
 export class CreateReportDto {

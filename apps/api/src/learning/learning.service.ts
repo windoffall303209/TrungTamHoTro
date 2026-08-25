@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
+  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   RegradeRequest, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -22,6 +22,7 @@ type ClassWithMembers = Prisma.LearningClassGetPayload<{
 }>;
 type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>;
 type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
+type ForumPostWithRelations = Prisma.ForumPostGetPayload<{ include: { attachments: true; mentions: true } }>;
 export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
 export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
@@ -58,8 +59,9 @@ export class LearningService {
     { id: "topic-rest", classId: "class-web-01", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", authorId: "usr-instructor", tags: ["api", "thảo luận"], isPinned: true, isLocked: false, createdAt: now() },
   ];
   private readonly posts: ForumPost[] = [
-    { id: "post-rest-01", topicId: "topic-rest", authorId: "usr-learner", body: "Em chọn REST cho hệ thống CRUD vì dễ cache và theo dõi.", status: "VISIBLE", createdAt: now() },
+    { id: "post-rest-01", topicId: "topic-rest", authorId: "usr-learner", body: "Em chọn REST cho hệ thống CRUD vì dễ cache và theo dõi.", status: "VISIBLE", attachmentIds: [], mentionedUserIds: [], createdAt: now() },
   ];
+  private readonly notifications: LearningNotification[] = [];
   private readonly reports: ContentReport[] = [];
   private readonly sessions: LiveSession[] = [
     { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
@@ -919,16 +921,32 @@ export class LearningService {
       const topic = await prisma.forumTopic.findUnique({ where: { id: topicId }, include: { class: { include: { enrollments: true, instructors: true } } } });
       if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
       this.assertForumClassAccess(topic.class, role);
-      const rows = await prisma.forumPost.findMany({ where: { topicId }, orderBy: { createdAt: "asc" } });
+      const rows = await prisma.forumPost.findMany({ where: { topicId }, include: { attachments: true, mentions: true }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => this.mapPost(row));
     }
     const topic = this.findTopic(topicId);
     this.assertMemoryForumClassAccess(topic.classId, role);
-    return this.posts.filter((item) => item.topicId === topicId).map((item) => ({ ...item }));
+    return this.posts.filter((item) => item.topicId === topicId).map((item) => ({
+      ...item,
+      body: item.status === "HIDDEN" ? "[Nội dung đã bị ẩn]" : item.body,
+      attachmentIds: item.status === "HIDDEN" ? [] : [...item.attachmentIds],
+      mentionedUserIds: item.status === "HIDDEN" ? [] : [...item.mentionedUserIds],
+    }));
   }
 
-  async createPost(topicId: string, body: string, authorId = "usr-learner", parentId?: string): Promise<ForumPost> {
+  async createPost(
+    topicId: string,
+    body: string,
+    authorId = "usr-learner",
+    parentId?: string,
+    rawAttachmentIds: string[] = [],
+    rawMentionedUserIds: string[] = [],
+  ): Promise<ForumPost> {
     const safeBody = this.validateForumContent(body, "Nội dung phản hồi");
+    const attachmentIds = [...new Set(rawAttachmentIds)];
+    const mentionedUserIds = [...new Set(rawMentionedUserIds)].filter((userId) => userId !== authorId);
+    if (attachmentIds.length > 5) throw new BadRequestException("Mỗi phản hồi chỉ được đính kèm tối đa 5 tệp.");
+    if (mentionedUserIds.length > 10) throw new BadRequestException("Mỗi phản hồi chỉ được nhắc tối đa 10 thành viên.");
     const prisma = this.database();
     if (prisma) {
       const topic = await prisma.forumTopic.findUnique({ where: { id: topicId }, include: { class: { include: { enrollments: true, instructors: true } } } });
@@ -940,9 +958,53 @@ export class LearningService {
         const parent = await prisma.forumPost.findFirst({ where: { id: parentId, topicId } });
         if (!parent) throw new BadRequestException("Bài cha không hợp lệ.");
       }
-      return this.mapPost(await prisma.forumPost.create({
-        data: { id: id("post"), topicId, authorId, body: safeBody, parentId },
-      }));
+      const validAttachments = attachmentIds.length
+        ? await prisma.material.findMany({ where: { id: { in: attachmentIds }, classId: topic.classId, visibility: "PUBLISHED" }, select: { id: true } })
+        : [];
+      if (validAttachments.length !== attachmentIds.length) throw new BadRequestException("Tệp đính kèm phải thuộc lớp và đã được phát hành.");
+      const validMentions = mentionedUserIds.length
+        ? await prisma.user.findMany({
+            where: {
+              id: { in: mentionedUserIds },
+              OR: [
+                { enrollments: { some: { classId: topic.classId, status: "ACTIVE" } } },
+                { instructedClasses: { some: { classId: topic.classId } } },
+              ],
+            },
+            select: { id: true },
+          })
+        : [];
+      if (validMentions.length !== mentionedUserIds.length) throw new BadRequestException("Chỉ được nhắc thành viên đang thuộc lớp.");
+      return prisma.$transaction(async (transaction) => {
+        const postId = id("post");
+        const post = await transaction.forumPost.create({
+          data: {
+            id: postId,
+            topicId,
+            authorId,
+            body: safeBody,
+            parentId,
+            attachments: { create: attachmentIds.map((materialId) => ({ materialId })) },
+            mentions: { create: mentionedUserIds.map((mentionedUserId) => ({ mentionedUserId })) },
+          },
+          include: { attachments: true, mentions: true },
+        });
+        if (mentionedUserIds.length) {
+          await transaction.notification.createMany({
+            data: mentionedUserIds.map((recipientId) => ({
+              id: id("notification"),
+              recipientId,
+              type: "FORUM_MENTION",
+              title: `Bạn được nhắc trong chủ đề ${topic.title}`,
+              entityType: "FORUM_POST",
+              entityId: postId,
+              dedupKey: `forum-mention:${postId}:${recipientId}`,
+            })),
+            skipDuplicates: true,
+          });
+        }
+        return this.mapPost(post);
+      });
     }
     const topic = this.findTopic(topicId);
     if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
@@ -950,8 +1012,41 @@ export class LearningService {
     if (!classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
     this.enforceMemoryForumPolicy(authorId, safeBody);
     if (parentId && !this.posts.some((item) => item.id === parentId && item.topicId === topicId)) throw new BadRequestException("Bài cha không hợp lệ.");
-    const item: ForumPost = { id: id("post"), topicId, authorId, body: safeBody, parentId, status: "VISIBLE", createdAt: now() };
+    if (attachmentIds.some((materialId) => !this.materials.some((item) => item.id === materialId && item.classId === topic.classId && item.visibility === "PUBLISHED"))) {
+      throw new BadRequestException("Tệp đính kèm phải thuộc lớp và đã được phát hành.");
+    }
+    const classMembers = new Set([...classItem.learnerIds, ...classItem.instructorIds]);
+    if (mentionedUserIds.some((userId) => !classMembers.has(userId))) throw new BadRequestException("Chỉ được nhắc thành viên đang thuộc lớp.");
+    const item: ForumPost = { id: id("post"), topicId, authorId, body: safeBody, parentId, status: "VISIBLE", attachmentIds, mentionedUserIds, createdAt: now() };
     this.posts.push(item);
+    for (const recipientId of mentionedUserIds) {
+      if (!this.notifications.some((notification) => notification.entityId === item.id && notification.recipientId === recipientId)) {
+        this.notifications.unshift({ id: id("notification"), recipientId, type: "FORUM_MENTION", title: `Bạn được nhắc trong chủ đề ${topic.title}`, entityType: "FORUM_POST", entityId: item.id, createdAt: now() });
+      }
+    }
+    return { ...item, attachmentIds: [...item.attachmentIds], mentionedUserIds: [...item.mentionedUserIds] };
+  }
+
+  async listNotifications(recipientId = "usr-learner"): Promise<LearningNotification[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.notification.findMany({ where: { recipientId }, orderBy: { createdAt: "desc" }, take: 50 });
+      return rows.map((row) => ({ id: row.id, recipientId: row.recipientId, type: row.type, title: row.title, entityType: row.entityType, entityId: row.entityId, readAt: row.readAt?.toISOString(), createdAt: row.createdAt.toISOString() }));
+    }
+    return this.notifications.filter((item) => item.recipientId === recipientId).map((item) => ({ ...item }));
+  }
+
+  async markNotificationRead(notificationId: string, recipientId = "usr-learner"): Promise<LearningNotification> {
+    const prisma = this.database();
+    if (prisma) {
+      const existing = await prisma.notification.findFirst({ where: { id: notificationId, recipientId } });
+      if (!existing) throw new NotFoundException("Không tìm thấy thông báo.");
+      const row = await prisma.notification.update({ where: { id: notificationId }, data: { readAt: existing.readAt ?? new Date() } });
+      return { id: row.id, recipientId: row.recipientId, type: row.type, title: row.title, entityType: row.entityType, entityId: row.entityId, readAt: row.readAt?.toISOString(), createdAt: row.createdAt.toISOString() };
+    }
+    const item = this.notifications.find((notification) => notification.id === notificationId && notification.recipientId === recipientId);
+    if (!item) throw new NotFoundException("Không tìm thấy thông báo.");
+    item.readAt ??= now();
     return { ...item };
   }
 
@@ -1511,7 +1606,7 @@ export class LearningService {
       id: row.id,
       classId: row.classId,
       title: row.title,
-      body: row.body,
+      body: row.status === "PUBLISHED" ? row.body : "[Nội dung đã bị ẩn]",
       authorId: row.authorId,
       tags: this.toStringArray(row.tags),
       isPinned: row.isPinned,
@@ -1520,7 +1615,7 @@ export class LearningService {
     };
   }
 
-  private mapPost(row: Prisma.ForumPostGetPayload<Record<string, never>>): ForumPost {
+  private mapPost(row: Prisma.ForumPostGetPayload<Record<string, never>> | ForumPostWithRelations): ForumPost {
     return {
       id: row.id,
       topicId: row.topicId,
@@ -1528,6 +1623,8 @@ export class LearningService {
       body: row.body,
       parentId: row.parentId ?? undefined,
       status: row.status === "PUBLISHED" ? "VISIBLE" : "HIDDEN",
+      attachmentIds: row.status === "PUBLISHED" && "attachments" in row ? row.attachments.map((item) => item.materialId) : [],
+      mentionedUserIds: row.status === "PUBLISHED" && "mentions" in row ? row.mentions.map((item) => item.mentionedUserId) : [],
       createdAt: row.createdAt.toISOString(),
     };
   }

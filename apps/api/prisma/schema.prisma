@@ -141,6 +141,8 @@ model User {
   examAttempts       ExamAttempt[]       @relation("AttemptLearner")
   forumTopics        ForumTopic[]        @relation("TopicAuthor")
   forumPosts         ForumPost[]         @relation("PostAuthor")
+  forumMentions      ForumMention[]      @relation("MentionedUser")
+  notifications      Notification[]      @relation("NotificationRecipient")
   contentReports     ContentReport[]     @relation("ReportAuthor")
   hostedSessions     LiveSession[]       @relation("SessionHost")
   attendance         AttendanceRecord[]
@@ -265,23 +267,24 @@ model ClassEnrollment {
 }
 
 model Material {
-  id         String              @id @default(cuid())
-  classId    String              @map("class_id")
-  ownerId    String              @map("owner_id")
-  name       String              @db.VarChar(255)
-  objectKey  String              @unique @map("object_key") @db.VarChar(500)
-  mimeType   String              @map("mime_type") @db.VarChar(150)
-  sizeBytes  BigInt              @map("size_bytes")
-  checksum   String?             @db.VarChar(128)
-  folder     String              @db.VarChar(255)
-  tags       Json
-  version    Int                 @default(1)
-  visibility MaterialVisibility  @default(DRAFT)
-  class      LearningClass       @relation(fields: [classId], references: [id], onDelete: Cascade)
-  owner      User                @relation("MaterialOwner", fields: [ownerId], references: [id])
-  accessLogs MaterialAccessLog[]
-  createdAt  DateTime            @default(now()) @map("created_at")
-  updatedAt  DateTime            @updatedAt @map("updated_at")
+  id               String                @id @default(cuid())
+  classId          String                @map("class_id")
+  ownerId          String                @map("owner_id")
+  name             String                @db.VarChar(255)
+  objectKey        String                @unique @map("object_key") @db.VarChar(500)
+  mimeType         String                @map("mime_type") @db.VarChar(150)
+  sizeBytes        BigInt                @map("size_bytes")
+  checksum         String?               @db.VarChar(128)
+  folder           String                @db.VarChar(255)
+  tags             Json
+  version          Int                   @default(1)
+  visibility       MaterialVisibility    @default(DRAFT)
+  class            LearningClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  owner            User                  @relation("MaterialOwner", fields: [ownerId], references: [id])
+  accessLogs       MaterialAccessLog[]
+  forumAttachments ForumPostAttachment[]
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
 
   @@index([classId, visibility])
   @@index([ownerId])
@@ -432,22 +435,62 @@ model ForumTopic {
 }
 
 model ForumPost {
-  id        String        @id @default(cuid())
-  topicId   String        @map("topic_id")
-  authorId  String        @map("author_id")
-  parentId  String?       @map("parent_id")
-  body      String        @db.Text
-  status    ContentStatus @default(PUBLISHED)
-  topic     ForumTopic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  author    User          @relation("PostAuthor", fields: [authorId], references: [id])
-  parent    ForumPost?    @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   ForumPost[]   @relation("PostReplies")
-  createdAt DateTime      @default(now()) @map("created_at")
-  updatedAt DateTime      @updatedAt @map("updated_at")
+  id          String                @id @default(cuid())
+  topicId     String                @map("topic_id")
+  authorId    String                @map("author_id")
+  parentId    String?               @map("parent_id")
+  body        String                @db.Text
+  status      ContentStatus         @default(PUBLISHED)
+  topic       ForumTopic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  author      User                  @relation("PostAuthor", fields: [authorId], references: [id])
+  parent      ForumPost?            @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     ForumPost[]           @relation("PostReplies")
+  attachments ForumPostAttachment[]
+  mentions    ForumMention[]
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
 
   @@index([topicId, status, createdAt])
   @@index([parentId])
   @@map("forum_posts")
+}
+
+model ForumPostAttachment {
+  postId     String    @map("post_id")
+  materialId String    @map("material_id")
+  post       ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  material   Material  @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@id([postId, materialId])
+  @@index([materialId])
+  @@map("forum_post_attachments")
+}
+
+model ForumMention {
+  postId          String    @map("post_id")
+  mentionedUserId String    @map("mentioned_user_id")
+  post            ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mentionedUser   User      @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@id([postId, mentionedUserId])
+  @@index([mentionedUserId])
+  @@map("forum_mentions")
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String    @map("recipient_id")
+  type        String    @db.VarChar(50)
+  title       String    @db.VarChar(255)
+  entityType  String    @map("entity_type") @db.VarChar(50)
+  entityId    String    @map("entity_id") @db.VarChar(191)
+  dedupKey    String    @unique @map("dedup_key") @db.VarChar(255)
+  readAt      DateTime? @map("read_at")
+  recipient   User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([recipientId, readAt, createdAt])
+  @@map("notifications")
 }
 
 model ContentReport {

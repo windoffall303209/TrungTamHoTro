@@ -6,7 +6,7 @@ import {
   CreateTopicDto, ResolveReportDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ContentReport, ForumPost, ForumTopic, LiveSession, SupportTicket, TicketComment } from "./learning.types.js";
+import type { ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, SupportTicket, TicketComment } from "./learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -26,7 +26,17 @@ export class EngagementController {
   listPosts(@Param("topicId") topicId: string, @Headers("x-role-code") role = "LEARNER"): Promise<ForumPost[]> { return this.learning.listPosts(topicId, role); }
 
   @Post("learner/forum/topics/:topicId/posts") @RequirePermissions("forum:post")
-  createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto): Promise<ForumPost> { return this.learning.createPost(topicId, input.body, "usr-learner", input.parentId); }
+  createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto): Promise<ForumPost> {
+    return this.learning.createPost(topicId, input.body, "usr-learner", input.parentId, input.attachmentIds, input.mentionedUserIds);
+  }
+
+  @Get("learner/notifications") @RequirePermissions("forum:view")
+  listNotifications(): Promise<LearningNotification[]> { return this.learning.listNotifications(); }
+
+  @Patch("learner/notifications/:notificationId/read") @RequirePermissions("forum:view")
+  markNotificationRead(@Param("notificationId") notificationId: string): Promise<LearningNotification> {
+    return this.learning.markNotificationRead(notificationId);
+  }
 
   @Post("learner/content-reports") @RequirePermissions("forum:view")
   reportContent(@Body() input: CreateReportDto): Promise<ContentReport> { return this.learning.reportContent({ ...input, reporterId: "usr-learner" }); }
