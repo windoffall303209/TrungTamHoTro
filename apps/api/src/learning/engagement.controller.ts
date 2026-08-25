@@ -69,4 +69,7 @@ export class EngagementController {
 
   @Get("reports/operations") @RequirePermissions("report:view")
   getOperationalReport(): object { return this.learning.getOperationalReport(); }
+
+  @Get("reports/classes") @RequirePermissions("report:view")
+  getClassReports(): object[] { return this.learning.getClassReports(); }
 }

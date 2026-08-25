@@ -8,12 +8,14 @@ import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
 interface Report { courses: number; classes: number; materials: number; exams: number; openReports: number; liveSessions: number; openTickets: number; generatedAt: string }
+interface ClassReport { classId: string; classCode: string; className: string; learners: number; instructors: number; publishedMaterials: number; exams: number; submittedAttempts: number; averageScore: number; sessions: number; attendanceRate: number; status: string }
 
 export default function ReportsPage() {
   const { session, notify } = useApp();
   const [report, setReport] = useState<Report | null>(null);
+  const [classReports, setClassReports] = useState<ClassReport[]>([]);
   const allowed = session.roleCode === "CENTER_MANAGER" || session.roleCode === "INSTRUCTOR";
-  const load = useCallback(async () => { if (!allowed) return; try { setReport(await apiRequest<Report>("/reports/operations", { roleCode: session.roleCode })); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được báo cáo.", "error"); } }, [allowed, notify, session.roleCode]);
+  const load = useCallback(async () => { if (!allowed) return; try { const [overview, classes] = await Promise.all([apiRequest<Report>("/reports/operations", { roleCode: session.roleCode }), apiRequest<ClassReport[]>("/reports/classes", { roleCode: session.roleCode })]); setReport(overview); setClassReports(classes); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được báo cáo.", "error"); } }, [allowed, notify, session.roleCode]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   if (!allowed) return <AccessDenied />;
   const metrics = report ? [
@@ -32,5 +34,6 @@ export default function ReportsPage() {
       </div></div>
       <aside className="rounded-xl bg-amber-50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-amber-700">Cần chú ý</p><p className="mt-3 text-3xl font-extrabold text-amber-950">{report.openReports + report.openTickets}</p><p className="mt-1 text-sm leading-6 text-amber-800">báo cáo nội dung và phiếu hỗ trợ đang chờ xử lý.</p></aside>
     </section> : <div className="mt-7 h-48 animate-pulse rounded-2xl bg-slate-200" />}
+    <section className="mt-7 overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="border-b border-slate-100 p-5"><h2 className="font-heading text-xl font-extrabold">Hiệu quả theo lớp</h2><p className="mt-1 text-sm text-slate-500">Tiến độ nội dung, đánh giá và tỷ lệ tham dự được tổng hợp theo lớp.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Lớp</th><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Học liệu</th><th className="px-5 py-3">Đề / lượt nộp</th><th className="px-5 py-3">Điểm TB</th><th className="px-5 py-3">Điểm danh</th><th className="px-5 py-3">Trạng thái</th></tr></thead><tbody className="divide-y divide-slate-100">{classReports.map((item) => <tr key={item.classId}><td className="px-5 py-4"><p className="font-extrabold">{item.classCode}</p><p className="text-xs text-slate-500">{item.className}</p></td><td className="px-5 py-4">{item.learners}</td><td className="px-5 py-4">{item.publishedMaterials}</td><td className="px-5 py-4">{item.exams} / {item.submittedAttempts}</td><td className="px-5 py-4 font-extrabold">{item.averageScore}</td><td className="px-5 py-4">{item.attendanceRate}%</td><td className="px-5 py-4"><span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold">{item.status}</span></td></tr>)}</tbody></table></div></section>
   </div>;
 }
