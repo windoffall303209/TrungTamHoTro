@@ -1332,12 +1332,14 @@ export class LearningService {
       if (authorId === "usr-learner" && !classItem.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp này.");
       if (authorId === "usr-instructor" && !classItem.instructors.some((item) => item.instructorId === authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
       await this.enforceForumPolicy(prisma, authorId, `${safeTitle} ${safeBody}`);
-      return this.mapTopic(await prisma.forumTopic.create({
+      const created = await prisma.forumTopic.create({
         data: {
           id: id("topic"), classId, authorId, title: safeTitle, body: safeBody,
           tags: input.tags, isPinned: input.isPinned,
         },
-      }));
+      });
+      await this.notifyClassMembers(prisma, classId, "FORUM_TOPIC_CREATED", `Chủ đề mới: ${created.title}`, created.id);
+      return this.mapTopic(created);
     }
     const classItem = this.findClass(classId);
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
@@ -1346,7 +1348,29 @@ export class LearningService {
     this.enforceMemoryForumPolicy(authorId, `${safeTitle} ${safeBody}`);
     const item: ForumTopic = { ...input, title: safeTitle, body: safeBody, id: id("topic"), classId, authorId, isLocked: false, status: "VISIBLE", createdAt: now() };
     this.topics.unshift(item);
+    for (const recipientId of new Set([...classItem.learnerIds, ...classItem.instructorIds])) if (recipientId !== authorId) this.notifications.unshift({ id: id("notification"), recipientId, type: "FORUM_TOPIC_CREATED", title: `Chủ đề mới: ${item.title}`, entityType: "FORUM_TOPIC", entityId: item.id, createdAt: now() });
     return { ...item, tags: [...item.tags] };
+  }
+
+  async moderateTopic(topicId: string, input: { isLocked?: boolean; isPinned?: boolean; reason: string }, actorId = "usr-instructor"): Promise<ForumTopic> {
+    const reason = input.reason.trim();
+    if (reason.length < 5) throw new BadRequestException("Lý do điều phối cần ít nhất 5 ký tự.");
+    if (input.isLocked === undefined && input.isPinned === undefined) throw new BadRequestException("Cần chọn trạng thái khóa hoặc ghim cần thay đổi.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.forumTopic.findFirst({ where: { id: topicId, class: { instructors: { some: { instructorId: actorId } } } } });
+        if (!current) throw new NotFoundException("Không tìm thấy chủ đề được phép điều phối.");
+        const updated = await transaction.forumTopic.update({ where: { id: topicId }, data: { isLocked: input.isLocked, isPinned: input.isPinned } });
+        await transaction.auditLog.create({ data: { actorId, action: "FORUM_TOPIC_MODERATED", entityType: "forum_topic", entityId: topicId, context: { reason, before: { isLocked: current.isLocked, isPinned: current.isPinned }, after: { isLocked: updated.isLocked, isPinned: updated.isPinned } } } });
+        return this.mapTopic(updated);
+      });
+    }
+    const current = this.findTopic(topicId);
+    if (!this.findClass(current.classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy chủ đề được phép điều phối.");
+    if (input.isLocked !== undefined) current.isLocked = input.isLocked;
+    if (input.isPinned !== undefined) current.isPinned = input.isPinned;
+    return { ...current, tags: [...current.tags] };
   }
 
   async listPosts(topicId: string, role = "LEARNER"): Promise<ForumPost[]> {
@@ -1392,8 +1416,9 @@ export class LearningService {
       if (!topic.class.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
       await this.enforceForumPolicy(prisma, authorId, safeBody);
       if (parentId) {
-        const parent = await prisma.forumPost.findFirst({ where: { id: parentId, topicId } });
+        const parent = await prisma.forumPost.findFirst({ where: { id: parentId, topicId }, include: { parent: { include: { parent: true } } } });
         if (!parent) throw new BadRequestException("Bài cha không hợp lệ.");
+        if (parent.parent?.parentId) throw new BadRequestException("Phản hồi chỉ được lồng tối đa 2 cấp.");
       }
       const validAttachments = attachmentIds.length
         ? await prisma.material.findMany({ where: { id: { in: attachmentIds }, classId: topic.classId, visibility: "PUBLISHED" }, select: { id: true } })
@@ -1449,7 +1474,9 @@ export class LearningService {
     const classItem = this.findClass(topic.classId);
     if (!classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
     this.enforceMemoryForumPolicy(authorId, safeBody);
-    if (parentId && !this.posts.some((item) => item.id === parentId && item.topicId === topicId)) throw new BadRequestException("Bài cha không hợp lệ.");
+    const parent = parentId ? this.posts.find((item) => item.id === parentId && item.topicId === topicId) : undefined;
+    if (parentId && !parent) throw new BadRequestException("Bài cha không hợp lệ.");
+    if (parent?.parentId && this.posts.find((item) => item.id === parent.parentId)?.parentId) throw new BadRequestException("Phản hồi chỉ được lồng tối đa 2 cấp.");
     if (attachmentIds.some((materialId) => !this.materials.some((item) => item.id === materialId && item.classId === topic.classId && item.visibility === "PUBLISHED"))) {
       throw new BadRequestException("Tệp đính kèm phải thuộc lớp và đã được phát hành.");
     }
@@ -1463,6 +1490,60 @@ export class LearningService {
       }
     }
     return { ...item, attachmentIds: [...item.attachmentIds], mentionedUserIds: [...item.mentionedUserIds] };
+  }
+
+  async updatePost(postId: string, body: string, authorId = "usr-learner"): Promise<ForumPost> {
+    const safeBody = this.validateForumContent(body, "Nội dung phản hồi");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.forumPost.findFirst({ where: { id: postId, authorId }, include: { topic: true, attachments: true, mentions: true } });
+      if (!current) throw new NotFoundException("Không tìm thấy phản hồi được phép sửa.");
+      if (current.deletedAt || current.status !== "PUBLISHED") throw new ConflictException("Phản hồi đã bị xóa hoặc ẩn.");
+      if (current.topic.isLocked) throw new ConflictException("Chủ đề đã khóa.");
+      const history = Array.isArray(current.editHistory) ? current.editHistory : [];
+      return this.mapPost(await prisma.forumPost.update({ where: { id: postId }, data: { body: safeBody, editedAt: new Date(), editHistory: [...history, { body: current.body, editedAt: new Date().toISOString() }] }, include: { attachments: true, mentions: true } }));
+    }
+    const current = this.posts.find((item) => item.id === postId && item.authorId === authorId);
+    if (!current) throw new NotFoundException("Không tìm thấy phản hồi được phép sửa.");
+    if (current.deletedAt || current.status !== "VISIBLE") throw new ConflictException("Phản hồi đã bị xóa hoặc ẩn.");
+    if (this.findTopic(current.topicId).isLocked) throw new ConflictException("Chủ đề đã khóa.");
+    current.body = safeBody; current.editedAt = now(); current.editCount = (current.editCount ?? 0) + 1;
+    return { ...current, attachmentIds: [...current.attachmentIds], mentionedUserIds: [...current.mentionedUserIds] };
+  }
+
+  async deletePost(postId: string, authorId = "usr-learner"): Promise<ForumPost> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.forumPost.findFirst({ where: { id: postId, authorId }, include: { topic: true, attachments: true, mentions: true } });
+      if (!current) throw new NotFoundException("Không tìm thấy phản hồi được phép xóa.");
+      if (current.topic.isLocked) throw new ConflictException("Chủ đề đã khóa.");
+      if (current.deletedAt) return this.mapPost(current);
+      return this.mapPost(await prisma.forumPost.update({ where: { id: postId }, data: { status: "ARCHIVED", deletedAt: new Date() }, include: { attachments: true, mentions: true } }));
+    }
+    const current = this.posts.find((item) => item.id === postId && item.authorId === authorId);
+    if (!current) throw new NotFoundException("Không tìm thấy phản hồi được phép xóa.");
+    if (this.findTopic(current.topicId).isLocked) throw new ConflictException("Chủ đề đã khóa.");
+    current.status = "HIDDEN"; current.deletedAt ??= now();
+    return { ...current, body: "[Nội dung đã bị xóa]", attachmentIds: [], mentionedUserIds: [] };
+  }
+
+  async hidePost(postId: string, rawReason: string, actorId = "usr-instructor"): Promise<ForumPost> {
+    const reason = rawReason.trim();
+    if (reason.length < 5) throw new BadRequestException("Lý do ẩn cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.forumPost.findFirst({ where: { id: postId, topic: { class: { instructors: { some: { instructorId: actorId } } } } }, include: { attachments: true, mentions: true } });
+        if (!current) throw new NotFoundException("Không tìm thấy phản hồi được phép kiểm duyệt.");
+        const updated = await transaction.forumPost.update({ where: { id: postId }, data: { status: "ARCHIVED" }, include: { attachments: true, mentions: true } });
+        await transaction.auditLog.create({ data: { actorId, action: "FORUM_POST_HIDDEN", entityType: "forum_post", entityId: postId, context: { reason, authorId: current.authorId } } });
+        return this.mapPost(updated);
+      });
+    }
+    const current = this.findPost(postId);
+    if (!this.findClass(this.findTopic(current.topicId).classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy phản hồi được phép kiểm duyệt.");
+    current.status = "HIDDEN";
+    return { ...current, body: "[Nội dung đã bị ẩn]", attachmentIds: [], mentionedUserIds: [] };
   }
 
   async listNotifications(recipientId = "usr-learner"): Promise<LearningNotification[]> {
@@ -2659,6 +2740,9 @@ export class LearningService {
       attachmentIds: row.status === "PUBLISHED" && "attachments" in row ? row.attachments.map((item) => item.materialId) : [],
       mentionedUserIds: row.status === "PUBLISHED" && "mentions" in row ? row.mentions.map((item) => item.mentionedUserId) : [],
       createdAt: row.createdAt.toISOString(),
+      editedAt: row.editedAt?.toISOString(),
+      deletedAt: row.deletedAt?.toISOString(),
+      editCount: Array.isArray(row.editHistory) ? row.editHistory.length : 0,
     };
   }
 

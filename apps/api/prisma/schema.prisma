@@ -570,6 +570,9 @@ model ForumPost {
   parentId    String?               @map("parent_id")
   body        String                @db.Text
   status      ContentStatus         @default(PUBLISHED)
+  editHistory Json?                 @map("edit_history")
+  editedAt    DateTime?             @map("edited_at")
+  deletedAt   DateTime?             @map("deleted_at")
   topic       ForumTopic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
   author      User                  @relation("PostAuthor", fields: [authorId], references: [id])
   parent      ForumPost?            @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)

@@ -4,7 +4,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
   AppealReportDto, AttachRecordingDto, CancelSessionDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
-  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
+  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { ClassProgressReport, ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
@@ -23,6 +23,9 @@ export class EngagementController {
   @Post("learner/classes/:classId/forum/topics") @RequirePermissions("forum:post")
   createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): Promise<ForumTopic> { return this.learning.createTopic(classId, { ...input, isPinned: false }, "usr-learner"); }
 
+  @Patch("instructor/forum/topics/:topicId") @RequirePermissions("forum:moderate")
+  moderateTopic(@Param("topicId") topicId: string, @Body() input: ModerateTopicDto): Promise<ForumTopic> { return this.learning.moderateTopic(topicId, input); }
+
   @Get("forum/topics/:topicId/posts") @RequirePermissions("forum:view")
   listPosts(@Param("topicId") topicId: string, @Headers("x-role-code") role = "LEARNER"): Promise<ForumPost[]> { return this.learning.listPosts(topicId, role); }
 
@@ -30,6 +33,15 @@ export class EngagementController {
   createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto): Promise<ForumPost> {
     return this.learning.createPost(topicId, input.body, "usr-learner", input.parentId, input.attachmentIds, input.mentionedUserIds);
   }
+
+  @Patch("learner/forum/posts/:postId") @RequirePermissions("forum:post")
+  updatePost(@Param("postId") postId: string, @Body() input: UpdatePostDto): Promise<ForumPost> { return this.learning.updatePost(postId, input.body); }
+
+  @Post("learner/forum/posts/:postId/delete") @RequirePermissions("forum:post")
+  deletePost(@Param("postId") postId: string): Promise<ForumPost> { return this.learning.deletePost(postId); }
+
+  @Post("instructor/forum/posts/:postId/hide") @RequirePermissions("forum:moderate")
+  hidePost(@Param("postId") postId: string, @Body() input: HideForumPostDto): Promise<ForumPost> { return this.learning.hidePost(postId, input.reason); }
 
   @Get("learner/notifications") @RequirePermissions("forum:view")
   listNotifications(): Promise<LearningNotification[]> { return this.learning.listNotifications(); }
