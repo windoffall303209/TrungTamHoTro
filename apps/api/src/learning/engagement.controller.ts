@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
-  AttachRecordingDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
+  AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
   CreateTopicDto, ResolveReportDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
@@ -63,6 +63,19 @@ export class EngagementController {
 
   @Get("learner/sessions/:sessionId/summary") @RequirePermissions("session:view")
   getSessionSummary(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getSessionSummary(sessionId); }
+
+  @Get("learner/sessions/:sessionId/recording-access") @RequirePermissions("session:view")
+  createRecordingAccess(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.createRecordingAccess(sessionId); }
+
+  @Get("learner/sessions/:sessionId/recording") @RequirePermissions("session:view")
+  resolveRecordingAccess(@Param("sessionId") sessionId: string, @Query("expires") expires: string, @Query("signature") signature: string): Promise<object> {
+    return this.learning.resolveRecordingAccess(sessionId, Number(expires), signature ?? "");
+  }
+
+  @Post("learner/sessions/:sessionId/attendance-appeals") @RequirePermissions("session:view")
+  requestAttendanceAppeal(@Param("sessionId") sessionId: string, @Body() input: CreateAttendanceAppealDto): Promise<object> {
+    return this.learning.requestAttendanceAppeal(sessionId, input.reason);
+  }
 
   @Get("support/tickets")
   listTickets(@Headers("x-role-code") role = "LEARNER"): Promise<SupportTicket[]> { return this.learning.listTickets(role); }

@@ -80,6 +80,7 @@ export interface AttendanceRecord {
   sessionId: string; learnerId: string; joinedAt?: string; leftAt?: string;
   attendedMinutes: number; status: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED"; adjustmentReason?: string;
 }
+export interface AttendanceAppeal { id: string; sessionId: string; learnerId: string; reason: string; status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string }
 
 export interface SupportTicket {
   id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3";

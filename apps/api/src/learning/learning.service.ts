@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
+  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   RegradeRequest, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -65,6 +65,7 @@ export class LearningService {
     { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
   ];
   private readonly attendance: AttendanceRecord[] = [];
+  private readonly attendanceAppeals: AttendanceAppeal[] = [];
   private readonly tickets: SupportTicket[] = [];
   private readonly ticketComments: TicketComment[] = [];
   private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
@@ -1191,12 +1192,60 @@ export class LearningService {
       const enrollment = await prisma.classEnrollment.findFirst({ where: { classId: session.classId, learnerId, status: "ACTIVE" } });
       if (!enrollment) throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
       const attendance = await prisma.attendanceRecord.findUnique({ where: { sessionId_learnerId: { sessionId, learnerId } } });
+      const appeal = await prisma.attendanceAppeal.findFirst({ where: { sessionId, learnerId }, orderBy: { createdAt: "desc" } });
       const mapped = this.mapSession(session);
-      return { session: { ...mapped, hostUrl: undefined }, attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
+      return { session: { ...mapped, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: Boolean(session.recordingUrl), attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: appeal ? this.mapAttendanceAppeal(appeal) : undefined };
     }
     const session = this.findSession(sessionId);
     if (!this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
-    return { session: { ...session, hostUrl: undefined }, attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
+    return { session: { ...session, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: Boolean(session.recordingUrl), attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: this.attendanceAppeals.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) };
+  }
+
+  async createRecordingAccess(sessionId: string, learnerId = "usr-learner"): Promise<{ url: string; expiresAt: string }> {
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingUrl: { not: null }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
+      if (!session) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
+    } else {
+      const session = this.findSession(sessionId);
+      if (session.status !== "COMPLETED" || !session.recordingUrl || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
+    }
+    const expires = Math.floor(Date.now() / 1000) + 300;
+    const signature = this.signRecordingAccess(sessionId, expires, learnerId);
+    return { url: `/learner/sessions/${sessionId}/recording?expires=${expires}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
+  }
+
+  async resolveRecordingAccess(sessionId: string, expires: number, signature: string, learnerId = "usr-learner"): Promise<{ recordingUrl: string }> {
+    this.verifyExpiringSignature(this.signRecordingAccess(sessionId, expires, learnerId), expires, signature, "Chữ ký bản ghi không hợp lệ.");
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingUrl: { not: null }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
+      if (!session?.recordingUrl) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
+      return { recordingUrl: session.recordingUrl };
+    }
+    const session = this.findSession(sessionId);
+    if (session.status !== "COMPLETED" || !session.recordingUrl || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
+    return { recordingUrl: session.recordingUrl };
+  }
+
+  async requestAttendanceAppeal(sessionId: string, reason: string, learnerId = "usr-learner"): Promise<AttendanceAppeal> {
+    const normalized = reason.trim();
+    if (normalized.length < 10) throw new BadRequestException("Lý do điều chỉnh cần ít nhất 10 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } }, include: { attendance: { where: { learnerId } }, appeals: { where: { learnerId, status: { in: ["OPEN", "IN_REVIEW"] } } } } });
+      if (!session) throw new NotFoundException("Không tìm thấy buổi học được phép yêu cầu điều chỉnh.");
+      if (!session.attendance.length) throw new BadRequestException("Chưa có dữ liệu điểm danh để yêu cầu điều chỉnh.");
+      if (session.appeals.length) throw new ConflictException("Đã có yêu cầu điều chỉnh đang được xử lý.");
+      return this.mapAttendanceAppeal(await prisma.attendanceAppeal.create({ data: { id: id("attendance-appeal"), sessionId, learnerId, reason: normalized } }));
+    }
+    const session = this.findSession(sessionId);
+    if (session.status !== "COMPLETED" || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Không tìm thấy buổi học được phép yêu cầu điều chỉnh.");
+    if (!this.attendance.some((item) => item.sessionId === sessionId && item.learnerId === learnerId)) throw new BadRequestException("Chưa có dữ liệu điểm danh để yêu cầu điều chỉnh.");
+    if (this.attendanceAppeals.some((item) => item.sessionId === sessionId && item.learnerId === learnerId && ["OPEN", "IN_REVIEW"].includes(item.status))) throw new ConflictException("Đã có yêu cầu điều chỉnh đang được xử lý.");
+    const appeal: AttendanceAppeal = { id: id("attendance-appeal"), sessionId, learnerId, reason: normalized, status: "OPEN", createdAt: now() };
+    this.attendanceAppeals.unshift(appeal);
+    return { ...appeal };
   }
 
   async listTickets(role: string): Promise<SupportTicket[]> {
@@ -1525,6 +1574,10 @@ export class LearningService {
     };
   }
 
+  private mapAttendanceAppeal(row: Prisma.AttendanceAppealGetPayload<Record<string, never>>): AttendanceAppeal {
+    return { id: row.id, sessionId: row.sessionId, learnerId: row.learnerId, reason: row.reason, status: row.status, resolution: row.resolution ?? undefined, createdAt: row.createdAt.toISOString() };
+  }
+
   private mapTicket(row: Prisma.SupportTicketGetPayload<Record<string, never>>): SupportTicket {
     return {
       id: row.id,
@@ -1632,6 +1685,19 @@ export class LearningService {
   private signMaterialAccess(materialId: string, expires: number, action: MaterialAccessAction): string {
     const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
     return createHmac("sha256", secret).update(`${materialId}.${expires}.${action}`).digest("base64url");
+  }
+
+  private signRecordingAccess(sessionId: string, expires: number, learnerId: string): string {
+    const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
+    return createHmac("sha256", secret).update(`recording.${sessionId}.${learnerId}.${expires}`).digest("base64url");
+  }
+
+  private verifyExpiringSignature(expectedSignature: string, expires: number, signature: string, message: string): void {
+    const current = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(expires) || expires < current || expires > current + 600) throw new BadRequestException("Liên kết đã hết hạn hoặc không hợp lệ.");
+    const expected = Buffer.from(expectedSignature);
+    const received = Buffer.from(signature);
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException(message);
   }
 
   private verifyMaterialAccess(materialId: string, expires: number, signature: string, action: MaterialAccessAction): void {
