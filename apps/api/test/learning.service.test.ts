@@ -20,14 +20,14 @@ describe("LearningService", () => {
     await expect(service.submitAttempt(attempt.id)).rejects.toThrow(ConflictException);
   });
 
-  it("chặn lịch buổi học trùng", () => {
+  it("chặn lịch buổi học trùng", async () => {
     const service = new LearningService();
-    expect(() => service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).toThrow(ConflictException);
+    await expect(service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).rejects.toThrow(ConflictException);
   });
 
-  it("chỉ gắn bản ghi sau khi buổi học kết thúc", () => {
+  it("chỉ gắn bản ghi sau khi buổi học kết thúc", async () => {
     const service = new LearningService();
-    expect(() => service.attachRecording("session-web-01", "https://recording.example/video")).toThrow(BadRequestException);
+    await expect(service.attachRecording("session-web-01", "https://recording.example/video")).rejects.toThrow(BadRequestException);
   });
 
   it("tổng hợp đúng điểm và điểm danh theo lớp", async () => {
@@ -35,8 +35,8 @@ describe("LearningService", () => {
     const attempt = await service.startAttempt("exam-mid-web");
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
     await service.submitAttempt(attempt.id);
-    service.updateAttendance("session-web-01", "usr-learner", "PRESENT", 60, "Đối soát nhật ký");
-    const report = service.getClassReports()[0] as { submittedAttempts: number; averageScore: number; attendanceRate: number };
+    await service.updateAttendance("session-web-01", "usr-learner", "PRESENT", 60, "Đối soát nhật ký");
+    const report = (await service.getClassReports())[0] as { submittedAttempts: number; averageScore: number; attendanceRate: number };
     expect(report.submittedAttempts).toBe(1);
     expect(report.averageScore).toBe(5);
     expect(report.attendanceRate).toBe(100);
