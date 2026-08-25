@@ -11,19 +11,19 @@ export class ContentController {
   constructor(private readonly learning: LearningService) {}
 
   @Get("materials") @RequirePermissions("material:view")
-  listMaterials(@Headers("x-role-code") role = "LEARNER", @Query("query") query?: string): LearningMaterial[] { return this.learning.listMaterials(role, query); }
+  listMaterials(@Headers("x-role-code") role = "LEARNER", @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(role, query); }
 
   @Get("learner/materials/search") @RequirePermissions("material:view")
-  searchMaterials(@Query("query") query?: string): LearningMaterial[] { return this.learning.listMaterials("LEARNER", query); }
+  searchMaterials(@Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials("LEARNER", query); }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
-  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto): LearningMaterial { return this.learning.createMaterial(classId, input); }
+  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input); }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
-  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): LearningMaterial { return this.learning.updateMaterial(materialId, input); }
+  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
-  reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): LearningMaterial { return this.learning.updateMaterial(materialId, input); }
+  reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
   listQuestions(@Query("query") query?: string): LearningQuestion[] { return this.learning.listQuestions(query); }
