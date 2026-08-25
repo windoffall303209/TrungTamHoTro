@@ -1,5 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "../generated/prisma/client.js";
+import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
   LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, SupportTicket,
@@ -7,6 +9,12 @@ import type {
 
 const now = (): string => new Date().toISOString();
 const id = (prefix: string): string => `${prefix}-${randomUUID()}`;
+const isUniqueConstraintError = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+
+type ClassWithMembers = Prisma.LearningClassGetPayload<{
+  include: { instructors: true; enrollments: true };
+}>;
 
 @Injectable()
 export class LearningService {
@@ -47,31 +55,226 @@ export class LearningService {
   private readonly attendance: AttendanceRecord[] = [];
   private readonly tickets: SupportTicket[] = [];
 
-  listCourses(): LearningCourse[] { return this.courses.map((item) => ({ ...item, outcomes: [...item.outcomes] })); }
-  createCourse(input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes">): LearningCourse {
+  constructor(@Optional() private readonly prisma?: PrismaService) {}
+
+  async listCourses(): Promise<LearningCourse[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.course.findMany({ orderBy: { createdAt: "desc" } });
+      return rows.map((row) => this.mapCourse(row));
+    }
+    return this.courses.map((item) => ({ ...item, outcomes: [...item.outcomes] }));
+  }
+
+  async createCourse(input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes">): Promise<LearningCourse> {
     const code = input.code.trim().toUpperCase();
+    const prisma = this.database();
+    if (prisma) {
+      try {
+        const row = await prisma.course.create({
+          data: {
+            id: id("course"),
+            code,
+            name: input.name.trim(),
+            description: input.description.trim(),
+            outcomes: input.outcomes.filter(Boolean),
+            ownerId: "usr-manager",
+          },
+        });
+        return this.mapCourse(row);
+      } catch (error) {
+        if (isUniqueConstraintError(error)) throw new ConflictException("Mã khóa học đã tồn tại.");
+        throw error;
+      }
+    }
     if (this.courses.some((course) => course.code === code)) throw new ConflictException("Mã khóa học đã tồn tại.");
     const timestamp = now();
     const course: LearningCourse = { id: id("course"), code, name: input.name.trim(), description: input.description.trim(), outcomes: input.outcomes.filter(Boolean), status: "DRAFT", version: 1, createdAt: timestamp, updatedAt: timestamp };
     this.courses.unshift(course); return { ...course, outcomes: [...course.outcomes] };
   }
-  publishCourse(courseId: string): LearningCourse { const course = this.findCourse(courseId); if (!course.outcomes.length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập."); course.status = "PUBLISHED"; course.version += 1; course.updatedAt = now(); return { ...course, outcomes: [...course.outcomes] }; }
+  async publishCourse(courseId: string): Promise<LearningCourse> {
+    const prisma = this.database();
+    if (prisma) {
+      const course = await prisma.course.findUnique({ where: { id: courseId } });
+      if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
+      if (!this.toStringArray(course.outcomes).length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
+      return this.mapCourse(await prisma.course.update({
+        where: { id: courseId },
+        data: { status: "PUBLISHED", version: { increment: 1 } },
+      }));
+    }
+    const course = this.findCourse(courseId);
+    if (!course.outcomes.length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
+    course.status = "PUBLISHED";
+    course.version += 1;
+    course.updatedAt = now();
+    return { ...course, outcomes: [...course.outcomes] };
+  }
 
-  listClasses(role: string): LearningClass[] { return this.classes.filter((item) => role === "LEARNER" ? item.learnerIds.includes("usr-learner") : role === "INSTRUCTOR" ? item.instructorIds.includes("usr-instructor") : true).map((item) => ({ ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] })); }
-  createClass(input: Omit<LearningClass, "id" | "status" | "instructorIds" | "learnerIds">): LearningClass {
+  async listClasses(role: string): Promise<LearningClass[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.learningClass.findMany({
+        where: role === "LEARNER"
+          ? { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } }
+          : role === "INSTRUCTOR"
+            ? { instructors: { some: { instructorId: "usr-instructor" } } }
+            : undefined,
+        include: { instructors: true, enrollments: { where: { status: "ACTIVE" } } },
+        orderBy: { startAt: "desc" },
+      });
+      return rows.map((row) => this.mapClass(row));
+    }
+    return this.classes.filter((item) => role === "LEARNER" ? item.learnerIds.includes("usr-learner") : role === "INSTRUCTOR" ? item.instructorIds.includes("usr-instructor") : true).map((item) => ({ ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }));
+  }
+
+  async createClass(input: Omit<LearningClass, "id" | "status" | "instructorIds" | "learnerIds">): Promise<LearningClass> {
+    const prisma = this.database();
+    if (prisma) {
+      const course = await prisma.course.findUnique({ where: { id: input.courseId } });
+      if (!course || course.status !== "PUBLISHED") throw new BadRequestException("Khóa học phải được phát hành trước khi mở lớp.");
+      if (new Date(input.endAt) <= new Date(input.startAt)) throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
+      try {
+        const row = await prisma.learningClass.create({
+          data: {
+            id: id("class"), courseId: input.courseId, code: input.code.trim().toUpperCase(),
+            name: input.name.trim(), term: input.term.trim(), startAt: new Date(input.startAt),
+            endAt: new Date(input.endAt), capacity: input.capacity,
+          },
+          include: { instructors: true, enrollments: true },
+        });
+        return this.mapClass(row);
+      } catch (error) {
+        if (isUniqueConstraintError(error)) throw new ConflictException("Mã lớp đã tồn tại.");
+        throw error;
+      }
+    }
     if (!this.courses.some((course) => course.id === input.courseId && course.status === "PUBLISHED")) throw new BadRequestException("Khóa học phải được phát hành trước khi mở lớp.");
     if (new Date(input.endAt) <= new Date(input.startAt)) throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
     if (this.classes.some((item) => item.code === input.code)) throw new ConflictException("Mã lớp đã tồn tại.");
     const item: LearningClass = { ...input, id: id("class"), status: "DRAFT", instructorIds: [], learnerIds: [] }; this.classes.unshift(item); return { ...item, instructorIds: [], learnerIds: [] };
   }
-  assignInstructor(classId: string, instructorId: string): LearningClass { const item = this.findClass(classId); if (!item.instructorIds.includes(instructorId)) item.instructorIds.push(instructorId); return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }; }
-  enrollLearner(classId: string, learnerId: string): LearningClass { const item = this.findClass(classId); if (item.learnerIds.includes(learnerId)) throw new ConflictException("Học viên đã có trong lớp."); if (item.learnerIds.length >= item.capacity) throw new BadRequestException("Lớp đã đủ sĩ số."); item.learnerIds.push(learnerId); return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }; }
-  activateClass(classId: string): LearningClass { const item = this.findClass(classId); if (!item.instructorIds.length) throw new BadRequestException("Cần phân công ít nhất một giảng viên trước khi kích hoạt."); item.status = "ACTIVE"; return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }; }
-  closeClass(classId: string): LearningClass { const item = this.findClass(classId); if (item.status !== "ACTIVE") throw new BadRequestException("Chỉ lớp đang hoạt động mới có thể đóng."); item.status = "CLOSED"; return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }; }
+  async assignInstructor(classId: string, instructorId: string): Promise<LearningClass> {
+    const prisma = this.database();
+    if (prisma) {
+      await this.requireUserRole(prisma, instructorId, "INSTRUCTOR", "Người dùng được chọn không phải giảng viên.");
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      await prisma.classInstructor.upsert({
+        where: { classId_instructorId: { classId, instructorId } }, update: {}, create: { classId, instructorId },
+      });
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId);
+    if (!item.instructorIds.includes(instructorId)) item.instructorIds.push(instructorId);
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
 
-  listMaterials(role: string, query?: string): LearningMaterial[] { const normalized = query?.toLowerCase() ?? ""; return this.materials.filter((item) => role !== "LEARNER" || item.visibility === "PUBLISHED").filter((item) => !normalized || `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, tags: [...item.tags] })); }
-  createMaterial(classId: string, input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">): LearningMaterial { this.findClass(classId); if (input.sizeBytes > 50_000_000) throw new BadRequestException("Tệp vượt giới hạn 50 MB."); const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: "DRAFT", createdAt: now() }; this.materials.unshift(item); return { ...item, tags: [...item.tags] }; }
-  updateMaterial(materialId: string, input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>): LearningMaterial { const item = this.materials.find((material) => material.id === materialId); if (!item) throw new NotFoundException("Không tìm thấy học liệu."); Object.assign(item, input); item.version += 1; return { ...item, tags: [...item.tags] }; }
+  async enrollLearner(classId: string, learnerId: string): Promise<LearningClass> {
+    const prisma = this.database();
+    if (prisma) {
+      await this.requireUserRole(prisma, learnerId, "LEARNER", "Người dùng được chọn không phải học viên.");
+      return prisma.$transaction(async (transaction) => {
+        const classItem = await transaction.learningClass.findUnique({
+          where: { id: classId }, include: { enrollments: { where: { status: "ACTIVE" } } },
+        });
+        if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+        if (classItem.enrollments.some((row) => row.learnerId === learnerId)) throw new ConflictException("Học viên đã có trong lớp.");
+        if (classItem.enrollments.length >= classItem.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
+        await transaction.classEnrollment.upsert({
+          where: { classId_learnerId: { classId, learnerId } },
+          update: { status: "ACTIVE", joinedAt: new Date() },
+          create: { classId, learnerId, status: "ACTIVE" },
+        });
+        return this.getDatabaseClass(transaction, classId);
+      });
+    }
+    const item = this.findClass(classId);
+    if (item.learnerIds.includes(learnerId)) throw new ConflictException("Học viên đã có trong lớp.");
+    if (item.learnerIds.length >= item.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
+    item.learnerIds.push(learnerId);
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async activateClass(classId: string): Promise<LearningClass> {
+    const prisma = this.database();
+    if (prisma) {
+      const item = await this.getDatabaseClass(prisma, classId);
+      if (!item.instructorIds.length) throw new BadRequestException("Cần phân công ít nhất một giảng viên trước khi kích hoạt.");
+      await prisma.learningClass.update({ where: { id: classId }, data: { status: "ACTIVE" } });
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId);
+    if (!item.instructorIds.length) throw new BadRequestException("Cần phân công ít nhất một giảng viên trước khi kích hoạt.");
+    item.status = "ACTIVE";
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async closeClass(classId: string): Promise<LearningClass> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.learningClass.findUnique({ where: { id: classId } });
+      if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (current.status !== "ACTIVE") throw new BadRequestException("Chỉ lớp đang hoạt động mới có thể đóng.");
+      await prisma.learningClass.update({ where: { id: classId }, data: { status: "CLOSED" } });
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId);
+    if (item.status !== "ACTIVE") throw new BadRequestException("Chỉ lớp đang hoạt động mới có thể đóng.");
+    item.status = "CLOSED";
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async listMaterials(role: string, query?: string): Promise<LearningMaterial[]> {
+    const normalized = query?.toLowerCase() ?? "";
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.material.findMany({
+        where: role === "LEARNER" ? { visibility: "PUBLISHED" } : undefined,
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map((row) => this.mapMaterial(row)).filter((item) => !normalized || `${item.name} ${item.folder} ${item.tags.join(" ")}`.toLowerCase().includes(normalized));
+    }
+    return this.materials.filter((item) => role !== "LEARNER" || item.visibility === "PUBLISHED").filter((item) => !normalized || `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, tags: [...item.tags] }));
+  }
+
+  async createMaterial(classId: string, input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">): Promise<LearningMaterial> {
+    if (input.sizeBytes > 50_000_000) throw new BadRequestException("Tệp vượt giới hạn 50 MB.");
+    const prisma = this.database();
+    if (prisma) {
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      const materialId = id("material");
+      return this.mapMaterial(await prisma.material.create({
+        data: {
+          id: materialId, classId, ownerId: "usr-instructor", name: input.name.trim(),
+          objectKey: `materials/${classId}/${materialId}`, mimeType: input.mimeType,
+          sizeBytes: BigInt(input.sizeBytes), folder: input.folder.trim(), tags: input.tags,
+        },
+      }));
+    }
+    this.findClass(classId);
+    const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: "DRAFT", createdAt: now() };
+    this.materials.unshift(item);
+    return { ...item, tags: [...item.tags] };
+  }
+
+  async updateMaterial(materialId: string, input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>): Promise<LearningMaterial> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.material.findUnique({ where: { id: materialId } });
+      if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+      return this.mapMaterial(await prisma.material.update({
+        where: { id: materialId },
+        data: { folder: input.folder?.trim(), tags: input.tags, visibility: input.visibility, version: { increment: 1 } },
+      }));
+    }
+    const item = this.materials.find((material) => material.id === materialId);
+    if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+    Object.assign(item, input);
+    item.version += 1;
+    return { ...item, tags: [...item.tags] };
+  }
 
   listQuestions(query?: string): LearningQuestion[] { const normalized = query?.toLowerCase() ?? ""; return this.questions.filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] })); }
   createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">): LearningQuestion { if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(input.type) && !input.correctAnswers.length) throw new BadRequestException("Câu hỏi trắc nghiệm cần đáp án đúng."); const item: LearningQuestion = { ...input, id: id("question"), status: "DRAFT", version: 1 }; this.questions.unshift(item); return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] }; }
@@ -109,6 +312,86 @@ export class LearningService {
 
   getOperationalReport(): object { const classes = this.classes.filter((item) => item.status === "ACTIVE").length; const materials = this.materials.filter((item) => item.visibility === "PUBLISHED").length; return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.length, openReports: this.reports.filter((item) => item.status === "OPEN").length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status)).length, generatedAt: now() }; }
   getClassReports(): object[] { return this.classes.map((classItem) => { const classExams = this.exams.filter((exam) => exam.classId === classItem.id); const classAttempts = this.attempts.filter((attempt) => classExams.some((exam) => exam.id === attempt.examId)); const classSessions = this.sessions.filter((session) => session.classId === classItem.id); const attendanceRows = this.attendance.filter((record) => classSessions.some((session) => session.id === record.sessionId)); const graded = classAttempts.filter((attempt) => attempt.score !== undefined); return { classId: classItem.id, classCode: classItem.code, className: classItem.name, learners: classItem.learnerIds.length, instructors: classItem.instructorIds.length, publishedMaterials: this.materials.filter((material) => material.classId === classItem.id && material.visibility === "PUBLISHED").length, exams: classExams.length, submittedAttempts: classAttempts.filter((attempt) => attempt.status !== "IN_PROGRESS").length, averageScore: graded.length ? Math.round((graded.reduce((sum, attempt) => sum + (attempt.score ?? 0), 0) / graded.length) * 100) / 100 : 0, sessions: classSessions.length, attendanceRate: classItem.learnerIds.length && classSessions.length ? Math.round((attendanceRows.filter((row) => row.status === "PRESENT" || row.status === "LATE").length / (classItem.learnerIds.length * classSessions.length)) * 100) : 0, status: classItem.status }; }); }
+
+  private database(): PrismaService | undefined {
+    return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
+  }
+
+  private mapCourse(row: Prisma.CourseGetPayload<Record<string, never>>): LearningCourse {
+    return {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description,
+      outcomes: this.toStringArray(row.outcomes),
+      status: row.status,
+      version: row.version,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private mapClass(row: ClassWithMembers): LearningClass {
+    return {
+      id: row.id,
+      courseId: row.courseId,
+      code: row.code,
+      name: row.name,
+      term: row.term,
+      startAt: row.startAt.toISOString(),
+      endAt: row.endAt.toISOString(),
+      capacity: row.capacity,
+      status: row.status,
+      instructorIds: row.instructors.map(({ instructorId }) => instructorId),
+      learnerIds: row.enrollments.map(({ learnerId }) => learnerId),
+    };
+  }
+
+  private mapMaterial(row: Prisma.MaterialGetPayload<Record<string, never>>): LearningMaterial {
+    const sizeBytes = Number(row.sizeBytes);
+    if (!Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước học liệu vượt giới hạn số an toàn.");
+    return {
+      id: row.id,
+      classId: row.classId,
+      name: row.name,
+      mimeType: row.mimeType,
+      sizeBytes,
+      folder: row.folder,
+      tags: this.toStringArray(row.tags),
+      version: row.version,
+      visibility: row.visibility,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private async getDatabaseClass(
+    database: PrismaService | Prisma.TransactionClient,
+    classId: string,
+  ): Promise<LearningClass> {
+    const row = await database.learningClass.findUnique({
+      where: { id: classId },
+      include: { instructors: true, enrollments: { where: { status: "ACTIVE" } } },
+    });
+    if (!row) throw new NotFoundException("Không tìm thấy lớp học.");
+    return this.mapClass(row);
+  }
+
+  private async requireUserRole(
+    database: PrismaService,
+    userId: string,
+    roleCode: "INSTRUCTOR" | "LEARNER",
+    message: string,
+  ): Promise<void> {
+    const user = await database.user.findFirst({
+      where: { id: userId, status: "ACTIVE", roles: { some: { role: { code: roleCode } } } },
+      select: { id: true },
+    });
+    if (!user) throw new BadRequestException(message);
+  }
+
+  private toStringArray(value: Prisma.JsonValue): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  }
 
   private findCourse(courseId: string): LearningCourse { const item = this.courses.find((course) => course.id === courseId); if (!item) throw new NotFoundException("Không tìm thấy khóa học."); return item; }
   private findClass(classId: string): LearningClass { const item = this.classes.find((candidate) => candidate.id === classId); if (!item) throw new NotFoundException("Không tìm thấy lớp học."); return item; }

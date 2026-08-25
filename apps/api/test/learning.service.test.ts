@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { LearningService } from "../src/learning/learning.service.js";
 
 describe("LearningService", () => {
-  it("chặn mã khóa học trùng và phát hành khóa học hợp lệ", () => {
+  it("chặn mã khóa học trùng và phát hành khóa học hợp lệ", async () => {
     const service = new LearningService();
-    expect(() => service.createCourse({ code: "WEB-FULLSTACK", name: "Trùng mã", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Kết quả"] })).toThrow(ConflictException);
-    const created = service.createCourse({ code: "NEW-COURSE", name: "Khóa học mới", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Hoàn thành mục tiêu"] });
-    expect(service.publishCourse(created.id).status).toBe("PUBLISHED");
+    await expect(service.createCourse({ code: "WEB-FULLSTACK", name: "Trùng mã", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Kết quả"] })).rejects.toThrow(ConflictException);
+    const created = await service.createCourse({ code: "NEW-COURSE", name: "Khóa học mới", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Hoàn thành mục tiêu"] });
+    expect((await service.publishCourse(created.id)).status).toBe("PUBLISHED");
   });
 
   it("lưu đáp án, nộp một lần và chấm tự động", () => {
