@@ -90,6 +90,14 @@ export interface ModerationContext {
   surroundingPosts: Array<Pick<ForumPost, "id" | "authorId" | "body" | "createdAt">>;
 }
 
+export interface RiskThresholds { attendanceBelow: number; scoreBelow: number; completionBelow: number }
+export interface ProgressIntervention { id: string; classId: string; learnerId: string; ownerId: string; title: string; notes?: string; dueAt: string; status: "OPEN" | "DONE" | "CANCELLED"; completedAt?: string; createdAt: string }
+export interface LearnerProgress { learnerId: string; materialCompletionRate: number; assessmentCompletionRate: number; attendanceRate: number; averageScore: number; lastActivityAt?: string; riskLevel: "LOW" | "MEDIUM" | "HIGH"; riskReasons: string[]; interventions: ProgressIntervention[] }
+export interface ClassProgressReport { classId: string; classCode: string; from: string; to: string; thresholds: RiskThresholds; learners: LearnerProgress[]; generatedAt: string }
+export interface OperationalReport { courses: number; classes: number; activeClasses: number; learners: number; materials: number; publishedMaterials: number; questions: number; exams: number; liveSessions: number; openReports: number; openTickets: number; generatedAt: string; definitionVersion: string; timezone: string; metricDefinitions: Record<string, string> }
+export interface ReportRun { id: string; reportType: "OPERATIONS"; definitionVersion: string; timezone: string; filters: { from: string; to: string }; result: OperationalReport; requestedById: string; createdAt: string }
+export interface ReportExport { id: string; reportRunId: string; format: "CSV"; status: "QUEUED" | "COMPLETED" | "FAILED" | "EXPIRED"; fileName: string; sizeBytes?: number; errorMessage?: string; expiresAt: string; createdAt: string }
+
 export interface LiveSession {
   id: string; classId: string; title: string; startsAt: string; endsAt: string;
   provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";

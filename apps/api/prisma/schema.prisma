@@ -89,6 +89,19 @@ enum ReportStatus {
   REJECTED
 }
 
+enum ReportExportStatus {
+  QUEUED
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum InterventionStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
 enum TicketStatus {
   OPEN
   IN_PROGRESS
@@ -816,4 +829,58 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+model ProgressIntervention {
+  id          String             @id @default(cuid())
+  classId     String             @map("class_id") @db.VarChar(191)
+  learnerId   String             @map("learner_id") @db.VarChar(191)
+  ownerId     String             @map("owner_id") @db.VarChar(191)
+  title       String             @db.VarChar(255)
+  notes       String?            @db.Text
+  dueAt       DateTime           @map("due_at")
+  status      InterventionStatus @default(OPEN)
+  completedAt DateTime?          @map("completed_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  @@index([classId, learnerId, status])
+  @@index([ownerId, dueAt])
+  @@map("progress_interventions")
+}
+
+model ReportRun {
+  id                String   @id @default(cuid())
+  reportType        String   @map("report_type") @db.VarChar(50)
+  definitionVersion String   @map("definition_version") @db.VarChar(30)
+  timezone          String   @db.VarChar(80)
+  filters           Json
+  result            Json
+  requestedById     String   @map("requested_by_id") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+  exports            ReportExport[]
+
+  @@index([reportType, createdAt])
+  @@index([requestedById, createdAt])
+  @@map("report_runs")
+}
+
+model ReportExport {
+  id            String             @id @default(cuid())
+  reportRunId   String             @map("report_run_id")
+  format        String             @db.VarChar(20)
+  status        ReportExportStatus @default(QUEUED)
+  fileName      String             @map("file_name") @db.VarChar(255)
+  filePath      String?            @map("file_path") @db.VarChar(1000)
+  sizeBytes     BigInt?            @map("size_bytes")
+  errorMessage  String?            @map("error_message") @db.Text
+  expiresAt     DateTime           @map("expires_at")
+  requestedById String             @map("requested_by_id") @db.VarChar(191)
+  reportRun     ReportRun          @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  @@index([requestedById, createdAt])
+  @@index([status, expiresAt])
+  @@map("report_exports")
 }

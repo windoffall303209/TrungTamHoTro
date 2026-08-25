@@ -165,6 +165,35 @@ export class ResolveAttendanceAppealDto {
   @IsOptional() @IsInt() @Min(0) attendedMinutes?: number;
 }
 
+export class ProgressQueryDto {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attendanceBelow = 70;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) scoreBelow = 50;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) completionBelow = 60;
+}
+
+export class CreateProgressInterventionDto {
+  @IsString() @IsNotEmpty() learnerId!: string;
+  @IsString() @MinLength(3) @MaxLength(255) title!: string;
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  @IsDateString() dueAt!: string;
+}
+
+export class UpdateProgressInterventionDto {
+  @IsIn(["DONE", "CANCELLED"]) status!: "DONE" | "CANCELLED";
+}
+
+export class RunOperationalReportDto {
+  @IsDateString() from!: string;
+  @IsDateString() to!: string;
+}
+
+export class CreateReportExportDto {
+  @IsString() @IsNotEmpty() reportRunId!: string;
+  @IsIn(["CSV"]) format!: "CSV";
+}
+
 export class CreateTicketDto {
   @IsString() category!: string;
   @IsIn(["P0", "P1", "P2", "P3"]) severity!: "P0" | "P1" | "P2" | "P3";

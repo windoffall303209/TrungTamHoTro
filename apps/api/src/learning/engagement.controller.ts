@@ -1,13 +1,13 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
   AppealReportDto, AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
-  CreateTopicDto, ResolveAttendanceAppealDto, ResolveReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
+  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateProgressInterventionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
+import type { ClassProgressReport, ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -152,8 +152,32 @@ export class EngagementController {
   }
 
   @Get("reports/operations") @RequirePermissions("report:view")
-  getOperationalReport(): Promise<object> { return this.learning.getOperationalReport(); }
+  getOperationalReport(@Query("from") from?: string, @Query("to") to?: string): Promise<OperationalReport> { return this.learning.getOperationalReport(from, to); }
 
   @Get("reports/classes") @RequirePermissions("report:view")
   getClassReports(): Promise<object[]> { return this.learning.getClassReports(); }
+
+  @Get("manager/classes/:classId/progress") @RequirePermissions("report:view")
+  getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input); }
+
+  @Post("manager/classes/:classId/progress/interventions") @RequirePermissions("report:view")
+  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input); }
+
+  @Patch("manager/progress/interventions/:interventionId") @RequirePermissions("report:view")
+  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input.status); }
+
+  @Post("manager/reports/run") @RequirePermissions("report:view")
+  runOperationalReport(@Body() input: RunOperationalReportDto): Promise<ReportRun> { return this.learning.runOperationalReport(input.from, input.to); }
+
+  @Get("manager/reports/exports") @RequirePermissions("report:view")
+  listReportExports(): Promise<ReportExport[]> { return this.learning.listReportExports(); }
+
+  @Post("manager/reports/exports") @RequirePermissions("report:view")
+  createReportExport(@Body() input: CreateReportExportDto): Promise<ReportExport> { return this.learning.createReportExport(input.reportRunId, input.format); }
+
+  @Get("manager/reports/exports/:exportId/download") @RequirePermissions("report:view")
+  async downloadReportExport(@Param("exportId") exportId: string): Promise<StreamableFile> {
+    const download = await this.learning.downloadReportExport(exportId);
+    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`, length: download.buffer.length });
+  }
 }

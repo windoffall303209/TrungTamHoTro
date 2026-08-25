@@ -66,6 +66,43 @@ describe("LearningService", () => {
     expect(report.attendanceRate).toBe(100);
   });
 
+  it("giải thích cờ rủi ro và theo dõi hành động hỗ trợ học viên", async () => {
+    const service = new LearningService();
+    const progress = await service.getClassProgress("class-web-01", { from: "2026-01-01T00:00:00.000Z", to: "2026-12-31T23:59:59.000Z", attendanceBelow: 70, scoreBelow: 50, completionBelow: 60 });
+    expect(progress.thresholds).toEqual({ attendanceBelow: 70, scoreBelow: 50, completionBelow: 60 });
+    expect(progress.learners[0]).toMatchObject({ learnerId: "usr-learner", riskLevel: "HIGH" });
+    expect(progress.learners[0]?.riskReasons).toHaveLength(3);
+    await expect(service.getClassProgress("class-web-01", { attendanceBelow: 0 })).rejects.toThrow(BadRequestException);
+
+    const intervention = await service.createProgressIntervention("class-web-01", { learnerId: "usr-learner", title: "Hẹn tư vấn học tập", notes: "Rà soát tiến độ và lập kế hoạch bù", dueAt: "2027-01-10T10:00:00.000Z" });
+    expect(intervention.status).toBe("OPEN");
+    expect((await service.getClassProgress("class-web-01", {})).learners[0]?.interventions).toHaveLength(1);
+    expect((await service.updateProgressIntervention(intervention.id, "DONE")).status).toBe("DONE");
+    await expect(service.updateProgressIntervention(intervention.id, "CANCELLED")).rejects.toThrow(ConflictException);
+    await expect(service.createProgressIntervention("class-web-01", { learnerId: "usr-outside", title: "Sai lớp", dueAt: "2027-01-10T10:00:00.000Z" })).rejects.toThrow(NotFoundException);
+  });
+
+  it("lưu lần chạy, tạo lịch sử export CSV và kiểm soát hạn tải", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "wind-report-"));
+    try {
+      const config = { get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT" ? storageRoot : undefined } as unknown as ConfigService<Environment, true>;
+      const service = new LearningService(undefined, config);
+      const run = await service.runOperationalReport("2026-01-01T00:00:00.000Z", "2026-12-31T23:59:59.000Z");
+      expect(run.result.definitionVersion).toBe("1.0.0");
+      expect(run.result.metricDefinitions.classes).toContain("kỳ báo cáo");
+      const created = await service.createReportExport(run.id, "CSV");
+      expect(created).toMatchObject({ status: "COMPLETED", format: "CSV" });
+      expect(await service.listReportExports()).toHaveLength(1);
+      const download = await service.downloadReportExport(created.id);
+      expect(download.fileName).toMatch(/bao-cao-van-hanh.*\.csv$/);
+      expect(download.buffer.toString("utf8")).toContain("Phiên bản định nghĩa");
+      await expect(service.runOperationalReport("2026-12-31T00:00:00.000Z", "2026-01-01T00:00:00.000Z")).rejects.toThrow(BadRequestException);
+      await expect(service.createReportExport("run-khong-ton-tai", "CSV")).rejects.toThrow(NotFoundException);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("đồng bộ, đối chiếu, xử lý điều chỉnh và khóa kỳ điểm danh", async () => {
     const service = new LearningService();
     await service.transitionSession("session-web-01", "LIVE");
