@@ -2,8 +2,8 @@
 
 import {
   Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, Database, FileQuestion,
-  GraduationCap, Headphones, LayoutDashboard, Menu, MessageSquareText, Settings,
-  ShieldCheck, Users, X,
+  GraduationCap, Headphones, History, LayoutDashboard, ListChecks, Menu, MessageSquareText, Presentation, Settings,
+  ShieldCheck, ShieldEllipsis, Users, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,10 +27,14 @@ const navItems = [
   { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
   { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
   { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, roles: ["CENTER_MANAGER", "INSTRUCTOR"] },
+  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, roles: ["CENTER_MANAGER"] },
+  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, roles: ["INSTRUCTOR"] },
+  { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, roles: roleOptions.map((role) => role.code) },
   { href: "/admin/users", label: "Người dùng", icon: Users, roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/settings", label: "Cấu hình", icon: Settings, roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, roles: ["SYSTEM_ADMIN"] },
 ] as const;
 
 function Sidebar({ close }: { close?: () => void }) {
@@ -96,4 +100,3 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-

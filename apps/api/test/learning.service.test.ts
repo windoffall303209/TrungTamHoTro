@@ -25,10 +25,20 @@ describe("LearningService", () => {
     expect(() => service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).toThrow(ConflictException);
   });
 
-  it("yêu cầu lý do khi điều chỉnh điểm danh", () => {
+  it("chỉ gắn bản ghi sau khi buổi học kết thúc", () => {
     const service = new LearningService();
-    expect(() => service.updateAttendance("missing", "usr-learner", "PRESENT", 30, "Có minh chứng")).toThrow();
-    expect(BadRequestException).toBeDefined();
+    expect(() => service.attachRecording("session-web-01", "https://recording.example/video")).toThrow(BadRequestException);
+  });
+
+  it("tổng hợp đúng điểm và điểm danh theo lớp", () => {
+    const service = new LearningService();
+    const attempt = service.startAttempt("exam-mid-web");
+    service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    service.submitAttempt(attempt.id);
+    service.updateAttendance("session-web-01", "usr-learner", "PRESENT", 60, "Đối soát nhật ký");
+    const report = service.getClassReports()[0] as { submittedAttempts: number; averageScore: number; attendanceRate: number };
+    expect(report.submittedAttempts).toBe(1);
+    expect(report.averageScore).toBe(5);
+    expect(report.attendanceRate).toBe(100);
   });
 });
-
