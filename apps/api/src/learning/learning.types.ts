@@ -60,7 +60,7 @@ export interface LearnerResult {
 
 export interface ForumTopic {
   id: string; classId: string; title: string; body: string; authorId: string;
-  tags: string[]; isPinned: boolean; isLocked: boolean; createdAt: string;
+  tags: string[]; isPinned: boolean; isLocked: boolean; status: "VISIBLE" | "HIDDEN"; createdAt: string;
 }
 
 export interface ForumPost {
@@ -75,7 +75,19 @@ export interface LearningNotification {
 
 export interface ContentReport {
   id: string; targetType: "TOPIC" | "POST"; targetId: string; reporterId: string;
-  reason: string; details: string; status: "OPEN" | "RESOLVED" | "REJECTED"; resolution?: string;
+  reason: string; details: string; status: "OPEN" | "IN_REVIEW" | "ESCALATED" | "RESOLVED" | "REJECTED"; resolution?: string;
+  assignedToId?: string; escalationLevel: number; resolvedAt?: string; appealReason?: string; appealedAt?: string;
+  createdAt: string; updatedAt: string; actions: ModerationActionRecord[];
+}
+
+export interface ModerationActionRecord {
+  id: string; reportId: string; actorId: string; action: "CLAIM" | "HIDE_CONTENT" | "KEEP_CONTENT" | "ESCALATE_ADMIN" | "APPEAL";
+  reason: string; previousStatus: ContentReport["status"]; nextStatus: ContentReport["status"]; createdAt: string;
+}
+
+export interface ModerationContext {
+  report: ContentReport; classId: string; topicTitle: string; targetAuthorId: string; targetBody: string;
+  surroundingPosts: Array<Pick<ForumPost, "id" | "authorId" | "body" | "createdAt">>;
 }
 
 export interface LiveSession {

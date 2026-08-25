@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Flag, MessageCircle, Paperclip, Pin, Plus, Send } from "lucide-react";
+import { Bell, Eye, Flag, MessageCircle, Paperclip, Pin, Plus, Send, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -13,6 +13,7 @@ import type {
   LearningNotification,
   LearningClass,
   Material,
+  ModerationContext,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -36,6 +37,12 @@ export default function ForumPage() {
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
   const [reportTarget, setReportTarget] = useState<ForumTopic | null>(null);
   const [reportForm, setReportForm] = useState({ reason: "Nội dung không phù hợp", details: "" });
+  const [moderationTarget, setModerationTarget] = useState<ContentReport | null>(null);
+  const [moderationContext, setModerationContext] = useState<ModerationContext | null>(null);
+  const [moderationForm, setModerationForm] = useState({ action: "HIDE_CONTENT", resolution: "" });
+  const [appealTarget, setAppealTarget] = useState<ContentReport | null>(null);
+  const [appealReason, setAppealReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     classId: "",
     title: "",
@@ -192,23 +199,53 @@ export default function ForumPage() {
       );
     }
   };
-  const resolve = async (item: ContentReport) => {
+  const openModeration = async (item: ContentReport) => {
     try {
-      await apiRequest(`/manager/forum/reports/${item.id}/resolve`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          status: "RESOLVED",
-          resolution: "Đã rà soát nội dung và xử lý theo quy định diễn đàn.",
-        }),
-      });
-      notify("Đã xử lý báo cáo.");
+      setSubmitting(true);
+      const claimed = item.status === "OPEN"
+        ? await apiRequest<ContentReport>(`/manager/forum/reports/${item.id}/claim`, { method: "POST", roleCode: session.roleCode })
+        : item;
+      const context = await apiRequest<ModerationContext>(`/manager/forum/reports/${item.id}/context`, { roleCode: session.roleCode });
+      setModerationTarget(claimed);
+      setModerationContext(context);
+      setModerationForm({ action: "HIDE_CONTENT", resolution: "" });
+      if (item.status === "OPEN") await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không mở được hồ sơ kiểm duyệt.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const resolve = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!moderationTarget) return;
+    try {
+      setSubmitting(true);
+      await apiRequest(`/manager/forum/reports/${moderationTarget.id}/resolve`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify(moderationForm) });
+      notify(moderationForm.action === "ESCALATE_ADMIN" ? "Đã chuyển hồ sơ tới quản trị hệ thống." : "Đã lưu kết quả kiểm duyệt và gửi thông báo.");
+      setModerationTarget(null);
+      setModerationContext(null);
       await load();
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không xử lý được.",
-        "error",
-      );
+      notify(error instanceof Error ? error.message : "Không xử lý được báo cáo.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const appeal = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!appealTarget) return;
+    try {
+      setSubmitting(true);
+      await apiRequest(`/learner/content-reports/${appealTarget.id}/appeal`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason: appealReason }) });
+      notify("Đã gửi kháng nghị để quản lý rà soát lại.");
+      setAppealTarget(null);
+      setAppealReason("");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không gửi được kháng nghị.", "error");
+    } finally {
+      setSubmitting(false);
     }
   };
   return (
@@ -260,12 +297,13 @@ export default function ForumPage() {
                   <p className="text-sm font-bold">{item.reason}</p>
                   <p className="text-xs text-slate-500">{item.details}</p>
                 </div>
-                {item.status === "OPEN" ? (
+                {["OPEN", "IN_REVIEW"].includes(item.status) ? (
                   <Button
-                    onClick={() => void resolve(item)}
+                    disabled={submitting}
+                    onClick={() => void openModeration(item)}
                     variant="secondary"
                   >
-                    Xử lý
+                    <Eye size={15} /> {item.status === "OPEN" ? "Nhận xử lý" : "Mở hồ sơ"}
                   </Button>
                 ) : (
                   <StatusBadge status={item.status} />
@@ -275,7 +313,7 @@ export default function ForumPage() {
           </div>
         </section>
       ) : null}
-      {learner && reports.length ? <div className="mb-6 flex flex-wrap gap-2 border-y border-slate-200 py-3">{reports.map((item) => <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-600" key={item.id}><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>)}</div> : null}
+      {learner && reports.length ? <div className="mb-6 space-y-2 border-y border-slate-200 py-3">{reports.map((item) => <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600" key={item.id}><span className="inline-flex items-center gap-2"><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>{(["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt) ? <Button className="min-h-8 px-3 text-xs" onClick={() => setAppealTarget(item)} variant="ghost">Kháng nghị</Button> : null}</div>)}</div> : null}
       <SectionState loading={loading} empty={topics.length === 0}>
         <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
           <div className="space-y-3">
@@ -471,6 +509,23 @@ export default function ForumPage() {
           <Field label="Mô tả / bằng chứng"><textarea className={inputClass} minLength={3} required rows={4} value={reportForm.details} onChange={(event) => setReportForm({ ...reportForm, details: event.target.value })} /></Field>
           <Button type="submit"><Flag size={15} />Gửi báo cáo</Button>
         </form>
+      </Modal>
+      <Modal open={Boolean(moderationTarget)} onClose={() => { setModerationTarget(null); setModerationContext(null); }} title="Hồ sơ kiểm duyệt" description="Đọc nội dung trong ngữ cảnh trước khi quyết định; mọi hành động đều được lưu lịch sử.">
+        {moderationContext ? <form className="space-y-5" onSubmit={(event) => void resolve(event)}>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6">
+            <div className="flex flex-wrap items-center justify-between gap-2"><strong>{moderationContext.topicTitle}</strong><StatusBadge status={moderationTarget?.status ?? "IN_REVIEW"} /></div>
+            <p className="mt-2 text-slate-700">{moderationContext.targetBody}</p>
+            <p className="mt-3 text-xs text-slate-500">Người đăng: {moderationContext.targetAuthorId} · Lớp: {moderationContext.classId} · {moderationContext.surroundingPosts.length} phản hồi trong ngữ cảnh</p>
+          </div>
+          {moderationTarget?.appealReason ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><strong>Kháng nghị:</strong> {moderationTarget.appealReason}</div> : null}
+          <Field label="Hành động"><select className={inputClass} value={moderationForm.action} onChange={(event) => setModerationForm({ ...moderationForm, action: event.target.value })}><option value="HIDE_CONTENT">Ẩn nội dung vi phạm</option><option value="KEEP_CONTENT">Giữ nội dung / bác báo cáo</option><option value="ESCALATE_ADMIN">Chuyển cấp quản trị hệ thống</option></select></Field>
+          <Field label="Kết luận và căn cứ"><textarea className={inputClass} minLength={3} required rows={4} value={moderationForm.resolution} onChange={(event) => setModerationForm({ ...moderationForm, resolution: event.target.value })} /></Field>
+          <Button loading={submitting} type="submit"><ShieldCheck size={16} />Lưu kết quả</Button>
+          {moderationTarget?.actions.length ? <div><p className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Lịch sử hồ sơ</p><div className="mt-2 space-y-2">{moderationTarget.actions.map((action) => <p className="text-xs text-slate-600" key={action.id}>{action.action} · {action.previousStatus} → {action.nextStatus} · {action.reason}</p>)}</div></div> : null}
+        </form> : <p className="text-sm text-slate-500">Đang tải ngữ cảnh báo cáo…</p>}
+      </Modal>
+      <Modal open={Boolean(appealTarget)} onClose={() => setAppealTarget(null)} title="Kháng nghị kết quả" description="Mỗi báo cáo chỉ được kháng nghị một lần; quản lý sẽ xem lại toàn bộ ngữ cảnh và lịch sử.">
+        <form className="space-y-4" onSubmit={(event) => void appeal(event)}><Field label="Lý do kháng nghị"><textarea className={inputClass} minLength={10} required rows={4} value={appealReason} onChange={(event) => setAppealReason(event.target.value)} /></Field><Button loading={submitting} type="submit">Gửi kháng nghị</Button></form>
       </Modal>
     </div>
   );
