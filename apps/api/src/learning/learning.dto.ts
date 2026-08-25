@@ -73,6 +73,10 @@ export class GradeAttemptDto {
   @IsString() @MinLength(3) feedback!: string;
 }
 
+export class RequestRegradeDto {
+  @IsString() @MinLength(10) reason!: string;
+}
+
 export class CreateTopicDto {
   @IsString() @MinLength(3) title!: string;
   @IsString() @MinLength(5) body!: string;

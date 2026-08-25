@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock3, Play, Plus, Send } from "lucide-react";
+import { CheckCircle2, Clock3, Play, Plus, RotateCcw, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/api-client";
 import type {
   Exam,
   ExamAttempt,
+  LearnerResult,
   LearningClass,
   Question,
 } from "@/lib/learning-types";
@@ -44,6 +45,10 @@ export default function ExamsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [attemptQuestions, setAttemptQuestions] = useState<Question[]>([]);
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
+  const [results, setResults] = useState<LearnerResult[]>([]);
+  const [selectedResult, setSelectedResult] = useState<LearnerResult | null>(null);
+  const [regradeOpen, setRegradeOpen] = useState(false);
+  const [regradeReason, setRegradeReason] = useState("");
   const [activeExam, setActiveExam] = useState<LearnerExam | null>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [autosaveStatus, setAutosaveStatus] = useState<
@@ -56,7 +61,7 @@ export default function ExamsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [exams, classData, questionData] = await Promise.all([
+      const [exams, classData, questionData, resultData] = await Promise.all([
         apiRequest<LearnerExam[]>(learner ? "/learner/exams" : "/exams", {
           roleCode: session.roleCode,
         }),
@@ -66,10 +71,14 @@ export default function ExamsPage() {
               roleCode: session.roleCode,
             })
           : Promise.resolve([]),
+        learner
+          ? apiRequest<LearnerResult[]>("/learner/results", { roleCode: session.roleCode })
+          : Promise.resolve([]),
       ]);
       setItems(exams);
       setClasses(classData);
       setQuestions(questionData);
+      setResults(resultData);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tải được đề thi.",
@@ -204,6 +213,26 @@ export default function ExamsPage() {
       );
     }
   }, [attempt, load, notify, session.roleCode]);
+  const requestRegrade = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedResult) return;
+    setSaving(true);
+    try {
+      await apiRequest(`/learner/attempts/${selectedResult.attempt.id}/regrade-requests`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ reason: regradeReason }),
+      });
+      notify("Đã gửi yêu cầu phúc khảo; trạng thái được lưu trong lịch sử kết quả.");
+      setRegradeOpen(false);
+      setRegradeReason("");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không gửi được yêu cầu phúc khảo.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
   useEffect(() => {
     if (!attempt || attempt.status !== "IN_PROGRESS" || !activeExam) return;
     const timer = window.setInterval(() => {
@@ -372,6 +401,26 @@ export default function ExamsPage() {
           ))}
         </div>
       </SectionState>
+      {learner && results.length ? (
+        <section className="mt-10 border-t border-slate-200 pt-7">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <div><p className="text-xs font-extrabold uppercase tracking-widest text-sky-700">Kết quả đã công bố</p><h2 className="mt-1 font-heading text-2xl font-extrabold">Điểm, phản hồi và phúc khảo</h2></div>
+            <p className="text-sm text-slate-500">Chỉ hiển thị bài của tài khoản hiện tại</p>
+          </div>
+          <div className="divide-y divide-slate-200 border-y border-slate-200">
+            {results.map((result) => (
+              <article className="grid gap-5 py-5 lg:grid-cols-[1fr_auto] lg:items-center" key={result.attempt.id}>
+                <div>
+                  <div className="flex flex-wrap items-center gap-3"><h3 className="font-heading text-lg font-extrabold">{result.exam.title}</h3><StatusBadge status={result.regradeRequest?.status ?? "PUBLISHED"} /></div>
+                  <p className="mt-2 text-sm text-slate-600">{result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}</p>
+                  <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">{result.answerBreakdown.map((answer, index) => <span key={answer.questionId}>Câu {index + 1}: {answer.awardedScore}/{answer.maxScore}</span>)}</div>
+                </div>
+                <div className="flex items-center gap-4 lg:text-right"><div><p className="text-3xl font-extrabold text-sky-800">{result.attempt.score ?? 0}</p><p className="text-xs text-slate-500">trên {result.exam.totalScore}</p></div>{!result.regradeRequest ? <Button onClick={() => { setSelectedResult(result); setRegradeOpen(true); }} variant="secondary"><RotateCcw size={15} />Phúc khảo</Button> : null}</div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <Modal open={open} onClose={() => setOpen(false)} title="Tạo đề thi">
         <form className="space-y-4" onSubmit={(e) => void create(e)}>
           <Field label="Lớp học">
@@ -481,6 +530,12 @@ export default function ExamsPage() {
           >
             Tạo đề thi
           </Button>
+        </form>
+      </Modal>
+      <Modal open={regradeOpen} onClose={() => setRegradeOpen(false)} title="Yêu cầu phúc khảo" description="Yêu cầu hợp lệ trong 7 ngày từ lúc công bố điểm; mỗi bài chỉ có một yêu cầu đang xử lý.">
+        <form className="space-y-4" onSubmit={(event) => void requestRegrade(event)}>
+          <Field label="Lý do cần kiểm tra lại"><textarea className={inputClass} minLength={10} required rows={5} value={regradeReason} onChange={(event) => setRegradeReason(event.target.value)} /></Field>
+          <Button loading={saving} type="submit">Gửi yêu cầu</Button>
         </form>
       </Modal>
     </div>

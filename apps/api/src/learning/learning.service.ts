@@ -8,7 +8,8 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
-  LearnerExamSummary, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, SupportTicket,
+  LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
+  RegradeRequest, SupportTicket,
 } from "./learning.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -52,6 +53,7 @@ export class LearningService {
   ];
 
   private readonly attempts: ExamAttempt[] = [];
+  private readonly regradeRequests: RegradeRequest[] = [];
   private readonly topics: ForumTopic[] = [
     { id: "topic-rest", classId: "class-web-01", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", authorId: "usr-instructor", tags: ["api", "thảo luận"], isPinned: true, isLocked: false, createdAt: now() },
   ];
@@ -714,6 +716,7 @@ export class LearningService {
           where: { id: attemptId },
           data: {
             score, submittedAt: new Date(), status: requiresManualGrade ? "SUBMITTED" : "GRADED",
+            gradePublishedAt: requiresManualGrade ? null : new Date(),
             feedback: requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.",
           },
           include: { answers: true },
@@ -732,6 +735,7 @@ export class LearningService {
     item.score = Math.round((correct / exam.questionIds.length) * exam.totalScore * 100) / 100;
     item.status = "GRADED";
     item.submittedAt = now();
+    item.gradePublishedAt = now();
     item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
     return { ...item, answers: { ...item.answers } };
   }
@@ -741,6 +745,86 @@ export class LearningService {
     if (prisma) return this.getDatabaseAttempt(prisma, attemptId);
     const item = this.findAttempt(attemptId);
     return { ...item, answers: { ...item.answers } };
+  }
+
+  async listLearnerResults(learnerId = "usr-learner"): Promise<LearnerResult[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.examAttempt.findMany({
+        where: { learnerId, status: "GRADED", gradePublishedAt: { not: null } },
+        include: {
+          answers: true,
+          exam: { include: { questions: { include: { question: true }, orderBy: { position: "asc" } } } },
+          regradeRequests: { where: { learnerId }, orderBy: { createdAt: "desc" }, take: 1 },
+        },
+        orderBy: { gradePublishedAt: "desc" },
+      });
+      return rows.map((row) => ({
+        attempt: this.mapAttempt(row),
+        exam: { id: row.exam.id, title: row.exam.title, totalScore: Number(row.exam.totalScore), closeAt: row.exam.closeAt.toISOString() },
+        answerBreakdown: row.exam.questions.map((examQuestion) => {
+          const answer = row.answers.find((item) => item.questionId === examQuestion.questionId);
+          return {
+            questionId: examQuestion.questionId,
+            content: examQuestion.question.content,
+            submittedAnswers: this.toStringArray(answer?.answerData ?? []),
+            awardedScore: Number(answer?.score ?? 0),
+            maxScore: Number(examQuestion.score),
+          };
+        }),
+        regradeRequest: row.regradeRequests[0] ? this.mapRegradeRequest(row.regradeRequests[0]) : undefined,
+      }));
+    }
+    return this.attempts
+      .filter((attempt) => attempt.learnerId === learnerId && attempt.status === "GRADED" && attempt.gradePublishedAt)
+      .sort((left, right) => (right.gradePublishedAt ?? "").localeCompare(left.gradePublishedAt ?? ""))
+      .map((attempt) => {
+        const exam = this.findExam(attempt.examId);
+        const scorePerQuestion = exam.totalScore / exam.questionIds.length;
+        return {
+          attempt: { ...attempt, answers: structuredClone(attempt.answers) },
+          exam: { id: exam.id, title: exam.title, totalScore: exam.totalScore, closeAt: exam.closeAt },
+          answerBreakdown: exam.questionIds.map((questionId) => ({
+            questionId,
+            content: this.questions.find((question) => question.id === questionId)?.content ?? "Câu hỏi không còn tồn tại",
+            submittedAnswers: [...(attempt.answers[questionId] ?? [])],
+            awardedScore: this.isMemoryAnswerCorrect(questionId, attempt.answers[questionId] ?? []) ? scorePerQuestion : 0,
+            maxScore: scorePerQuestion,
+          })),
+          regradeRequest: this.regradeRequests.find((request) => request.attemptId === attempt.id && request.learnerId === learnerId),
+        };
+      });
+  }
+
+  async getLearnerResult(attemptId: string, learnerId = "usr-learner"): Promise<LearnerResult> {
+    const result = (await this.listLearnerResults(learnerId)).find((item) => item.attempt.id === attemptId);
+    if (!result) throw new NotFoundException("Kết quả chưa được công bố hoặc không thuộc học viên hiện tại.");
+    return result;
+  }
+
+  async requestRegrade(attemptId: string, reason: string, learnerId = "usr-learner"): Promise<RegradeRequest> {
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 10) throw new BadRequestException("Lý do phúc khảo cần ít nhất 10 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const attempt = await prisma.examAttempt.findFirst({
+        where: { id: attemptId, learnerId, status: "GRADED", gradePublishedAt: { not: null } },
+        include: { regradeRequests: { where: { learnerId, status: { in: ["OPEN", "IN_REVIEW"] } } } },
+      });
+      if (!attempt?.gradePublishedAt) throw new NotFoundException("Không tìm thấy kết quả được phép phúc khảo.");
+      if (Date.now() > attempt.gradePublishedAt.getTime() + 7 * 86_400_000) throw new BadRequestException("Đã hết hạn phúc khảo 7 ngày.");
+      if (attempt.regradeRequests.length) throw new ConflictException("Đã có yêu cầu phúc khảo đang được xử lý.");
+      return this.mapRegradeRequest(await prisma.regradeRequest.create({
+        data: { id: id("regrade"), attemptId, learnerId, reason: normalizedReason },
+      }));
+    }
+    const attempt = this.attempts.find((item) => item.id === attemptId && item.learnerId === learnerId && item.status === "GRADED" && item.gradePublishedAt);
+    if (!attempt?.gradePublishedAt) throw new NotFoundException("Không tìm thấy kết quả được phép phúc khảo.");
+    if (Date.now() > new Date(attempt.gradePublishedAt).getTime() + 7 * 86_400_000) throw new BadRequestException("Đã hết hạn phúc khảo 7 ngày.");
+    if (this.regradeRequests.some((item) => item.attemptId === attemptId && ["OPEN", "IN_REVIEW"].includes(item.status))) throw new ConflictException("Đã có yêu cầu phúc khảo đang được xử lý.");
+    const request: RegradeRequest = { id: id("regrade"), attemptId, learnerId, reason: normalizedReason, status: "OPEN", createdAt: now() };
+    this.regradeRequests.unshift(request);
+    return { ...request };
   }
 
   async listAttempts(examId?: string): Promise<ExamAttempt[]> {
@@ -761,7 +845,7 @@ export class LearningService {
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (score > Number(attempt.exam.totalScore)) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
       return this.mapAttempt(await prisma.examAttempt.update({
-        where: { id: attemptId }, data: { score, feedback: feedback.trim(), status: "GRADED" }, include: { answers: true },
+        where: { id: attemptId }, data: { score, feedback: feedback.trim(), status: "GRADED", gradePublishedAt: new Date() }, include: { answers: true },
       }));
     }
     const item = this.findAttempt(attemptId);
@@ -770,6 +854,7 @@ export class LearningService {
     item.score = score;
     item.feedback = feedback.trim();
     item.status = "GRADED";
+    item.gradePublishedAt = now();
     return { ...item, answers: { ...item.answers } };
   }
 
@@ -1238,6 +1323,19 @@ export class LearningService {
       submittedAt: row.submittedAt?.toISOString(),
       score: row.score === null ? undefined : Number(row.score),
       feedback: row.feedback ?? undefined,
+      gradePublishedAt: row.gradePublishedAt?.toISOString(),
+    };
+  }
+
+  private mapRegradeRequest(row: Prisma.RegradeRequestGetPayload<Record<string, never>>): RegradeRequest {
+    return {
+      id: row.id,
+      attemptId: row.attemptId,
+      learnerId: row.learnerId,
+      reason: row.reason,
+      status: row.status,
+      resolution: row.resolution ?? undefined,
+      createdAt: row.createdAt.toISOString(),
     };
   }
 
@@ -1450,6 +1548,11 @@ export class LearningService {
 
   private attemptDeadline(startedAt: Date, durationMinutes: number, examCloseAt: Date): Date {
     return new Date(Math.min(startedAt.getTime() + durationMinutes * 60_000, examCloseAt.getTime()));
+  }
+
+  private isMemoryAnswerCorrect(questionId: string, submitted: string[]): boolean {
+    const question = this.questions.find((item) => item.id === questionId);
+    return Boolean(question) && JSON.stringify([...submitted].sort()) === JSON.stringify([...(question?.correctAnswers ?? [])].sort());
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {

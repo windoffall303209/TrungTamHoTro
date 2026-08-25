@@ -3,9 +3,9 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamAttempt, LearnerExamSummary, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
+import type { ExamAttempt, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -123,7 +123,15 @@ export class ContentController {
   submitAttempt(@Param("attemptId") attemptId: string): Promise<ExamAttempt> { return this.learning.submitAttempt(attemptId); }
 
   @Get("learner/attempts/:attemptId/result") @RequirePermissions("exam:view")
-  getAttempt(@Param("attemptId") attemptId: string): Promise<ExamAttempt> { return this.learning.getAttempt(attemptId); }
+  getAttempt(@Param("attemptId") attemptId: string): Promise<LearnerResult> { return this.learning.getLearnerResult(attemptId); }
+
+  @Get("learner/results") @RequirePermissions("exam:view")
+  listLearnerResults(): Promise<LearnerResult[]> { return this.learning.listLearnerResults(); }
+
+  @Post("learner/attempts/:attemptId/regrade-requests") @RequirePermissions("exam:view")
+  requestRegrade(@Param("attemptId") attemptId: string, @Body() input: RequestRegradeDto): Promise<RegradeRequest> {
+    return this.learning.requestRegrade(attemptId, input.reason);
+  }
 
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")
   listAttempts(@Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId); }

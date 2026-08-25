@@ -108,6 +108,13 @@ enum JobStatus {
   FAILED
 }
 
+enum RegradeStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
 model User {
   id                 String              @id @default(cuid())
   email              String              @unique @db.VarChar(191)
@@ -122,6 +129,7 @@ model User {
   enrollments        ClassEnrollment[]
   materials          Material[]          @relation("MaterialOwner")
   materialAccessLogs MaterialAccessLog[]
+  regradeRequests    RegradeRequest[]
   questions          Question[]          @relation("QuestionAuthor")
   examAttempts       ExamAttempt[]       @relation("AttemptLearner")
   forumTopics        ForumTopic[]        @relation("TopicAuthor")
@@ -346,22 +354,41 @@ model ExamQuestion {
 }
 
 model ExamAttempt {
-  id          String          @id @default(cuid())
-  examId      String          @map("exam_id")
-  learnerId   String          @map("learner_id")
-  attemptNo   Int             @map("attempt_no")
-  status      AttemptStatus   @default(IN_PROGRESS)
-  score       Decimal?        @db.Decimal(8, 2)
-  feedback    String?         @db.Text
-  startedAt   DateTime        @default(now()) @map("started_at")
-  submittedAt DateTime?       @map("submitted_at")
-  exam        Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
-  learner     User            @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
-  answers     AttemptAnswer[]
+  id               String           @id @default(cuid())
+  examId           String           @map("exam_id")
+  learnerId        String           @map("learner_id")
+  attemptNo        Int              @map("attempt_no")
+  status           AttemptStatus    @default(IN_PROGRESS)
+  score            Decimal?         @db.Decimal(8, 2)
+  feedback         String?          @db.Text
+  startedAt        DateTime         @default(now()) @map("started_at")
+  submittedAt      DateTime?        @map("submitted_at")
+  gradePublishedAt DateTime?        @map("grade_published_at")
+  exam             Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  learner          User             @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  answers          AttemptAnswer[]
+  regradeRequests  RegradeRequest[]
 
   @@unique([examId, learnerId, attemptNo])
   @@index([learnerId, status])
   @@map("exam_attempts")
+}
+
+model RegradeRequest {
+  id         String        @id @default(cuid())
+  attemptId  String        @map("attempt_id")
+  learnerId  String        @map("learner_id")
+  reason     String        @db.Text
+  status     RegradeStatus @default(OPEN)
+  resolution String?       @db.Text
+  attempt    ExamAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  learner    User          @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  @@index([attemptId, status])
+  @@index([learnerId, createdAt])
+  @@map("regrade_requests")
 }
 
 model AttemptAnswer {

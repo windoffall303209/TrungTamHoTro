@@ -40,6 +40,19 @@ export interface ExamAttempt {
   id: string; examId: string; learnerId: string; answers: Record<string, string[]>;
   status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string;
   score?: number; feedback?: string;
+  gradePublishedAt?: string;
+}
+
+export interface RegradeRequest {
+  id: string; attemptId: string; learnerId: string; reason: string;
+  status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string;
+}
+
+export interface LearnerResult {
+  attempt: ExamAttempt;
+  exam: { id: string; title: string; totalScore: number; closeAt: string };
+  answerBreakdown: Array<{ questionId: string; content: string; submittedAnswers: string[]; awardedScore: number; maxScore: number }>;
+  regradeRequest?: RegradeRequest;
 }
 
 export interface ForumTopic {
