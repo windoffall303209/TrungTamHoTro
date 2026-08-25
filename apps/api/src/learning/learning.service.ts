@@ -540,9 +540,16 @@ export class LearningService {
           class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } },
           attempts: { some: { learnerId: "usr-learner", status: "IN_PROGRESS" } },
         },
-        include: { questions: { include: { question: true }, orderBy: { position: "asc" } } },
+        include: {
+          questions: { include: { question: true }, orderBy: { position: "asc" } },
+          attempts: { where: { learnerId: "usr-learner", status: "IN_PROGRESS" }, take: 1 },
+        },
       });
       if (!exam) throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
+      const activeAttempt = exam.attempts[0];
+      if (!activeAttempt || this.attemptDeadline(activeAttempt.startedAt, exam.durationMinutes, exam.closeAt) <= new Date()) {
+        throw new BadRequestException("Lượt làm bài đã hết thời gian.");
+      }
       return exam.questions.map(({ question }) => ({ ...this.mapQuestion(question), correctAnswers: [] }));
     }
     const exam = this.findExam(examId);
@@ -551,6 +558,10 @@ export class LearningService {
     if (!classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
     if (!this.attempts.some((attempt) => attempt.examId === examId && attempt.learnerId === "usr-learner" && attempt.status === "IN_PROGRESS")) {
       throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
+    }
+    const activeAttempt = this.attempts.find((attempt) => attempt.examId === examId && attempt.learnerId === "usr-learner" && attempt.status === "IN_PROGRESS");
+    if (!activeAttempt || this.attemptDeadline(new Date(activeAttempt.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) {
+      throw new BadRequestException("Lượt làm bài đã hết thời gian.");
     }
     return exam.questionIds.map((questionId) => {
       const question = this.questions.find((item) => item.id === questionId);
@@ -607,16 +618,23 @@ export class LearningService {
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
-        const exam = await transaction.exam.findUnique({ where: { id: examId } });
+        const exam = await transaction.exam.findUnique({
+          where: { id: examId },
+          include: { class: { include: { enrollments: { where: { learnerId, status: "ACTIVE" } } } } },
+        });
         if (!exam) throw new NotFoundException("Không tìm thấy đề.");
         if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+        if (!exam.class.enrollments.length) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
         const timestamp = new Date();
         if (timestamp < exam.openAt || timestamp > exam.closeAt) throw new BadRequestException("Đề chưa mở hoặc đã đóng.");
         const attempts = await transaction.examAttempt.findMany({
           where: { examId, learnerId }, include: { answers: true }, orderBy: { attemptNo: "asc" },
         });
         const existing = attempts.find((item) => item.status === "IN_PROGRESS");
-        if (existing) return this.mapAttempt(existing);
+        if (existing) {
+          if (this.attemptDeadline(existing.startedAt, exam.durationMinutes, exam.closeAt) <= timestamp) throw new BadRequestException("Lượt làm bài trước đã hết thời gian; cần nộp bài để hoàn tất.");
+          return this.mapAttempt(existing);
+        }
         if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
         const created = await transaction.examAttempt.create({
           data: { id: id("attempt"), examId, learnerId, attemptNo: attempts.length + 1 },
@@ -643,9 +661,10 @@ export class LearningService {
   async saveAnswer(attemptId: string, questionId: string, answers: string[]): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
-      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (attempt.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
+      if (this.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
       const examQuestion = await prisma.examQuestion.findUnique({ where: { examId_questionId: { examId: attempt.examId, questionId } } });
       if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
       await prisma.attemptAnswer.upsert({
@@ -656,7 +675,9 @@ export class LearningService {
     }
     const item = this.findAttempt(attemptId);
     if (item.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
-    if (!this.findExam(item.examId).questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề.");
+    const exam = this.findExam(item.examId);
+    if (this.attemptDeadline(new Date(item.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
+    if (!exam.questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề.");
     item.answers[questionId] = [...answers];
     return { ...item, answers: { ...item.answers } };
   }
@@ -1425,6 +1446,10 @@ export class LearningService {
     if (timestamp > new Date(exam.closeAt) || exam.status === "CLOSED") return "CLOSED";
     if (attemptCount >= exam.attemptLimit) return "ATTEMPT_LIMIT_REACHED";
     return "AVAILABLE";
+  }
+
+  private attemptDeadline(startedAt: Date, durationMinutes: number, examCloseAt: Date): Date {
+    return new Date(Math.min(startedAt.getTime() + durationMinutes * 60_000, examCloseAt.getTime()));
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {
