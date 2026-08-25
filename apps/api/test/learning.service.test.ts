@@ -3,7 +3,7 @@ import type { ConfigService } from "@nestjs/config";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
 
@@ -132,5 +132,18 @@ describe("LearningService", () => {
     expect(await service.getExamQuestions("exam-mid-web")).toHaveLength(2);
     const active = await service.listLearnerExamSummaries("class-web-01");
     expect(active[0]?.availabilityStatus).toBe("IN_PROGRESS");
+  });
+
+  it("không nhận autosave sau khi thời lượng làm bài kết thúc", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-25T02:00:00.000Z"));
+      const service = new LearningService();
+      const attempt = await service.startAttempt("exam-mid-web");
+      vi.setSystemTime(new Date("2026-08-25T02:46:00.000Z"));
+      await expect(service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"])).rejects.toThrow("hết thời gian");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
