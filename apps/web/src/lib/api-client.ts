@@ -20,7 +20,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("accept", "application/json");
-  headers.set("x-role-code", options.roleCode ?? "SYSTEM_ADMIN");
+  headers.set("x-role-code", options.roleCode ?? "LEARNER");
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, cache: "no-store" });
@@ -51,4 +51,25 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(blobUrl);
+}
+
+export async function previewApiFile(path: string, roleCode: RoleCode): Promise<void> {
+  const previewWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { accept: "application/pdf,image/*", "x-role-code": roleCode },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
+      throw new ApiError(payload.error?.message ?? "Không thể mở bản xem trước.", response.status, payload.error?.details);
+    }
+    const blobUrl = URL.createObjectURL(await response.blob());
+    if (previewWindow) previewWindow.location.href = blobUrl;
+    else window.location.href = blobUrl;
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  } catch (error) {
+    previewWindow?.close();
+    throw error;
+  }
 }
