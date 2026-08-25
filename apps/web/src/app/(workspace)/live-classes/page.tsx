@@ -168,7 +168,7 @@ export default function LiveClassesPage() {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}{" "}
-                  · {item.provider.replace("_", " ")}
+                  · {item.provider.replace("_", " ")}{item.fallbackUsed ? ` · fallback từ ${item.requestedProvider?.replace("_", " ")} sau ${item.provisioningAttempts} lần thử` : item.provisioningAttempts && item.provisioningAttempts > 1 ? ` · ${item.provisioningAttempts} lần thử` : ""}
                   {item.timezone ? ` · ${item.timezone}` : ""}
                 </p>
                 {item.recordingUrl ? (

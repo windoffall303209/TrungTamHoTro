@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
@@ -74,7 +74,7 @@ export class LearningService {
   private readonly reports: ContentReport[] = [];
   private readonly moderationActions: ModerationActionRecord[] = [];
   private readonly sessions: LiveSession[] = [
-    { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", timezone: "Asia/Bangkok", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
+    { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", requestedProvider: "JITSI", fallbackUsed: false, provisioningAttempts: 1, status: "SCHEDULED", timezone: "Asia/Bangkok", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
   ];
   private readonly attendance: AttendanceRecord[] = [];
   private readonly attendanceAppeals: AttendanceAppeal[] = [];
@@ -1875,15 +1875,15 @@ export class LearningService {
         },
       });
       if (overlaps) throw new ConflictException("Lịch học bị trùng.");
-      const token = randomUUID();
-      const urls = this.buildProviderUrls(input.provider, token);
+      const provisioned = this.provisionProviderMeeting(input.provider);
       const created = await prisma.liveSession.create({ data: {
           id: id("session"), classId, hostId, title: input.title.trim(),
-          startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt), provider: input.provider,
-          timezone: classItem.timezone, hostUrl: urls.hostUrl, attendeeUrl: urls.attendeeUrl,
+          startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt), provider: provisioned.provider, requestedProvider: input.provider,
+          fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts,
+          timezone: classItem.timezone, hostUrl: provisioned.hostUrl, attendeeUrl: provisioned.attendeeUrl,
         } });
       await this.notifyClassMembers(prisma, classId, "LIVE_SESSION_SCHEDULED", `Đã lên lịch: ${created.title}`, created.id);
-      await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_SCHEDULED", entityType: "live_session", entityId: created.id, context: { classId, startsAt: input.startsAt, endsAt: input.endsAt, timezone: classItem.timezone, provider: input.provider } } });
+      await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_SCHEDULED", entityType: "live_session", entityId: created.id, context: { classId, startsAt: input.startsAt, endsAt: input.endsAt, timezone: classItem.timezone, requestedProvider: input.provider, provider: provisioned.provider, fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts } } });
       return this.mapSession(created);
     }
     const classItem = this.findClass(classId);
@@ -1893,9 +1893,8 @@ export class LearningService {
     if (new Date(input.startsAt) < new Date()) throw new BadRequestException("Không thể lên lịch buổi học trong quá khứ.");
     const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt));
     if (overlaps) throw new ConflictException("Lịch học bị trùng.");
-    const token = randomUUID();
-    const urls = this.buildProviderUrls(input.provider, token);
-    const item: LiveSession = { ...input, id: id("session"), classId, status: "SCHEDULED", timezone: classItem.timezone, ...urls };
+    const provisioned = this.provisionProviderMeeting(input.provider);
+    const item: LiveSession = { ...input, provider: provisioned.provider, requestedProvider: input.provider, fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts, id: id("session"), classId, status: "SCHEDULED", timezone: classItem.timezone, hostUrl: provisioned.hostUrl, attendeeUrl: provisioned.attendeeUrl };
     this.sessions.unshift(item);
     return { ...item };
   }
@@ -1912,8 +1911,8 @@ export class LearningService {
       if (current.status !== "SCHEDULED" || current.startsAt <= new Date()) throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
       const overlap = await prisma.liveSession.count({ where: { id: { not: sessionId }, OR: [{ classId: current.classId }, { hostId: current.hostId }], status: { not: "CANCELLED" }, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } } });
       if (overlap) throw new ConflictException("Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.");
-      const token = randomUUID(); const urls = this.buildProviderUrls(input.provider, token);
-      const updated = await prisma.liveSession.update({ where: { id: sessionId }, data: { title: input.title.trim(), startsAt, endsAt, provider: input.provider, changeReason: reason, ...urls } });
+      const provisioned = this.provisionProviderMeeting(input.provider);
+      const updated = await prisma.liveSession.update({ where: { id: sessionId }, data: { title: input.title.trim(), startsAt, endsAt, provider: provisioned.provider, requestedProvider: input.provider, fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts, changeReason: reason, hostUrl: provisioned.hostUrl, attendeeUrl: provisioned.attendeeUrl } });
       await this.notifyClassMembers(prisma, current.classId, "LIVE_SESSION_CHANGED", `Lịch học đã thay đổi: ${updated.title}`, sessionId);
       await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_CHANGED", entityType: "live_session", entityId: sessionId, context: { reason, previousStartsAt: current.startsAt, startsAt, endsAt, provider: input.provider } } });
       return this.mapSession(updated);
@@ -1921,7 +1920,8 @@ export class LearningService {
     const item = this.findSession(sessionId); if (item.status !== "SCHEDULED" || new Date(item.startsAt) <= new Date()) throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
     const overlap = this.sessions.some((row) => row.id !== sessionId && row.classId === item.classId && row.status !== "CANCELLED" && startsAt < new Date(row.endsAt) && endsAt > new Date(row.startsAt));
     if (overlap) throw new ConflictException("Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.");
-    Object.assign(item, input, { changeReason: reason, ...this.buildProviderUrls(input.provider, randomUUID()) }); return { ...item };
+    const provisioned = this.provisionProviderMeeting(input.provider);
+    Object.assign(item, input, { provider: provisioned.provider, requestedProvider: input.provider, fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts, changeReason: reason, hostUrl: provisioned.hostUrl, attendeeUrl: provisioned.attendeeUrl }); return { ...item };
   }
 
   async cancelSession(sessionId: string, reason: string, actorId = "usr-manager"): Promise<LiveSession> {
@@ -3013,6 +3013,24 @@ export class LearningService {
     return { hostUrl: `${base}/${token}?role=host`, attendeeUrl: `${base}/${token}` };
   }
 
+  private provisionProviderMeeting(requested: LiveSession["provider"]): { provider: LiveSession["provider"]; hostUrl: string; attendeeUrl: string; fallbackUsed: boolean; attempts: number } {
+    const retryLimit = this.config?.get("LIVE_PROVIDER_RETRY_LIMIT", { infer: true }) ?? 2;
+    const rawOrder = this.config?.get("LIVE_PROVIDER_FALLBACK_ORDER", { infer: true }) ?? "GOOGLE_MEET,ZOOM,JITSI";
+    const rawFailures = this.config?.get("LIVE_PROVIDER_SIMULATED_FAILURES", { infer: true }) ?? "";
+    const configuredOrder = rawOrder.split(",").map((value) => value.trim()).filter((value): value is LiveSession["provider"] => this.isLiveProvider(value));
+    const failures = new Set(rawFailures.split(",").map((value) => value.trim()).filter(Boolean));
+    const candidates = [...new Set([requested, ...configuredOrder])];
+    let attempts = 0;
+    for (const provider of candidates) {
+      for (let retry = 0; retry < retryLimit; retry += 1) {
+        attempts += 1;
+        if (failures.has(provider)) continue;
+        return { provider, ...this.buildProviderUrls(provider, randomUUID()), fallbackUsed: provider !== requested, attempts };
+      }
+    }
+    throw new ServiceUnavailableException(`Không thể tạo phòng học sau ${attempts} lần thử. Vui lòng kiểm tra cấu hình provider hoặc thử lại sau.`);
+  }
+
   private async notifyClassMembers(database: PrismaService, classId: string, type: string, title: string, entityId: string): Promise<void> {
     const item = await database.learningClass.findUnique({ where: { id: classId }, include: { instructors: { select: { instructorId: true } }, enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } } } });
     if (!item) return;
@@ -3029,6 +3047,9 @@ export class LearningService {
       startsAt: row.startsAt.toISOString(),
       endsAt: row.endsAt.toISOString(),
       provider: row.provider,
+      requestedProvider: this.isLiveProvider(row.requestedProvider) ? row.requestedProvider : row.provider,
+      fallbackUsed: row.fallbackUsed,
+      provisioningAttempts: row.provisioningAttempts,
       status: row.status,
       hostUrl: row.hostUrl,
       attendeeUrl: row.attendeeUrl,

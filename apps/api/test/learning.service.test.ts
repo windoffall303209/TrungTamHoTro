@@ -320,6 +320,21 @@ describe("LearningService", () => {
     expect(active[0]?.availabilityStatus).toBe("IN_PROGRESS");
   });
 
+  it("retry provider lỗi rồi fallback có dấu vết và link đúng vai trò", async () => {
+    const config = { get: (key: keyof Environment): string | number | undefined => {
+      if (key === "LIVE_PROVIDER_RETRY_LIMIT") return 2;
+      if (key === "LIVE_PROVIDER_FALLBACK_ORDER") return "ZOOM,JITSI,GOOGLE_MEET";
+      if (key === "LIVE_PROVIDER_SIMULATED_FAILURES") return "ZOOM";
+      return undefined;
+    } } as unknown as ConfigService<Environment, true>;
+    const service = new LearningService(undefined, config);
+    const session = await service.createSession("class-web-01", { title: "Buổi học có fallback", startsAt: "2027-10-10T02:00:00.000Z", endsAt: "2027-10-10T03:00:00.000Z", provider: "ZOOM" });
+    expect(session).toMatchObject({ requestedProvider: "ZOOM", provider: "JITSI", fallbackUsed: true, provisioningAttempts: 3 });
+    expect(session.hostUrl).not.toBe(session.attendeeUrl);
+    expect(session.hostUrl).toContain("role=host");
+    expect(session.attendeeUrl).not.toContain("role=host");
+  });
+
   it("phiên bản hóa, kiểm tra trùng và xuất bản câu hỏi trước khi đưa vào đề", async () => {
     const service = new LearningService();
     const draft = await service.createQuestion({ courseId: "course-web", type: "SINGLE_CHOICE", content: "Giao thức nào mã hóa lưu lượng web?", options: ["HTTP", "HTTPS", "FTP"], correctAnswers: ["HTTPS"], difficulty: 1, tags: [" Security ", "web"] });
