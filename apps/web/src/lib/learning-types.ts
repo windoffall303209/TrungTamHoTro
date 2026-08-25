@@ -44,6 +44,7 @@ export interface ExamAttempt {
 
 export interface RegradeRequest { id: string; attemptId: string; learnerId: string; reason: string; status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string }
 export interface LearnerResult { attempt: ExamAttempt; exam: { id: string; title: string; totalScore: number; closeAt: string }; answerBreakdown: Array<{ questionId: string; content: string; submittedAnswers: string[]; awardedScore: number; maxScore: number }>; regradeRequest?: RegradeRequest }
+export interface ExamAnalytics { generatedAt: string; filters: { classId?: string; examId?: string; from?: string; to?: string }; metricDefinitions: Record<string, string>; exams: Array<{ examId: string; classId: string; title: string; sampleSize: number; smallSampleWarning: boolean; averagePercentage: number; passRate: number; questionStatsAvailable: boolean; questionStats: Array<{ questionId: string; difficulty: number; responseCount: number; correctRate: number }> }> }
 
 export interface ForumTopic { id: string; classId: string; title: string; body: string; authorId: string; tags: string[]; isPinned: boolean; isLocked: boolean; status: "VISIBLE" | "HIDDEN"; createdAt: string }
 export interface ForumPost { id: string; topicId: string; authorId: string; body: string; parentId?: string; status: "VISIBLE" | "HIDDEN"; attachmentIds: string[]; mentionedUserIds: string[]; createdAt: string; editedAt?: string; deletedAt?: string; editCount?: number }

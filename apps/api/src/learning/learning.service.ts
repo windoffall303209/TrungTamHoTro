@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -2739,6 +2739,53 @@ export class LearningService {
       familyId: row.familyId,
       supersedesId: row.supersedesId ?? undefined,
     };
+  }
+
+  async getExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }): Promise<ExamAnalytics> {
+    const { from, to } = this.reportingPeriod(input.from, input.to);
+    const metricDefinitions = { averagePercentage: "Trung bình điểm đã chấm chia tổng điểm đề, quy đổi phần trăm.", passRate: "Tỷ lệ bài đạt từ 50% tổng điểm trong các bài đã chấm.", correctRate: "Tỷ lệ lượt trả lời khớp toàn bộ đáp án chuẩn của câu hỏi sau khi đề đóng." };
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.exam.findMany({
+        where: { id: input.examId || undefined, classId: input.classId || undefined, openAt: { lte: to }, closeAt: { gte: from }, class: { instructors: { some: { instructorId: "usr-instructor" } } } },
+        include: { questions: { include: { question: true }, orderBy: { position: "asc" } }, attempts: { where: { submittedAt: { gte: from, lte: to }, status: { in: ["SUBMITTED", "GRADED"] } }, include: { answers: true } } },
+        orderBy: { openAt: "desc" },
+      });
+      return { generatedAt: now(), filters: input, metricDefinitions, exams: rows.map((exam) => {
+        const graded = exam.attempts.filter((attempt) => attempt.score !== null);
+        const percentages = graded.map((attempt) => Number(attempt.score) / Number(exam.totalScore) * 100);
+        const questionStatsAvailable = new Date() > exam.closeAt;
+        const questionStats = questionStatsAvailable ? exam.questions.map(({ question }) => {
+          const answers = exam.attempts.map((attempt) => attempt.answers.find((answer) => answer.questionId === question.id)).filter((answer) => Boolean(answer));
+          const correct = this.toStringArray(question.correctAnswers).sort().join("\u0000");
+          const correctCount = answers.filter((answer) => this.toStringArray(answer!.answerData).sort().join("\u0000") === correct).length;
+          return { questionId: question.id, difficulty: question.difficulty, responseCount: answers.length, correctRate: answers.length ? Math.round(correctCount / answers.length * 10_000) / 100 : 0 };
+        }) : [];
+        return { examId: exam.id, classId: exam.classId, title: exam.title, sampleSize: graded.length, smallSampleWarning: graded.length < 5, averagePercentage: percentages.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length * 100) / 100 : 0, passRate: percentages.length ? Math.round(percentages.filter((value) => value >= 50).length / percentages.length * 10_000) / 100 : 0, questionStatsAvailable, questionStats };
+      }) };
+    }
+    const exams = this.exams.filter((exam) => (!input.examId || exam.id === input.examId) && (!input.classId || exam.classId === input.classId) && this.findClass(exam.classId).instructorIds.includes("usr-instructor") && new Date(exam.openAt) <= to && new Date(exam.closeAt) >= from).map((exam) => {
+      const attempts = this.attempts.filter((attempt) => attempt.examId === exam.id && attempt.submittedAt && new Date(attempt.submittedAt) >= from && new Date(attempt.submittedAt) <= to && ["SUBMITTED", "GRADED"].includes(attempt.status));
+      const graded = attempts.filter((attempt) => attempt.score !== undefined);
+      const percentages = graded.map((attempt) => (attempt.score ?? 0) / exam.totalScore * 100);
+      const questionStatsAvailable = new Date() > new Date(exam.closeAt);
+      const questionStats = questionStatsAvailable ? exam.questionIds.map((questionId) => {
+        const question = this.questions.find((item) => item.id === questionId);
+        if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
+        const answers = attempts.map((attempt) => attempt.answers[questionId]).filter((answer): answer is string[] => Boolean(answer));
+        const correct = [...question.correctAnswers].sort().join("\u0000");
+        return { questionId, difficulty: question.difficulty, responseCount: answers.length, correctRate: answers.length ? Math.round(answers.filter((answer) => [...answer].sort().join("\u0000") === correct).length / answers.length * 10_000) / 100 : 0 };
+      }) : [];
+      return { examId: exam.id, classId: exam.classId, title: exam.title, sampleSize: graded.length, smallSampleWarning: graded.length < 5, averagePercentage: percentages.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length * 100) / 100 : 0, passRate: percentages.length ? Math.round(percentages.filter((value) => value >= 50).length / percentages.length * 10_000) / 100 : 0, questionStatsAvailable, questionStats };
+    });
+    return { generatedAt: now(), filters: input, metricDefinitions, exams };
+  }
+
+  async exportExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }): Promise<Buffer> {
+    const report = await this.getExamAnalytics(input);
+    const escape = (value: string | number | boolean): string => `"${String(value).replaceAll('"', '""')}"`;
+    const rows = [["examId", "classId", "title", "sampleSize", "smallSampleWarning", "averagePercentage", "passRate"], ...report.exams.map((exam) => [exam.examId, exam.classId, exam.title, exam.sampleSize, exam.smallSampleWarning, exam.averagePercentage, exam.passRate])];
+    return Buffer.from(`\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`, "utf8");
   }
 
   private mapMaterialVersion(row: Prisma.MaterialVersionGetPayload<Record<string, never>>): MaterialVersionSnapshot {
