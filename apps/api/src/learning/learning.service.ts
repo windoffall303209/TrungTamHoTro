@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassProgressReport, ContentReport, CourseVersionSnapshot, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -72,7 +72,7 @@ export class LearningService {
   private readonly reports: ContentReport[] = [];
   private readonly moderationActions: ModerationActionRecord[] = [];
   private readonly sessions: LiveSession[] = [
-    { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
+    { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", timezone: "Asia/Bangkok", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
   ];
   private readonly attendance: AttendanceRecord[] = [];
   private readonly attendanceAppeals: AttendanceAppeal[] = [];
@@ -84,6 +84,8 @@ export class LearningService {
   private readonly progressInterventions: ProgressIntervention[] = [];
   private readonly reportRuns: ReportRun[] = [];
   private readonly reportExports: Array<ReportExport & { filePath?: string }> = [];
+  private readonly instructorRoles = new Map<string, InstructorRole>([["class-web-01:usr-instructor", "PRIMARY"]]);
+  private readonly classMemberHistory: ClassMemberHistory[] = [];
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
@@ -258,21 +260,60 @@ export class LearningService {
     const course = this.findCourse(input.courseId);
     const item: LearningClass = { ...input, courseVersion: course.version, code, term, timezone, allowLateEnrollment: input.allowLateEnrollment ?? false, id: id("class"), status: "DRAFT", instructorIds: [], learnerIds: [] }; this.classes.unshift(item); return { ...item, instructorIds: [], learnerIds: [] };
   }
-  async assignInstructor(classId: string, instructorId: string): Promise<LearningClass> {
+  async assignInstructor(classId: string, instructorId: string, requestedRole?: InstructorRole, actorId = "usr-manager"): Promise<LearningClass> {
     const prisma = this.database();
     if (prisma) {
       await this.requireUserRole(prisma, instructorId, "INSTRUCTOR", "Người dùng được chọn không phải giảng viên.");
-      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: true } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
       if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      await prisma.classInstructor.upsert({
-        where: { classId_instructorId: { classId, instructorId } }, update: {}, create: { classId, instructorId },
+      const role = requestedRole ?? (classItem.instructors.length ? "CO_INSTRUCTOR" : "PRIMARY");
+      const load = await prisma.classInstructor.count({ where: { instructorId, class: { status: { in: ["DRAFT", "ACTIVE"] } } } });
+      if (!classItem.instructors.some((row) => row.instructorId === instructorId) && load >= 5) throw new ConflictException("Giảng viên đã đạt giới hạn 5 lớp đang phụ trách.");
+      const overlap = await prisma.classInstructor.findFirst({ where: { instructorId, classId: { not: classId }, class: { status: "ACTIVE", startAt: { lt: classItem.endAt }, endAt: { gt: classItem.startAt } } }, select: { class: { select: { code: true } } } });
+      if (overlap) throw new ConflictException(`Giảng viên có lịch lớp xung đột với ${overlap.class.code}.`);
+      await prisma.$transaction(async (transaction) => {
+        if (role === "PRIMARY") await transaction.classInstructor.updateMany({ where: { classId, role: "PRIMARY", instructorId: { not: instructorId } }, data: { role: "CO_INSTRUCTOR" } });
+        await transaction.classInstructor.upsert({ where: { classId_instructorId: { classId, instructorId } }, update: { role, assignedBy: actorId }, create: { classId, instructorId, role, assignedBy: actorId } });
+        await transaction.classInstructorHistory.create({ data: { id: id("instructor-history"), classId, instructorId, role, action: "ASSIGNED", actorId } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: instructorId, type: "CLASS_INSTRUCTOR_ASSIGNED", title: `Bạn được phân công ${role === "PRIMARY" ? "giảng viên chính" : "đồng giảng viên"} cho lớp ${classItem.code}`, entityType: "CLASS", entityId: classId, dedupKey: `instructor-assigned:${classId}:${instructorId}:${role}` } });
       });
       return this.getDatabaseClass(prisma, classId);
     }
     const item = this.findClass(classId);
     if (item.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    const role = requestedRole ?? (item.instructorIds.length ? "CO_INSTRUCTOR" : "PRIMARY");
+    const conflict = this.classes.find((candidate) => candidate.id !== classId && candidate.status === "ACTIVE" && candidate.instructorIds.includes(instructorId) && new Date(candidate.startAt) < new Date(item.endAt) && new Date(candidate.endAt) > new Date(item.startAt));
+    if (conflict) throw new ConflictException(`Giảng viên có lịch lớp xung đột với ${conflict.code}.`);
+    if (role === "PRIMARY") for (const currentId of item.instructorIds) this.instructorRoles.set(`${classId}:${currentId}`, "CO_INSTRUCTOR");
     if (!item.instructorIds.includes(instructorId)) item.instructorIds.push(instructorId);
+    this.instructorRoles.set(`${classId}:${instructorId}`, role);
+    this.recordMemberHistory(classId, instructorId, "INSTRUCTOR", "ASSIGNED", actorId, { role });
+    this.notifications.unshift({ id: id("notification"), recipientId: instructorId, type: "CLASS_INSTRUCTOR_ASSIGNED", title: `Bạn được phân công vào lớp ${item.code}`, entityType: "CLASS", entityId: classId, createdAt: now() });
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async removeInstructor(classId: string, instructorId: string, reason: string, actorId = "usr-manager"): Promise<LearningClass> {
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 5) throw new BadRequestException("Lý do gỡ phân công cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.classInstructor.findUnique({ where: { classId_instructorId: { classId, instructorId } } });
+      if (!current) throw new NotFoundException("Giảng viên không thuộc lớp.");
+      const primaryCount = await prisma.classInstructor.count({ where: { classId, role: "PRIMARY" } });
+      if (current.role === "PRIMARY" && primaryCount <= 1) throw new ConflictException("Không thể gỡ giảng viên chính cuối cùng; hãy phân công người thay thế trước.");
+      await prisma.$transaction([
+        prisma.classInstructor.delete({ where: { classId_instructorId: { classId, instructorId } } }),
+        prisma.classInstructorHistory.create({ data: { id: id("instructor-history"), classId, instructorId, role: current.role, action: "REMOVED", reason: normalizedReason, actorId } }),
+        prisma.notification.create({ data: { id: id("notification"), recipientId: instructorId, type: "CLASS_INSTRUCTOR_REMOVED", title: "Phân công giảng dạy đã được cập nhật", entityType: "CLASS", entityId: classId, dedupKey: `instructor-removed:${classId}:${instructorId}` } }),
+      ]);
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId); const role = this.instructorRoles.get(`${classId}:${instructorId}`);
+    if (!role) throw new NotFoundException("Giảng viên không thuộc lớp.");
+    if (role === "PRIMARY" && item.instructorIds.filter((value) => this.instructorRoles.get(`${classId}:${value}`) === "PRIMARY").length <= 1) throw new ConflictException("Không thể gỡ giảng viên chính cuối cùng; hãy phân công người thay thế trước.");
+    item.instructorIds = item.instructorIds.filter((value) => value !== instructorId); this.instructorRoles.delete(`${classId}:${instructorId}`);
+    this.recordMemberHistory(classId, instructorId, "INSTRUCTOR", "REMOVED", actorId, { role, reason: normalizedReason });
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
@@ -290,9 +331,11 @@ export class LearningService {
         if (classItem.enrollments.length >= classItem.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
         await transaction.classEnrollment.upsert({
           where: { classId_learnerId: { classId, learnerId } },
-          update: { status: "ACTIVE", joinedAt: new Date() },
-          create: { classId, learnerId, status: "ACTIVE" },
+          update: { status: "ACTIVE", joinedAt: new Date(), source: "MANUAL", removalReason: null, removedAt: null },
+          create: { classId, learnerId, status: "ACTIVE", source: "MANUAL" },
         });
+        await transaction.classEnrollmentHistory.create({ data: { id: id("enrollment-history"), classId, learnerId, action: "ENROLLED", source: "MANUAL", actorId: "usr-manager" } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: learnerId, type: "CLASS_ENROLLED", title: `Bạn đã được ghi danh vào lớp ${classItem.code}`, entityType: "CLASS", entityId: classId, dedupKey: `class-enrolled:${classId}:${learnerId}` } });
         return this.getDatabaseClass(transaction, classId);
       });
     }
@@ -301,7 +344,50 @@ export class LearningService {
     if (item.learnerIds.includes(learnerId)) throw new ConflictException("Học viên đã có trong lớp.");
     if (item.learnerIds.length >= item.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
     item.learnerIds.push(learnerId);
+    this.recordMemberHistory(classId, learnerId, "LEARNER", "ENROLLED", "usr-manager", { source: "MANUAL" });
+    this.notifications.unshift({ id: id("notification"), recipientId: learnerId, type: "CLASS_ENROLLED", title: `Bạn đã được ghi danh vào lớp ${item.code}`, entityType: "CLASS", entityId: classId, createdAt: now() });
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async importEnrollments(classId: string, userIds: string[]): Promise<EnrollmentImportResult[]> {
+    const normalized = userIds.map((value) => value.trim()).filter(Boolean);
+    const seen = new Set<string>(); const results: EnrollmentImportResult[] = [];
+    for (const userId of normalized) {
+      if (seen.has(userId)) { results.push({ userId, status: "SKIPPED", message: "Trùng trong danh sách nhập." }); continue; }
+      seen.add(userId);
+      try { await this.enrollLearner(classId, userId); results.push({ userId, status: "ENROLLED", message: "Ghi danh thành công." }); }
+      catch (error) { results.push({ userId, status: error instanceof ConflictException ? "SKIPPED" : "FAILED", message: error instanceof Error ? error.message : "Không thể ghi danh." }); }
+    }
+    return results;
+  }
+
+  async removeEnrollment(classId: string, learnerId: string, reason: string, actorId = "usr-manager"): Promise<LearningClass> {
+    const normalizedReason = reason.trim(); if (normalizedReason.length < 5) throw new BadRequestException("Lý do gỡ học viên cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const enrollment = await prisma.classEnrollment.findUnique({ where: { classId_learnerId: { classId, learnerId } } });
+      if (!enrollment || enrollment.status !== "ACTIVE") throw new NotFoundException("Học viên không có ghi danh đang hoạt động.");
+      await prisma.$transaction([
+        prisma.classEnrollment.update({ where: { classId_learnerId: { classId, learnerId } }, data: { status: "CANCELLED", removalReason: normalizedReason, removedAt: new Date() } }),
+        prisma.classEnrollmentHistory.create({ data: { id: id("enrollment-history"), classId, learnerId, action: "REMOVED", source: enrollment.source, reason: normalizedReason, actorId } }),
+        prisma.notification.create({ data: { id: id("notification"), recipientId: learnerId, type: "CLASS_ENROLLMENT_REMOVED", title: "Trạng thái ghi danh lớp học đã thay đổi", entityType: "CLASS", entityId: classId, dedupKey: `enrollment-removed:${classId}:${learnerId}` } }),
+      ]);
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId); if (!item.learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không có ghi danh đang hoạt động.");
+    item.learnerIds = item.learnerIds.filter((value) => value !== learnerId); this.recordMemberHistory(classId, learnerId, "LEARNER", "REMOVED", actorId, { source: "MANUAL", reason: normalizedReason });
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async getClassRoster(classId: string): Promise<ClassRoster> {
+    const prisma = this.database();
+    if (prisma) {
+      const item = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: { orderBy: { assignedAt: "asc" } }, enrollments: { orderBy: { joinedAt: "asc" } }, instructorHistory: { orderBy: { createdAt: "desc" } }, enrollmentHistory: { orderBy: { createdAt: "desc" } } } });
+      if (!item) throw new NotFoundException("Không tìm thấy lớp học.");
+      return { classId, instructors: item.instructors.map((row) => ({ instructorId: row.instructorId, role: row.role, assignedAt: row.assignedAt.toISOString() })), enrollments: item.enrollments.map((row) => ({ learnerId: row.learnerId, status: row.status === "ACTIVE" ? "ACTIVE" : "CANCELLED", source: row.source, joinedAt: row.joinedAt.toISOString(), removalReason: row.removalReason ?? undefined, removedAt: row.removedAt?.toISOString() })), history: [...item.instructorHistory.map((row) => ({ id: row.id, memberId: row.instructorId, memberType: "INSTRUCTOR" as const, action: row.action, role: row.role, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() })), ...item.enrollmentHistory.map((row) => ({ id: row.id, memberId: row.learnerId, memberType: "LEARNER" as const, action: row.action, source: row.source, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() }))].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) };
+    }
+    const item = this.findClass(classId);
+    return { classId, instructors: item.instructorIds.map((instructorId) => ({ instructorId, role: this.instructorRoles.get(`${classId}:${instructorId}`) ?? "CO_INSTRUCTOR", assignedAt: now() })), enrollments: item.learnerIds.map((learnerId) => ({ learnerId, status: "ACTIVE", source: "MANUAL", joinedAt: now() })), history: this.classMemberHistory.filter((row) => row.id.startsWith(`${classId}:`)).map((row) => ({ ...row })) };
   }
 
   async activateClass(classId: string, actorId = "usr-manager"): Promise<LearningClass> {
@@ -1507,43 +1593,90 @@ export class LearningService {
     }).map((item) => role === "LEARNER" ? { ...item, hostUrl: "" } : { ...item });
   }
 
-  async createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">): Promise<LiveSession> {
+  async createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">, actorId = "usr-instructor"): Promise<LiveSession> {
     if (new Date(input.endsAt) <= new Date(input.startsAt)) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
     const prisma = this.database();
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: true } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
       if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      if (!classItem.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
+      const hostId = actorId === "usr-manager" ? classItem.instructors.find((row) => row.role === "PRIMARY")?.instructorId ?? classItem.instructors[0]?.instructorId : actorId;
+      if (!hostId || !classItem.instructors.some((item) => item.instructorId === hostId)) throw new NotFoundException("Lớp chưa có giảng viên phù hợp để chủ trì.");
+      if (new Date(input.startsAt) < new Date()) throw new BadRequestException("Không thể lên lịch buổi học trong quá khứ.");
       const overlaps = await prisma.liveSession.count({
         where: {
-          classId, status: { not: "CANCELLED" },
+          OR: [{ classId }, { hostId }], status: { not: "CANCELLED" },
           startsAt: { lt: new Date(input.endsAt) }, endsAt: { gt: new Date(input.startsAt) },
         },
       });
       if (overlaps) throw new ConflictException("Lịch học bị trùng.");
       const token = randomUUID();
-      return this.mapSession(await prisma.liveSession.create({
-        data: {
-          id: id("session"), classId, hostId: "usr-instructor", title: input.title.trim(),
+      const urls = this.buildProviderUrls(input.provider, token);
+      const created = await prisma.liveSession.create({ data: {
+          id: id("session"), classId, hostId, title: input.title.trim(),
           startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt), provider: input.provider,
-          hostUrl: `https://meet.jit.si/${token}-host`, attendeeUrl: `https://meet.jit.si/${token}`,
-        },
-      }));
+          timezone: classItem.timezone, hostUrl: urls.hostUrl, attendeeUrl: urls.attendeeUrl,
+        } });
+      await this.notifyClassMembers(prisma, classId, "LIVE_SESSION_SCHEDULED", `Đã lên lịch: ${created.title}`, created.id);
+      await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_SCHEDULED", entityType: "live_session", entityId: created.id, context: { classId, startsAt: input.startsAt, endsAt: input.endsAt, timezone: classItem.timezone, provider: input.provider } } });
+      return this.mapSession(created);
     }
     const classItem = this.findClass(classId);
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    if (!classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
+    const hostId = actorId === "usr-manager" ? classItem.instructorIds[0] : actorId;
+    if (!hostId || !classItem.instructorIds.includes(hostId)) throw new NotFoundException("Lớp chưa có giảng viên phù hợp để chủ trì.");
+    if (new Date(input.startsAt) < new Date()) throw new BadRequestException("Không thể lên lịch buổi học trong quá khứ.");
     const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt));
     if (overlaps) throw new ConflictException("Lịch học bị trùng.");
     const token = randomUUID();
-    const item: LiveSession = { ...input, id: id("session"), classId, status: "SCHEDULED", hostUrl: `https://meet.jit.si/${token}-host`, attendeeUrl: `https://meet.jit.si/${token}` };
+    const urls = this.buildProviderUrls(input.provider, token);
+    const item: LiveSession = { ...input, id: id("session"), classId, status: "SCHEDULED", timezone: classItem.timezone, ...urls };
     this.sessions.unshift(item);
     return { ...item };
   }
 
+  async updateSession(sessionId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & { reason: string }, actorId = "usr-manager"): Promise<LiveSession> {
+    const reason = input.reason.trim(); if (reason.length < 5) throw new BadRequestException("Lý do đổi lịch cần ít nhất 5 ký tự.");
+    const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
+    if (endsAt <= startsAt) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
+    if (startsAt < new Date()) throw new BadRequestException("Không thể chuyển buổi học vào quá khứ.");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy buổi học.");
+      if (current.status !== "SCHEDULED" || current.startsAt <= new Date()) throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
+      const overlap = await prisma.liveSession.count({ where: { id: { not: sessionId }, OR: [{ classId: current.classId }, { hostId: current.hostId }], status: { not: "CANCELLED" }, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } } });
+      if (overlap) throw new ConflictException("Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.");
+      const token = randomUUID(); const urls = this.buildProviderUrls(input.provider, token);
+      const updated = await prisma.liveSession.update({ where: { id: sessionId }, data: { title: input.title.trim(), startsAt, endsAt, provider: input.provider, changeReason: reason, ...urls } });
+      await this.notifyClassMembers(prisma, current.classId, "LIVE_SESSION_CHANGED", `Lịch học đã thay đổi: ${updated.title}`, sessionId);
+      await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_CHANGED", entityType: "live_session", entityId: sessionId, context: { reason, previousStartsAt: current.startsAt, startsAt, endsAt, provider: input.provider } } });
+      return this.mapSession(updated);
+    }
+    const item = this.findSession(sessionId); if (item.status !== "SCHEDULED" || new Date(item.startsAt) <= new Date()) throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
+    const overlap = this.sessions.some((row) => row.id !== sessionId && row.classId === item.classId && row.status !== "CANCELLED" && startsAt < new Date(row.endsAt) && endsAt > new Date(row.startsAt));
+    if (overlap) throw new ConflictException("Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.");
+    Object.assign(item, input, { changeReason: reason, ...this.buildProviderUrls(input.provider, randomUUID()) }); return { ...item };
+  }
+
+  async cancelSession(sessionId: string, reason: string, actorId = "usr-manager"): Promise<LiveSession> {
+    const normalized = reason.trim(); if (normalized.length < 5) throw new BadRequestException("Lý do hủy cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.liveSession.findUnique({ where: { id: sessionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy buổi học.");
+      if (current.status !== "SCHEDULED" || current.startsAt <= new Date()) throw new ConflictException("Chỉ được hủy buổi học chưa diễn ra.");
+      const updated = await prisma.liveSession.update({ where: { id: sessionId }, data: { status: "CANCELLED", cancellationReason: normalized } });
+      await this.notifyClassMembers(prisma, current.classId, "LIVE_SESSION_CANCELLED", `Buổi học đã hủy: ${current.title}`, sessionId);
+      await prisma.auditLog.create({ data: { actorId, action: "LIVE_SESSION_CANCELLED", entityType: "live_session", entityId: sessionId, context: { reason: normalized, startsAt: current.startsAt } } });
+      return this.mapSession(updated);
+    }
+    const item = this.findSession(sessionId); if (item.status !== "SCHEDULED" || new Date(item.startsAt) <= new Date()) throw new ConflictException("Chỉ được hủy buổi học chưa diễn ra.");
+    item.status = "CANCELLED"; item.cancellationReason = normalized; return { ...item };
+  }
+
   async transitionSession(sessionId: string, status: LiveSession["status"]): Promise<LiveSession> {
-    const allowed: Record<LiveSession["status"], LiveSession["status"][]> = { SCHEDULED: ["LIVE", "CANCELLED"], LIVE: ["COMPLETED"], COMPLETED: [], CANCELLED: [] };
+    const allowed: Record<LiveSession["status"], LiveSession["status"][]> = { SCHEDULED: ["LIVE"], LIVE: ["COMPLETED"], COMPLETED: [], CANCELLED: [] };
     const prisma = this.database();
     if (prisma) {
       const item = await prisma.liveSession.findUnique({ where: { id: sessionId } });
@@ -2514,6 +2647,22 @@ export class LearningService {
     report.updatedAt = timestamp;
   }
 
+  private recordMemberHistory(classId: string, memberId: string, memberType: ClassMemberHistory["memberType"], action: string, actorId: string, detail: { role?: InstructorRole; source?: string; reason?: string }): void {
+    this.classMemberHistory.unshift({ id: `${classId}:${id("member-history")}`, memberId, memberType, action, actorId, createdAt: now(), ...detail });
+  }
+
+  private buildProviderUrls(provider: LiveSession["provider"], token: string): { hostUrl: string; attendeeUrl: string } {
+    const base = provider === "ZOOM" ? "https://zoom.us/wc/join" : provider === "GOOGLE_MEET" ? "https://meet.google.com" : "https://meet.jit.si";
+    return { hostUrl: `${base}/${token}?role=host`, attendeeUrl: `${base}/${token}` };
+  }
+
+  private async notifyClassMembers(database: PrismaService, classId: string, type: string, title: string, entityId: string): Promise<void> {
+    const item = await database.learningClass.findUnique({ where: { id: classId }, include: { instructors: { select: { instructorId: true } }, enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } } } });
+    if (!item) return;
+    const recipients = new Set([...item.instructors.map((row) => row.instructorId), ...item.enrollments.map((row) => row.learnerId)]);
+    for (const recipientId of recipients) await database.notification.upsert({ where: { dedupKey: `${type}:${entityId}:${recipientId}` }, update: { title, readAt: null }, create: { id: id("notification"), recipientId, type, title, entityType: "LIVE_SESSION", entityId, dedupKey: `${type}:${entityId}:${recipientId}` } });
+  }
+
   private mapSession(row: Prisma.LiveSessionGetPayload<Record<string, never>>): LiveSession {
     if (!this.isLiveProvider(row.provider)) throw new BadRequestException(`Nhà cung cấp lớp trực tuyến ${row.provider} không được hỗ trợ.`);
     return {
@@ -2527,6 +2676,9 @@ export class LearningService {
       hostUrl: row.hostUrl,
       attendeeUrl: row.attendeeUrl,
       recordingUrl: row.recordingUrl ?? undefined,
+      timezone: row.timezone,
+      changeReason: row.changeReason ?? undefined,
+      cancellationReason: row.cancellationReason ?? undefined,
       attendanceLockedAt: row.attendanceLockedAt?.toISOString(),
       attendanceLockedById: row.attendanceLockedById ?? undefined,
     };

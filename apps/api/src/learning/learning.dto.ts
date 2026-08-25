@@ -34,6 +34,18 @@ export class CreateClassDto {
 
 export class AssignUserDto { @IsString() @IsNotEmpty() userId!: string; }
 
+export class AssignInstructorDto extends AssignUserDto {
+  @IsIn(["PRIMARY", "CO_INSTRUCTOR"]) role!: "PRIMARY" | "CO_INSTRUCTOR";
+}
+
+export class RemoveMemberDto {
+  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+}
+
+export class BulkEnrollmentDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @IsString({ each: true }) userIds!: string[];
+}
+
 export class CloseClassDto {
   @IsString() @MinLength(5) @MaxLength(500) closeReason!: string;
   @IsIn(["STANDARD_RETENTION", "LONG_TERM_RETENTION"]) archivePolicy!: "STANDARD_RETENTION" | "LONG_TERM_RETENTION";
@@ -141,6 +153,12 @@ export class CreateSessionDto {
   @IsDateString() endsAt!: string;
   @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: "GOOGLE_MEET" | "ZOOM" | "JITSI";
 }
+
+export class UpdateSessionDto extends CreateSessionDto {
+  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+}
+
+export class CancelSessionDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string; }
 
 export class TransitionSessionDto { @IsIn(["LIVE", "COMPLETED", "CANCELLED"]) status!: "LIVE" | "COMPLETED" | "CANCELLED"; }
 

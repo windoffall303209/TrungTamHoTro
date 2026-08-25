@@ -32,6 +32,11 @@ enum EnrollmentStatus {
   CANCELLED
 }
 
+enum InstructorAssignmentRole {
+  PRIMARY
+  CO_INSTRUCTOR
+}
+
 enum MaterialVisibility {
   DRAFT
   PUBLISHED
@@ -270,7 +275,9 @@ model LearningClass {
   archivedAt    DateTime?         @map("archived_at")
   course        Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
   instructors   ClassInstructor[]
+  instructorHistory ClassInstructorHistory[]
   enrollments   ClassEnrollment[]
+  enrollmentHistory ClassEnrollmentHistory[]
   materials     Material[]
   exams         Exam[]
   forumTopics   ForumTopic[]
@@ -287,6 +294,8 @@ model LearningClass {
 model ClassInstructor {
   classId      String        @map("class_id")
   instructorId String        @map("instructor_id")
+  role         InstructorAssignmentRole @default(CO_INSTRUCTOR)
+  assignedBy   String        @default("usr-manager") @map("assigned_by") @db.VarChar(191)
   assignedAt   DateTime      @default(now()) @map("assigned_at")
   class        LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
   instructor   User          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
@@ -296,18 +305,51 @@ model ClassInstructor {
   @@map("class_instructors")
 }
 
+model ClassInstructorHistory {
+  id           String                   @id @default(cuid())
+  classId      String                   @map("class_id")
+  instructorId String                   @map("instructor_id")
+  role         InstructorAssignmentRole
+  action       String                   @db.VarChar(30)
+  reason       String?                  @db.VarChar(500)
+  actorId      String                   @map("actor_id") @db.VarChar(191)
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  class        LearningClass            @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId, createdAt])
+  @@map("class_instructor_history")
+}
+
 model ClassEnrollment {
   id        String           @id @default(cuid())
   classId   String           @map("class_id")
   learnerId String           @map("learner_id")
   status    EnrollmentStatus @default(ACTIVE)
   joinedAt  DateTime         @default(now()) @map("joined_at")
+  source    String           @default("MANUAL") @db.VarChar(30)
+  removalReason String?      @map("removal_reason") @db.VarChar(500)
+  removedAt DateTime?        @map("removed_at")
   class     LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
   learner   User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
 
   @@unique([classId, learnerId])
   @@index([learnerId, status])
   @@map("class_enrollments")
+}
+
+model ClassEnrollmentHistory {
+  id        String        @id @default(cuid())
+  classId   String        @map("class_id")
+  learnerId String        @map("learner_id")
+  action    String        @db.VarChar(30)
+  source    String        @db.VarChar(30)
+  reason    String?       @db.VarChar(500)
+  actorId   String        @map("actor_id") @db.VarChar(191)
+  createdAt DateTime      @default(now()) @map("created_at")
+  class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId, createdAt])
+  @@map("class_enrollment_history")
 }
 
 model Material {
@@ -624,10 +666,13 @@ model LiveSession {
   endsAt               DateTime           @map("ends_at")
   provider             String             @db.VarChar(50)
   providerRef          String?            @map("provider_ref") @db.VarChar(255)
+  timezone             String             @default("Asia/Bangkok") @db.VarChar(80)
   hostUrl              String             @map("host_url") @db.VarChar(1000)
   attendeeUrl          String             @map("attendee_url") @db.VarChar(1000)
   recordingUrl         String?            @map("recording_url") @db.VarChar(1000)
   status               SessionStatus      @default(SCHEDULED)
+  changeReason         String?            @map("change_reason") @db.VarChar(500)
+  cancellationReason   String?            @map("cancellation_reason") @db.VarChar(500)
   attendanceLockedAt   DateTime?          @map("attendance_locked_at")
   attendanceLockedById String?            @map("attendance_locked_by_id")
   class                LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)

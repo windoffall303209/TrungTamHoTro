@@ -53,6 +53,42 @@ describe("LearningService", () => {
     await expect(service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).rejects.toThrow(ConflictException);
   });
 
+  it("quản trị vai trò giảng viên, thay thế và lưu lịch sử", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "TEAM-01", name: "Lớp kiểm thử phân công", term: "2027", startAt: "2027-02-01T00:00:00.000Z", endAt: "2027-04-01T00:00:00.000Z", capacity: 20 });
+    await service.assignInstructor(classItem.id, "usr-instructor", "PRIMARY");
+    await service.assignInstructor(classItem.id, "usr-co-instructor", "CO_INSTRUCTOR");
+    await expect(service.removeInstructor(classItem.id, "usr-instructor", "Điều chuyển công tác")).rejects.toThrow(ConflictException);
+    await service.assignInstructor(classItem.id, "usr-co-instructor", "PRIMARY");
+    await service.removeInstructor(classItem.id, "usr-instructor", "Bàn giao cho người thay thế");
+    const roster = await service.getClassRoster(classItem.id);
+    expect(roster.instructors).toEqual([expect.objectContaining({ instructorId: "usr-co-instructor", role: "PRIMARY" })]);
+    expect(roster.history.some((item) => item.action === "REMOVED" && item.reason)).toBe(true);
+  });
+
+  it("nhập ghi danh theo dòng, báo kết quả và gỡ nhưng giữ lịch sử", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "ENROLL-01", name: "Lớp kiểm thử ghi danh", term: "2027", startAt: "2027-05-01T00:00:00.000Z", endAt: "2027-06-01T00:00:00.000Z", capacity: 2 });
+    const results = await service.importEnrollments(classItem.id, ["learner-a", "learner-a", "learner-b", "learner-c"]);
+    expect(results.map((item) => item.status)).toEqual(["ENROLLED", "SKIPPED", "ENROLLED", "FAILED"]);
+    await service.removeEnrollment(classItem.id, "learner-a", "Học viên chuyển sang lớp khác");
+    const roster = await service.getClassRoster(classItem.id);
+    expect(roster.enrollments.map((item) => item.learnerId)).toEqual(["learner-b"]);
+    expect(roster.history.some((item) => item.memberId === "learner-a" && item.action === "REMOVED")).toBe(true);
+  });
+
+  it("quản lý đổi và hủy lịch có lý do, chặn thao tác quá khứ", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "LIVE-OPS", name: "Lớp kiểm thử lịch", term: "2027", startAt: "2027-07-01T00:00:00.000Z", endAt: "2027-09-01T00:00:00.000Z", capacity: 20, timezone: "Asia/Bangkok" });
+    await service.assignInstructor(classItem.id, "host-live", "PRIMARY");
+    const created = await service.createSession(classItem.id, { title: "Buổi một", startsAt: "2027-07-10T02:00:00.000Z", endsAt: "2027-07-10T03:00:00.000Z", provider: "GOOGLE_MEET" }, "usr-manager");
+    expect(created).toMatchObject({ timezone: "Asia/Bangkok", status: "SCHEDULED" });
+    const updated = await service.updateSession(created.id, { title: "Buổi một đổi lịch", startsAt: "2027-07-11T02:00:00.000Z", endsAt: "2027-07-11T03:00:00.000Z", provider: "ZOOM", reason: "Điều chỉnh theo lịch giảng viên" });
+    expect(updated).toMatchObject({ provider: "ZOOM", changeReason: "Điều chỉnh theo lịch giảng viên" });
+    expect((await service.cancelSession(created.id, "Nghỉ theo lịch của trung tâm")).status).toBe("CANCELLED");
+    await expect(service.createSession(classItem.id, { title: "Quá khứ", startsAt: "2020-01-01T00:00:00.000Z", endsAt: "2020-01-01T01:00:00.000Z", provider: "JITSI" }, "usr-manager")).rejects.toThrow(BadRequestException);
+  });
+
   it("chặn đóng lớp thiếu điều kiện, lưu trữ chỉ đọc và mở lại có lý do", async () => {
     const service = new LearningService();
     const blocked = await service.getClassClosureReadiness("class-web-01");
