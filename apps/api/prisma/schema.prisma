@@ -220,24 +220,28 @@ model Course {
 }
 
 model LearningClass {
-  id          String            @id @default(cuid())
-  courseId    String            @map("course_id")
-  code        String            @unique @db.VarChar(50)
-  name        String            @db.VarChar(200)
-  term        String            @db.VarChar(50)
-  startAt     DateTime          @map("start_at")
-  endAt       DateTime          @map("end_at")
-  capacity    Int
-  status      ClassStatus       @default(DRAFT)
-  course      Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  instructors ClassInstructor[]
-  enrollments ClassEnrollment[]
-  materials   Material[]
-  exams       Exam[]
-  forumTopics ForumTopic[]
-  sessions    LiveSession[]
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  id            String            @id @default(cuid())
+  courseId      String            @map("course_id")
+  code          String            @unique @db.VarChar(50)
+  name          String            @db.VarChar(200)
+  term          String            @db.VarChar(50)
+  startAt       DateTime          @map("start_at")
+  endAt         DateTime          @map("end_at")
+  capacity      Int
+  status        ClassStatus       @default(DRAFT)
+  closeReason   String?           @map("close_reason") @db.VarChar(500)
+  archivePolicy String?           @map("archive_policy") @db.VarChar(50)
+  closedAt      DateTime?         @map("closed_at")
+  archivedAt    DateTime?         @map("archived_at")
+  course        Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  instructors   ClassInstructor[]
+  enrollments   ClassEnrollment[]
+  materials     Material[]
+  exams         Exam[]
+  forumTopics   ForumTopic[]
+  sessions      LiveSession[]
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   @@index([courseId, status])
   @@index([term])

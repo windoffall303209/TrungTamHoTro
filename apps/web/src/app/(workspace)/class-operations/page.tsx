@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CheckCheck, RotateCcw, UserPlus, UsersRound } from "lucide-react";
+import { CheckCheck, RotateCcw, UserPlus, UsersRound } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -61,16 +61,6 @@ export default function ClassOperationsPage() {
     }
   };
 
-  const close = async (item: LearningClass) => {
-    try {
-      await apiRequest(`/manager/classes/${item.id}/close`, { method: "POST", roleCode: session.roleCode });
-      notify("Đã đóng và lưu trữ lớp.");
-      await load();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không đóng được lớp.", "error");
-    }
-  };
-
   const reviewMaterial = async (item: Material) => {
     try {
       await apiRequest(`/manager/materials/${item.id}/review`, {
@@ -120,7 +110,7 @@ export default function ClassOperationsPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
-      <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt nội dung, phê duyệt đề và kết thúc vòng đời lớp." />
+      <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center gap-3">
@@ -149,7 +139,7 @@ export default function ClassOperationsPage() {
                 <p className="text-sm font-extrabold">{item.code} · {item.name}</p>
                 <p className="mt-1 text-xs text-slate-500">{item.instructorIds.length} giảng viên · {item.learnerIds.length}/{item.capacity} học viên</p>
               </div>
-              <div className="flex items-center gap-2"><StatusBadge status={item.status} />{item.status === "ACTIVE" ? <Button aria-label={`Đóng lớp ${item.code}`} onClick={() => void close(item)} variant="ghost"><Archive size={15} /></Button> : null}</div>
+              <StatusBadge status={item.status} />
             </div>
           ))}
         </div>

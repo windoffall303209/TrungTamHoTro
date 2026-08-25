@@ -8,8 +8,9 @@ export interface LearningCourse {
 export interface LearningClass {
   id: string; courseId: string; code: string; name: string; term: string;
   startAt: string; endAt: string; capacity: number; status: "DRAFT" | "ACTIVE" | "CLOSED";
-  instructorIds: string[]; learnerIds: string[];
+  instructorIds: string[]; learnerIds: string[]; closeReason?: string; archivePolicy?: string; closedAt?: string; archivedAt?: string;
 }
+export interface ClassClosureReadiness { eligible: boolean; blockers: string[]; openExams: number; pendingGrades: number; activeSessions: number; unlockedAttendanceSessions: number; openAppeals: number }
 
 export interface LearningMaterial {
   id: string; classId: string; name: string; mimeType: string; sizeBytes: number;

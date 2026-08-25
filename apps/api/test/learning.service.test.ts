@@ -30,6 +30,23 @@ describe("LearningService", () => {
     await expect(service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).rejects.toThrow(ConflictException);
   });
 
+  it("chặn đóng lớp thiếu điều kiện, lưu trữ chỉ đọc và mở lại có lý do", async () => {
+    const service = new LearningService();
+    const blocked = await service.getClassClosureReadiness("class-web-01");
+    expect(blocked.eligible).toBe(false);
+    expect(blocked.blockers.length).toBeGreaterThan(0);
+
+    const classItem = await service.createClass({ courseId: "course-web", code: "ARCHIVE-01", name: "Lớp đủ điều kiện lưu trữ", term: "2025", startAt: "2025-01-01T00:00:00.000Z", endAt: "2025-02-01T00:00:00.000Z", capacity: 20 });
+    await service.assignInstructor(classItem.id, "usr-instructor");
+    await service.activateClass(classItem.id);
+    expect((await service.getClassClosureReadiness(classItem.id)).eligible).toBe(true);
+    const closed = await service.closeClass(classItem.id, "Đã hoàn tất toàn bộ hoạt động lớp", "STANDARD_RETENTION");
+    expect(closed).toMatchObject({ status: "CLOSED", archivePolicy: "STANDARD_RETENTION" });
+    expect(closed.archivedAt).toBeTruthy();
+    await expect(service.createMaterial(classItem.id, { name: "read-only.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Lưu trữ", tags: [] })).rejects.toThrow("chỉ cho phép đọc");
+    expect((await service.reopenClass(classItem.id, "Mở bổ sung một buổi học")).status).toBe("ACTIVE");
+  });
+
   it("chỉ gắn bản ghi sau khi buổi học kết thúc", async () => {
     const service = new LearningService();
     await expect(service.attachRecording("session-web-01", "https://recording.example/video")).rejects.toThrow(BadRequestException);

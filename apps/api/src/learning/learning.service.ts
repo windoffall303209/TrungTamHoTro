@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -184,12 +184,14 @@ export class LearningService {
       await this.requireUserRole(prisma, instructorId, "INSTRUCTOR", "Người dùng được chọn không phải giảng viên.");
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       await prisma.classInstructor.upsert({
         where: { classId_instructorId: { classId, instructorId } }, update: {}, create: { classId, instructorId },
       });
       return this.getDatabaseClass(prisma, classId);
     }
     const item = this.findClass(classId);
+    if (item.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (!item.instructorIds.includes(instructorId)) item.instructorIds.push(instructorId);
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
@@ -203,6 +205,7 @@ export class LearningService {
           where: { id: classId }, include: { enrollments: { where: { status: "ACTIVE" } } },
         });
         if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+        if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
         if (classItem.enrollments.some((row) => row.learnerId === learnerId)) throw new ConflictException("Học viên đã có trong lớp.");
         if (classItem.enrollments.length >= classItem.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
         await transaction.classEnrollment.upsert({
@@ -214,6 +217,7 @@ export class LearningService {
       });
     }
     const item = this.findClass(classId);
+    if (item.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (item.learnerIds.includes(learnerId)) throw new ConflictException("Học viên đã có trong lớp.");
     if (item.learnerIds.length >= item.capacity) throw new BadRequestException("Lớp đã đủ sĩ số.");
     item.learnerIds.push(learnerId);
@@ -234,18 +238,79 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
-  async closeClass(classId: string): Promise<LearningClass> {
+  async getClassClosureReadiness(classId: string): Promise<ClassClosureReadiness> {
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.learningClass.findUnique({ where: { id: classId } });
       if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
-      if (current.status !== "ACTIVE") throw new BadRequestException("Chỉ lớp đang hoạt động mới có thể đóng.");
-      await prisma.learningClass.update({ where: { id: classId }, data: { status: "CLOSED" } });
+      const [openExams, pendingGrades, activeSessions, unlockedAttendanceSessions, openAppeals] = await prisma.$transaction([
+        prisma.exam.count({ where: { classId, OR: [{ status: "PENDING_REVIEW" }, { status: "PUBLISHED", closeAt: { gt: new Date() } }] } }),
+        prisma.examAttempt.count({ where: { exam: { classId }, status: "SUBMITTED" } }),
+        prisma.liveSession.count({ where: { classId, status: { in: ["SCHEDULED", "LIVE"] } } }),
+        prisma.liveSession.count({ where: { classId, status: "COMPLETED", attendanceLockedAt: null } }),
+        prisma.attendanceAppeal.count({ where: { session: { classId }, status: { in: ["OPEN", "IN_REVIEW"] } } }),
+      ]);
+      return this.buildClassClosureReadiness(current.status, current.endAt, { openExams, pendingGrades, activeSessions, unlockedAttendanceSessions, openAppeals });
+    }
+    const item = this.findClass(classId);
+    const classExams = this.exams.filter((exam) => exam.classId === classId);
+    const classSessions = this.sessions.filter((session) => session.classId === classId);
+    return this.buildClassClosureReadiness(item.status, new Date(item.endAt), {
+      openExams: classExams.filter((exam) => exam.status === "PENDING_REVIEW" || (exam.status === "PUBLISHED" && new Date(exam.closeAt) > new Date())).length,
+      pendingGrades: this.attempts.filter((attempt) => classExams.some((exam) => exam.id === attempt.examId) && attempt.status === "SUBMITTED").length,
+      activeSessions: classSessions.filter((session) => session.status === "SCHEDULED" || session.status === "LIVE").length,
+      unlockedAttendanceSessions: classSessions.filter((session) => session.status === "COMPLETED" && !session.attendanceLockedAt).length,
+      openAppeals: this.attendanceAppeals.filter((appeal) => classSessions.some((session) => session.id === appeal.sessionId) && ["OPEN", "IN_REVIEW"].includes(appeal.status)).length,
+    });
+  }
+
+  async closeClass(classId: string, closeReason: string, archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION", actorId = "usr-manager"): Promise<LearningClass> {
+    const reason = closeReason.trim();
+    if (reason.length < 5) throw new BadRequestException("Lý do đóng lớp cần ít nhất 5 ký tự.");
+    const readiness = await this.getClassClosureReadiness(classId);
+    if (!readiness.eligible) throw new ConflictException(`Chưa thể đóng lớp: ${readiness.blockers.join("; ")}.`);
+    const prisma = this.database();
+    if (prisma) {
+      await prisma.$transaction(async (transaction) => {
+        const updated = await transaction.learningClass.updateMany({ where: { id: classId, status: "ACTIVE" }, data: { status: "CLOSED", closeReason: reason, archivePolicy, closedAt: new Date(), archivedAt: new Date() } });
+        if (updated.count !== 1) throw new ConflictException("Trạng thái lớp đã thay đổi; hãy kiểm tra lại trước khi đóng.");
+        await transaction.auditLog.create({ data: { actorId, action: "CLASS_CLOSE_ARCHIVE", entityType: "learning_class", entityId: classId, context: { closeReason: reason, archivePolicy, eligible: readiness.eligible, blockers: readiness.blockers, openExams: readiness.openExams, pendingGrades: readiness.pendingGrades, activeSessions: readiness.activeSessions, unlockedAttendanceSessions: readiness.unlockedAttendanceSessions, openAppeals: readiness.openAppeals } } });
+        const recipients = await transaction.classEnrollment.findMany({ where: { classId, status: "ACTIVE" }, select: { learnerId: true } });
+        for (const recipient of recipients) await transaction.notification.create({ data: { id: id("notification"), recipientId: recipient.learnerId, type: "CLASS_ARCHIVED", title: "Lớp học đã kết thúc và chuyển sang chỉ đọc", entityType: "CLASS", entityId: classId, dedupKey: `class-archived:${classId}:${recipient.learnerId}` } });
+      });
       return this.getDatabaseClass(prisma, classId);
     }
     const item = this.findClass(classId);
-    if (item.status !== "ACTIVE") throw new BadRequestException("Chỉ lớp đang hoạt động mới có thể đóng.");
     item.status = "CLOSED";
+    item.closeReason = reason;
+    item.archivePolicy = archivePolicy;
+    item.closedAt = now();
+    item.archivedAt = item.closedAt;
+    for (const learnerId of item.learnerIds) this.notifications.unshift({ id: id("notification"), recipientId: learnerId, type: "CLASS_ARCHIVED", title: "Lớp học đã kết thúc và chuyển sang chỉ đọc", entityType: "CLASS", entityId: classId, createdAt: now() });
+    return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+  }
+
+  async reopenClass(classId: string, rawReason: string, actorId = "usr-manager"): Promise<LearningClass> {
+    const reason = rawReason.trim();
+    if (reason.length < 5) throw new BadRequestException("Lý do mở lại lớp cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      await prisma.$transaction(async (transaction) => {
+        const current = await transaction.learningClass.findUnique({ where: { id: classId } });
+        if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
+        if (current.status !== "CLOSED") throw new ConflictException("Chỉ lớp đã đóng mới có thể mở lại.");
+        await transaction.learningClass.update({ where: { id: classId }, data: { status: "ACTIVE", closeReason: null, archivePolicy: null, closedAt: null, archivedAt: null } });
+        await transaction.auditLog.create({ data: { actorId, action: "CLASS_REOPEN", entityType: "learning_class", entityId: classId, context: { reason, previousClosedAt: current.closedAt?.toISOString(), previousArchivePolicy: current.archivePolicy } } });
+      });
+      return this.getDatabaseClass(prisma, classId);
+    }
+    const item = this.findClass(classId);
+    if (item.status !== "CLOSED") throw new ConflictException("Chỉ lớp đã đóng mới có thể mở lại.");
+    item.status = "ACTIVE";
+    item.closeReason = undefined;
+    item.archivePolicy = undefined;
+    item.closedAt = undefined;
+    item.archivedAt = undefined;
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
@@ -324,6 +389,7 @@ export class LearningService {
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       const usage = await prisma.material.aggregate({ _sum: { sizeBytes: true } });
       if ((usage._sum.sizeBytes ?? 0n) + BigInt(input.sizeBytes) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
       const materialId = id("material");
@@ -350,7 +416,7 @@ export class LearningService {
         throw error;
       }
     }
-    this.findClass(classId);
+    if (this.findClass(classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: quarantineReason ? "HIDDEN" : "DRAFT", quarantinedAt: quarantineReason ? now() : undefined, quarantineReason, createdAt: now() };
     if (upload) {
       const stored = await this.storeUpload(classId, item.id, upload, Boolean(quarantineReason));
@@ -456,8 +522,9 @@ export class LearningService {
   async updateMaterial(materialId: string, input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>): Promise<LearningMaterial> {
     const prisma = this.database();
     if (prisma) {
-      const current = await prisma.material.findUnique({ where: { id: materialId } });
+      const current = await prisma.material.findUnique({ where: { id: materialId }, include: { class: true } });
       if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+      if (current.class.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (current.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
       return this.mapMaterial(await prisma.material.update({
         where: { id: materialId },
@@ -466,6 +533,7 @@ export class LearningService {
     }
     const item = this.materials.find((material) => material.id === materialId);
     if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (this.findClass(item.classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (item.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
     Object.assign(item, input);
     item.version += 1;
@@ -651,6 +719,7 @@ export class LearningService {
       return prisma.$transaction(async (transaction) => {
         const classItem = await transaction.learningClass.findUnique({ where: { id: input.classId } });
         if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+        if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
         if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
         const questionCount = await transaction.question.count({ where: { id: { in: input.questionIds } } });
         if (questionCount !== input.questionIds.length) throw new BadRequestException("Danh sách đề chứa câu hỏi không tồn tại.");
@@ -668,7 +737,7 @@ export class LearningService {
         return this.getDatabaseExam(transaction, exam.id);
       });
     }
-    this.findClass(input.classId);
+    if (this.findClass(input.classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT", version: 1 };
     this.exams.unshift(item);
     return { ...item, questionIds: [...item.questionIds] };
@@ -1002,6 +1071,7 @@ export class LearningService {
         where: { id: classId }, include: { enrollments: true, instructors: true },
       });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (authorId === "usr-learner" && !classItem.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp này.");
       if (authorId === "usr-instructor" && !classItem.instructors.some((item) => item.instructorId === authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
       await this.enforceForumPolicy(prisma, authorId, `${safeTitle} ${safeBody}`);
@@ -1013,6 +1083,7 @@ export class LearningService {
       }));
     }
     const classItem = this.findClass(classId);
+    if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (authorId === "usr-learner" && !classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp này.");
     if (authorId === "usr-instructor" && !classItem.instructorIds.includes(authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
     this.enforceMemoryForumPolicy(authorId, `${safeTitle} ${safeBody}`);
@@ -1058,6 +1129,7 @@ export class LearningService {
       const topic = await prisma.forumTopic.findUnique({ where: { id: topicId }, include: { class: { include: { enrollments: true, instructors: true } } } });
       if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
       if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
+      if (topic.class.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (!topic.class.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
       await this.enforceForumPolicy(prisma, authorId, safeBody);
       if (parentId) {
@@ -1114,6 +1186,7 @@ export class LearningService {
     }
     const topic = this.findTopic(topicId);
     if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
+    if (this.findClass(topic.classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     const classItem = this.findClass(topic.classId);
     if (!classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
     this.enforceMemoryForumPolicy(authorId, safeBody);
@@ -1253,6 +1326,7 @@ export class LearningService {
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: true } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (!classItem.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
       const overlaps = await prisma.liveSession.count({
         where: {
@@ -1271,6 +1345,7 @@ export class LearningService {
       }));
     }
     const classItem = this.findClass(classId);
+    if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (!classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
     const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt));
     if (overlaps) throw new ConflictException("Lịch học bị trùng.");
@@ -1865,6 +1940,10 @@ export class LearningService {
       status: row.status,
       instructorIds: row.instructors.map(({ instructorId }) => instructorId),
       learnerIds: row.enrollments.map(({ learnerId }) => learnerId),
+      closeReason: row.closeReason ?? undefined,
+      archivePolicy: row.archivePolicy ?? undefined,
+      closedAt: row.closedAt?.toISOString(),
+      archivedAt: row.archivedAt?.toISOString(),
     };
   }
 
@@ -2085,6 +2164,22 @@ export class LearningService {
   private validateAttendanceMinutes(attendedMinutes: number, startsAt: Date, endsAt: Date): void {
     const maximum = Math.max(0, Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000) + 30);
     if (!Number.isInteger(attendedMinutes) || attendedMinutes < 0 || attendedMinutes > maximum) throw new BadRequestException(`Số phút tham dự phải từ 0 đến ${maximum}.`);
+  }
+
+  private buildClassClosureReadiness(
+    status: LearningClass["status"],
+    endAt: Date,
+    counts: Omit<ClassClosureReadiness, "eligible" | "blockers">,
+  ): ClassClosureReadiness {
+    const blockers: string[] = [];
+    if (status !== "ACTIVE") blockers.push("lớp không ở trạng thái hoạt động");
+    if (endAt > new Date()) blockers.push("chưa đến ngày kết thúc lớp");
+    if (counts.openExams) blockers.push(`${counts.openExams} kỳ thi đang mở hoặc chờ duyệt`);
+    if (counts.pendingGrades) blockers.push(`${counts.pendingGrades} bài nộp chưa chấm`);
+    if (counts.activeSessions) blockers.push(`${counts.activeSessions} buổi học chưa kết thúc`);
+    if (counts.unlockedAttendanceSessions) blockers.push(`${counts.unlockedAttendanceSessions} kỳ điểm danh chưa khóa`);
+    if (counts.openAppeals) blockers.push(`${counts.openAppeals} yêu cầu điểm danh chưa xử lý`);
+    return { eligible: blockers.length === 0, blockers, ...counts };
   }
 
   private fileReviewAction(value: string): FileReviewRecord["action"] {

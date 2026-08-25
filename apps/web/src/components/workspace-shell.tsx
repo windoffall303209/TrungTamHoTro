@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, Database, FileQuestion,
+  Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, Database, FileQuestion,
   GraduationCap, Headphones, History, LayoutDashboard, ListChecks, Menu, MessageSquareText, Presentation, Settings,
   ShieldCheck, ShieldEllipsis, UserCheck, Users, X,
 } from "lucide-react";
@@ -29,6 +29,7 @@ const navItems = [
   { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, roles: ["CENTER_MANAGER", "INSTRUCTOR"] },
   { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, roles: ["CENTER_MANAGER"] },
   { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, roles: ["CENTER_MANAGER"] },
+  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, roles: ["CENTER_MANAGER"] },
   { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, roles: ["INSTRUCTOR"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, roles: roleOptions.map((role) => role.code) },

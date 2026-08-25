@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Param, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { AssignUserDto, CreateClassDto, CreateCourseDto } from "./learning.dto.js";
+import { AssignUserDto, CloseClassDto, CreateClassDto, CreateCourseDto, ReopenClassDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { LearningClass, LearningCourse } from "./learning.types.js";
 
@@ -41,5 +41,11 @@ export class CourseController {
   activateClass(@Param("classId") classId: string): Promise<LearningClass> { return this.learning.activateClass(classId); }
 
   @Post("manager/classes/:classId/close") @RequirePermissions("class:manage")
-  closeClass(@Param("classId") classId: string): Promise<LearningClass> { return this.learning.closeClass(classId); }
+  closeClass(@Param("classId") classId: string, @Body() input: CloseClassDto): Promise<LearningClass> { return this.learning.closeClass(classId, input.closeReason, input.archivePolicy); }
+
+  @Get("manager/classes/:classId/closure-readiness") @RequirePermissions("class:manage")
+  getClassClosureReadiness(@Param("classId") classId: string): Promise<object> { return this.learning.getClassClosureReadiness(classId); }
+
+  @Post("manager/classes/:classId/reopen") @RequirePermissions("class:manage")
+  reopenClass(@Param("classId") classId: string, @Body() input: ReopenClassDto): Promise<LearningClass> { return this.learning.reopenClass(classId, input.reason); }
 }
