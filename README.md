@@ -68,6 +68,13 @@ pnpm dev
 
 Mặc định `DATABASE_CONNECT_ON_START=false`, vì vậy API có thể khởi động trước khi điền mật khẩu. Chuyển thành `true` sau khi `db:deploy` và `db:seed` thành công.
 
+## Chế độ lưu dữ liệu
+
+- `DATABASE_CONNECT_ON_START=false`: API dùng dữ liệu mẫu trong bộ nhớ để phát triển giao diện và chạy kiểm thử; thay đổi sẽ mất khi khởi động lại.
+- `DATABASE_CONNECT_ON_START=true`: toàn bộ định danh, khóa học, lớp, học liệu, đánh giá, diễn đàn, lớp trực tuyến, hỗ trợ, báo cáo và cấu hình vận hành đọc/ghi qua Prisma/MySQL.
+
+Không bật chế độ MySQL trước khi `pnpm db:deploy` và `pnpm db:seed` đều thành công. Health overview sẽ trả trạng thái `degraded` khi kết nối database bị tắt, tránh báo xanh sai trạng thái.
+
 ## Kiểm tra chất lượng
 
 ```powershell
