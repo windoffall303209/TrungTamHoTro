@@ -29,6 +29,22 @@ describe("SystemService", () => {
     await expect(service.sendTemplateTest(second.id, "admin@wind.edu.vn", {})).rejects.toThrow("Chưa cung cấp biến");
   });
 
+  it("chỉ bật provider sau health check và tạo phòng thử bằng provider mặc định", async () => {
+    const service = new SystemService();
+    await expect(service.configureIntegration({ provider: "GOOGLE_MEET" })).rejects.toThrow("credential");
+    const configured = await service.configureIntegration({ provider: "GOOGLE_MEET", credentialReference: "vault://meeting/google", webhookUrl: "https://hooks.wind.edu.vn/meet" });
+    expect(configured.maskedCredential).toBe("••••••••");
+    expect(JSON.stringify(configured)).not.toContain("vault://meeting/google");
+    await expect(service.updateIntegration(configured.id, true)).rejects.toThrow("health check");
+    expect((await service.testIntegration(configured.id)).healthStatus).toBe("HEALTHY");
+    expect((await service.updateIntegration(configured.id, true)).enabled).toBe(true);
+    expect((await service.setDefaultIntegration(configured.id)).isDefault).toBe(true);
+    const room = await service.createTestMeeting(configured.id);
+    expect(room.provider).toBe("GOOGLE_MEET");
+    expect(room.attendeeUrl).not.toContain("vault");
+    await expect(service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom", webhookUrl: "http://unsafe.local" })).rejects.toThrow("HTTPS");
+  });
+
   it("tăng phiên bản chính sách kiểm duyệt và chuẩn hóa từ khóa", async () => {
     const service = new SystemService();
     const policy = await service.updateModerationPolicy({ prohibitedTerms: [" Spam ", "spam", "Lừa đảo"], maxPostsPerMinute: 4, action: "FLAG" });

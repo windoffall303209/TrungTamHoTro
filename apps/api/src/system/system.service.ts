@@ -5,7 +5,7 @@ import { PrismaService } from "../database/prisma.service.js";
 
 export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; updatedAt: string }
 export interface StorageOverview { quotaBytes: number; usedBytes: number; usagePercent: number; maxFileSizeMb: number; allowedMimeTypes: string[]; byClass: Array<{ classId: string; classCode: string; className: string; fileCount: number; usedBytes: number }> }
-export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; maskedCredential: string; updatedAt: string }
+export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; maskedCredential: string; webhookConfigured: boolean; lastCheckedAt?: string; updatedAt: string }
 export interface BackupRun { id: string; type: "FULL" | "INCREMENTAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; createdAt: string; checksum: string; sizeMb: number }
 export interface AuditEvent { id: string; actor: string; action: string; target: string; detail: string; createdAt: string }
 export interface RestoreRun { id: string; backupId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; approvedBy: string; createdAt: string; verification: string }
@@ -39,7 +39,7 @@ const defaultSettings = (): SystemSettings => ({
 @Injectable()
 export class SystemService {
   private settings: SystemSettings = defaultSettings();
-  private integrations: IntegrationConfig[] = ["GOOGLE_MEET", "ZOOM", "JITSI"].map((provider, index) => ({ id: `int-${index + 1}`, provider: provider as IntegrationConfig["provider"], enabled: provider !== "ZOOM", maskedCredential: provider === "JITSI" ? "Không yêu cầu" : "••••••••", updatedAt: new Date().toISOString() }));
+  private integrations: IntegrationConfig[] = ["GOOGLE_MEET", "ZOOM", "JITSI"].map((provider, index) => ({ id: `int-${index + 1}`, provider: provider as IntegrationConfig["provider"], enabled: provider === "JITSI", isDefault: provider === "JITSI", healthStatus: provider === "JITSI" ? "HEALTHY" : "UNKNOWN", maskedCredential: provider === "JITSI" ? "Không yêu cầu" : "Chưa cấu hình", webhookConfigured: false, lastCheckedAt: provider === "JITSI" ? new Date().toISOString() : undefined, updatedAt: new Date().toISOString() }));
   private backups: BackupRun[] = [{ id: "backup-seed", type: "FULL", status: "COMPLETED", createdAt: new Date(Date.now() - 86_400_000).toISOString(), checksum: "sha256:9e151f", sizeMb: 18.4 }];
   private restores: RestoreRun[] = [];
   private exports: DataExport[] = [];
@@ -96,18 +96,91 @@ export class SystemService {
     if (prisma) {
       const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
       if (!current) throw new NotFoundException("Không tìm thấy tích hợp.");
+      if (enabled && current.healthStatus !== "HEALTHY") throw new BadRequestException("Cần health check thành công trước khi bật tích hợp.");
       return prisma.$transaction(async (transaction) => {
-        const row = await transaction.integrationProvider.update({ where: { id: integrationId }, data: { enabled } });
+        const row = await transaction.integrationProvider.update({ where: { id: integrationId }, data: { enabled, isDefault: enabled ? current.isDefault : false } });
         await this.logDatabase(transaction, "INTEGRATION_UPDATED", row.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
         return this.mapIntegration(row);
       });
     }
     const item = this.integrations.find((entry) => entry.id === integrationId);
     if (!item) throw new NotFoundException("Không tìm thấy tích hợp.");
+    if (enabled && item.healthStatus !== "HEALTHY") throw new BadRequestException("Cần health check thành công trước khi bật tích hợp.");
     item.enabled = enabled;
+    if (!enabled) item.isDefault = false;
     item.updatedAt = new Date().toISOString();
     this.log("INTEGRATION_UPDATED", item.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
     return structuredClone(item);
+  }
+
+  async configureIntegration(input: { provider: IntegrationConfig["provider"]; credentialReference?: string; webhookUrl?: string }): Promise<IntegrationConfig> {
+    const credentialReference = input.credentialReference?.trim();
+    if (input.provider !== "JITSI" && !credentialReference) throw new BadRequestException("Provider này cần tham chiếu credential trong kho bí mật.");
+    if (input.webhookUrl && !/^https:\/\//i.test(input.webhookUrl)) throw new BadRequestException("Webhook phải sử dụng HTTPS.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const row = await transaction.integrationProvider.upsert({
+          where: { provider: input.provider },
+          update: { credentialRef: credentialReference, webhookUrl: input.webhookUrl?.trim() || null, isDefault: false, healthStatus: "UNKNOWN", enabled: false },
+          create: { id: `integration-${randomUUID()}`, provider: input.provider, credentialRef: credentialReference, webhookUrl: input.webhookUrl?.trim() || null },
+        });
+        await this.logDatabase(transaction, "INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
+        return this.mapIntegration(row);
+      });
+    }
+    let item = this.integrations.find((entry) => entry.provider === input.provider);
+    if (!item) {
+      item = { id: `integration-${randomUUID()}`, provider: input.provider, enabled: false, isDefault: false, healthStatus: "UNKNOWN", maskedCredential: input.provider === "JITSI" ? "Không yêu cầu" : "••••••••", webhookConfigured: Boolean(input.webhookUrl), updatedAt: new Date().toISOString() };
+      this.integrations.push(item);
+    }
+    Object.assign(item, { enabled: false, isDefault: false, healthStatus: "UNKNOWN", maskedCredential: input.provider === "JITSI" ? "Không yêu cầu" : "••••••••", webhookConfigured: Boolean(input.webhookUrl), lastCheckedAt: undefined, updatedAt: new Date().toISOString() });
+    this.log("INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
+    return structuredClone(item);
+  }
+
+  async testIntegration(integrationId: string): Promise<IntegrationConfig> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
+      if (!current) throw new NotFoundException("Không tìm thấy tích hợp.");
+      const healthy = current.provider === "JITSI" || Boolean(current.credentialRef);
+      const row = await prisma.integrationProvider.update({ where: { id: integrationId }, data: { healthStatus: healthy ? "HEALTHY" : "ERROR", lastCheckedAt: new Date() } });
+      if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
+      return this.mapIntegration(row);
+    }
+    const item = this.integrations.find((entry) => entry.id === integrationId);
+    if (!item) throw new NotFoundException("Không tìm thấy tích hợp.");
+    const healthy = item.provider === "JITSI" || item.maskedCredential === "••••••••";
+    item.healthStatus = healthy ? "HEALTHY" : "ERROR";
+    item.lastCheckedAt = new Date().toISOString();
+    item.updatedAt = item.lastCheckedAt;
+    if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
+    return structuredClone(item);
+  }
+
+  async setDefaultIntegration(integrationId: string): Promise<IntegrationConfig> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
+      if (!current || !current.enabled || current.healthStatus !== "HEALTHY") throw new BadRequestException("Chỉ provider đang bật và khỏe mạnh mới được đặt mặc định.");
+      return prisma.$transaction(async (transaction) => {
+        await transaction.integrationProvider.updateMany({ data: { isDefault: false } });
+        return this.mapIntegration(await transaction.integrationProvider.update({ where: { id: integrationId }, data: { isDefault: true } }));
+      });
+    }
+    const item = this.integrations.find((entry) => entry.id === integrationId);
+    if (!item || !item.enabled || item.healthStatus !== "HEALTHY") throw new BadRequestException("Chỉ provider đang bật và khỏe mạnh mới được đặt mặc định.");
+    for (const integration of this.integrations) integration.isDefault = integration.id === integrationId;
+    return structuredClone(item);
+  }
+
+  async createTestMeeting(integrationId: string): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
+    const integrations = await this.listIntegrations();
+    const item = integrations.find((entry) => entry.id === integrationId);
+    if (!item || !item.enabled || !item.isDefault || item.healthStatus !== "HEALTHY") throw new BadRequestException("Provider mặc định chưa sẵn sàng để tạo phòng thử.");
+    const roomId = `wind-test-${randomUUID()}`;
+    return { provider: item.provider, attendeeUrl: item.provider === "JITSI" ? `https://meet.jit.si/${roomId}` : `https://meeting.local/${item.provider.toLowerCase()}/${roomId}`, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
   }
 
   async listBackups(): Promise<BackupRun[]> {
@@ -383,7 +456,8 @@ export class SystemService {
 
   private mapIntegration(row: Prisma.IntegrationProviderGetPayload<Record<string, never>>): IntegrationConfig {
     if (!this.isProvider(row.provider)) throw new BadRequestException(`Nhà cung cấp ${row.provider} không được hỗ trợ.`);
-    return { id: row.id, provider: row.provider, enabled: row.enabled, maskedCredential: row.provider === "JITSI" ? "Không yêu cầu" : row.credentialRef ? "••••••••" : "Chưa cấu hình", updatedAt: row.updatedAt.toISOString() };
+    const healthStatus = row.healthStatus === "HEALTHY" || row.healthStatus === "ERROR" ? row.healthStatus : "UNKNOWN";
+    return { id: row.id, provider: row.provider, enabled: row.enabled, isDefault: row.isDefault, healthStatus, maskedCredential: row.provider === "JITSI" ? "Không yêu cầu" : row.credentialRef ? "••••••••" : "Chưa cấu hình", webhookConfigured: Boolean(row.webhookUrl), lastCheckedAt: row.lastCheckedAt?.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   private mapBackup(row: Prisma.BackupJobGetPayload<Record<string, never>>): BackupRun {
