@@ -90,6 +90,8 @@ export interface AttendanceAppeal { id: string; sessionId: string; learnerId: st
 export interface SupportTicket {
   id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3";
   description: string; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
-  assigneeId?: string; resolution?: string; dueAt: string; createdAt: string;
+  contextId?: string; duplicateOfId?: string; assigneeId?: string; resolution?: string; dueAt: string; createdAt: string;
+  attachments: SupportAttachment[];
 }
+export interface SupportAttachment { id: string; ticketId: string; name: string; mimeType: string; sizeBytes: number; checksum: string; createdAt: string }
 export interface TicketComment { id: string; ticketId: string; authorId: string; body: string; createdAt: string }

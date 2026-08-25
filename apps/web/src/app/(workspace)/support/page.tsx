@@ -1,36 +1,42 @@
 "use client";
 
-import { CheckCheck, LifeBuoy, MessageSquare, Plus, Send } from "lucide-react";
+import { CheckCheck, LifeBuoy, MessageSquare, Paperclip, Plus, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
-import type { Ticket, TicketComment } from "@/lib/learning-types";
+import type { LearningNotification, Ticket, TicketComment } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 export default function SupportPage() {
   const { session, notify } = useApp();
   const admin = session.roleCode === "SYSTEM_ADMIN";
   const [items, setItems] = useState<Ticket[]>([]);
+  const [alerts, setAlerts] = useState<LearningNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [comments, setComments] = useState<TicketComment[]>([]);
   const [commentBody, setCommentBody] = useState("");
+  const [evidence, setEvidence] = useState<File | null>(null);
   const [form, setForm] = useState({
     category: "TECHNICAL",
     severity: "P2",
+    contextId: "",
     description: "",
   });
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setItems(
-        await apiRequest<Ticket[]>("/support/tickets", {
+      const [tickets, notifications] = await Promise.all([
+        apiRequest<Ticket[]>("/support/tickets", {
           roleCode: session.roleCode,
         }),
-      );
+        admin ? apiRequest<LearningNotification[]>("/notifications", { roleCode: session.roleCode }) : Promise.resolve([]),
+      ]);
+      setItems(tickets);
+      setAlerts(notifications.filter((item) => item.type === "SUPPORT_P0"));
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tải được yêu cầu.",
@@ -39,7 +45,7 @@ export default function SupportPage() {
     } finally {
       setLoading(false);
     }
-  }, [notify, session.roleCode]);
+  }, [admin, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -47,14 +53,24 @@ export default function SupportPage() {
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await apiRequest("/support/tickets", {
+      const ticket = await apiRequest<Ticket>("/support/tickets", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify(form),
       });
+      if (evidence) {
+        const body = new FormData();
+        body.append("file", evidence);
+        await apiRequest(`/support/tickets/${ticket.id}/attachments`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body,
+        });
+      }
       notify("Đã gửi yêu cầu hỗ trợ.");
       setOpen(false);
-      setForm({ ...form, description: "" });
+      setForm({ category: "TECHNICAL", severity: "P2", contextId: "", description: "" });
+      setEvidence(null);
       await load();
     } catch (error) {
       notify(
@@ -119,6 +135,11 @@ export default function SupportPage() {
           ) : undefined
         }
       />
+      {admin && alerts.some((item) => !item.readAt) ? (
+        <div className="mb-6 border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+          {alerts.filter((item) => !item.readAt).length} cảnh báo P0 chưa đọc · {alerts.find((item) => !item.readAt)?.title}
+        </div>
+      ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-3">
           {items.map((item) => (
@@ -141,6 +162,17 @@ export default function SupportPage() {
                 <p className="mt-2 text-sm font-semibold leading-6">
                   {item.description}
                 </p>
+                {item.contextId ? <p className="mt-1 text-xs text-slate-500">Ngữ cảnh: {item.contextId}</p> : null}
+                {item.duplicateOfId ? <p className="mt-1 text-xs font-bold text-amber-700">Liên kết sự cố trùng: {item.duplicateOfId}</p> : null}
+                {item.attachments.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {item.attachments.map((attachment) => (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600" key={attachment.id}>
+                        <Paperclip size={12} />{attachment.name} · {(attachment.sizeBytes / 1024).toFixed(1)} KB
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {item.resolution ? (
                   <p className="mt-2 text-xs text-emerald-700">
                     Kết quả: {item.resolution}
@@ -192,6 +224,15 @@ export default function SupportPage() {
               </select>
             </Field>
           </div>
+          <Field label="Mã lớp / chức năng liên quan">
+            <input
+              className={inputClass}
+              maxLength={191}
+              placeholder="Ví dụ: class-web-01 hoặc exam-mid-web"
+              value={form.contextId}
+              onChange={(event) => setForm({ ...form, contextId: event.target.value })}
+            />
+          </Field>
           <Field label="Mô tả chi tiết">
             <textarea
               className={inputClass}
@@ -202,6 +243,14 @@ export default function SupportPage() {
               onChange={(e) =>
                 setForm({ ...form, description: e.target.value })
               }
+            />
+          </Field>
+          <Field label="Bằng chứng (PDF, PNG, JPEG hoặc TXT; tối đa 10 MB)">
+            <input
+              accept="application/pdf,image/png,image/jpeg,text/plain"
+              className={inputClass}
+              onChange={(event) => setEvidence(event.target.files?.[0] ?? null)}
+              type="file"
             />
           </Field>
           <Button type="submit">Gửi yêu cầu</Button>

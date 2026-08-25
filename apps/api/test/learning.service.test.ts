@@ -233,6 +233,33 @@ describe("LearningService", () => {
     await expect(service.updateTicket(ticket.id, { status: "RESOLVED" })).rejects.toThrow(BadRequestException);
   });
 
+  it("chặn bí mật và lưu bằng chứng hỗ trợ có checksum", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "wind-support-"));
+    const config = { get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT" ? storageRoot : undefined } as unknown as ConfigService<Environment, true>;
+    const service = new LearningService(undefined, config);
+    try {
+      await expect(service.createTicket({ category: "ACCOUNT", severity: "P1", description: "Không đăng nhập được, password=MatKhauBiMat123" })).rejects.toThrow("dữ liệu nhạy cảm");
+      const ticket = await service.createTicket({ category: "TECHNICAL", severity: "P2", contextId: "class-web-01", description: "Màn hình lớp học hiển thị lỗi khi mở" });
+      const bytes = Buffer.from("Anh chup va mo ta loi khong chua du lieu bi mat");
+      const attachment = await service.addSupportAttachment(ticket.id, { originalName: "bang-chung.txt", mimeType: "text/plain", size: bytes.length, buffer: bytes }, "LEARNER");
+      expect(attachment.checksum).toMatch(/^sha256:/);
+      expect((await service.listTickets("LEARNER"))[0]?.attachments).toHaveLength(1);
+      await expect(service.addSupportAttachment(ticket.id, { originalName: "malware.exe", mimeType: "application/octet-stream", size: 3, buffer: Buffer.from("abc") }, "LEARNER")).rejects.toThrow(BadRequestException);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("cảnh báo P0 ngay và liên kết ticket trùng trong 24 giờ", async () => {
+    const service = new LearningService();
+    const first = await service.createTicket({ category: "LIVE_CLASS", severity: "P0", contextId: "session-web-01", description: "Toàn bộ học viên không thể vào phòng học" });
+    const duplicate = await service.createTicket({ category: "LIVE_CLASS", severity: "P0", contextId: "session-web-01", description: "Sự cố vẫn tiếp tục xảy ra với cả lớp" });
+    expect(duplicate.duplicateOfId).toBe(first.id);
+    const alerts = await service.listRoleNotifications("SYSTEM_ADMIN");
+    expect(alerts).toHaveLength(2);
+    expect(alerts.every((item) => item.type === "SUPPORT_P0")).toBe(true);
+  });
+
   it("cấp bản ghi có chữ ký và quản lý appeal điểm danh", async () => {
     vi.useFakeTimers();
     try {
