@@ -37,7 +37,9 @@ export interface LearningExam {
   id: string; classId: string; title: string; questionIds: string[]; durationMinutes: number;
   totalScore: number; openAt: string; closeAt: string; attemptLimit: number;
   status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED"; version: number;
+  shuffleQuestions?: boolean; randomSeed?: string;
 }
+export interface GradeHistoryRecord { id: string; attemptId: string; graderId: string; previousScore?: number; nextScore: number; reason: string; createdAt: string }
 export interface ExamApprovalRecord { id: string; examId: string; reviewerId: string; examVersion: number; decision: "APPROVE" | "RETURN"; reviewNote?: string; createdAt: string }
 
 export interface LearnerExamSummary extends LearningExam {

@@ -24,6 +24,8 @@ const blank = {
   openAt: "",
   closeAt: "",
   attemptLimit: 1,
+  shuffleQuestions: false,
+  randomSeed: "wind-exam-2026",
 };
 interface LearnerExam extends Exam {
   questionCount?: number;
@@ -523,6 +525,8 @@ export default function ExamsPage() {
               />
             </Field>
           </div>
+          <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input checked={form.shuffleQuestions} onChange={(event) => setForm({ ...form, shuffleQuestions: event.target.checked })} type="checkbox" />Xáo thứ tự câu hỏi theo seed có thể tái lập</label>
+          {form.shuffleQuestions ? <Field label="Random seed"><input className={inputClass} minLength={3} required value={form.randomSeed} onChange={(event) => setForm({ ...form, randomSeed: event.target.value })} /></Field> : null}
           <Button
             disabled={form.questionIds.length === 0}
             loading={saving}

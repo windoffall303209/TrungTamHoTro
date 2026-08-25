@@ -35,6 +35,7 @@ export interface Exam {
   id: string; classId: string; title: string; questionIds: string[]; durationMinutes: number;
   totalScore: number; openAt: string; closeAt: string; attemptLimit: number;
   status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED"; version: number;
+  shuffleQuestions?: boolean; randomSeed?: string;
 }
 
 export interface ExamAttempt {

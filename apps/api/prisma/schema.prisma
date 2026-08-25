@@ -472,6 +472,8 @@ model Exam {
   openAt          DateTime       @map("open_at")
   closeAt         DateTime       @map("close_at")
   attemptLimit    Int            @default(1) @map("attempt_limit")
+  shuffleQuestions Boolean       @default(false) @map("shuffle_questions")
+  randomSeed      String?        @map("random_seed") @db.VarChar(100)
   status          ExamStatus     @default(DRAFT)
   version         Int            @default(1)
   class           LearningClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
@@ -529,10 +531,25 @@ model ExamAttempt {
   learner          User             @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
   answers          AttemptAnswer[]
   regradeRequests  RegradeRequest[]
+  gradeHistory     GradeHistory[]
 
   @@unique([examId, learnerId, attemptNo])
   @@index([learnerId, status])
   @@map("exam_attempts")
+}
+
+model GradeHistory {
+  id            String      @id @default(cuid())
+  attemptId     String      @map("attempt_id")
+  graderId      String      @map("grader_id") @db.VarChar(191)
+  previousScore Decimal?    @map("previous_score") @db.Decimal(8, 2)
+  nextScore     Decimal     @map("next_score") @db.Decimal(8, 2)
+  reason        String      @db.Text
+  attempt       ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@index([attemptId, createdAt])
+  @@map("grade_history")
 }
 
 model RegradeRequest {
