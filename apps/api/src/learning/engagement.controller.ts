@@ -41,7 +41,7 @@ export class EngagementController {
   resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.status, input.resolution); }
 
   @Get("sessions") @RequirePermissions("session:view")
-  listSessions(): Promise<LiveSession[]> { return this.learning.listSessions(); }
+  listSessions(@Headers("x-role-code") role = "LEARNER"): Promise<LiveSession[]> { return this.learning.listSessions(role); }
 
   @Post("instructor/classes/:classId/sessions") @RequirePermissions("session:manage")
   createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto): Promise<LiveSession> { return this.learning.createSession(classId, input); }
@@ -51,6 +51,9 @@ export class EngagementController {
 
   @Post("learner/sessions/:sessionId/join") @RequirePermissions("session:view")
   joinSession(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.joinSession(sessionId); }
+
+  @Post("learner/sessions/:sessionId/leave") @RequirePermissions("session:view")
+  leaveSession(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.leaveSession(sessionId); }
 
   @Patch("instructor/sessions/:sessionId/attendance") @RequirePermissions("session:manage")
   updateAttendance(@Param("sessionId") sessionId: string, @Body() input: UpdateAttendanceDto): Promise<object> { return this.learning.updateAttendance(sessionId, input.learnerId, input.status, input.attendedMinutes, input.adjustmentReason); }
