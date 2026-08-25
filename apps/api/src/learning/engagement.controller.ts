@@ -3,8 +3,8 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
-  AppealReportDto, AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
-  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateProgressInterventionDto, UpdateTicketDto,
+  AppealReportDto, AttachRecordingDto, CancelSessionDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
+  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { ClassProgressReport, ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
@@ -75,6 +75,15 @@ export class EngagementController {
 
   @Post("instructor/classes/:classId/sessions") @RequirePermissions("session:manage")
   createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto): Promise<LiveSession> { return this.learning.createSession(classId, input); }
+
+  @Post("manager/classes/:classId/sessions") @RequirePermissions("class:manage")
+  createManagerSession(@Param("classId") classId: string, @Body() input: CreateSessionDto): Promise<LiveSession> { return this.learning.createSession(classId, input, "usr-manager"); }
+
+  @Patch("manager/sessions/:sessionId") @RequirePermissions("class:manage")
+  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto): Promise<LiveSession> { return this.learning.updateSession(sessionId, input); }
+
+  @Post("manager/sessions/:sessionId/cancel") @RequirePermissions("class:manage")
+  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason); }
 
   @Patch("instructor/sessions/:sessionId/status") @RequirePermissions("session:manage")
   transitionSession(@Param("sessionId") sessionId: string, @Body() input: TransitionSessionDto): Promise<LiveSession> { return this.learning.transitionSession(sessionId, input.status); }

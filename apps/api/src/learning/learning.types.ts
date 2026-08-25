@@ -12,6 +12,11 @@ export interface LearningClass {
   instructorIds: string[]; learnerIds: string[]; closeReason?: string; archivePolicy?: string; closedAt?: string; archivedAt?: string;
 }
 export interface ClassClosureReadiness { eligible: boolean; blockers: string[]; openExams: number; pendingGrades: number; activeSessions: number; unlockedAttendanceSessions: number; openAppeals: number }
+export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
+export interface ClassInstructorAssignment { instructorId: string; role: InstructorRole; assignedAt: string }
+export interface ClassMemberHistory { id: string; memberId: string; memberType: "INSTRUCTOR" | "LEARNER"; action: string; role?: InstructorRole; source?: string; reason?: string; actorId: string; createdAt: string }
+export interface ClassRoster { classId: string; instructors: ClassInstructorAssignment[]; enrollments: Array<{ learnerId: string; status: "ACTIVE" | "CANCELLED"; source: string; joinedAt: string; removalReason?: string; removedAt?: string }>; history: ClassMemberHistory[] }
+export interface EnrollmentImportResult { userId: string; status: "ENROLLED" | "SKIPPED" | "FAILED"; message: string }
 
 export interface LearningMaterial {
   id: string; classId: string; name: string; mimeType: string; sizeBytes: number;
@@ -102,7 +107,7 @@ export interface ReportExport { id: string; reportRunId: string; format: "CSV"; 
 export interface LiveSession {
   id: string; classId: string; title: string; startsAt: string; endsAt: string;
   provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
-  hostUrl: string; attendeeUrl: string; recordingUrl?: string; attendanceLockedAt?: string; attendanceLockedById?: string;
+  hostUrl: string; attendeeUrl: string; recordingUrl?: string; timezone: string; changeReason?: string; cancellationReason?: string; attendanceLockedAt?: string; attendanceLockedById?: string;
 }
 
 export interface AttendanceRecord {

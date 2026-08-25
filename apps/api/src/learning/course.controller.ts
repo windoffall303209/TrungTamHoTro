@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { ArchiveCourseDto, AssignUserDto, CloseClassDto, CreateClassDto, CreateCourseDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
+import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, RemoveMemberDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { CourseVersionSnapshot, LearningClass, LearningCourse } from "./learning.types.js";
+import type { ClassRoster, CourseVersionSnapshot, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
 
 @ApiTags("Course & Class")
 @Controller()
@@ -41,10 +41,22 @@ export class CourseController {
   createClass(@Body() input: CreateClassDto): Promise<LearningClass> { return this.learning.createClass(input); }
 
   @Post("manager/classes/:classId/instructors") @RequirePermissions("class:manage")
-  assignInstructor(@Param("classId") classId: string, @Body() input: AssignUserDto): Promise<LearningClass> { return this.learning.assignInstructor(classId, input.userId); }
+  assignInstructor(@Param("classId") classId: string, @Body() input: AssignInstructorDto): Promise<LearningClass> { return this.learning.assignInstructor(classId, input.userId, input.role); }
+
+  @Patch("manager/classes/:classId/instructors/:instructorId/remove") @RequirePermissions("class:manage")
+  removeInstructor(@Param("classId") classId: string, @Param("instructorId") instructorId: string, @Body() input: RemoveMemberDto): Promise<LearningClass> { return this.learning.removeInstructor(classId, instructorId, input.reason); }
 
   @Post("manager/classes/:classId/enrollments") @RequirePermissions("class:manage")
   enrollLearner(@Param("classId") classId: string, @Body() input: AssignUserDto): Promise<LearningClass> { return this.learning.enrollLearner(classId, input.userId); }
+
+  @Post("manager/classes/:classId/enrollments/import") @RequirePermissions("class:manage")
+  importEnrollments(@Param("classId") classId: string, @Body() input: BulkEnrollmentDto): Promise<EnrollmentImportResult[]> { return this.learning.importEnrollments(classId, input.userIds); }
+
+  @Patch("manager/classes/:classId/enrollments/:learnerId/remove") @RequirePermissions("class:manage")
+  removeEnrollment(@Param("classId") classId: string, @Param("learnerId") learnerId: string, @Body() input: RemoveMemberDto): Promise<LearningClass> { return this.learning.removeEnrollment(classId, learnerId, input.reason); }
+
+  @Get("manager/classes/:classId/roster") @RequirePermissions("class:manage")
+  getClassRoster(@Param("classId") classId: string): Promise<ClassRoster> { return this.learning.getClassRoster(classId); }
 
   @Post("manager/classes/:classId/activate") @RequirePermissions("class:manage")
   activateClass(@Param("classId") classId: string): Promise<LearningClass> { return this.learning.activateClass(classId); }

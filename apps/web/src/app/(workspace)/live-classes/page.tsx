@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, ExternalLink, Radio, Video } from "lucide-react";
+import { CalendarPlus, ExternalLink, Pencil, Radio, Trash2, Video } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -12,11 +12,13 @@ import { useApp } from "@/providers/app-provider";
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
   const instructor = session.roleCode === "INSTRUCTOR";
+  const manager = session.roleCode === "CENTER_MANAGER";
   const learner = session.roleCode === "LEARNER";
   const [items, setItems] = useState<LiveSession[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<LiveSession | null>(null);
   const [joinedSessionId, setJoinedSessionId] = useState<string | null>(null);
   const [form, setForm] = useState({
     classId: "",
@@ -24,6 +26,7 @@ export default function LiveClassesPage() {
     startsAt: "",
     endsAt: "",
     provider: "GOOGLE_MEET",
+    reason: "",
   });
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,7 +57,7 @@ export default function LiveClassesPage() {
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await apiRequest(`/instructor/classes/${form.classId}/sessions`, {
+      await apiRequest(manager ? `/manager/classes/${form.classId}/sessions` : `/instructor/classes/${form.classId}/sessions`, {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
@@ -74,6 +77,9 @@ export default function LiveClassesPage() {
       );
     }
   };
+  const openEdit = (item: LiveSession) => { setEditing(item); setForm({ classId: item.classId, title: item.title, startsAt: new Date(item.startsAt).toISOString().slice(0, 16), endsAt: new Date(item.endsAt).toISOString().slice(0, 16), provider: item.provider, reason: "" }); setOpen(true); };
+  const update = async (event: React.FormEvent) => { event.preventDefault(); if (!editing) return; try { await apiRequest(`/manager/sessions/${editing.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ title: form.title, startsAt: new Date(form.startsAt).toISOString(), endsAt: new Date(form.endsAt).toISOString(), provider: form.provider, reason: form.reason }) }); notify("Đã đổi lịch và gửi thông báo cho lớp."); setOpen(false); setEditing(null); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không đổi được lịch.", "error"); } };
+  const cancel = async (item: LiveSession) => { const reason = window.prompt("Lý do hủy buổi học"); if (!reason) return; try { await apiRequest(`/manager/sessions/${item.id}/cancel`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason }) }); notify("Đã hủy buổi học và gửi thông báo."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không hủy được buổi học.", "error"); } };
   const transition = async (
     item: LiveSession,
     status: "LIVE" | "COMPLETED" | "CANCELLED",
@@ -125,8 +131,8 @@ export default function LiveClassesPage() {
         title="Lớp học online"
         description="Lập lịch, mở phòng, điểm danh và gắn bản ghi sau buổi học."
         actions={
-          instructor ? (
-            <Button onClick={() => setOpen(true)}>
+          instructor || manager ? (
+            <Button onClick={() => { setEditing(null); setForm({ classId: classes[0]?.id ?? "", title: "", startsAt: "", endsAt: "", provider: "GOOGLE_MEET", reason: "" }); setOpen(true); }}>
               <CalendarPlus size={17} />
               Lên lịch
             </Button>
@@ -163,6 +169,7 @@ export default function LiveClassesPage() {
                     minute: "2-digit",
                   })}{" "}
                   · {item.provider.replace("_", " ")}
+                  {item.timezone ? ` · ${item.timezone}` : ""}
                 </p>
                 {item.recordingUrl ? (
                   <a
@@ -190,6 +197,7 @@ export default function LiveClassesPage() {
                     Kết thúc
                   </Button>
                 ) : null}
+                {manager && item.status === "SCHEDULED" && new Date(item.startsAt) > new Date() ? <><Button onClick={() => openEdit(item)} variant="secondary"><Pencil size={15} />Đổi lịch</Button><Button onClick={() => void cancel(item)} variant="ghost"><Trash2 size={15} />Hủy</Button></> : null}
                 {learner && joinedSessionId === item.id ? (
                   <Button onClick={() => void leave(item)} variant="secondary">Rời phòng và chốt điểm danh</Button>
                 ) : learner &&
@@ -206,11 +214,11 @@ export default function LiveClassesPage() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Lên lịch lớp trực tuyến"
+        title={editing ? "Đổi lịch lớp trực tuyến" : "Lên lịch lớp trực tuyến"}
       >
-        <form className="space-y-4" onSubmit={(e) => void create(e)}>
+        <form className="space-y-4" onSubmit={(e) => void (editing ? update(e) : create(e))}>
           <Field label="Lớp học">
-            <select
+            <select disabled={Boolean(editing)}
               className={inputClass}
               required
               value={form.classId}
@@ -263,6 +271,7 @@ export default function LiveClassesPage() {
               <option value="JITSI">Jitsi</option>
             </select>
           </Field>
+          {editing ? <Field label="Lý do đổi lịch"><textarea className={inputClass} minLength={5} required rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field> : null}
           <Button type="submit">Xác nhận lịch</Button>
         </form>
       </Modal>

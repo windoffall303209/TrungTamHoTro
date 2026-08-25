@@ -1,12 +1,12 @@
 "use client";
 
-import { CheckCheck, RotateCcw, UserPlus, UsersRound } from "lucide-react";
+import { CheckCheck, History, RotateCcw, Trash2, Upload, UserPlus, UsersRound } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
-import type { Exam, LearningClass, Material } from "@/lib/learning-types";
+import type { ClassRoster, EnrollmentImportResult, Exam, InstructorRole, LearningClass, Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 type ReviewDecision = "APPROVE" | "RETURN";
@@ -16,7 +16,10 @@ export default function ClassOperationsPage() {
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
-  const [member, setMember] = useState({ classId: "", instructorId: "", learnerId: "" });
+  const [member, setMember] = useState({ classId: "", instructorId: "", instructorRole: "PRIMARY" as InstructorRole, learnerId: "" });
+  const [roster, setRoster] = useState<ClassRoster | null>(null);
+  const [bulkLearners, setBulkLearners] = useState("");
+  const [importResults, setImportResults] = useState<EnrollmentImportResult[]>([]);
   const [reviewingExam, setReviewingExam] = useState<Exam | null>(null);
   const [decision, setDecision] = useState<ReviewDecision>("APPROVE");
   const [reviewNote, setReviewNote] = useState("");
@@ -39,10 +42,18 @@ export default function ClassOperationsPage() {
     }
   }, [notify, session.roleCode]);
 
+  const loadRoster = useCallback(async (classId: string) => {
+    if (!classId || session.roleCode !== "CENTER_MANAGER") return;
+    try { setRoster(await apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, { roleCode: session.roleCode })); }
+    catch (error) { notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error"); }
+  }, [notify, session.roleCode]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => { const timer = window.setTimeout(() => void loadRoster(member.classId), 0); return () => window.clearTimeout(timer); }, [loadRoster, member.classId]);
 
   const assign = async (kind: "instructors" | "enrollments") => {
     const userId = kind === "instructors" ? member.instructorId : member.learnerId;
@@ -51,14 +62,29 @@ export default function ClassOperationsPage() {
       await apiRequest(`/manager/classes/${member.classId}/${kind}`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({ userId: userId.trim() }),
+        body: JSON.stringify(kind === "instructors" ? { userId: userId.trim(), role: member.instructorRole } : { userId: userId.trim() }),
       });
       notify(kind === "instructors" ? "Đã phân công giảng viên." : "Đã ghi danh học viên.");
       setMember({ ...member, [kind === "instructors" ? "instructorId" : "learnerId"]: "" });
       await load();
+      await loadRoster(member.classId);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không cập nhật được thành viên.", "error");
     }
+  };
+
+  const importEnrollments = async () => {
+    const userIds = bulkLearners.split(/[\n,;]+/).map((value) => value.trim()).filter(Boolean);
+    if (!member.classId || !userIds.length) return;
+    try { const results = await apiRequest<EnrollmentImportResult[]>(`/manager/classes/${member.classId}/enrollments/import`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ userIds }) }); setImportResults(results); setBulkLearners(""); await Promise.all([load(), loadRoster(member.classId)]); notify(`Đã xử lý ${results.length} dòng ghi danh.`); }
+    catch (error) { notify(error instanceof Error ? error.message : "Không nhập được danh sách.", "error"); }
+  };
+
+  const removeMember = async (kind: "instructors" | "enrollments", userId: string) => {
+    const reason = window.prompt(kind === "instructors" ? "Lý do gỡ phân công giảng viên" : "Lý do gỡ học viên khỏi lớp");
+    if (!reason) return;
+    try { await apiRequest(`/manager/classes/${member.classId}/${kind}/${userId}/remove`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ reason }) }); await Promise.all([load(), loadRoster(member.classId)]); notify("Đã cập nhật thành viên và lưu lịch sử."); }
+    catch (error) { notify(error instanceof Error ? error.message : "Không gỡ được thành viên.", "error"); }
   };
 
   const reviewMaterial = async (item: Material) => {
@@ -112,37 +138,26 @@ export default function ClassOperationsPage() {
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-white p-6">
         <div className="flex items-center gap-3">
           <UsersRound className="text-sky-700" />
           <h2 className="font-heading text-xl font-extrabold">Thành viên lớp</h2>
         </div>
-        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <p className="mt-2 text-sm text-slate-500">Kiểm soát vai trò, tải giảng dạy, sĩ số và toàn bộ lịch sử thay đổi.</p>
+        <div className="mt-5 max-w-xl">
           <Field label="Lớp học">
-            <select className={inputClass} value={member.classId} onChange={(event) => setMember({ ...member, classId: event.target.value })}>
+            <select className={inputClass} value={member.classId} onChange={(event) => { setMember({ ...member, classId: event.target.value }); setImportResults([]); }}>
               {classes.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
             </select>
           </Field>
-          <div className="flex items-end gap-2">
-            <Field label="Mã giảng viên"><input className={inputClass} placeholder="usr-instructor" value={member.instructorId} onChange={(event) => setMember({ ...member, instructorId: event.target.value })} /></Field>
-            <Button aria-label="Phân công giảng viên" onClick={() => void assign("instructors")}><UserPlus size={16} /></Button>
-          </div>
-          <div className="flex items-end gap-2">
-            <Field label="Mã học viên"><input className={inputClass} placeholder="usr-learner" value={member.learnerId} onChange={(event) => setMember({ ...member, learnerId: event.target.value })} /></Field>
-            <Button aria-label="Ghi danh học viên" onClick={() => void assign("enrollments")}><UserPlus size={16} /></Button>
-          </div>
         </div>
-        <div className="mt-6 grid gap-3 lg:grid-cols-2">
-          {classes.map((item) => (
-            <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4" key={item.id}>
-              <div>
-                <p className="text-sm font-extrabold">{item.code} · {item.name}</p>
-                <p className="mt-1 text-xs text-slate-500">{item.instructorIds.length} giảng viên · {item.learnerIds.length}/{item.capacity} học viên</p>
-              </div>
-              <StatusBadge status={item.status} />
-            </div>
-          ))}
         </div>
+        <div className="grid gap-px bg-slate-200 xl:grid-cols-2">
+          <div className="bg-white p-6"><h3 className="font-heading text-lg font-extrabold">Đội ngũ giảng dạy</h3><div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px_auto]"><Field label="Mã giảng viên"><input className={inputClass} placeholder="usr-instructor" value={member.instructorId} onChange={(event) => setMember({ ...member, instructorId: event.target.value })} /></Field><Field label="Vai trò"><select className={inputClass} value={member.instructorRole} onChange={(event) => setMember({ ...member, instructorRole: event.target.value as InstructorRole })}><option value="PRIMARY">Giảng viên chính</option><option value="CO_INSTRUCTOR">Đồng giảng viên</option></select></Field><div className="flex items-end"><Button aria-label="Phân công giảng viên" onClick={() => void assign("instructors")}><UserPlus size={16} />Thêm</Button></div></div><div className="mt-5 space-y-2">{roster?.instructors.map((item) => <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3" key={item.instructorId}><div><p className="text-sm font-bold">{item.instructorId}</p><p className="text-xs text-slate-500">{item.role === "PRIMARY" ? "Giảng viên chính" : "Đồng giảng viên"}</p></div><Button aria-label={`Gỡ ${item.instructorId}`} onClick={() => void removeMember("instructors", item.instructorId)} variant="ghost"><Trash2 size={15} /></Button></div>)}</div></div>
+          <div className="bg-white p-6"><h3 className="font-heading text-lg font-extrabold">Ghi danh học viên</h3><div className="mt-4 flex items-end gap-2"><Field label="Thêm thủ công"><input className={inputClass} placeholder="usr-learner" value={member.learnerId} onChange={(event) => setMember({ ...member, learnerId: event.target.value })} /></Field><Button aria-label="Ghi danh học viên" onClick={() => void assign("enrollments")}><UserPlus size={16} /></Button></div><div className="mt-4"><Field label="Nhập hàng loạt — mỗi mã một dòng"><textarea className={inputClass} rows={3} value={bulkLearners} onChange={(event) => setBulkLearners(event.target.value)} /></Field><Button onClick={() => void importEnrollments()} variant="secondary"><Upload size={15} />Kiểm tra & nhập</Button></div>{importResults.length ? <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs">{importResults.map((item, index) => <p className={item.status === "ENROLLED" ? "text-emerald-700" : item.status === "FAILED" ? "text-rose-700" : "text-amber-700"} key={`${item.userId}-${index}`}>{item.userId}: {item.message}</p>)}</div> : null}<div className="mt-5 max-h-56 space-y-2 overflow-auto">{roster?.enrollments.filter((item) => item.status === "ACTIVE").map((item) => <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3" key={item.learnerId}><div><p className="text-sm font-bold">{item.learnerId}</p><p className="text-xs text-slate-500">{item.source === "MANUAL" ? "Thủ công" : "Nhập hàng loạt"}</p></div><Button aria-label={`Gỡ ${item.learnerId}`} onClick={() => void removeMember("enrollments", item.learnerId)} variant="ghost"><Trash2 size={15} /></Button></div>)}</div></div>
+        </div>
+        {roster?.history.length ? <div className="border-t border-slate-100 p-6"><h3 className="flex items-center gap-2 text-sm font-extrabold"><History size={16} />Lịch sử thay đổi gần đây</h3><div className="mt-3 grid gap-2 md:grid-cols-2">{roster.history.slice(0, 6).map((item) => <div className="rounded-xl border border-slate-100 px-4 py-3 text-xs" key={item.id}><span className="font-bold">{item.memberId}</span> · {item.action}{item.reason ? ` — ${item.reason}` : ""}</div>)}</div></div> : null}
       </section>
 
       <div className="mt-7 grid gap-7 xl:grid-cols-2">
