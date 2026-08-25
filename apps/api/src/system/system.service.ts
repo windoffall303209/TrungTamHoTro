@@ -3,7 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 
-export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; updatedAt: string }
+export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; updatedAt: string }
+export interface StorageOverview { quotaBytes: number; usedBytes: number; usagePercent: number; maxFileSizeMb: number; allowedMimeTypes: string[]; byClass: Array<{ classId: string; classCode: string; className: string; fileCount: number; usedBytes: number }> }
 export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; maskedCredential: string; updatedAt: string }
 export interface BackupRun { id: string; type: "FULL" | "INCREMENTAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; createdAt: string; checksum: string; sizeMb: number }
 export interface AuditEvent { id: string; actor: string; action: string; target: string; detail: string; createdAt: string }
@@ -18,6 +19,7 @@ const defaultSettings = (): SystemSettings => ({
   locale: "vi-VN",
   retentionDays: 365,
   maxFileSizeMb: 50,
+  storageQuotaMb: 10_240,
   allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"],
   moderationEnabled: true,
   notificationSender: "Wind EDU",
@@ -51,6 +53,7 @@ export class SystemService {
   async updateSettings(input: Partial<Omit<SystemSettings, "updatedAt">>): Promise<SystemSettings> {
     if (input.retentionDays !== undefined && (input.retentionDays < 30 || input.retentionDays > 3650)) throw new BadRequestException("Thời gian lưu trữ phải từ 30 đến 3650 ngày.");
     if (input.maxFileSizeMb !== undefined && (input.maxFileSizeMb < 1 || input.maxFileSizeMb > 500)) throw new BadRequestException("Giới hạn tệp phải từ 1 đến 500 MB.");
+    if (input.storageQuotaMb !== undefined && (input.storageQuotaMb < 100 || input.storageQuotaMb > 1_000_000)) throw new BadRequestException("Quota lưu trữ phải từ 100 đến 1.000.000 MB.");
     const prisma = this.database();
     if (prisma) {
       const current = await this.getSettings();
@@ -296,7 +299,31 @@ export class SystemService {
     if (!prisma) return { status: "degraded", database: "disabled", apiLatencyMs: 0, storageUsagePercent: 0, queueDepth: 0, checkedAt: new Date().toISOString() };
     const startedAt = performance.now();
     await prisma.$queryRaw`SELECT 1`;
-    return { status: "healthy", database: "connected", apiLatencyMs: Math.max(1, Math.round(performance.now() - startedAt)), storageUsagePercent: 32, queueDepth: 0, checkedAt: new Date().toISOString() };
+    const storage = await this.getStorageOverview();
+    const queueDepth = await prisma.$transaction([
+      prisma.backupJob.count({ where: { status: { in: ["PENDING", "RUNNING"] } } }),
+      prisma.restoreJob.count({ where: { status: { in: ["PENDING", "RUNNING"] } } }),
+      prisma.dataExportJob.count({ where: { status: { in: ["PENDING", "RUNNING"] } } }),
+    ]);
+    return { status: storage.usagePercent >= 90 ? "warning" : "healthy", database: "connected", apiLatencyMs: Math.max(1, Math.round(performance.now() - startedAt)), storageUsagePercent: storage.usagePercent, queueDepth: queueDepth.reduce((sum, value) => sum + value, 0), checkedAt: new Date().toISOString() };
+  }
+
+  async getStorageOverview(): Promise<StorageOverview> {
+    const settings = await this.getSettings();
+    const quotaBytes = settings.storageQuotaMb * 1_000_000;
+    const prisma = this.database();
+    if (!prisma) {
+      return { quotaBytes, usedBytes: 0, usagePercent: 0, maxFileSizeMb: settings.maxFileSizeMb, allowedMimeTypes: settings.allowedMimeTypes, byClass: [] };
+    }
+    const groups = await prisma.material.groupBy({ by: ["classId"], _sum: { sizeBytes: true }, _count: { id: true } });
+    const classes = await prisma.learningClass.findMany({ where: { id: { in: groups.map((item) => item.classId) } }, select: { id: true, code: true, name: true } });
+    const classMap = new Map(classes.map((item) => [item.id, item]));
+    const byClass = groups.map((group) => {
+      const classItem = classMap.get(group.classId);
+      return { classId: group.classId, classCode: classItem?.code ?? group.classId, className: classItem?.name ?? "Lớp không xác định", fileCount: group._count.id, usedBytes: Number(group._sum.sizeBytes ?? 0n) };
+    }).sort((a, b) => b.usedBytes - a.usedBytes);
+    const usedBytes = byClass.reduce((sum, item) => sum + item.usedBytes, 0);
+    return { quotaBytes, usedBytes, usagePercent: quotaBytes ? Math.min(100, Math.round((usedBytes / quotaBytes) * 10_000) / 100) : 100, maxFileSizeMb: settings.maxFileSizeMb, allowedMimeTypes: settings.allowedMimeTypes, byClass };
   }
 
   private database(): PrismaService | undefined {
@@ -312,6 +339,7 @@ export class SystemService {
       locale: this.stringValue(record.locale, fallback.locale),
       retentionDays: this.numberValue(record.retentionDays, fallback.retentionDays),
       maxFileSizeMb: this.numberValue(record.maxFileSizeMb, fallback.maxFileSizeMb),
+      storageQuotaMb: this.numberValue(record.storageQuotaMb, fallback.storageQuotaMb),
       allowedMimeTypes: this.stringArray(record.allowedMimeTypes, fallback.allowedMimeTypes),
       moderationEnabled: this.booleanValue(record.moderationEnabled, fallback.moderationEnabled),
       notificationSender: this.stringValue(record.notificationSender, fallback.notificationSender),
