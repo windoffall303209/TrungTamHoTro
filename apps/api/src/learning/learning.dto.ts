@@ -24,6 +24,13 @@ export class CreateClassDto {
 
 export class AssignUserDto { @IsString() @IsNotEmpty() userId!: string; }
 
+export class CloseClassDto {
+  @IsString() @MinLength(5) @MaxLength(500) closeReason!: string;
+  @IsIn(["STANDARD_RETENTION", "LONG_TERM_RETENTION"]) archivePolicy!: "STANDARD_RETENTION" | "LONG_TERM_RETENTION";
+}
+
+export class ReopenClassDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string; }
+
 export class CreateMaterialDto {
   @IsString() @MinLength(2) name!: string;
   @IsString() mimeType!: string;
