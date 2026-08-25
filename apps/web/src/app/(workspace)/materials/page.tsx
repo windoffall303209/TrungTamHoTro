@@ -1,12 +1,12 @@
 "use client";
 
-import { Download, Eye, FileText, FolderOpen, Plus, Search, UploadCloud } from "lucide-react";
+import { Download, Eye, FileText, FolderOpen, History, Plus, Search, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
-import type { LearningClass, Material } from "@/lib/learning-types";
+import type { LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 export default function MaterialsPage() {
@@ -27,6 +27,10 @@ export default function MaterialsPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [versionFile, setVersionFile] = useState<File | null>(null);
+  const [versionTarget, setVersionTarget] = useState<Material | null>(null);
+  const [versions, setVersions] = useState<MaterialVersionSnapshot[]>([]);
+  const [historyTarget, setHistoryTarget] = useState<Material | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
   const [reviewReason, setReviewReason] = useState("");
@@ -112,6 +116,27 @@ export default function MaterialsPage() {
     }
   };
 
+  const showHistory = async (item: Material) => {
+    try { setHistoryTarget(item); setVersions(await apiRequest<MaterialVersionSnapshot[]>(`/materials/${item.id}/versions`, { roleCode: session.roleCode })); }
+    catch (error) { setHistoryTarget(null); notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error"); }
+  };
+  const downloadVersion = async (version: MaterialVersionSnapshot) => {
+    try { const access = await apiRequest<{ url: string }>(`/materials/${version.materialId}/versions/${version.version}/access`, { roleCode: session.roleCode }); await downloadApiFile(access.url, session.roleCode); notify(`Đã tải phiên bản ${version.version}.`); }
+    catch (error) { notify(error instanceof Error ? error.message : "Không tải được phiên bản này.", "error"); }
+  };
+
+  const uploadVersion = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!versionTarget || !versionFile) return;
+    setSaving(true);
+    try {
+      const body = new FormData(); body.append("file", versionFile); body.append("folder", versionTarget.folder); body.append("tags", versionTarget.tags.join(","));
+      await apiRequest(`/instructor/materials/${versionTarget.id}/versions`, { method: "POST", roleCode: session.roleCode, body });
+      notify("Đã tạo phiên bản học liệu mới; bản cũ vẫn được giữ nguyên."); setVersionTarget(null); setVersionFile(null); await load();
+    } catch (error) { notify(error instanceof Error ? error.message : "Không tải được phiên bản mới.", "error"); }
+    finally { setSaving(false); }
+  };
+
   const review = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reviewTarget) return;
@@ -185,6 +210,8 @@ export default function MaterialsPage() {
                 <div className="flex items-center gap-1">
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
+                  <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
+                  {instructor ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
                   {instructor ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
                   {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "HIDE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
                 </div>
@@ -228,6 +255,12 @@ export default function MaterialsPage() {
           {reviewTarget?.quarantinedAt ? <p className="rounded-lg bg-rose-50 p-3 text-xs font-bold text-rose-700">Tệp đang cách ly và không thể được duyệt: {reviewTarget.quarantineReason}</p> : null}
           <Button disabled={Boolean(reviewTarget?.quarantinedAt && reviewAction === "APPROVE")} type="submit">Xác nhận kiểm duyệt</Button>
         </form>
+      </Modal>
+      <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title="Tải phiên bản mới" description="Tệp đang dùng không bị ghi đè; phiên bản mới bắt đầu ở trạng thái nháp sau khi quét.">
+        <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-sm font-bold text-sky-800"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-slate-500">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Tệp mới vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
+      </Modal>
+      <Modal open={Boolean(historyTarget)} onClose={() => setHistoryTarget(null)} title="Lịch sử phiên bản" description={historyTarget?.name}>
+        <div className="space-y-3">{versions.map((version) => <article className="rounded-xl border border-slate-200 p-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={version.visibility} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString("vi-VN")}</p><Button className="min-h-8 px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
       </Modal>
     </div>
   );

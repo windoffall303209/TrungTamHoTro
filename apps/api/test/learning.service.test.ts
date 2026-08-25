@@ -221,6 +221,22 @@ describe("LearningService", () => {
       expect(download.mimeType).toBe("application/pdf");
       await expect(service.readMaterialDownload(material.id, expires, `${signature}x`, "LEARNER", "DOWNLOAD")).rejects.toThrow(BadRequestException);
       await expect(service.readMaterialDownload(material.id, expires, signature, "LEARNER", "PREVIEW")).rejects.toThrow(BadRequestException);
+
+      const replacement = Buffer.from("%PDF-1.7\nnoi-dung-phien-ban-moi");
+      const versionThree = await service.replaceMaterialVersion(material.id, { folder: "Tuần kiểm thử", tags: ["bao-mat", "v3"] }, { originalName: "kiem-thu-v3.pdf", mimeType: "application/pdf", size: replacement.length, buffer: replacement });
+      expect(versionThree).toMatchObject({ version: 3, visibility: "DRAFT" });
+      expect((await service.listMaterialVersions(material.id, "INSTRUCTOR")).map((item) => item.version)).toEqual([3, 2, 1]);
+      expect((await service.listMaterialVersions(material.id, "LEARNER")).map((item) => item.version)).toEqual([2]);
+
+      const oldAccess = await service.createMaterialVersionAccess(material.id, 2, "LEARNER");
+      const oldUrl = new URL(oldAccess.url, "http://localhost");
+      const oldDownload = await service.readMaterialVersionDownload(material.id, 2, Number(oldUrl.searchParams.get("expires")), oldUrl.searchParams.get("signature") ?? "", "LEARNER");
+      expect(oldDownload.buffer.equals(bytes)).toBe(true);
+      await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+      const currentAccess = await service.createMaterialAccess(material.id, "LEARNER");
+      const currentUrl = new URL(currentAccess.url, "http://localhost");
+      const currentDownload = await service.readMaterialDownload(material.id, Number(currentUrl.searchParams.get("expires")), currentUrl.searchParams.get("signature") ?? "", "LEARNER");
+      expect(currentDownload.buffer.equals(replacement)).toBe(true);
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }

@@ -8,7 +8,7 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
-  LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, QuestionImportResult,
+  LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
 
@@ -29,6 +29,7 @@ export interface UploadedMaterialFile { originalName: string; mimeType: string; 
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
 export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
 export interface MaterialSearchResult { items: LearningMaterial[]; total: number; page: number; pageSize: number; totalPages: number }
+type MemoryMaterialVersion = MaterialVersionSnapshot & { objectKey?: string; checksum?: string };
 
 @Injectable()
 export class LearningService {
@@ -49,6 +50,7 @@ export class LearningService {
     { id: "mat-web-intro", classId: "class-web-01", name: "01 — Tổng quan kiến trúc Web.pdf", mimeType: "application/pdf", sizeBytes: 2_420_000, folder: "Tuần 1", tags: ["kiến trúc", "bắt đầu"], version: 1, visibility: "PUBLISHED", createdAt: now() },
     { id: "mat-api-guide", classId: "class-web-01", name: "02 — Thiết kế REST API.pdf", mimeType: "application/pdf", sizeBytes: 3_180_000, folder: "Tuần 2", tags: ["api", "backend"], version: 2, visibility: "PUBLISHED", createdAt: now() },
   ];
+  private readonly materialVersions: MemoryMaterialVersion[] = this.materials.map((item) => ({ ...item, id: `material-version-${item.id}-${item.version}`, materialId: item.id, createdBy: "usr-instructor", objectKey: undefined, checksum: undefined }));
 
   private readonly questions: LearningQuestion[] = [
     { id: "q-rest-01", familyId: "q-rest-01", courseId: "course-web", type: "SINGLE_CHOICE", content: "HTTP method nào phù hợp để cập nhật một phần tài nguyên?", options: ["GET", "POST", "PATCH", "DELETE"], correctAnswers: ["PATCH"], difficulty: 1, tags: ["http", "api"], status: "PUBLISHED", version: 1 },
@@ -583,6 +585,7 @@ export class LearningService {
               quarantineReason,
             },
           });
+          await transaction.materialVersion.create({ data: { id: id("material-version"), materialId, version: 1, name: material.name, objectKey: material.objectKey, mimeType: material.mimeType, sizeBytes: material.sizeBytes, checksum: material.checksum, folder: material.folder, tags: this.toStringArray(material.tags), visibility: material.visibility, createdBy: "usr-instructor" } });
           if (quarantineReason) {
             await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_QUARANTINED", title: `Tệp ${input.name.trim()} đã bị cách ly`, entityType: "MATERIAL", entityId: materialId, dedupKey: `material-quarantine:${materialId}:usr-instructor` } });
           }
@@ -600,6 +603,8 @@ export class LearningService {
       this.materialFiles.set(item.id, { objectKey: stored.objectKey, checksum: stored.checksum });
     }
     this.materials.unshift(item);
+    const storedFile = this.materialFiles.get(item.id);
+    this.materialVersions.unshift({ ...item, id: id("material-version"), materialId: item.id, createdBy: "usr-instructor", objectKey: storedFile?.objectKey, checksum: storedFile?.checksum });
     if (quarantineReason) this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_QUARANTINED", title: `Tệp ${input.name.trim()} đã bị cách ly`, entityType: "MATERIAL", entityId: item.id, createdAt: now() });
     return { ...item, tags: [...item.tags] };
   }
@@ -703,10 +708,11 @@ export class LearningService {
       if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
       if (current.class.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (current.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
-      return this.mapMaterial(await prisma.material.update({
-        where: { id: materialId },
-        data: { folder: input.folder?.trim(), tags: input.tags, visibility: input.visibility, version: { increment: 1 } },
-      }));
+      return prisma.$transaction(async (transaction) => {
+        const updated = await transaction.material.update({ where: { id: materialId }, data: { folder: input.folder?.trim(), tags: input.tags, visibility: input.visibility, version: { increment: 1 } } });
+        await transaction.materialVersion.create({ data: { id: id("material-version"), materialId, version: updated.version, name: updated.name, objectKey: updated.objectKey, mimeType: updated.mimeType, sizeBytes: updated.sizeBytes, checksum: updated.checksum, folder: updated.folder, tags: this.toStringArray(updated.tags), visibility: updated.visibility, createdBy: "usr-instructor" } });
+        return this.mapMaterial(updated);
+      });
     }
     const item = this.materials.find((material) => material.id === materialId);
     if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
@@ -714,7 +720,102 @@ export class LearningService {
     if (item.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
     Object.assign(item, input);
     item.version += 1;
+    const stored = this.materialFiles.get(materialId);
+    this.materialVersions.unshift({ ...item, id: id("material-version"), materialId, createdBy: "usr-instructor", objectKey: stored?.objectKey, checksum: stored?.checksum, tags: [...item.tags] });
     return { ...item, tags: [...item.tags] };
+  }
+
+  async listMaterialVersions(materialId: string, role: string): Promise<MaterialVersionSnapshot[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const material = await prisma.material.findUnique({ where: { id: materialId }, include: { class: { include: { enrollments: true, instructors: true } } } });
+      if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
+      this.assertMaterialClassAccess(material.class, role);
+      const rows = await prisma.materialVersion.findMany({ where: { materialId, ...(role === "LEARNER" ? { visibility: "PUBLISHED" } : {}) }, orderBy: { version: "desc" } });
+      return rows.map((row) => this.mapMaterialVersion(row));
+    }
+    const material = this.materials.find((item) => item.id === materialId);
+    if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
+    this.assertMemoryMaterialClassAccess(material.classId, role);
+    return this.materialVersions.filter((item) => item.materialId === materialId && (role !== "LEARNER" || item.visibility === "PUBLISHED")).sort((a, b) => b.version - a.version).map((item) => ({ id: item.id, materialId: item.materialId, version: item.version, name: item.name, mimeType: item.mimeType, sizeBytes: item.sizeBytes, folder: item.folder, tags: [...item.tags], visibility: item.visibility, createdBy: item.createdBy, createdAt: item.createdAt }));
+  }
+
+  async createMaterialVersionAccess(materialId: string, version: number, role: string, action: MaterialAccessAction = "DOWNLOAD"): Promise<{ url: string; expiresAt: string }> {
+    const prisma = this.database();
+    if (prisma) {
+      const row = await prisma.materialVersion.findUnique({ where: { materialId_version: { materialId, version } }, include: { material: { include: { class: { include: { enrollments: true, instructors: true } } } } } });
+      if (!row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+      this.assertMaterialClassAccess(row.material.class, role);
+      if (!row.objectKey.startsWith("files/")) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
+    } else {
+      const material = this.materials.find((item) => item.id === materialId);
+      const row = this.materialVersions.find((item) => item.materialId === materialId && item.version === version);
+      if (!material || !row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+      this.assertMemoryMaterialClassAccess(material.classId, role);
+      if (!row.objectKey?.startsWith("files/")) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
+    }
+    const expires = Math.floor(Date.now() / 1000) + 300;
+    const signature = this.signMaterialAccess(`${materialId}:${version}`, expires, action);
+    return { url: `/materials/${materialId}/versions/${version}/download?expires=${expires}&action=${action}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
+  }
+
+  async readMaterialVersionDownload(materialId: string, version: number, expires: number, signature: string, role: string, action: MaterialAccessAction = "DOWNLOAD"): Promise<MaterialDownload> {
+    this.verifyMaterialAccess(`${materialId}:${version}`, expires, signature, action);
+    const prisma = this.database();
+    let fileName: string; let mimeType: string; let objectKey: string | undefined; let checksum: string | undefined;
+    if (prisma) {
+      const row = await prisma.materialVersion.findUnique({ where: { materialId_version: { materialId, version } }, include: { material: { include: { class: { include: { enrollments: true, instructors: true } } } } } });
+      if (!row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+      this.assertMaterialClassAccess(row.material.class, role);
+      ({ name: fileName, mimeType, objectKey } = row); checksum = row.checksum ?? undefined;
+    } else {
+      const material = this.materials.find((item) => item.id === materialId);
+      const row = this.materialVersions.find((item) => item.materialId === materialId && item.version === version);
+      if (!material || !row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+      this.assertMemoryMaterialClassAccess(material.classId, role);
+      fileName = row.name; mimeType = row.mimeType; objectKey = row.objectKey; checksum = row.checksum;
+    }
+    if (!objectKey?.startsWith("files/")) throw new NotFoundException("Tệp phiên bản không tồn tại trong kho bytes.");
+    const buffer = await readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp phiên bản không còn tồn tại trên ổ đĩa."); });
+    if (checksum && `sha256:${createHash("sha256").update(buffer).digest("hex")}` !== checksum) throw new BadRequestException("Checksum phiên bản học liệu không hợp lệ.");
+    if (prisma) await prisma.materialAccessLog.create({ data: { id: id("material-access"), materialId, userId: this.userIdForRole(role), action: `${action}_V${version}` } });
+    else this.materialAccessLogs.unshift({ materialId, userId: this.userIdForRole(role), action, createdAt: now() });
+    return { fileName, mimeType, buffer };
+  }
+
+  async replaceMaterialVersion(materialId: string, input: Pick<LearningMaterial, "folder" | "tags">, upload: UploadedMaterialFile): Promise<LearningMaterial> {
+    const prisma = this.database();
+    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
+    if (upload.size > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
+    if (!policy.allowedMimeTypes.includes(upload.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
+    const quarantineReason = this.detectMaliciousUpload(upload);
+    if (prisma) {
+      const storedVersions = await prisma.materialVersion.findMany({ distinct: ["objectKey"], select: { sizeBytes: true } });
+      if (storedVersions.reduce((sum, item) => sum + item.sizeBytes, 0n) + BigInt(upload.size) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
+      const current = await prisma.material.findUnique({ where: { id: materialId }, include: { class: { include: { instructors: true } } } });
+      if (!current || !current.class.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Không tìm thấy học liệu được phép cập nhật.");
+      if (current.class.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+      const nextVersion = current.version + 1;
+      const stored = await this.storeUpload(current.classId, `${materialId}-v${nextVersion}-${randomUUID()}`, upload, Boolean(quarantineReason));
+      try {
+        return await prisma.$transaction(async (transaction) => {
+          const updated = await transaction.material.update({ where: { id: materialId }, data: { name: upload.originalName.trim(), objectKey: stored.objectKey, checksum: stored.checksum, mimeType: upload.mimeType, sizeBytes: BigInt(upload.size), folder: input.folder.trim(), tags: input.tags, version: nextVersion, visibility: quarantineReason ? "HIDDEN" : "DRAFT", quarantinedAt: quarantineReason ? new Date() : null, quarantineReason } });
+          await transaction.materialVersion.create({ data: { id: id("material-version"), materialId, version: nextVersion, name: updated.name, objectKey: updated.objectKey, mimeType: updated.mimeType, sizeBytes: updated.sizeBytes, checksum: updated.checksum, folder: updated.folder, tags: this.toStringArray(updated.tags), visibility: updated.visibility, createdBy: "usr-instructor" } });
+          return this.mapMaterial(updated);
+        });
+      } catch (error) { await this.removeStoredFile(stored.objectKey); throw error; }
+    }
+    const current = this.materials.find((item) => item.id === materialId);
+    if (!current || !this.findClass(current.classId).instructorIds.includes("usr-instructor")) throw new NotFoundException("Không tìm thấy học liệu được phép cập nhật.");
+    if (this.findClass(current.classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    const distinctStoredBytes = [...new Map(this.materialVersions.filter((item) => item.objectKey).map((item) => [item.objectKey, item.sizeBytes])).values()].reduce((sum, size) => sum + size, 0);
+    if (distinctStoredBytes + upload.size > policy.storageQuotaMb * 1_000_000) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
+    const nextVersion = current.version + 1;
+    const stored = await this.storeUpload(current.classId, `${materialId}-v${nextVersion}-${randomUUID()}`, upload, Boolean(quarantineReason));
+    Object.assign(current, { name: upload.originalName.trim(), mimeType: upload.mimeType, sizeBytes: upload.size, folder: input.folder.trim(), tags: [...input.tags], version: nextVersion, visibility: quarantineReason ? "HIDDEN" : "DRAFT", quarantinedAt: quarantineReason ? now() : undefined, quarantineReason });
+    this.materialFiles.set(materialId, stored);
+    this.materialVersions.unshift({ ...current, id: id("material-version"), materialId, createdBy: "usr-instructor", objectKey: stored.objectKey, checksum: stored.checksum, tags: [...current.tags] });
+    return { ...current, tags: [...current.tags] };
   }
 
   async reviewClassMaterial(
@@ -735,6 +836,7 @@ export class LearningService {
         if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
         if (current.quarantinedAt && action === "APPROVE") throw new BadRequestException("Không thể duyệt tệp đang bị cách ly.");
         const material = await transaction.material.update({ where: { id: materialId }, data: { visibility, version: { increment: 1 } } });
+        await transaction.materialVersion.create({ data: { id: id("material-version"), materialId, version: material.version, name: material.name, objectKey: material.objectKey, mimeType: material.mimeType, sizeBytes: material.sizeBytes, checksum: material.checksum, folder: material.folder, tags: this.toStringArray(material.tags), visibility: material.visibility, createdBy: reviewerId } });
         const reviewId = id("file-review");
         await transaction.fileReview.create({ data: { id: reviewId, materialId, reviewerId, action, reason } });
         await transaction.auditLog.create({ data: { actorId: reviewerId, action: `MATERIAL_${action}`, entityType: "material", entityId: materialId, context: { reason: reason ?? "Duyệt phát hành", before: current.visibility, after: visibility } } });
@@ -749,6 +851,8 @@ export class LearningService {
     this.materialReviews.unshift(review);
     item.visibility = visibility;
     item.version += 1;
+    const stored = this.materialFiles.get(materialId);
+    this.materialVersions.unshift({ ...item, id: id("material-version"), materialId, createdBy: reviewerId, objectKey: stored?.objectKey, checksum: stored?.checksum, tags: [...item.tags] });
     this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_REVIEWED", title: `Học liệu ${item.name}: ${action}`, entityType: "MATERIAL", entityId: materialId, createdAt: now() });
     return { ...item, tags: [...item.tags] };
   }
@@ -2637,6 +2741,12 @@ export class LearningService {
     };
   }
 
+  private mapMaterialVersion(row: Prisma.MaterialVersionGetPayload<Record<string, never>>): MaterialVersionSnapshot {
+    const sizeBytes = Number(row.sizeBytes);
+    if (!Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước phiên bản học liệu vượt giới hạn số an toàn.");
+    return { id: row.id, materialId: row.materialId, version: row.version, name: row.name, mimeType: row.mimeType, sizeBytes, folder: row.folder, tags: this.toStringArray(row.tags), visibility: row.visibility, createdBy: row.createdBy, createdAt: row.createdAt.toISOString() };
+  }
+
   private cloneQuestion(item: LearningQuestion): LearningQuestion {
     return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] };
   }
@@ -3120,6 +3230,17 @@ export class LearningService {
     if (role === "LEARNER") return material.visibility === "PUBLISHED" && classItem.learnerIds.includes("usr-learner");
     if (role === "INSTRUCTOR") return classItem.instructorIds.includes("usr-instructor");
     return true;
+  }
+
+  private assertMaterialClassAccess(classItem: { enrollments: Array<{ learnerId: string; status: string }>; instructors: Array<{ instructorId: string }> }, role: string): void {
+    if (role === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+    if (role === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
+  }
+
+  private assertMemoryMaterialClassAccess(classId: string, role: string): void {
+    const classItem = this.findClass(classId);
+    if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+    if (role === "INSTRUCTOR" && !classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
   }
 
   private examAvailability(exam: LearningExam, attemptCount: number, active: boolean, timestamp: Date): LearnerExamSummary["availabilityStatus"] {
