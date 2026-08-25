@@ -83,6 +83,8 @@ enum AttendanceStatus {
 
 enum ReportStatus {
   OPEN
+  IN_REVIEW
+  ESCALATED
   RESOLVED
   REJECTED
 }
@@ -467,8 +469,9 @@ model ForumTopic {
   title     String        @db.VarChar(255)
   body      String        @db.Text
   tags      Json
-  isPinned  Boolean       @default(false) @map("is_pinned")
-  isLocked  Boolean       @default(false) @map("is_locked")
+    isPinned  Boolean       @default(false) @map("is_pinned")
+    isLocked  Boolean       @default(false) @map("is_locked")
+    status    ContentStatus @default(PUBLISHED)
   class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
   author    User          @relation("TopicAuthor", fields: [authorId], references: [id])
   posts     ForumPost[]
@@ -545,15 +548,37 @@ model ContentReport {
   reporterId String       @map("reporter_id")
   reason     String       @db.VarChar(150)
   details    String       @db.Text
-  status     ReportStatus @default(OPEN)
-  resolution String?      @db.Text
-  reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id])
+    status     ReportStatus @default(OPEN)
+    resolution String?      @db.Text
+    assignedToId String?    @map("assigned_to_id") @db.VarChar(191)
+    escalationLevel Int     @default(0) @map("escalation_level")
+    resolvedAt DateTime?    @map("resolved_at")
+    appealReason String?    @map("appeal_reason") @db.Text
+    appealedAt DateTime?    @map("appealed_at")
+    reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id])
+    actions    ModerationAction[]
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
 
   @@unique([targetType, targetId, reporterId, status])
   @@index([status, createdAt])
   @@map("content_reports")
+}
+
+model ModerationAction {
+  id             String       @id @default(cuid())
+  reportId       String       @map("report_id")
+  actorId        String       @map("actor_id") @db.VarChar(191)
+  action         String       @db.VarChar(50)
+  reason         String       @db.Text
+  previousStatus ReportStatus @map("previous_status")
+  nextStatus     ReportStatus @map("next_status")
+  report         ContentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([reportId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("moderation_actions")
 }
 
 model LiveSession {

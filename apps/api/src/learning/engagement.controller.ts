@@ -3,11 +3,11 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
-  AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
+  AppealReportDto, AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
   CreateTopicDto, ResolveAttendanceAppealDto, ResolveReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
+import type { ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -58,8 +58,17 @@ export class EngagementController {
   @Get("manager/forum/reports") @RequirePermissions("forum:moderate")
   listReports(): Promise<ContentReport[]> { return this.learning.listReports(); }
 
+  @Get("manager/forum/reports/:reportId/context") @RequirePermissions("forum:moderate")
+  getReportContext(@Param("reportId") reportId: string): Promise<ModerationContext> { return this.learning.getReportContext(reportId); }
+
+  @Post("manager/forum/reports/:reportId/claim") @RequirePermissions("forum:moderate")
+  claimReport(@Param("reportId") reportId: string): Promise<ContentReport> { return this.learning.claimReport(reportId); }
+
   @Post("manager/forum/reports/:reportId/resolve") @RequirePermissions("forum:moderate")
-  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.status, input.resolution); }
+  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution); }
+
+  @Post("learner/content-reports/:reportId/appeal") @RequirePermissions("forum:view")
+  appealReport(@Param("reportId") reportId: string, @Body() input: AppealReportDto): Promise<ContentReport> { return this.learning.appealReport(reportId, input.reason); }
 
   @Get("sessions") @RequirePermissions("session:view")
   listSessions(@Headers("x-role-code") role = "LEARNER"): Promise<LiveSession[]> { return this.learning.listSessions(role); }

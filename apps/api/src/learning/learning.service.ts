@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -23,6 +23,7 @@ type ClassWithMembers = Prisma.LearningClassGetPayload<{
 type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>;
 type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
 type ForumPostWithRelations = Prisma.ForumPostGetPayload<{ include: { attachments: true; mentions: true } }>;
+type ContentReportWithActions = Prisma.ContentReportGetPayload<{ include: { actions: true } }>;
 type SupportTicketWithAttachments = Prisma.SupportTicketGetPayload<{ include: { attachments: true } }>;
 export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
@@ -58,13 +59,14 @@ export class LearningService {
   private readonly examApprovals: ExamApprovalRecord[] = [];
   private readonly regradeRequests: RegradeRequest[] = [];
   private readonly topics: ForumTopic[] = [
-    { id: "topic-rest", classId: "class-web-01", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", authorId: "usr-instructor", tags: ["api", "thảo luận"], isPinned: true, isLocked: false, createdAt: now() },
+    { id: "topic-rest", classId: "class-web-01", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", authorId: "usr-instructor", tags: ["api", "thảo luận"], isPinned: true, isLocked: false, status: "VISIBLE", createdAt: now() },
   ];
   private readonly posts: ForumPost[] = [
     { id: "post-rest-01", topicId: "topic-rest", authorId: "usr-learner", body: "Em chọn REST cho hệ thống CRUD vì dễ cache và theo dõi.", status: "VISIBLE", attachmentIds: [], mentionedUserIds: [], createdAt: now() },
   ];
   private readonly notifications: LearningNotification[] = [];
   private readonly reports: ContentReport[] = [];
+  private readonly moderationActions: ModerationActionRecord[] = [];
   private readonly sessions: LiveSession[] = [
     { id: "session-web-01", classId: "class-web-01", title: "Thiết kế API có version", startsAt: "2026-08-26T02:00:00.000Z", endsAt: "2026-08-26T03:30:00.000Z", provider: "JITSI", status: "SCHEDULED", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01" },
   ];
@@ -1042,7 +1044,7 @@ export class LearningService {
     if (prisma) {
       const rows = await prisma.forumTopic.findMany({
         where: role === "LEARNER"
-          ? { class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } } }
+          ? { status: "PUBLISHED", class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } } }
           : role === "INSTRUCTOR"
             ? { class: { instructors: { some: { instructorId: "usr-instructor" } } } }
             : undefined,
@@ -1052,7 +1054,7 @@ export class LearningService {
     }
     return this.topics.filter((item) => {
       const classItem = this.classes.find((candidate) => candidate.id === item.classId);
-      if (role === "LEARNER") return classItem?.learnerIds.includes("usr-learner");
+      if (role === "LEARNER") return item.status === "VISIBLE" && classItem?.learnerIds.includes("usr-learner");
       if (role === "INSTRUCTOR") return classItem?.instructorIds.includes("usr-instructor");
       return true;
     }).map((item) => ({ ...item, tags: [...item.tags] }));
@@ -1087,7 +1089,7 @@ export class LearningService {
     if (authorId === "usr-learner" && !classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp này.");
     if (authorId === "usr-instructor" && !classItem.instructorIds.includes(authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
     this.enforceMemoryForumPolicy(authorId, `${safeTitle} ${safeBody}`);
-    const item: ForumTopic = { ...input, title: safeTitle, body: safeBody, id: id("topic"), classId, authorId, isLocked: false, createdAt: now() };
+    const item: ForumTopic = { ...input, title: safeTitle, body: safeBody, id: id("topic"), classId, authorId, isLocked: false, status: "VISIBLE", createdAt: now() };
     this.topics.unshift(item);
     return { ...item, tags: [...item.tags] };
   }
@@ -1097,11 +1099,13 @@ export class LearningService {
     if (prisma) {
       const topic = await prisma.forumTopic.findUnique({ where: { id: topicId }, include: { class: { include: { enrollments: true, instructors: true } } } });
       if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
+      if (role === "LEARNER" && topic.status !== "PUBLISHED") throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
       this.assertForumClassAccess(topic.class, role);
       const rows = await prisma.forumPost.findMany({ where: { topicId }, include: { attachments: true, mentions: true }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => this.mapPost(row));
     }
     const topic = this.findTopic(topicId);
+    if (role === "LEARNER" && topic.status !== "VISIBLE") throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
     this.assertMemoryForumClassAccess(topic.classId, role);
     return this.posts.filter((item) => item.topicId === topicId).map((item) => ({
       ...item,
@@ -1229,7 +1233,7 @@ export class LearningService {
     return { ...item };
   }
 
-  async reportContent(input: Omit<ContentReport, "id" | "status">): Promise<ContentReport> {
+  async reportContent(input: Pick<ContentReport, "targetType" | "targetId" | "reporterId" | "reason" | "details">): Promise<ContentReport> {
     const prisma = this.database();
     if (prisma) {
       const targetExists = input.targetType === "POST"
@@ -1238,7 +1242,7 @@ export class LearningService {
       if (!targetExists) throw new NotFoundException("Không tìm thấy nội dung cần báo cáo.");
       try {
         return this.mapReport(await prisma.contentReport.create({
-          data: { id: id("report"), ...input },
+          data: { id: id("report"), ...input }, include: { actions: true },
         }));
       } catch (error) {
         if (isUniqueConstraintError(error)) throw new ConflictException("Bạn đã báo cáo nội dung này.");
@@ -1250,7 +1254,8 @@ export class LearningService {
       : this.topics.find((topic) => topic.id === this.posts.find((post) => post.id === input.targetId)?.topicId)?.classId;
     if (!targetClassId || !this.findClass(targetClassId).learnerIds.includes(input.reporterId)) throw new NotFoundException("Không tìm thấy nội dung trong lớp đã ghi danh.");
     if (this.reports.some((item) => item.targetId === input.targetId && item.reporterId === input.reporterId && item.status === "OPEN")) throw new ConflictException("Bạn đã báo cáo nội dung này.");
-    const item: ContentReport = { ...input, id: id("report"), status: "OPEN" };
+    const timestamp = now();
+    const item: ContentReport = { ...input, id: id("report"), status: "OPEN", escalationLevel: 0, createdAt: timestamp, updatedAt: timestamp, actions: [] };
     this.reports.unshift(item);
     return { ...item };
   }
@@ -1258,7 +1263,7 @@ export class LearningService {
   async listReports(): Promise<ContentReport[]> {
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.contentReport.findMany({ orderBy: { createdAt: "desc" } });
+      const rows = await prisma.contentReport.findMany({ include: { actions: { orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } });
       return rows.map((row) => this.mapReport(row));
     }
     return this.reports.map((item) => ({ ...item }));
@@ -1267,36 +1272,129 @@ export class LearningService {
   async listLearnerReports(learnerId = "usr-learner"): Promise<ContentReport[]> {
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.contentReport.findMany({ where: { reporterId: learnerId }, orderBy: { createdAt: "desc" } });
+      const rows = await prisma.contentReport.findMany({ where: { reporterId: learnerId }, include: { actions: { orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "desc" } });
       return rows.map((row) => this.mapReport(row));
     }
     return this.reports.filter((item) => item.reporterId === learnerId).map((item) => ({ ...item }));
   }
 
-  async resolveReport(reportId: string, status: "RESOLVED" | "REJECTED", resolution: string): Promise<ContentReport> {
+  async getReportContext(reportId: string): Promise<ModerationContext> {
+    const prisma = this.database();
+    if (prisma) {
+      const report = await prisma.contentReport.findUnique({ where: { id: reportId }, include: { actions: { orderBy: { createdAt: "asc" } } } });
+      if (!report) throw new NotFoundException("Không tìm thấy báo cáo.");
+      if (report.targetType === "TOPIC") {
+        const topic = await prisma.forumTopic.findUnique({ where: { id: report.targetId }, include: { posts: { orderBy: { createdAt: "asc" }, take: 20 } } });
+        if (!topic) throw new NotFoundException("Nội dung báo cáo không còn tồn tại.");
+        return { report: this.mapReport(report), classId: topic.classId, topicTitle: topic.title, targetAuthorId: topic.authorId, targetBody: topic.body, surroundingPosts: topic.posts.map((post) => ({ id: post.id, authorId: post.authorId, body: post.body, createdAt: post.createdAt.toISOString() })) };
+      }
+      const post = await prisma.forumPost.findUnique({ where: { id: report.targetId }, include: { topic: { include: { posts: { orderBy: { createdAt: "asc" }, take: 20 } } } } });
+      if (!post) throw new NotFoundException("Nội dung báo cáo không còn tồn tại.");
+      return { report: this.mapReport(report), classId: post.topic.classId, topicTitle: post.topic.title, targetAuthorId: post.authorId, targetBody: post.body, surroundingPosts: post.topic.posts.map((item) => ({ id: item.id, authorId: item.authorId, body: item.body, createdAt: item.createdAt.toISOString() })) };
+    }
+    const report = this.findReport(reportId);
+    const topic = report.targetType === "TOPIC" ? this.findTopic(report.targetId) : this.findTopic(this.findPost(report.targetId).topicId);
+    const target = report.targetType === "TOPIC" ? { authorId: topic.authorId, body: topic.body } : this.findPost(report.targetId);
+    return { report: { ...report, actions: report.actions.map((action) => ({ ...action })) }, classId: topic.classId, topicTitle: topic.title, targetAuthorId: target.authorId, targetBody: target.body, surroundingPosts: this.posts.filter((post) => post.topicId === topic.id).map((post) => ({ id: post.id, authorId: post.authorId, body: post.body, createdAt: post.createdAt })) };
+  }
+
+  async claimReport(reportId: string, moderatorId = "usr-manager"): Promise<ContentReport> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.contentReport.findUnique({ where: { id: reportId } });
+        if (!current) throw new NotFoundException("Không tìm thấy báo cáo.");
+        if (current.status === "IN_REVIEW" && current.assignedToId === moderatorId) return this.mapReport(await transaction.contentReport.findUniqueOrThrow({ where: { id: reportId }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
+        if (current.status !== "OPEN") throw new ConflictException("Chỉ báo cáo đang mở mới có thể nhận xử lý.");
+        await transaction.moderationAction.create({ data: { id: id("mod-action"), reportId, actorId: moderatorId, action: "CLAIM", reason: "Nhận xử lý báo cáo", previousStatus: current.status, nextStatus: "IN_REVIEW" } });
+        await transaction.auditLog.create({ data: { actorId: moderatorId, action: "FORUM_REPORT_CLAIM", entityType: "content_report", entityId: reportId, context: { previousStatus: current.status, nextStatus: "IN_REVIEW" } } });
+        return this.mapReport(await transaction.contentReport.update({ where: { id: reportId }, data: { status: "IN_REVIEW", assignedToId: moderatorId }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
+      });
+    }
+    const current = this.findReport(reportId);
+    if (current.status === "IN_REVIEW" && current.assignedToId === moderatorId) return { ...current, actions: current.actions.map((action) => ({ ...action })) };
+    if (current.status !== "OPEN") throw new ConflictException("Chỉ báo cáo đang mở mới có thể nhận xử lý.");
+    this.recordMemoryModeration(current, moderatorId, "CLAIM", "Nhận xử lý báo cáo", "IN_REVIEW");
+    current.assignedToId = moderatorId;
+    return { ...current, actions: current.actions.map((action) => ({ ...action })) };
+  }
+
+  async resolveReport(reportId: string, action: "HIDE_CONTENT" | "KEEP_CONTENT" | "ESCALATE_ADMIN", resolution: string, moderatorId = "usr-manager"): Promise<ContentReport> {
+    const normalizedResolution = resolution.trim();
+    if (normalizedResolution.length < 3) throw new BadRequestException("Lý do xử lý phải có ít nhất 3 ký tự.");
+    const nextStatus = action === "HIDE_CONTENT" ? "RESOLVED" : action === "KEEP_CONTENT" ? "REJECTED" : "ESCALATED";
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
         const item = await transaction.contentReport.findUnique({ where: { id: reportId } });
         if (!item) throw new NotFoundException("Không tìm thấy báo cáo.");
-        if (item.status !== "OPEN") throw new ConflictException("Báo cáo đã được xử lý trước đó.");
-        if (status === "RESOLVED" && item.targetType === "POST") {
+        if (!["OPEN", "IN_REVIEW"].includes(item.status)) throw new ConflictException("Báo cáo đã được xử lý hoặc chuyển cấp.");
+        if (item.assignedToId && item.assignedToId !== moderatorId) throw new ConflictException("Báo cáo đang do quản lý khác xử lý.");
+        let targetAuthorId: string | undefined;
+        if (item.targetType === "POST") {
+          targetAuthorId = (await transaction.forumPost.findUnique({ where: { id: item.targetId }, select: { authorId: true } }))?.authorId;
+        } else {
+          targetAuthorId = (await transaction.forumTopic.findUnique({ where: { id: item.targetId }, select: { authorId: true } }))?.authorId;
+        }
+        if (!targetAuthorId) throw new NotFoundException("Nội dung báo cáo không còn tồn tại.");
+        if (action === "HIDE_CONTENT" && item.targetType === "POST") {
           await transaction.forumPost.updateMany({ where: { id: item.targetId }, data: { status: "ARCHIVED" } });
         }
-        return this.mapReport(await transaction.contentReport.update({
-          where: { id: reportId }, data: { status, resolution: resolution.trim() },
-        }));
+        if (action === "HIDE_CONTENT" && item.targetType === "TOPIC") await transaction.forumTopic.updateMany({ where: { id: item.targetId }, data: { status: "ARCHIVED", isLocked: true } });
+        if (action === "KEEP_CONTENT" && item.targetType === "POST") await transaction.forumPost.updateMany({ where: { id: item.targetId }, data: { status: "PUBLISHED" } });
+        if (action === "KEEP_CONTENT" && item.targetType === "TOPIC") await transaction.forumTopic.updateMany({ where: { id: item.targetId }, data: { status: "PUBLISHED", isLocked: false } });
+        await transaction.moderationAction.create({ data: { id: id("mod-action"), reportId, actorId: moderatorId, action, reason: normalizedResolution, previousStatus: item.status, nextStatus } });
+        await transaction.auditLog.create({ data: { actorId: moderatorId, action: `FORUM_REPORT_${action}`, entityType: "content_report", entityId: reportId, context: { targetType: item.targetType, targetId: item.targetId, previousStatus: item.status, nextStatus, resolution: normalizedResolution } } });
+        const recipients = [...new Set([item.reporterId, targetAuthorId, action === "ESCALATE_ADMIN" ? "usr-admin" : undefined].filter((value): value is string => Boolean(value)))];
+        await transaction.notification.createMany({ data: recipients.map((recipientId) => ({ id: id("notification"), recipientId, type: "FORUM_MODERATION", title: action === "ESCALATE_ADMIN" ? "Báo cáo diễn đàn đã được chuyển cấp" : "Báo cáo diễn đàn đã có kết quả", entityType: "content_report", entityId: reportId, dedupKey: `forum-report:${reportId}:${action}:${recipientId}` })), skipDuplicates: true });
+        return this.mapReport(await transaction.contentReport.update({ where: { id: reportId }, data: { status: nextStatus, assignedToId: moderatorId, escalationLevel: action === "ESCALATE_ADMIN" ? { increment: 1 } : item.escalationLevel, resolution: normalizedResolution, resolvedAt: action === "ESCALATE_ADMIN" ? null : new Date() }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
       });
     }
-    const item = this.reports.find((report) => report.id === reportId);
-    if (!item) throw new NotFoundException("Không tìm thấy báo cáo.");
-    item.status = status;
-    item.resolution = resolution;
-    if (status === "RESOLVED" && item.targetType === "POST") {
-      const post = this.posts.find((candidate) => candidate.id === item.targetId);
-      if (post) post.status = "HIDDEN";
+    const item = this.findReport(reportId);
+    if (!["OPEN", "IN_REVIEW"].includes(item.status)) throw new ConflictException("Báo cáo đã được xử lý hoặc chuyển cấp.");
+    if (item.assignedToId && item.assignedToId !== moderatorId) throw new ConflictException("Báo cáo đang do quản lý khác xử lý.");
+    const topic = item.targetType === "TOPIC" ? this.findTopic(item.targetId) : this.findTopic(this.findPost(item.targetId).topicId);
+    const targetAuthorId = item.targetType === "TOPIC" ? topic.authorId : this.findPost(item.targetId).authorId;
+    if (action === "HIDE_CONTENT" && item.targetType === "POST") this.findPost(item.targetId).status = "HIDDEN";
+    if (action === "HIDE_CONTENT" && item.targetType === "TOPIC") { topic.status = "HIDDEN"; topic.isLocked = true; }
+    if (action === "KEEP_CONTENT" && item.targetType === "POST") this.findPost(item.targetId).status = "VISIBLE";
+    if (action === "KEEP_CONTENT" && item.targetType === "TOPIC") { topic.status = "VISIBLE"; topic.isLocked = false; }
+    this.recordMemoryModeration(item, moderatorId, action, normalizedResolution, nextStatus);
+    item.assignedToId = moderatorId;
+    item.resolution = normalizedResolution;
+    item.escalationLevel += action === "ESCALATE_ADMIN" ? 1 : 0;
+    if (action !== "ESCALATE_ADMIN") item.resolvedAt = now();
+    for (const recipientId of new Set([item.reporterId, targetAuthorId, action === "ESCALATE_ADMIN" ? "usr-admin" : undefined])) if (recipientId) this.notifications.unshift({ id: id("notification"), recipientId, type: "FORUM_MODERATION", title: action === "ESCALATE_ADMIN" ? "Báo cáo diễn đàn đã được chuyển cấp" : "Báo cáo diễn đàn đã có kết quả", entityType: "content_report", entityId: reportId, createdAt: now() });
+    return { ...item, actions: item.actions.map((record) => ({ ...record })) };
+  }
+
+  async appealReport(reportId: string, reason: string, learnerId = "usr-learner"): Promise<ContentReport> {
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 10) throw new BadRequestException("Lý do kháng nghị phải có ít nhất 10 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const item = await transaction.contentReport.findFirst({ where: { id: reportId, reporterId: learnerId } });
+        if (!item) throw new NotFoundException("Không tìm thấy báo cáo được phép kháng nghị.");
+        if (!["RESOLVED", "REJECTED"].includes(item.status)) throw new ConflictException("Chỉ kết quả đã xử lý mới có thể kháng nghị.");
+        if (item.appealedAt) throw new ConflictException("Báo cáo này đã được kháng nghị trước đó.");
+        await transaction.moderationAction.create({ data: { id: id("mod-action"), reportId, actorId: learnerId, action: "APPEAL", reason: normalizedReason, previousStatus: item.status, nextStatus: "IN_REVIEW" } });
+        await transaction.auditLog.create({ data: { actorId: learnerId, action: "FORUM_REPORT_APPEAL", entityType: "content_report", entityId: reportId, context: { reason: normalizedReason, previousStatus: item.status } } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-manager", type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, dedupKey: `forum-report:${reportId}:appeal` } });
+        return this.mapReport(await transaction.contentReport.update({ where: { id: reportId }, data: { status: "IN_REVIEW", assignedToId: null, appealReason: normalizedReason, appealedAt: new Date(), resolvedAt: null }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
+      });
     }
-    return { ...item };
+    const item = this.reports.find((report) => report.id === reportId && report.reporterId === learnerId);
+    if (!item) throw new NotFoundException("Không tìm thấy báo cáo được phép kháng nghị.");
+    if (!["RESOLVED", "REJECTED"].includes(item.status)) throw new ConflictException("Chỉ kết quả đã xử lý mới có thể kháng nghị.");
+    if (item.appealedAt) throw new ConflictException("Báo cáo này đã được kháng nghị trước đó.");
+    this.recordMemoryModeration(item, learnerId, "APPEAL", normalizedReason, "IN_REVIEW");
+    item.assignedToId = undefined;
+    item.appealReason = normalizedReason;
+    item.appealedAt = now();
+    item.resolvedAt = undefined;
+    this.notifications.unshift({ id: id("notification"), recipientId: "usr-manager", type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, createdAt: now() });
+    return { ...item, actions: item.actions.map((record) => ({ ...record })) };
   }
 
   async listSessions(role = "LEARNER"): Promise<LiveSession[]> {
@@ -2034,6 +2132,7 @@ export class LearningService {
       tags: this.toStringArray(row.tags),
       isPinned: row.isPinned,
       isLocked: row.isLocked,
+      status: row.status === "PUBLISHED" ? "VISIBLE" : "HIDDEN",
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -2052,7 +2151,7 @@ export class LearningService {
     };
   }
 
-  private mapReport(row: Prisma.ContentReportGetPayload<Record<string, never>>): ContentReport {
+  private mapReport(row: Prisma.ContentReportGetPayload<Record<string, never>> | ContentReportWithActions): ContentReport {
     if (row.targetType !== "TOPIC" && row.targetType !== "POST") throw new BadRequestException("Loại nội dung báo cáo không hợp lệ.");
     return {
       id: row.id,
@@ -2063,7 +2162,33 @@ export class LearningService {
       details: row.details,
       status: row.status,
       resolution: row.resolution ?? undefined,
+      assignedToId: row.assignedToId ?? undefined,
+      escalationLevel: row.escalationLevel,
+      resolvedAt: row.resolvedAt?.toISOString(),
+      appealReason: row.appealReason ?? undefined,
+      appealedAt: row.appealedAt?.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      actions: "actions" in row ? row.actions.map((action) => ({
+        id: action.id,
+        reportId: action.reportId,
+        actorId: action.actorId,
+        action: action.action as ModerationActionRecord["action"],
+        reason: action.reason,
+        previousStatus: action.previousStatus,
+        nextStatus: action.nextStatus,
+        createdAt: action.createdAt.toISOString(),
+      })) : [],
     };
+  }
+
+  private recordMemoryModeration(report: ContentReport, actorId: string, action: ModerationActionRecord["action"], reason: string, nextStatus: ContentReport["status"]): void {
+    const timestamp = now();
+    const record: ModerationActionRecord = { id: id("mod-action"), reportId: report.id, actorId, action, reason, previousStatus: report.status, nextStatus, createdAt: timestamp };
+    this.moderationActions.unshift(record);
+    report.actions.push(record);
+    report.status = nextStatus;
+    report.updatedAt = timestamp;
   }
 
   private mapSession(row: Prisma.LiveSessionGetPayload<Record<string, never>>): LiveSession {
@@ -2416,5 +2541,7 @@ export class LearningService {
   private findExam(examId: string): LearningExam { const item = this.exams.find((candidate) => candidate.id === examId); if (!item) throw new NotFoundException("Không tìm thấy đề."); return item; }
   private findAttempt(attemptId: string): ExamAttempt { const item = this.attempts.find((candidate) => candidate.id === attemptId); if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài."); return item; }
   private findTopic(topicId: string): ForumTopic { const item = this.topics.find((candidate) => candidate.id === topicId); if (!item) throw new NotFoundException("Không tìm thấy chủ đề."); return item; }
+  private findPost(postId: string): ForumPost { const item = this.posts.find((candidate) => candidate.id === postId); if (!item) throw new NotFoundException("Không tìm thấy bài viết."); return item; }
+  private findReport(reportId: string): ContentReport { const item = this.reports.find((candidate) => candidate.id === reportId); if (!item) throw new NotFoundException("Không tìm thấy báo cáo."); return item; }
   private findSession(sessionId: string): LiveSession { const item = this.sessions.find((candidate) => candidate.id === sessionId); if (!item) throw new NotFoundException("Không tìm thấy buổi học."); return item; }
 }

@@ -117,8 +117,12 @@ export class CreateReportDto {
 }
 
 export class ResolveReportDto {
-  @IsIn(["RESOLVED", "REJECTED"]) status!: "RESOLVED" | "REJECTED";
+  @IsIn(["HIDE_CONTENT", "KEEP_CONTENT", "ESCALATE_ADMIN"]) action!: "HIDE_CONTENT" | "KEEP_CONTENT" | "ESCALATE_ADMIN";
   @IsString() @MinLength(3) resolution!: string;
+}
+
+export class AppealReportDto {
+  @IsString() @MinLength(10) reason!: string;
 }
 
 export class CreateSessionDto {

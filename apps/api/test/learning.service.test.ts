@@ -281,13 +281,49 @@ describe("LearningService", () => {
     await expect(service.createPost("topic-rest", "Nhắc người ngoài lớp", "usr-learner", undefined, [], ["usr-ngoai-lop"])).rejects.toThrow(BadRequestException);
   });
 
-  it("ghi báo cáo diễn đàn theo học viên và chặn báo cáo trùng", async () => {
+  it("điều phối báo cáo diễn đàn đủ ngữ cảnh, audit hành động và kháng nghị", async () => {
     const service = new LearningService();
     const report = await service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Chủ đề có nội dung lặp lại" });
     expect(report.status).toBe("OPEN");
     expect(await service.listLearnerReports()).toHaveLength(1);
     await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Gửi lại báo cáo đang mở" })).rejects.toThrow(ConflictException);
     await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-khong-ton-tai", reporterId: "usr-learner", reason: "Spam", details: "Không có quyền truy cập" })).rejects.toThrow(NotFoundException);
+
+    const context = await service.getReportContext(report.id);
+    expect(context.topicTitle).toContain("REST");
+    expect(context.targetBody).toContain("Chia sẻ");
+    expect(context.surroundingPosts).toHaveLength(1);
+
+    const claimed = await service.claimReport(report.id);
+    expect(claimed.status).toBe("IN_REVIEW");
+    expect(claimed.assignedToId).toBe("usr-manager");
+    expect(claimed.actions.map((item) => item.action)).toEqual(["CLAIM"]);
+
+    const resolved = await service.resolveReport(report.id, "HIDE_CONTENT", "Nội dung vi phạm quy định chống spam.");
+    expect(resolved.status).toBe("RESOLVED");
+    expect(resolved.resolvedAt).toBeTruthy();
+    expect(resolved.actions.map((item) => item.action)).toEqual(["CLAIM", "HIDE_CONTENT"]);
+    expect(await service.listTopics("LEARNER")).toHaveLength(0);
+    expect((await service.listNotifications("usr-learner"))[0]?.entityId).toBe(report.id);
+
+    const appealed = await service.appealReport(report.id, "Em đề nghị xem lại vì nội dung có ngữ cảnh học tập.");
+    expect(appealed.status).toBe("IN_REVIEW");
+    expect(appealed.appealReason).toContain("xem lại");
+    await expect(service.appealReport(report.id, "Em muốn gửi kháng nghị lần thứ hai.")).rejects.toThrow(ConflictException);
+    const rejected = await service.resolveReport(report.id, "KEEP_CONTENT", "Giữ nguyên quyết định sau khi xem lại ngữ cảnh.");
+    expect(rejected.status).toBe("REJECTED");
+    expect(await service.listTopics("LEARNER")).toHaveLength(1);
+    await expect(service.resolveReport(report.id, "HIDE_CONTENT", "Xử lý lại lần nữa.")).rejects.toThrow(ConflictException);
+  });
+
+  it("chuyển cấp báo cáo nghiêm trọng mà không tự động ẩn nội dung", async () => {
+    const service = new LearningService();
+    const report = await service.reportContent({ targetType: "POST", targetId: "post-rest-01", reporterId: "usr-learner", reason: "Quấy rối", details: "Cần quản trị hệ thống rà soát thêm" });
+    const escalated = await service.resolveReport(report.id, "ESCALATE_ADMIN", "Có dấu hiệu vi phạm nghiêm trọng cần quản trị xử lý.");
+    expect(escalated.status).toBe("ESCALATED");
+    expect(escalated.escalationLevel).toBe(1);
+    expect((await service.listPosts("topic-rest", "LEARNER"))[0]?.status).toBe("VISIBLE");
+    expect((await service.listNotifications("usr-admin"))[0]?.entityId).toBe(report.id);
   });
 
   it("chỉ cho học viên vào lớp đúng cửa sổ và ghi đủ sự kiện rời phòng", async () => {
