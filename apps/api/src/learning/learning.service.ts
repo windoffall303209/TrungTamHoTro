@@ -1,6 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { ConfigService } from "@nestjs/config";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { dirname, extname, resolve, sep } from "node:path";
 import type { Prisma } from "../generated/prisma/client.js";
+import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
@@ -17,6 +21,8 @@ type ClassWithMembers = Prisma.LearningClassGetPayload<{
 }>;
 type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>;
 type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
+export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
+export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
 
 @Injectable()
 export class LearningService {
@@ -56,8 +62,12 @@ export class LearningService {
   ];
   private readonly attendance: AttendanceRecord[] = [];
   private readonly tickets: SupportTicket[] = [];
+  private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
 
-  constructor(@Optional() private readonly prisma?: PrismaService) {}
+  constructor(
+    @Optional() private readonly prisma?: PrismaService,
+    @Optional() private readonly config?: ConfigService<Environment, true>,
+  ) {}
 
   async listCourses(): Promise<LearningCourse[]> {
     const prisma = this.database();
@@ -240,7 +250,11 @@ export class LearningService {
     return this.materials.filter((item) => role !== "LEARNER" || item.visibility === "PUBLISHED").filter((item) => !normalized || `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, tags: [...item.tags] }));
   }
 
-  async createMaterial(classId: string, input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">): Promise<LearningMaterial> {
+  async createMaterial(
+    classId: string,
+    input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">,
+    upload?: UploadedMaterialFile,
+  ): Promise<LearningMaterial> {
     const prisma = this.database();
     const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
     if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
@@ -251,18 +265,101 @@ export class LearningService {
       const usage = await prisma.material.aggregate({ _sum: { sizeBytes: true } });
       if ((usage._sum.sizeBytes ?? 0n) + BigInt(input.sizeBytes) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
       const materialId = id("material");
-      return this.mapMaterial(await prisma.material.create({
-        data: {
-          id: materialId, classId, ownerId: "usr-instructor", name: input.name.trim(),
-          objectKey: `materials/${classId}/${materialId}`, mimeType: input.mimeType,
-          sizeBytes: BigInt(input.sizeBytes), folder: input.folder.trim(), tags: input.tags,
-        },
-      }));
+      const stored = upload ? await this.storeUpload(classId, materialId, upload) : { objectKey: `metadata/${classId}/${materialId}`, checksum: undefined };
+      try {
+        return this.mapMaterial(await prisma.material.create({
+          data: {
+            id: materialId, classId, ownerId: "usr-instructor", name: input.name.trim(),
+            objectKey: stored.objectKey, checksum: stored.checksum, mimeType: input.mimeType,
+            sizeBytes: BigInt(input.sizeBytes), folder: input.folder.trim(), tags: input.tags,
+          },
+        }));
+      } catch (error) {
+        if (upload) await this.removeStoredFile(stored.objectKey);
+        throw error;
+      }
     }
     this.findClass(classId);
     const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: "DRAFT", createdAt: now() };
+    if (upload) {
+      const stored = await this.storeUpload(classId, item.id, upload);
+      this.materialFiles.set(item.id, { objectKey: stored.objectKey, checksum: stored.checksum });
+    }
     this.materials.unshift(item);
     return { ...item, tags: [...item.tags] };
+  }
+
+  async createMaterialAccess(materialId: string, role: string): Promise<{ url: string; expiresAt: string }> {
+    const prisma = this.database();
+    if (prisma) {
+      const material = await prisma.material.findUnique({
+        where: { id: materialId }, include: { class: { include: { enrollments: true } } },
+      });
+      if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
+      if (role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu đã phát hành.");
+      if (role === "LEARNER" && !material.class.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) {
+        throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+      }
+      if (role === "INSTRUCTOR") {
+        const assigned = await prisma.classInstructor.findUnique({ where: { classId_instructorId: { classId: material.classId, instructorId: "usr-instructor" } } });
+        if (!assigned) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
+      }
+      if (!material.objectKey.startsWith("files/")) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
+    } else {
+      const material = this.materials.find((item) => item.id === materialId);
+      if (!material || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
+      const classItem = this.findClass(material.classId);
+      if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+      if (role === "INSTRUCTOR" && !classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
+      if (!this.materialFiles.has(materialId)) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
+    }
+    const expires = Math.floor(Date.now() / 1000) + 300;
+    const signature = this.signMaterialAccess(materialId, expires);
+    return { url: `/materials/${materialId}/download?expires=${expires}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
+  }
+
+  async readMaterialDownload(materialId: string, expires: number, signature: string, role: string): Promise<MaterialDownload> {
+    this.verifyMaterialAccess(materialId, expires, signature);
+    const prisma = this.database();
+    let fileName: string;
+    let mimeType: string;
+    let objectKey: string | undefined;
+    let expectedChecksum: string | undefined;
+    if (prisma) {
+      const material = await prisma.material.findUnique({
+        where: { id: materialId },
+        include: { class: { include: { enrollments: true, instructors: true } } },
+      });
+      if (!material || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
+      if (role === "LEARNER" && !material.class.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) {
+        throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+      }
+      if (role === "INSTRUCTOR" && !material.class.instructors.some((item) => item.instructorId === "usr-instructor")) {
+        throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
+      }
+      fileName = material.name;
+      mimeType = material.mimeType;
+      objectKey = material.objectKey;
+      expectedChecksum = material.checksum ?? undefined;
+    } else {
+      const material = this.materials.find((item) => item.id === materialId);
+      const stored = this.materialFiles.get(materialId);
+      if (!material || !stored || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
+      const classItem = this.findClass(material.classId);
+      if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+      if (role === "INSTRUCTOR" && !classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
+      fileName = material.name;
+      mimeType = material.mimeType;
+      objectKey = stored.objectKey;
+      expectedChecksum = stored.checksum;
+    }
+    if (!objectKey?.startsWith("files/")) throw new NotFoundException("Tệp học liệu không tồn tại trong kho bytes.");
+    const buffer = await readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp học liệu không còn tồn tại trên ổ đĩa."); });
+    if (expectedChecksum) {
+      const actualChecksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
+      if (actualChecksum !== expectedChecksum) throw new BadRequestException("Checksum học liệu không hợp lệ; tệp đã được cách ly.");
+    }
+    return { fileName, mimeType, buffer };
   }
 
   async updateMaterial(materialId: string, input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>): Promise<LearningMaterial> {
@@ -1142,6 +1239,45 @@ export class LearningService {
         ? record.allowedMimeTypes
         : ["application/pdf", "video/mp4", "image/png", "image/jpeg"],
     };
+  }
+
+  private async storeUpload(classId: string, materialId: string, upload: UploadedMaterialFile): Promise<{ objectKey: string; checksum: string }> {
+    if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp tải lên không khớp nội dung nhận được.");
+    const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "").slice(0, 12);
+    const objectKey = `files/${classId}/${materialId}${safeExtension}`;
+    const target = this.resolveObjectPath(objectKey);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, upload.buffer, { flag: "wx" }).catch((error: unknown) => {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") throw new ConflictException("Khóa lưu trữ học liệu đã tồn tại.");
+      throw error;
+    });
+    return { objectKey, checksum: `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}` };
+  }
+
+  private async removeStoredFile(objectKey: string): Promise<void> {
+    await unlink(this.resolveObjectPath(objectKey)).catch((error: unknown) => {
+      if (!(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error;
+    });
+  }
+
+  private resolveObjectPath(objectKey: string): string {
+    const root = resolve(this.config?.get("STORAGE_ROOT", { infer: true }) ?? "../TestDoAn-data");
+    const target = resolve(root, objectKey);
+    if (target !== root && !target.startsWith(`${root}${sep}`)) throw new BadRequestException("Đường dẫn lưu trữ không hợp lệ.");
+    return target;
+  }
+
+  private signMaterialAccess(materialId: string, expires: number): string {
+    const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
+    return createHmac("sha256", secret).update(`${materialId}.${expires}`).digest("base64url");
+  }
+
+  private verifyMaterialAccess(materialId: string, expires: number, signature: string): void {
+    const current = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(expires) || expires < current || expires > current + 600) throw new BadRequestException("Liên kết tải học liệu đã hết hạn hoặc không hợp lệ.");
+    const expected = Buffer.from(this.signMaterialAccess(materialId, expires));
+    const received = Buffer.from(signature);
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException("Chữ ký tải học liệu không hợp lệ.");
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {
