@@ -115,6 +115,13 @@ enum RegradeStatus {
   REJECTED
 }
 
+enum AttendanceAppealStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
 model User {
   id                 String              @id @default(cuid())
   email              String              @unique @db.VarChar(191)
@@ -137,6 +144,7 @@ model User {
   contentReports     ContentReport[]     @relation("ReportAuthor")
   hostedSessions     LiveSession[]       @relation("SessionHost")
   attendance         AttendanceRecord[]
+  attendanceAppeals  AttendanceAppeal[]
   reportedTickets    SupportTicket[]     @relation("TicketReporter")
   assignedTickets    SupportTicket[]     @relation("TicketAssignee")
   ticketComments     TicketComment[]     @relation("TicketCommentAuthor")
@@ -476,6 +484,7 @@ model LiveSession {
   class        LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
   host         User               @relation("SessionHost", fields: [hostId], references: [id])
   attendance   AttendanceRecord[]
+  appeals      AttendanceAppeal[]
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
 
@@ -499,6 +508,23 @@ model AttendanceRecord {
   @@id([sessionId, learnerId])
   @@index([learnerId, status])
   @@map("attendance_records")
+}
+
+model AttendanceAppeal {
+  id         String                 @id @default(cuid())
+  sessionId  String                 @map("session_id")
+  learnerId  String                 @map("learner_id")
+  reason     String                 @db.Text
+  status     AttendanceAppealStatus @default(OPEN)
+  resolution String?                @db.Text
+  session    LiveSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learner    User                   @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+
+  @@index([sessionId, status])
+  @@index([learnerId, createdAt])
+  @@map("attendance_appeals")
 }
 
 model SupportTicket {

@@ -118,6 +118,7 @@ export class UpdateAttendanceDto {
 }
 
 export class AttachRecordingDto { @IsUrl({ require_tld: false }) recordingUrl!: string; }
+export class CreateAttendanceAppealDto { @IsString() @MinLength(10) reason!: string; }
 
 export class CreateTicketDto {
   @IsString() category!: string;

@@ -213,4 +213,30 @@ describe("LearningService", () => {
     expect((await service.listTickets("SYSTEM_ADMIN"))[0]?.status).toBe("IN_PROGRESS");
     await expect(service.updateTicket(ticket.id, { status: "RESOLVED" })).rejects.toThrow(BadRequestException);
   });
+
+  it("cấp bản ghi có chữ ký và quản lý appeal điểm danh", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-26T02:00:00.000Z"));
+      const service = new LearningService();
+      await service.joinSession("session-web-01");
+      await service.leaveSession("session-web-01");
+      await service.transitionSession("session-web-01", "LIVE");
+      await service.transitionSession("session-web-01", "COMPLETED");
+      await service.attachRecording("session-web-01", "https://recording.example/session-web-01");
+      const summary = await service.getSessionSummary("session-web-01") as { recordingAvailable: boolean; session: { recordingUrl?: string } };
+      expect(summary.recordingAvailable).toBe(true);
+      expect(summary.session.recordingUrl).toBeUndefined();
+      const access = await service.createRecordingAccess("session-web-01");
+      const url = new URL(access.url, "http://localhost");
+      const expires = Number(url.searchParams.get("expires"));
+      const signature = url.searchParams.get("signature") ?? "";
+      expect((await service.resolveRecordingAccess("session-web-01", expires, signature)).recordingUrl).toContain("recording.example");
+      await expect(service.resolveRecordingAccess("session-web-01", expires, `${signature}x`)).rejects.toThrow(BadRequestException);
+      expect((await service.requestAttendanceAppeal("session-web-01", "Thời lượng tham gia chưa được ghi nhận đúng")).status).toBe("OPEN");
+      await expect(service.requestAttendanceAppeal("session-web-01", "Đề nghị kiểm tra lại một lần nữa")).rejects.toThrow(ConflictException);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
