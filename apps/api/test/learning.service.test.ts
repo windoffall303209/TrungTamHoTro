@@ -84,6 +84,23 @@ describe("LearningService", () => {
     }
   });
 
+  it("cách ly tệp có chữ ký nguy hiểm và cảnh báo đúng chủ tệp", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "wind-quarantine-"));
+    const config = { get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT" ? storageRoot : undefined } as unknown as ConfigService<Environment, true>;
+    const service = new LearningService(undefined, config);
+    try {
+      const bytes = Buffer.from("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
+      const material = await service.createMaterial("class-web-01", { name: "anh-bang-chung.png", mimeType: "image/png", sizeBytes: bytes.length, folder: "Tuần 1", tags: ["kiem-tra"] }, { originalName: "anh-bang-chung.png", mimeType: "image/png", size: bytes.length, buffer: bytes });
+      expect(material.visibility).toBe("HIDDEN");
+      expect(material.quarantineReason).toContain("EICAR");
+      await expect(service.createMaterialAccess(material.id, "INSTRUCTOR")).rejects.toThrow("cách ly");
+      await expect(service.updateMaterial(material.id, { visibility: "PUBLISHED" })).rejects.toThrow("cách ly");
+      expect((await service.listNotifications("usr-instructor")).some((item) => item.type === "MATERIAL_QUARANTINED")).toBe(true);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("lọc và phân trang học liệu chỉ trong lớp đã ghi danh", async () => {
     const service = new LearningService();
     const firstPage = await service.searchAccessibleMaterials({ query: "pdf", mimeType: "application/pdf", page: 1, pageSize: 1 });

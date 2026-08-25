@@ -14,7 +14,7 @@ export interface LearningClass {
 export interface LearningMaterial {
   id: string; classId: string; name: string; mimeType: string; sizeBytes: number;
   folder: string; tags: string[]; version: number; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
-  createdAt: string;
+  quarantinedAt?: string; quarantineReason?: string; createdAt: string;
 }
 
 export interface LearningQuestion {

@@ -276,6 +276,8 @@ model Material {
   mimeType         String                @map("mime_type") @db.VarChar(150)
   sizeBytes        BigInt                @map("size_bytes")
   checksum         String?               @db.VarChar(128)
+  quarantinedAt    DateTime?             @map("quarantined_at")
+  quarantineReason String?               @map("quarantine_reason") @db.VarChar(500)
   folder           String                @db.VarChar(255)
   tags             Json
   version          Int                   @default(1)
@@ -289,6 +291,7 @@ model Material {
 
   @@index([classId, visibility])
   @@index([ownerId])
+  @@index([quarantinedAt])
   @@map("materials")
 }
 
