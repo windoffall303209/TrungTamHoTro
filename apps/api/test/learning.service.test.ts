@@ -202,4 +202,15 @@ describe("LearningService", () => {
       vi.useRealTimers();
     }
   });
+
+  it("tính SLA, lưu trao đổi và không đóng ticket thiếu kết quả", async () => {
+    const service = new LearningService();
+    const ticket = await service.createTicket({ category: "TECHNICAL", severity: "P0", description: "Không thể truy cập lớp học trực tuyến" });
+    expect(new Date(ticket.dueAt).getTime() - new Date(ticket.createdAt).getTime()).toBeLessThanOrEqual(4 * 3_600_000 + 1_000);
+    await service.addTicketComment(ticket.id, "Em vẫn gặp lỗi khi thử lại", "LEARNER");
+    await service.addTicketComment(ticket.id, "Đội hỗ trợ đang kiểm tra nhật ký", "SYSTEM_ADMIN");
+    expect(await service.listTicketComments(ticket.id, "LEARNER")).toHaveLength(2);
+    expect((await service.listTickets("SYSTEM_ADMIN"))[0]?.status).toBe("IN_PROGRESS");
+    await expect(service.updateTicket(ticket.id, { status: "RESOLVED" })).rejects.toThrow(BadRequestException);
+  });
 });

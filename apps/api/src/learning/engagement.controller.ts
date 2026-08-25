@@ -2,11 +2,11 @@ import { Body, Controller, Get, Headers, Param, Patch, Post } from "@nestjs/comm
 import { ApiTags } from "@nestjs/swagger";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
-  AttachRecordingDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketDto,
+  AttachRecordingDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
   CreateTopicDto, ResolveReportDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ContentReport, ForumPost, ForumTopic, LiveSession, SupportTicket } from "./learning.types.js";
+import type { ContentReport, ForumPost, ForumTopic, LiveSession, SupportTicket, TicketComment } from "./learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -72,6 +72,16 @@ export class EngagementController {
 
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
   updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input); }
+
+  @Get("support/tickets/:ticketId/comments")
+  listTicketComments(@Param("ticketId") ticketId: string, @Headers("x-role-code") role = "LEARNER"): Promise<TicketComment[]> {
+    return this.learning.listTicketComments(ticketId, role);
+  }
+
+  @Post("support/tickets/:ticketId/comments")
+  addTicketComment(@Param("ticketId") ticketId: string, @Headers("x-role-code") role = "LEARNER", @Body() input: CreateTicketCommentDto): Promise<TicketComment> {
+    return this.learning.addTicketComment(ticketId, input.body, role);
+  }
 
   @Get("reports/operations") @RequirePermissions("report:view")
   getOperationalReport(): Promise<object> { return this.learning.getOperationalReport(); }
