@@ -39,5 +39,7 @@ export class CourseController {
 
   @Post("manager/classes/:classId/activate") @RequirePermissions("class:manage")
   activateClass(@Param("classId") classId: string): LearningClass { return this.learning.activateClass(classId); }
-}
 
+  @Post("manager/classes/:classId/close") @RequirePermissions("class:manage")
+  closeClass(@Param("classId") classId: string): LearningClass { return this.learning.closeClass(classId); }
+}
