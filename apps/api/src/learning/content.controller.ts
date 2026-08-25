@@ -4,7 +4,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
-import { LearningService, type MaterialAccessAction, type UploadedMaterialFile } from "./learning.service.js";
+import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
 import type { ExamAttempt, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
@@ -16,7 +16,17 @@ export class ContentController {
   listMaterials(@Headers("x-role-code") role = "LEARNER", @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(role, query); }
 
   @Get("learner/materials/search") @RequirePermissions("material:view")
-  searchMaterials(@Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials("LEARNER", query); }
+  searchMaterials(
+    @Query("query") query?: string,
+    @Query("classId") classId?: string,
+    @Query("folder") folder?: string,
+    @Query("mimeType") mimeType?: string,
+    @Query("tag") tag?: string,
+    @Query("page") rawPage?: string,
+    @Query("pageSize") rawPageSize?: string,
+  ): Promise<MaterialSearchResult> {
+    return this.learning.searchAccessibleMaterials({ query, classId, folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) });
+  }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input); }

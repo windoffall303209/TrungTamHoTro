@@ -24,6 +24,7 @@ type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: tru
 export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
 export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
+export interface MaterialSearchResult { items: LearningMaterial[]; total: number; page: number; pageSize: number; totalPages: number }
 
 @Injectable()
 export class LearningService {
@@ -244,12 +245,61 @@ export class LearningService {
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.material.findMany({
-        where: role === "LEARNER" ? { visibility: "PUBLISHED" } : undefined,
+        where: role === "LEARNER"
+          ? { visibility: "PUBLISHED", class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } } }
+          : role === "INSTRUCTOR"
+            ? { class: { instructors: { some: { instructorId: "usr-instructor" } } } }
+            : undefined,
         orderBy: { createdAt: "desc" },
       });
       return rows.map((row) => this.mapMaterial(row)).filter((item) => !normalized || `${item.name} ${item.folder} ${item.tags.join(" ")}`.toLowerCase().includes(normalized));
     }
-    return this.materials.filter((item) => role !== "LEARNER" || item.visibility === "PUBLISHED").filter((item) => !normalized || `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, tags: [...item.tags] }));
+    return this.materials
+      .filter((item) => this.canAccessMemoryMaterial(item, role))
+      .filter((item) => !normalized || `${item.name} ${item.folder} ${item.tags.join(" ")}`.toLowerCase().includes(normalized))
+      .map((item) => ({ ...item, tags: [...item.tags] }));
+  }
+
+  async searchAccessibleMaterials(input: {
+    query?: string;
+    classId?: string;
+    folder?: string;
+    mimeType?: string;
+    tag?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<MaterialSearchResult> {
+    const page = Number.isInteger(input.page) && (input.page ?? 0) > 0 ? input.page as number : 1;
+    const pageSize = Number.isInteger(input.pageSize) && (input.pageSize ?? 0) > 0 ? Math.min(input.pageSize as number, 50) : 12;
+    const query = input.query?.trim();
+    const prisma = this.database();
+    if (prisma) {
+      const where: Prisma.MaterialWhereInput = {
+        visibility: "PUBLISHED",
+        class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } },
+        classId: input.classId || undefined,
+        folder: input.folder ? { contains: input.folder } : undefined,
+        mimeType: input.mimeType || undefined,
+        tags: input.tag ? { array_contains: input.tag } : undefined,
+        ...(query ? { OR: [{ name: { contains: query } }, { folder: { contains: query } }] } : {}),
+      };
+      const [rows, total] = await prisma.$transaction([
+        prisma.material.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (page - 1) * pageSize, take: pageSize }),
+        prisma.material.count({ where }),
+      ]);
+      const items = rows.map((row) => this.mapMaterial(row));
+      return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+    }
+    const normalized = query?.toLowerCase() ?? "";
+    const tag = input.tag?.trim().toLowerCase() ?? "";
+    const filtered = this.materials.filter((item) => this.canAccessMemoryMaterial(item, "LEARNER"))
+      .filter((item) => !input.classId || item.classId === input.classId)
+      .filter((item) => !input.folder || item.folder.toLowerCase().includes(input.folder.toLowerCase()))
+      .filter((item) => !input.mimeType || item.mimeType === input.mimeType)
+      .filter((item) => !tag || item.tags.some((value) => value.toLowerCase() === tag))
+      .filter((item) => !normalized || `${item.name} ${item.folder} ${item.tags.join(" ")}`.toLowerCase().includes(normalized));
+    const items = filtered.slice((page - 1) * pageSize, page * pageSize).map((item) => ({ ...item, tags: [...item.tags] }));
+    return { items, total: filtered.length, page, pageSize, totalPages: Math.max(1, Math.ceil(filtered.length / pageSize)) };
   }
 
   async createMaterial(
@@ -1302,6 +1352,14 @@ export class LearningService {
     if (role === "CENTER_MANAGER") return "usr-manager";
     if (role === "INSTRUCTOR") return "usr-instructor";
     return "usr-learner";
+  }
+
+  private canAccessMemoryMaterial(material: LearningMaterial, role: string): boolean {
+    const classItem = this.classes.find((item) => item.id === material.classId);
+    if (!classItem) return false;
+    if (role === "LEARNER") return material.visibility === "PUBLISHED" && classItem.learnerIds.includes("usr-learner");
+    if (role === "INSTRUCTOR") return classItem.instructorIds.includes("usr-instructor");
+    return true;
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {
