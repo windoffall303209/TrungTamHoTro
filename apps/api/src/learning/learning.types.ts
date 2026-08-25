@@ -29,6 +29,13 @@ export interface LearningExam {
   status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED";
 }
 
+export interface LearnerExamSummary extends LearningExam {
+  questionCount: number;
+  availabilityStatus: "UPCOMING" | "AVAILABLE" | "IN_PROGRESS" | "ATTEMPT_LIMIT_REACHED" | "CLOSED";
+  remainingAttempts: number;
+  serverTime: string;
+}
+
 export interface ExamAttempt {
   id: string; examId: string; learnerId: string; answers: Record<string, string[]>;
   status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string;
@@ -66,4 +73,3 @@ export interface SupportTicket {
   description: string; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
   assigneeId?: string; resolution?: string; createdAt: string;
 }
-

@@ -119,4 +119,18 @@ describe("LearningService", () => {
     await expect(service.createMaterialAccess(material.id, "LEARNER")).rejects.toThrow(NotFoundException);
     await expect(service.createMaterialAccess(material.id, "LEARNER")).rejects.toThrow("Học viên không thuộc lớp");
   });
+
+  it("không lộ câu hỏi trước khi bắt đầu và trả đúng số lượt làm đề", async () => {
+    const service = new LearningService();
+    const summaries = await service.listLearnerExamSummaries("class-web-01");
+    expect(summaries[0]?.questionIds).toEqual([]);
+    expect(summaries[0]?.questionCount).toBe(2);
+    expect(summaries[0]?.remainingAttempts).toBe(2);
+    await expect(service.getExamQuestions("exam-mid-web")).rejects.toThrow("lượt làm bài đang mở");
+
+    await service.startAttempt("exam-mid-web");
+    expect(await service.getExamQuestions("exam-mid-web")).toHaveLength(2);
+    const active = await service.listLearnerExamSummaries("class-web-01");
+    expect(active[0]?.availabilityStatus).toBe("IN_PROGRESS");
+  });
 });
