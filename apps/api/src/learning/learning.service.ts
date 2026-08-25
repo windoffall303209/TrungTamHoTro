@@ -8,7 +8,7 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
-  LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, SupportTicket,
+  LearnerExamSummary, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, SupportTicket,
 } from "./learning.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -487,18 +487,71 @@ export class LearningService {
     return this.exams.filter((item) => role !== "LEARNER" || item.status === "PUBLISHED").map((item) => ({ ...item, questionIds: [...item.questionIds] }));
   }
 
+  async listLearnerExamSummaries(classId?: string): Promise<LearnerExamSummary[]> {
+    const learnerId = "usr-learner";
+    const timestamp = new Date();
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.exam.findMany({
+        where: {
+          status: "PUBLISHED",
+          classId: classId || undefined,
+          class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
+        },
+        include: { questions: { orderBy: { position: "asc" } }, attempts: { where: { learnerId }, orderBy: { attemptNo: "asc" } } },
+        orderBy: { openAt: "desc" },
+      });
+      return rows.map((row) => {
+        const exam = this.mapExam(row);
+        const active = row.attempts.some((attempt) => attempt.status === "IN_PROGRESS");
+        return {
+          ...exam,
+          questionIds: [],
+          questionCount: row.questions.length,
+          availabilityStatus: this.examAvailability(exam, row.attempts.length, active, timestamp),
+          remainingAttempts: Math.max(0, exam.attemptLimit - row.attempts.length),
+          serverTime: timestamp.toISOString(),
+        };
+      });
+    }
+    return this.exams.filter((exam) => exam.status === "PUBLISHED")
+      .filter((exam) => !classId || exam.classId === classId)
+      .filter((exam) => this.classes.some((classItem) => classItem.id === exam.classId && classItem.learnerIds.includes(learnerId)))
+      .map((exam) => {
+        const attempts = this.attempts.filter((attempt) => attempt.examId === exam.id && attempt.learnerId === learnerId);
+        return {
+          ...exam,
+          questionIds: [],
+          questionCount: exam.questionIds.length,
+          availabilityStatus: this.examAvailability(exam, attempts.length, attempts.some((attempt) => attempt.status === "IN_PROGRESS"), timestamp),
+          remainingAttempts: Math.max(0, exam.attemptLimit - attempts.length),
+          serverTime: timestamp.toISOString(),
+        };
+      });
+  }
+
   async getExamQuestions(examId: string): Promise<LearningQuestion[]> {
     const prisma = this.database();
     if (prisma) {
-      const exam = await prisma.exam.findUnique({
-        where: { id: examId }, include: { questions: { include: { question: true }, orderBy: { position: "asc" } } },
+      const exam = await prisma.exam.findFirst({
+        where: {
+          id: examId,
+          status: "PUBLISHED",
+          class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } },
+          attempts: { some: { learnerId: "usr-learner", status: "IN_PROGRESS" } },
+        },
+        include: { questions: { include: { question: true }, orderBy: { position: "asc" } } },
       });
-      if (!exam) throw new NotFoundException("Không tìm thấy đề.");
-      if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+      if (!exam) throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
       return exam.questions.map(({ question }) => ({ ...this.mapQuestion(question), correctAnswers: [] }));
     }
     const exam = this.findExam(examId);
     if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+    const classItem = this.findClass(exam.classId);
+    if (!classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
+    if (!this.attempts.some((attempt) => attempt.examId === examId && attempt.learnerId === "usr-learner" && attempt.status === "IN_PROGRESS")) {
+      throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
+    }
     return exam.questionIds.map((questionId) => {
       const question = this.questions.find((item) => item.id === questionId);
       if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
@@ -574,10 +627,14 @@ export class LearningService {
     }
     const exam = this.findExam(examId);
     if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+    const timestamp = new Date();
+    if (timestamp < new Date(exam.openAt) || timestamp > new Date(exam.closeAt)) throw new BadRequestException("Đề chưa mở hoặc đã đóng.");
+    const classItem = this.findClass(exam.classId);
+    if (!classItem.learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
     const attempts = this.attempts.filter((item) => item.examId === examId && item.learnerId === learnerId);
-    if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
     const existing = attempts.find((item) => item.status === "IN_PROGRESS");
     if (existing) return { ...existing, answers: { ...existing.answers } };
+    if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
     const item: ExamAttempt = { id: id("attempt"), examId, learnerId, answers: {}, status: "IN_PROGRESS", startedAt: now() };
     this.attempts.push(item);
     return { ...item, answers: {} };
@@ -1360,6 +1417,14 @@ export class LearningService {
     if (role === "LEARNER") return material.visibility === "PUBLISHED" && classItem.learnerIds.includes("usr-learner");
     if (role === "INSTRUCTOR") return classItem.instructorIds.includes("usr-instructor");
     return true;
+  }
+
+  private examAvailability(exam: LearningExam, attemptCount: number, active: boolean, timestamp: Date): LearnerExamSummary["availabilityStatus"] {
+    if (active) return "IN_PROGRESS";
+    if (timestamp < new Date(exam.openAt)) return "UPCOMING";
+    if (timestamp > new Date(exam.closeAt) || exam.status === "CLOSED") return "CLOSED";
+    if (attemptCount >= exam.attemptLimit) return "ATTEMPT_LIMIT_REACHED";
+    return "AVAILABLE";
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {

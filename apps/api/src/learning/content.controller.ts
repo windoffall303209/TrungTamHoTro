@@ -5,7 +5,7 @@ import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamAttempt, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
+import type { ExamAttempt, LearnerExamSummary, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -96,7 +96,10 @@ export class ContentController {
   listExams(@Headers("x-role-code") role = "LEARNER"): Promise<LearningExam[]> { return this.learning.listExams(role); }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
-  async listLearnerExams(@Param("classId") classId: string): Promise<LearningExam[]> { return (await this.learning.listExams("LEARNER")).filter((item) => item.classId === classId); }
+  listLearnerExams(@Param("classId") classId: string): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(classId); }
+
+  @Get("learner/exams") @RequirePermissions("exam:view")
+  listAllLearnerExams(): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(); }
 
   @Get("learner/exams/:examId/questions") @RequirePermissions("exam:view")
   getLearnerExamQuestions(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId); }
