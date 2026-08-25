@@ -384,6 +384,25 @@ describe("LearningService", () => {
     await expect(service.createPost("topic-rest", "Phản hồi vượt giới hạn")).rejects.toThrow("vượt giới hạn");
   });
 
+  it("điều phối chủ đề, giới hạn độ sâu và xóa mềm phản hồi", async () => {
+    const service = new LearningService();
+    const topic = await service.createTopic("class-web-01", { title: "Luồng kiểm thử diễn đàn", body: "Nội dung thảo luận hợp lệ cho cả lớp.", tags: ["testing"], isPinned: false });
+    expect((await service.listNotifications("usr-learner")).some((item) => item.entityId === topic.id)).toBe(true);
+    const root = await service.createPost(topic.id, "Phản hồi gốc hợp lệ");
+    const child = await service.createPost(topic.id, "Phản hồi cấp một hợp lệ", "usr-learner", root.id);
+    const grandchild = await service.createPost(topic.id, "Phản hồi cấp hai hợp lệ", "usr-learner", child.id);
+    await expect(service.createPost(topic.id, "Không được tạo cấp ba", "usr-learner", grandchild.id)).rejects.toThrow("tối đa 2 cấp");
+
+    const edited = await service.updatePost(root.id, "Phản hồi gốc đã chỉnh sửa");
+    expect(edited).toMatchObject({ editCount: 1, body: "Phản hồi gốc đã chỉnh sửa" });
+    expect((await service.deletePost(root.id)).deletedAt).toBeTruthy();
+    expect((await service.listPosts(topic.id))[0]).toMatchObject({ body: "[Nội dung đã bị ẩn]", status: "HIDDEN" });
+
+    expect((await service.moderateTopic(topic.id, { isLocked: true, isPinned: true, reason: "Kết thúc phiên thảo luận" }))).toMatchObject({ isLocked: true, isPinned: true });
+    await expect(service.createPost(topic.id, "Không thể đăng khi đã khóa")).rejects.toThrow("đã khóa");
+    await expect(service.updatePost(child.id, "Không thể sửa khi đã khóa")).rejects.toThrow("đã khóa");
+  });
+
   it("kiểm tra tệp diễn đàn, mention trong lớp và thông báo chống trùng", async () => {
     const service = new LearningService();
     const post = await service.createPost(

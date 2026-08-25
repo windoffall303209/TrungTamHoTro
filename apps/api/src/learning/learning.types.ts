@@ -73,6 +73,7 @@ export interface ForumTopic {
 export interface ForumPost {
   id: string; topicId: string; authorId: string; body: string; parentId?: string;
   status: "VISIBLE" | "HIDDEN"; attachmentIds: string[]; mentionedUserIds: string[]; createdAt: string;
+  editedAt?: string; deletedAt?: string; editCount?: number;
 }
 
 export interface LearningNotification {

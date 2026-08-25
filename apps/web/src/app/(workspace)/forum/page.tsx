@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Eye, Flag, MessageCircle, Paperclip, Pin, Plus, Send, ShieldCheck } from "lucide-react";
+import { Bell, Eye, EyeOff, Flag, Lock, MessageCircle, Paperclip, Pencil, Pin, Plus, Send, ShieldCheck, Trash2, Unlock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -35,6 +35,12 @@ export default function ForumPage() {
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
+  const [editingPost, setEditingPost] = useState<ForumPost | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [topicAction, setTopicAction] = useState<{ isLocked?: boolean; isPinned?: boolean; label: string } | null>(null);
+  const [topicReason, setTopicReason] = useState("");
+  const [hideTarget, setHideTarget] = useState<ForumPost | null>(null);
+  const [hideReason, setHideReason] = useState("");
   const [reportTarget, setReportTarget] = useState<ForumTopic | null>(null);
   const [reportForm, setReportForm] = useState({ reason: "Nội dung không phù hợp", details: "" });
   const [moderationTarget, setModerationTarget] = useState<ContentReport | null>(null);
@@ -160,6 +166,37 @@ export default function ForumPage() {
         "error",
       );
     }
+  };
+  const updatePost = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingPost || !selected) return;
+    try {
+      await apiRequest(`/learner/forum/posts/${editingPost.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ body: editBody }) });
+      setEditingPost(null); setEditBody(""); notify("Đã sửa phản hồi và lưu lịch sử phiên bản."); await choose(selected);
+    } catch (error) { notify(error instanceof Error ? error.message : "Không sửa được phản hồi.", "error"); }
+  };
+  const deletePost = async (item: ForumPost) => {
+    if (!selected) return;
+    try {
+      await apiRequest(`/learner/forum/posts/${item.id}/delete`, { method: "POST", roleCode: session.roleCode });
+      notify("Đã xóa mềm phản hồi; cấu trúc hội thoại vẫn được giữ."); await choose(selected);
+    } catch (error) { notify(error instanceof Error ? error.message : "Không xóa được phản hồi.", "error"); }
+  };
+  const moderateTopic = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selected || !topicAction) return;
+    try {
+      const updated = await apiRequest<ForumTopic>(`/instructor/forum/topics/${selected.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ ...topicAction, label: undefined, reason: topicReason }) });
+      setSelected(updated); setTopics((current) => current.map((item) => item.id === updated.id ? updated : item)); setTopicAction(null); setTopicReason(""); notify("Đã cập nhật trạng thái chủ đề và ghi audit.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không điều phối được chủ đề.", "error"); }
+  };
+  const hidePost = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!hideTarget || !selected) return;
+    try {
+      await apiRequest(`/instructor/forum/posts/${hideTarget.id}/hide`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason: hideReason }) });
+      setHideTarget(null); setHideReason(""); notify("Đã ẩn phản hồi và ghi lý do kiểm duyệt."); await choose(selected);
+    } catch (error) { notify(error instanceof Error ? error.message : "Không ẩn được phản hồi.", "error"); }
   };
   const markNotificationRead = async (item: LearningNotification) => {
     if (item.readAt) return;
@@ -357,6 +394,11 @@ export default function ForumPage() {
                 <h2 className="font-heading text-xl font-extrabold">
                   {selected.title}
                 </h2>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <StatusBadge status={selected.isLocked ? "LOCKED" : "ACTIVE"} />
+                  {selected.isPinned ? <span className="inline-flex items-center gap-1 text-xs font-bold text-sky-700"><Pin size={13} />Đã ghim</span> : null}
+                  {instructor ? <><Button className="min-h-8 px-3 text-xs" onClick={() => setTopicAction({ isLocked: !selected.isLocked, label: selected.isLocked ? "Mở khóa chủ đề" : "Khóa chủ đề" })} variant="secondary">{selected.isLocked ? <Unlock size={14} /> : <Lock size={14} />}{selected.isLocked ? "Mở khóa" : "Khóa"}</Button><Button className="min-h-8 px-3 text-xs" onClick={() => setTopicAction({ isPinned: !selected.isPinned, label: selected.isPinned ? "Bỏ ghim chủ đề" : "Ghim chủ đề" })} variant="ghost"><Pin size={14} />{selected.isPinned ? "Bỏ ghim" : "Ghim"}</Button></> : null}
+                </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   {selected.body}
                 </p>
@@ -382,9 +424,9 @@ export default function ForumPage() {
                           </div>
                         ) : null}
                         <p className="mt-2 text-[10px] font-bold text-slate-400">
-                          {new Date(item.createdAt).toLocaleString("vi-VN")}
+                          {new Date(item.createdAt).toLocaleString("vi-VN")}{item.editedAt ? ` · đã sửa ${item.editCount ?? 1} lần` : ""}{item.deletedAt ? " · đã xóa mềm" : ""}
                         </p>
-                        {learner && !selected.isLocked ? <button className="mt-2 text-xs font-bold text-sky-700" onClick={() => setReplyTo(item)} type="button">Trả lời</button> : null}
+                        {!item.deletedAt && item.status === "VISIBLE" ? <div className="mt-2 flex flex-wrap gap-3">{learner && !selected.isLocked ? <><button className="text-xs font-bold text-sky-700" onClick={() => setReplyTo(item)} type="button">Trả lời</button>{item.authorId === "usr-learner" ? <><button className="inline-flex items-center gap-1 text-xs font-bold text-amber-700" onClick={() => { setEditingPost(item); setEditBody(item.body); }} type="button"><Pencil size={12} />Sửa</button><button className="inline-flex items-center gap-1 text-xs font-bold text-rose-700" onClick={() => void deletePost(item)} type="button"><Trash2 size={12} />Xóa</button></> : null}</> : null}{instructor ? <button className="inline-flex items-center gap-1 text-xs font-bold text-rose-700" onClick={() => setHideTarget(item)} type="button"><EyeOff size={12} />Ẩn có lý do</button> : null}</div> : null}
                       </div>
                     ))
                   ) : (
@@ -526,6 +568,15 @@ export default function ForumPage() {
       </Modal>
       <Modal open={Boolean(appealTarget)} onClose={() => setAppealTarget(null)} title="Kháng nghị kết quả" description="Mỗi báo cáo chỉ được kháng nghị một lần; quản lý sẽ xem lại toàn bộ ngữ cảnh và lịch sử.">
         <form className="space-y-4" onSubmit={(event) => void appeal(event)}><Field label="Lý do kháng nghị"><textarea className={inputClass} minLength={10} required rows={4} value={appealReason} onChange={(event) => setAppealReason(event.target.value)} /></Field><Button loading={submitting} type="submit">Gửi kháng nghị</Button></form>
+      </Modal>
+      <Modal open={Boolean(editingPost)} onClose={() => setEditingPost(null)} title="Sửa phản hồi" description="Bản nội dung trước được giữ trong lịch sử chỉnh sửa.">
+        <form className="space-y-4" onSubmit={(event) => void updatePost(event)}><Field label="Nội dung mới"><textarea className={inputClass} minLength={2} required rows={4} value={editBody} onChange={(event) => setEditBody(event.target.value)} /></Field><Button type="submit"><Pencil size={14} />Lưu chỉnh sửa</Button></form>
+      </Modal>
+      <Modal open={Boolean(topicAction)} onClose={() => setTopicAction(null)} title={topicAction?.label ?? "Điều phối chủ đề"} description="Khóa chỉ ngăn thao tác mới, không xóa các phản hồi hiện có.">
+        <form className="space-y-4" onSubmit={(event) => void moderateTopic(event)}><Field label="Lý do điều phối"><textarea className={inputClass} minLength={5} required rows={3} value={topicReason} onChange={(event) => setTopicReason(event.target.value)} /></Field><Button type="submit"><ShieldCheck size={14} />Xác nhận</Button></form>
+      </Modal>
+      <Modal open={Boolean(hideTarget)} onClose={() => setHideTarget(null)} title="Ẩn phản hồi" description="Nội dung được ẩn nhưng vị trí trong luồng thảo luận vẫn được giữ.">
+        <form className="space-y-4" onSubmit={(event) => void hidePost(event)}><Field label="Lý do kiểm duyệt"><textarea className={inputClass} minLength={5} required rows={3} value={hideReason} onChange={(event) => setHideReason(event.target.value)} /></Field><Button variant="danger" type="submit"><EyeOff size={14} />Ẩn phản hồi</Button></form>
       </Modal>
     </div>
   );

@@ -139,6 +139,14 @@ export class CreatePostDto {
   @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) mentionedUserIds: string[] = [];
 }
 
+export class UpdatePostDto { @IsString() @MinLength(2) body!: string; }
+export class ModerateTopicDto {
+  @IsOptional() @IsBoolean() isLocked?: boolean;
+  @IsOptional() @IsBoolean() isPinned?: boolean;
+  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+}
+export class HideForumPostDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string; }
+
 export class CreateReportDto {
   @IsIn(["TOPIC", "POST"]) targetType!: "TOPIC" | "POST";
   @IsString() targetId!: string;
