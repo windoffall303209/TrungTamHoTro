@@ -1,0 +1,30 @@
+import type { PermissionCode, RoleCode } from "../auth/permissions.js";
+
+export type AccountStatus = "ACTIVE" | "INACTIVE" | "LOCKED";
+
+export interface IdentityUser {
+  id: string;
+  displayName: string;
+  email: string;
+  roleCode: RoleCode;
+  status: AccountStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IdentityRole {
+  code: RoleCode;
+  name: string;
+  description: string;
+  permissions: PermissionCode[];
+  version: number;
+}
+
+export interface IdentityAuditEvent {
+  id: string;
+  action: string;
+  targetId: string;
+  summary: string;
+  createdAt: string;
+}
+

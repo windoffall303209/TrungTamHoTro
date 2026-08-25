@@ -101,6 +101,9 @@ importers:
       '@wind-of-fall/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      dotenv:
+        specifier: 17.2.3
+        version: 17.2.3
       lucide-react:
         specifier: 1.33.0
         version: 1.33.0(react@19.2.8)
