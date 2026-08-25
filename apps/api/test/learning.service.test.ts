@@ -174,6 +174,25 @@ describe("LearningService", () => {
     await expect(service.createPost("topic-rest", "Phản hồi vượt giới hạn")).rejects.toThrow("vượt giới hạn");
   });
 
+  it("kiểm tra tệp diễn đàn, mention trong lớp và thông báo chống trùng", async () => {
+    const service = new LearningService();
+    const post = await service.createPost(
+      "topic-rest",
+      "Mời giảng viên xem giúp tài liệu này",
+      "usr-learner",
+      undefined,
+      ["mat-web-intro"],
+      ["usr-instructor", "usr-instructor"],
+    );
+    expect(post.attachmentIds).toEqual(["mat-web-intro"]);
+    expect(post.mentionedUserIds).toEqual(["usr-instructor"]);
+    const notifications = await service.listNotifications("usr-instructor");
+    expect(notifications).toHaveLength(1);
+    expect((await service.markNotificationRead(notifications[0]!.id, "usr-instructor")).readAt).toBeTruthy();
+    await expect(service.createPost("topic-rest", "Đính kèm không hợp lệ", "usr-learner", undefined, ["mat-khong-ton-tai"])).rejects.toThrow(BadRequestException);
+    await expect(service.createPost("topic-rest", "Nhắc người ngoài lớp", "usr-learner", undefined, [], ["usr-ngoai-lop"])).rejects.toThrow(BadRequestException);
+  });
+
   it("ghi báo cáo diễn đàn theo học viên và chặn báo cáo trùng", async () => {
     const service = new LearningService();
     const report = await service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Chủ đề có nội dung lặp lại" });
