@@ -12,6 +12,15 @@ export interface RestoreRun { id: string; backupId: string; status: "PENDING" | 
 export interface DataExport { id: string; category: string; format: "CSV" | "JSON"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; rowCount: number; expiresAt: string; createdAt: string }
 export interface NotificationTemplate { id: string; eventCode: string; locale: string; subject: string; body: string; version: number; status: "DRAFT" | "PUBLISHED"; updatedAt: string }
 export interface ModerationPolicy { version: number; prohibitedTerms: string[]; maxPostsPerMinute: number; action: "FLAG" | "HIDE_PENDING_REVIEW"; updatedAt: string }
+export interface TemplateTestDelivery { recipient: string; subject: string; body: string; status: "DELIVERED"; sentAt: string }
+
+const templateVariables: Record<string, readonly string[]> = {
+  ACCOUNT_UPDATED: ["displayName", "accountStatus"],
+  CLASS_REMINDER: ["className", "sessionTitle", "startsAt"],
+  EXAM_PUBLISHED: ["examTitle", "className", "openAt", "closeAt"],
+  FORUM_MENTION: ["topicTitle", "authorName"],
+  SUPPORT_UPDATED: ["ticketId", "status", "resolution"],
+};
 
 const defaultSettings = (): SystemSettings => ({
   centerName: "Trung tâm hỗ trợ giảng dạy Wind EDU",
@@ -216,27 +225,39 @@ export class SystemService {
       }
       return [...latest.values()];
     }
-    return structuredClone(this.templates);
+    const latest = new Map<string, NotificationTemplate>();
+    for (const item of [...this.templates].sort((left, right) => right.version - left.version)) {
+      const key = `${item.eventCode}:${item.locale}`;
+      if (!latest.has(key)) latest.set(key, item);
+    }
+    return structuredClone([...latest.values()]);
   }
 
   async saveTemplate(input: Omit<NotificationTemplate, "id" | "version" | "status" | "updatedAt">): Promise<NotificationTemplate> {
     if (/<script|javascript:/i.test(`${input.subject} ${input.body}`)) throw new BadRequestException("Mẫu thông báo chứa nội dung không an toàn.");
+    const eventCode = input.eventCode.trim().toUpperCase();
+    const allowedVariables = templateVariables[eventCode];
+    if (!allowedVariables) throw new BadRequestException("Mã sự kiện thông báo chưa được hệ thống hỗ trợ.");
+    const usedVariables = this.extractTemplateVariables(`${input.subject} ${input.body}`);
+    const invalidVariables = usedVariables.filter((variable) => !allowedVariables.includes(variable));
+    if (invalidVariables.length) throw new BadRequestException(`Biến mẫu không được phép: ${invalidVariables.join(", ")}.`);
+    const normalized = { ...input, eventCode, locale: input.locale.trim() };
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.notificationTemplate.findFirst({
-        where: { eventCode: input.eventCode, locale: input.locale }, orderBy: { version: "desc" },
+        where: { eventCode, locale: normalized.locale }, orderBy: { version: "desc" },
       });
       return prisma.$transaction(async (transaction) => {
         const row = await transaction.notificationTemplate.create({
-          data: { id: `tpl-${randomUUID()}`, ...input, version: (current?.version ?? 0) + 1, status: "PUBLISHED" },
+          data: { id: `tpl-${randomUUID()}`, ...normalized, version: (current?.version ?? 0) + 1, status: "PUBLISHED" },
         });
         await this.logDatabase(transaction, "TEMPLATE_PUBLISHED", row.eventCode, `${row.locale} · v${row.version}`);
         return this.mapTemplate(row);
       });
     }
-    const current = this.templates.find((item) => item.eventCode === input.eventCode && item.locale === input.locale);
-    const item: NotificationTemplate = { ...input, id: current?.id ?? `tpl-${randomUUID()}`, version: (current?.version ?? 0) + 1, status: "PUBLISHED", updatedAt: new Date().toISOString() };
-    if (current) Object.assign(current, item); else this.templates.unshift(item);
+    const current = this.templates.find((item) => item.eventCode === eventCode && item.locale === normalized.locale);
+    const item: NotificationTemplate = { ...normalized, id: `tpl-${randomUUID()}`, version: (current?.version ?? 0) + 1, status: "PUBLISHED", updatedAt: new Date().toISOString() };
+    this.templates.unshift(item);
     this.log("TEMPLATE_PUBLISHED", item.eventCode, `${item.locale} · v${item.version}`);
     return structuredClone(item);
   }
@@ -250,8 +271,20 @@ export class SystemService {
     } else template = this.templates.find((item) => item.id === templateId);
     if (!template) throw new NotFoundException("Không tìm thấy mẫu thông báo.");
     const render = (text: string): string => text.replace(/{{([a-zA-Z0-9_]+)}}/g, (_, key: string) => variables[key] ?? `[${key}]`);
+    const subject = render(template.subject);
     const body = render(template.body);
-    return { subject: render(template.subject), body, unresolvedVariables: [...body.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]) };
+    return { subject, body, unresolvedVariables: [...new Set([...subject.matchAll(/\[([^\]]+)\]/g), ...body.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]))] };
+  }
+
+  async sendTemplateTest(templateId: string, recipient: string, variables: Record<string, string>): Promise<TemplateTestDelivery> {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new BadRequestException("Email nhận bản thử không hợp lệ.");
+    const preview = await this.previewTemplate(templateId, variables) as { subject: string; body: string; unresolvedVariables: string[] };
+    if (preview.unresolvedVariables.length) throw new BadRequestException(`Chưa cung cấp biến: ${preview.unresolvedVariables.join(", ")}.`);
+    const delivery: TemplateTestDelivery = { recipient, subject: preview.subject, body: preview.body, status: "DELIVERED", sentAt: new Date().toISOString() };
+    const prisma = this.database();
+    if (prisma) await this.logDatabase(prisma, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
+    else this.log("TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
+    return delivery;
   }
 
   async getModerationPolicy(): Promise<ModerationPolicy> {
@@ -415,6 +448,7 @@ export class SystemService {
   private numberValue(value: unknown, fallback: number): number { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
   private booleanValue(value: unknown, fallback: boolean): boolean { return typeof value === "boolean" ? value : fallback; }
   private stringArray(value: unknown, fallback: string[]): string[] { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [...fallback]; }
+  private extractTemplateVariables(value: string): string[] { return [...new Set([...value.matchAll(/{{([a-zA-Z0-9_]+)}}/g)].map((match) => match[1] ?? "").filter(Boolean))]; }
   private isProvider(value: string): value is IntegrationConfig["provider"] { return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI"; }
   private log(action: string, target: string, detail: string): void { this.audit.unshift({ id: `audit-${randomUUID()}`, actor: "usr-admin", action, target, detail, createdAt: new Date().toISOString() }); }
 }
