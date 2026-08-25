@@ -84,7 +84,7 @@ export default function MaterialsPage() {
         roleCode: session.roleCode,
         body,
       });
-      notify("Đã tải tệp, kiểm tra checksum và lưu học liệu ở trạng thái nháp.");
+      notify("Đã tải tệp, quét chữ ký nguy hiểm, kiểm tra checksum và áp dụng trạng thái phù hợp.");
       setFile(null);
       setOpen(false);
       await load();
@@ -155,6 +155,7 @@ export default function MaterialsPage() {
                 <StatusBadge status={item.visibility} />
               </div>
               <h2 className="mt-4 font-heading text-lg font-extrabold">{item.name}</h2>
+              {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
               <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500"><FolderOpen size={14} />{item.folder}</p>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {item.tags.map((tag) => <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600" key={tag}>#{tag}</span>)}
@@ -162,9 +163,9 @@ export default function MaterialsPage() {
               <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
                 <span>v{item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
                 <div className="flex items-center gap-1">
-                  <Button onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
-                  <Button onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
-                  {instructor ? <Button onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
+                  <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
+                  <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
+                  {instructor || manager ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : manager ? "Duyệt" : "Công khai"}</Button> : null}
                 </div>
               </div>
             </article>

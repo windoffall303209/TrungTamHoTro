@@ -13,7 +13,7 @@ export interface LearningClass {
 
 export interface Material {
   id: string; classId: string; name: string; mimeType: string; sizeBytes: number;
-  folder: string; tags: string[]; version: number; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN"; createdAt: string;
+  folder: string; tags: string[]; version: number; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN"; quarantinedAt?: string; quarantineReason?: string; createdAt: string;
 }
 
 export interface Question {

@@ -318,33 +318,44 @@ export class LearningService {
     const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
     if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
     if (!policy.allowedMimeTypes.includes(input.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
+    const quarantineReason = upload ? this.detectMaliciousUpload(upload) : undefined;
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
       const usage = await prisma.material.aggregate({ _sum: { sizeBytes: true } });
       if ((usage._sum.sizeBytes ?? 0n) + BigInt(input.sizeBytes) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
       const materialId = id("material");
-      const stored = upload ? await this.storeUpload(classId, materialId, upload) : { objectKey: `metadata/${classId}/${materialId}`, checksum: undefined };
+      const stored = upload ? await this.storeUpload(classId, materialId, upload, Boolean(quarantineReason)) : { objectKey: `metadata/${classId}/${materialId}`, checksum: undefined };
       try {
-        return this.mapMaterial(await prisma.material.create({
-          data: {
-            id: materialId, classId, ownerId: "usr-instructor", name: input.name.trim(),
-            objectKey: stored.objectKey, checksum: stored.checksum, mimeType: input.mimeType,
-            sizeBytes: BigInt(input.sizeBytes), folder: input.folder.trim(), tags: input.tags,
-          },
-        }));
+        return prisma.$transaction(async (transaction) => {
+          const material = await transaction.material.create({
+            data: {
+              id: materialId, classId, ownerId: "usr-instructor", name: input.name.trim(),
+              objectKey: stored.objectKey, checksum: stored.checksum, mimeType: input.mimeType,
+              sizeBytes: BigInt(input.sizeBytes), folder: input.folder.trim(), tags: input.tags,
+              visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+              quarantinedAt: quarantineReason ? new Date() : null,
+              quarantineReason,
+            },
+          });
+          if (quarantineReason) {
+            await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_QUARANTINED", title: `Tệp ${input.name.trim()} đã bị cách ly`, entityType: "MATERIAL", entityId: materialId, dedupKey: `material-quarantine:${materialId}:usr-instructor` } });
+          }
+          return this.mapMaterial(material);
+        });
       } catch (error) {
         if (upload) await this.removeStoredFile(stored.objectKey);
         throw error;
       }
     }
     this.findClass(classId);
-    const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: "DRAFT", createdAt: now() };
+    const item: LearningMaterial = { ...input, id: id("material"), classId, version: 1, visibility: quarantineReason ? "HIDDEN" : "DRAFT", quarantinedAt: quarantineReason ? now() : undefined, quarantineReason, createdAt: now() };
     if (upload) {
-      const stored = await this.storeUpload(classId, item.id, upload);
+      const stored = await this.storeUpload(classId, item.id, upload, Boolean(quarantineReason));
       this.materialFiles.set(item.id, { objectKey: stored.objectKey, checksum: stored.checksum });
     }
     this.materials.unshift(item);
+    if (quarantineReason) this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_QUARANTINED", title: `Tệp ${input.name.trim()} đã bị cách ly`, entityType: "MATERIAL", entityId: item.id, createdAt: now() });
     return { ...item, tags: [...item.tags] };
   }
 
@@ -355,6 +366,7 @@ export class LearningService {
         where: { id: materialId }, include: { class: { include: { enrollments: true } } },
       });
       if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
+      if (material.quarantinedAt) throw new BadRequestException("Tệp đang bị cách ly và không thể truy cập.");
       if (role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu đã phát hành.");
       if (role === "LEARNER" && !material.class.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) {
         throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
@@ -366,6 +378,7 @@ export class LearningService {
       if (!material.objectKey.startsWith("files/")) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
     } else {
       const material = this.materials.find((item) => item.id === materialId);
+      if (material?.quarantinedAt) throw new BadRequestException("Tệp đang bị cách ly và không thể truy cập.");
       if (!material || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
       const classItem = this.findClass(material.classId);
       if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
@@ -397,6 +410,7 @@ export class LearningService {
         include: { class: { include: { enrollments: true, instructors: true } } },
       });
       if (!material || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
+      if (material.quarantinedAt) throw new BadRequestException("Tệp đang bị cách ly và không thể truy cập.");
       if (role === "LEARNER" && !material.class.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) {
         throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
       }
@@ -411,6 +425,7 @@ export class LearningService {
       const material = this.materials.find((item) => item.id === materialId);
       const stored = this.materialFiles.get(materialId);
       if (!material || !stored || role === "LEARNER" && material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy học liệu.");
+      if (material.quarantinedAt) throw new BadRequestException("Tệp đang bị cách ly và không thể truy cập.");
       const classItem = this.findClass(material.classId);
       if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
       if (role === "INSTRUCTOR" && !classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
@@ -441,6 +456,7 @@ export class LearningService {
     if (prisma) {
       const current = await prisma.material.findUnique({ where: { id: materialId } });
       if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+      if (current.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
       return this.mapMaterial(await prisma.material.update({
         where: { id: materialId },
         data: { folder: input.folder?.trim(), tags: input.tags, visibility: input.visibility, version: { increment: 1 } },
@@ -448,6 +464,7 @@ export class LearningService {
     }
     const item = this.materials.find((material) => material.id === materialId);
     if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (item.quarantinedAt && input.visibility === "PUBLISHED") throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
     Object.assign(item, input);
     item.version += 1;
     return { ...item, tags: [...item.tags] };
@@ -1614,6 +1631,8 @@ export class LearningService {
       tags: this.toStringArray(row.tags),
       version: row.version,
       visibility: row.visibility,
+      quarantinedAt: row.quarantinedAt?.toISOString(),
+      quarantineReason: row.quarantineReason ?? undefined,
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -1838,10 +1857,10 @@ export class LearningService {
     };
   }
 
-  private async storeUpload(classId: string, materialId: string, upload: UploadedMaterialFile): Promise<{ objectKey: string; checksum: string }> {
+  private async storeUpload(classId: string, materialId: string, upload: UploadedMaterialFile, quarantined = false): Promise<{ objectKey: string; checksum: string }> {
     if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp tải lên không khớp nội dung nhận được.");
     const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "").slice(0, 12);
-    const objectKey = `files/${classId}/${materialId}${safeExtension}`;
+    const objectKey = `${quarantined ? "quarantine" : "files"}/${classId}/${materialId}${safeExtension}`;
     const target = this.resolveObjectPath(objectKey);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, upload.buffer, { flag: "wx" }).catch((error: unknown) => {
@@ -1958,6 +1977,16 @@ export class LearningService {
     if (!allowedMimeTypes.has(upload.mimeType)) throw new BadRequestException("Chỉ chấp nhận bằng chứng PDF, PNG, JPEG hoặc TXT.");
     if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName)) throw new BadRequestException("Loại tệp bằng chứng có nguy cơ thực thi không được phép.");
     if (upload.mimeType === "text/plain") this.validateSupportText(upload.buffer.toString("utf8"), "Tệp bằng chứng");
+  }
+
+  private detectMaliciousUpload(upload: UploadedMaterialFile): string | undefined {
+    const head = upload.buffer.subarray(0, Math.min(upload.buffer.length, 8192));
+    const text = head.toString("utf8");
+    if (head[0] === 0x4d && head[1] === 0x5a) return "Phát hiện chữ ký tệp thực thi Windows (MZ).";
+    if (text.includes("EICAR-STANDARD-ANTIVIRUS-TEST-FILE")) return "Phát hiện chữ ký kiểm thử antivirus EICAR.";
+    if (/<script\b|javascript:/i.test(text)) return "Phát hiện nội dung script có khả năng thực thi.";
+    if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName)) return "Phần mở rộng tệp có khả năng thực thi.";
+    return undefined;
   }
 
   private async enforceForumPolicy(database: PrismaService, authorId: string, content: string): Promise<void> {
