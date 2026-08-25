@@ -13,27 +13,27 @@ export class IdentityController {
   @Get("users")
   @RequirePermissions("user:view")
   @ApiOperation({ summary: "Danh sách và tìm kiếm tài khoản" })
-  listUsers(@Query("query") query?: string): IdentityUser[] {
+  listUsers(@Query("query") query?: string): Promise<IdentityUser[]> {
     return this.identityService.listUsers(query);
   }
 
   @Post("users")
   @RequirePermissions("user:create")
   @ApiOperation({ summary: "Tạo tài khoản người dùng" })
-  createUser(@Body() input: CreateUserDto): IdentityUser {
+  createUser(@Body() input: CreateUserDto): Promise<IdentityUser> {
     return this.identityService.createUser(input);
   }
 
   @Patch("users/:userId")
   @RequirePermissions("user:update")
   @ApiOperation({ summary: "Cập nhật thông tin hoặc trạng thái tài khoản" })
-  updateUser(@Param("userId") userId: string, @Body() input: UpdateUserDto): IdentityUser {
+  updateUser(@Param("userId") userId: string, @Body() input: UpdateUserDto): Promise<IdentityUser> {
     return this.identityService.updateUser(userId, input);
   }
 
   @Get("roles")
   @RequirePermissions("role:view")
-  listRoles(): IdentityRole[] {
+  listRoles(): Promise<IdentityRole[]> {
     return this.identityService.listRoles();
   }
 
@@ -42,13 +42,13 @@ export class IdentityController {
   updateRolePermissions(
     @Param("roleCode") roleCode: UpdateRolePermissionsDto["roleCode"],
     @Body() input: UpdatePermissionsBodyDto,
-  ): IdentityRole {
+  ): Promise<IdentityRole> {
     return this.identityService.updateRolePermissions({ roleCode, permissions: input.permissions });
   }
 
   @Get("identity-audit")
   @RequirePermissions("user:view")
-  listAuditEvents(): IdentityAuditEvent[] {
+  listAuditEvents(): Promise<IdentityAuditEvent[]> {
     return this.identityService.listAuditEvents();
   }
 }
