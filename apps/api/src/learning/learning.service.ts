@@ -9,7 +9,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
-  RegradeRequest, SupportTicket, TicketComment,
+  RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -23,6 +23,7 @@ type ClassWithMembers = Prisma.LearningClassGetPayload<{
 type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>;
 type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
 type ForumPostWithRelations = Prisma.ForumPostGetPayload<{ include: { attachments: true; mentions: true } }>;
+type SupportTicketWithAttachments = Prisma.SupportTicketGetPayload<{ include: { attachments: true } }>;
 export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
 export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
@@ -1348,27 +1349,100 @@ export class LearningService {
     if (prisma) {
       const rows = await prisma.supportTicket.findMany({
         where: role === "LEARNER" ? { reporterId: "usr-learner" } : undefined,
+        include: { attachments: true },
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
       });
       return rows.map((row) => this.mapTicket(row));
     }
-    return this.tickets.filter((item) => role === "LEARNER" ? item.reporterId === "usr-learner" : true).map((item) => ({ ...item }));
+    return this.tickets.filter((item) => role === "LEARNER" ? item.reporterId === "usr-learner" : true).map((item) => ({ ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) }));
   }
 
-  async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description">, reporterId = "usr-learner"): Promise<SupportTicket> {
+  async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description" | "contextId">, reporterId = "usr-learner"): Promise<SupportTicket> {
     const slaHours: Record<SupportTicket["severity"], number> = { P0: 4, P1: 24, P2: 72, P3: 120 };
+    const description = this.validateSupportText(input.description, "Mô tả yêu cầu");
+    const category = input.category.trim();
+    const contextId = input.contextId?.trim() || undefined;
     const prisma = this.database();
     if (prisma) {
-      return this.mapTicket(await prisma.supportTicket.create({
-        data: {
-          id: id("ticket"), reporterId, category: input.category.trim(), severity: input.severity,
-          description: input.description.trim(), dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000),
-        },
-      }));
+      return prisma.$transaction(async (transaction) => {
+        const duplicate = await transaction.supportTicket.findFirst({
+          where: {
+            reporterId,
+            category,
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+            createdAt: { gte: new Date(Date.now() - 24 * 3_600_000) },
+            ...(contextId ? { contextId } : { description }),
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        const ticketId = id("ticket");
+        const created = await transaction.supportTicket.create({
+          data: {
+            id: ticketId, reporterId, category, severity: input.severity, description,
+            contextId: contextId ?? null, duplicateOfId: duplicate?.id,
+            dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000),
+          },
+          include: { attachments: true },
+        });
+        if (input.severity === "P0") {
+          await transaction.notification.create({
+            data: {
+              id: id("notification"), recipientId: "usr-admin", type: "SUPPORT_P0",
+              title: `P0 mới: ${category}${contextId ? ` · ${contextId}` : ""}`,
+              entityType: "SUPPORT_TICKET", entityId: ticketId, dedupKey: `support-p0:${ticketId}:usr-admin`,
+            },
+          });
+        }
+        return this.mapTicket(created);
+      });
     }
-    const item: SupportTicket = { ...input, id: id("ticket"), reporterId, status: "OPEN", dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000).toISOString(), createdAt: now() };
+    const duplicate = this.tickets.find((ticket) => ticket.reporterId === reporterId && ticket.category === category && ["OPEN", "IN_PROGRESS"].includes(ticket.status) && Date.now() - new Date(ticket.createdAt).getTime() <= 24 * 3_600_000 && (contextId ? ticket.contextId === contextId : ticket.description === description));
+    const item: SupportTicket = { ...input, category, description, contextId, duplicateOfId: duplicate?.id, id: id("ticket"), reporterId, status: "OPEN", dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000).toISOString(), attachments: [], createdAt: now() };
     this.tickets.unshift(item);
-    return { ...item };
+    if (input.severity === "P0") this.notifications.unshift({ id: id("notification"), recipientId: "usr-admin", type: "SUPPORT_P0", title: `P0 mới: ${category}${contextId ? ` · ${contextId}` : ""}`, entityType: "SUPPORT_TICKET", entityId: item.id, createdAt: now() });
+    return { ...item, attachments: [] };
+  }
+
+  listRoleNotifications(role: string): Promise<LearningNotification[]> {
+    return this.listNotifications(this.userIdForRole(role));
+  }
+
+  markRoleNotificationRead(notificationId: string, role: string): Promise<LearningNotification> {
+    return this.markNotificationRead(notificationId, this.userIdForRole(role));
+  }
+
+  async addSupportAttachment(
+    ticketId: string,
+    upload: UploadedMaterialFile,
+    role: string,
+  ): Promise<SupportAttachment> {
+    const uploaderId = this.userIdForRole(role);
+    this.validateSupportUpload(upload);
+    const attachmentId = id("support-attachment");
+    const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^.a-z0-9]/g, "");
+    const objectKey = `support/${ticketId}/${attachmentId}${safeExtension}`;
+    const checksum = `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}`;
+    const prisma = this.database();
+    if (prisma) {
+      const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
+      if (!ticket || role === "LEARNER" && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
+      if (["RESOLVED", "CLOSED"].includes(ticket.status)) throw new BadRequestException("Ticket đã hoàn tất, không thể thêm bằng chứng.");
+      await this.writeStoredFile(objectKey, upload.buffer);
+      try {
+        const row = await prisma.supportAttachment.create({ data: { id: attachmentId, ticketId, uploaderId, name: upload.originalName, objectKey, mimeType: upload.mimeType, sizeBytes: upload.size, checksum } });
+        return { id: row.id, ticketId: row.ticketId, name: row.name, mimeType: row.mimeType, sizeBytes: Number(row.sizeBytes), checksum: row.checksum, createdAt: row.createdAt.toISOString() };
+      } catch (error) {
+        await this.removeStoredFile(objectKey);
+        throw error;
+      }
+    }
+    const ticket = this.tickets.find((item) => item.id === ticketId);
+    if (!ticket || role === "LEARNER" && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
+    if (["RESOLVED", "CLOSED"].includes(ticket.status)) throw new BadRequestException("Ticket đã hoàn tất, không thể thêm bằng chứng.");
+    await this.writeStoredFile(objectKey, upload.buffer);
+    const attachment: SupportAttachment = { id: attachmentId, ticketId, name: upload.originalName, mimeType: upload.mimeType, sizeBytes: upload.size, checksum, createdAt: now() };
+    ticket.attachments.push(attachment);
+    return { ...attachment };
   }
 
   async updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>): Promise<SupportTicket> {
@@ -1389,7 +1463,7 @@ export class LearningService {
     const item = this.tickets.find((ticket) => ticket.id === ticketId);
     if (!item) throw new NotFoundException("Không tìm thấy ticket.");
     Object.assign(item, input);
-    return { ...item };
+    return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
   }
 
   async listTicketComments(ticketId: string, role: string): Promise<TicketComment[]> {
@@ -1406,7 +1480,7 @@ export class LearningService {
   }
 
   async addTicketComment(ticketId: string, body: string, role: string): Promise<TicketComment> {
-    const normalized = this.validateForumContent(body, "Nội dung trao đổi");
+    const normalized = this.validateSupportText(body, "Nội dung trao đổi");
     const authorId = this.userIdForRole(role);
     const prisma = this.database();
     if (prisma) {
@@ -1606,7 +1680,7 @@ export class LearningService {
       id: row.id,
       classId: row.classId,
       title: row.title,
-      body: row.status === "PUBLISHED" ? row.body : "[Nội dung đã bị ẩn]",
+      body: row.body,
       authorId: row.authorId,
       tags: this.toStringArray(row.tags),
       isPinned: row.isPinned,
@@ -1620,7 +1694,7 @@ export class LearningService {
       id: row.id,
       topicId: row.topicId,
       authorId: row.authorId,
-      body: row.body,
+      body: row.status === "PUBLISHED" ? row.body : "[Nội dung đã bị ẩn]",
       parentId: row.parentId ?? undefined,
       status: row.status === "PUBLISHED" ? "VISIBLE" : "HIDDEN",
       attachmentIds: row.status === "PUBLISHED" && "attachments" in row ? row.attachments.map((item) => item.materialId) : [],
@@ -1675,17 +1749,28 @@ export class LearningService {
     return { id: row.id, sessionId: row.sessionId, learnerId: row.learnerId, reason: row.reason, status: row.status, resolution: row.resolution ?? undefined, createdAt: row.createdAt.toISOString() };
   }
 
-  private mapTicket(row: Prisma.SupportTicketGetPayload<Record<string, never>>): SupportTicket {
+  private mapTicket(row: Prisma.SupportTicketGetPayload<Record<string, never>> | SupportTicketWithAttachments): SupportTicket {
     return {
       id: row.id,
       reporterId: row.reporterId,
       category: row.category,
       severity: row.severity,
       description: row.description,
+      contextId: row.contextId ?? undefined,
+      duplicateOfId: row.duplicateOfId ?? undefined,
       status: row.status,
       assigneeId: row.assigneeId ?? undefined,
       resolution: row.resolution ?? undefined,
       dueAt: row.dueAt.toISOString(),
+      attachments: "attachments" in row ? row.attachments.map((attachment) => ({
+        id: attachment.id,
+        ticketId: attachment.ticketId,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: Number(attachment.sizeBytes),
+        checksum: attachment.checksum,
+        createdAt: attachment.createdAt.toISOString(),
+      })) : [],
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -1766,6 +1851,15 @@ export class LearningService {
     return { objectKey, checksum: `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}` };
   }
 
+  private async writeStoredFile(objectKey: string, buffer: Buffer): Promise<void> {
+    const target = this.resolveObjectPath(objectKey);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, buffer, { flag: "wx" }).catch((error: unknown) => {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") throw new ConflictException("Tệp bằng chứng đã tồn tại trong kho lưu trữ.");
+      throw error;
+    });
+  }
+
   private async removeStoredFile(objectKey: string): Promise<void> {
     await unlink(this.resolveObjectPath(objectKey)).catch((error: unknown) => {
       if (!(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error;
@@ -1841,6 +1935,29 @@ export class LearningService {
     const normalized = value.trim();
     if (/<\/?[a-z][^>]*>|javascript:|data:text\/html/i.test(normalized)) throw new BadRequestException(`${label} chứa HTML hoặc mã thực thi không được phép.`);
     return normalized;
+  }
+
+  private validateSupportText(value: string, label: string): string {
+    const normalized = this.validateForumContent(value, label);
+    const secretPatterns = [
+      /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
+      /(?:password|passwd|mật\s*khẩu)\s*[:=]\s*\S+/i,
+      /(?:access[_-]?token|api[_-]?key|secret)\s*[:=]\s*[A-Za-z0-9_\-./+=]{8,}/i,
+      /(?:Bearer\s+)[A-Za-z0-9_\-.]{12,}/i,
+    ];
+    if (secretPatterns.some((pattern) => pattern.test(normalized))) {
+      throw new BadRequestException(`${label} có dấu hiệu chứa mật khẩu, token hoặc khóa bí mật. Hãy xóa dữ liệu nhạy cảm trước khi gửi.`);
+    }
+    return normalized;
+  }
+
+  private validateSupportUpload(upload: UploadedMaterialFile): void {
+    const allowedMimeTypes = new Set(["application/pdf", "image/png", "image/jpeg", "text/plain"]);
+    if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp bằng chứng không khớp nội dung nhận được.");
+    if (upload.size < 1 || upload.size > 10 * 1024 * 1024) throw new BadRequestException("Tệp bằng chứng phải có kích thước từ 1 byte đến 10 MB.");
+    if (!allowedMimeTypes.has(upload.mimeType)) throw new BadRequestException("Chỉ chấp nhận bằng chứng PDF, PNG, JPEG hoặc TXT.");
+    if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName)) throw new BadRequestException("Loại tệp bằng chứng có nguy cơ thực thi không được phép.");
+    if (upload.mimeType === "text/plain") this.validateSupportText(upload.buffer.toString("utf8"), "Tệp bằng chứng");
   }
 
   private async enforceForumPolicy(database: PrismaService, authorId: string, content: string): Promise<void> {

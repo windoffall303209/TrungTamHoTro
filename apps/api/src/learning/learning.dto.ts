@@ -126,6 +126,7 @@ export class CreateTicketDto {
   @IsString() category!: string;
   @IsIn(["P0", "P1", "P2", "P3"]) severity!: "P0" | "P1" | "P2" | "P3";
   @IsString() @MinLength(10) description!: string;
+  @IsOptional() @IsString() @MaxLength(191) contextId?: string;
 }
 
 export class UpdateTicketDto {
