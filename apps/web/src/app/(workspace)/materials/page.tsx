@@ -27,6 +27,9 @@ export default function MaterialsPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<Material | null>(null);
+  const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
+  const [reviewReason, setReviewReason] = useState("");
   const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
 
   const load = useCallback(async () => {
@@ -97,16 +100,33 @@ export default function MaterialsPage() {
 
   const publish = async (item: Material) => {
     try {
-      const path = manager ? `/manager/materials/${item.id}/review` : `/instructor/materials/${item.id}`;
-      await apiRequest(path, {
+      await apiRequest(`/instructor/materials/${item.id}`, {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({ visibility: item.visibility === "PUBLISHED" ? "HIDDEN" : "PUBLISHED" }),
       });
-      notify(item.visibility === "PUBLISHED" ? "Đã ẩn học liệu." : manager ? "Đã duyệt và công khai học liệu." : "Đã công khai học liệu.");
+      notify(item.visibility === "PUBLISHED" ? "Đã ẩn học liệu." : "Đã công khai học liệu.");
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không cập nhật được.", "error");
+    }
+  };
+
+  const review = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!reviewTarget) return;
+    try {
+      await apiRequest(`/manager/materials/${reviewTarget.id}/review`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ action: reviewAction, reason: reviewReason || undefined }),
+      });
+      notify(reviewAction === "APPROVE" ? "Đã duyệt học liệu." : reviewAction === "HIDE" ? "Đã ẩn học liệu và thông báo người đăng." : "Đã yêu cầu giảng viên chỉnh sửa.");
+      setReviewTarget(null);
+      setReviewReason("");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không kiểm duyệt được học liệu.", "error");
     }
   };
 
@@ -165,7 +185,8 @@ export default function MaterialsPage() {
                 <div className="flex items-center gap-1">
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
-                  {instructor || manager ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : manager ? "Duyệt" : "Công khai"}</Button> : null}
+                  {instructor ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
+                  {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "HIDE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
                 </div>
               </div>
             </article>
@@ -192,6 +213,20 @@ export default function MaterialsPage() {
           <Field label="Thẻ — ngăn cách bằng dấu phẩy"><input className={inputClass} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field>
           {file ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{file.type || "MIME không xác định"} · {(file.size / 1_000_000).toFixed(2)} MB</p> : null}
           <Button disabled={!file} loading={saving} type="submit">Tải lên và kiểm tra</Button>
+        </form>
+      </Modal>
+      <Modal open={Boolean(reviewTarget)} onClose={() => setReviewTarget(null)} title="Kiểm duyệt học liệu" description={reviewTarget?.name}>
+        <form className="space-y-4" onSubmit={(event) => void review(event)}>
+          <Field label="Hành động">
+            <select className={inputClass} value={reviewAction} onChange={(event) => setReviewAction(event.target.value as typeof reviewAction)}>
+              <option value="APPROVE">Duyệt và phát hành</option>
+              <option value="HIDE">Ẩn học liệu</option>
+              <option value="REQUEST_CHANGES">Yêu cầu chỉnh sửa</option>
+            </select>
+          </Field>
+          {reviewAction !== "APPROVE" ? <Field label="Lý do"><textarea className={inputClass} minLength={5} required rows={4} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} /></Field> : null}
+          {reviewTarget?.quarantinedAt ? <p className="rounded-lg bg-rose-50 p-3 text-xs font-bold text-rose-700">Tệp đang cách ly và không thể được duyệt: {reviewTarget.quarantineReason}</p> : null}
+          <Button disabled={Boolean(reviewTarget?.quarantinedAt && reviewAction === "APPROVE")} type="submit">Xác nhận kiểm duyệt</Button>
         </form>
       </Modal>
     </div>

@@ -151,6 +151,7 @@ model User {
   assignedTickets    SupportTicket[]     @relation("TicketAssignee")
   ticketComments     TicketComment[]     @relation("TicketCommentAuthor")
   ticketAttachments  SupportAttachment[] @relation("TicketAttachmentUploader")
+  materialReviews    FileReview[]        @relation("MaterialReviewer")
   auditLogs          AuditLog[]
 
   @@map("users")
@@ -286,6 +287,7 @@ model Material {
   owner            User                  @relation("MaterialOwner", fields: [ownerId], references: [id])
   accessLogs       MaterialAccessLog[]
   forumAttachments ForumPostAttachment[]
+  reviews          FileReview[]
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
 
@@ -293,6 +295,21 @@ model Material {
   @@index([ownerId])
   @@index([quarantinedAt])
   @@map("materials")
+}
+
+model FileReview {
+  id         String   @id @default(cuid())
+  materialId String   @map("material_id")
+  reviewerId String   @map("reviewer_id")
+  action     String   @db.VarChar(30)
+  reason     String?  @db.VarChar(500)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  reviewer   User     @relation("MaterialReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([materialId, createdAt])
+  @@index([reviewerId])
+  @@map("file_reviews")
 }
 
 model MaterialAccessLog {

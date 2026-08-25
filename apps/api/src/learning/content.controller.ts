@@ -3,9 +3,9 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamAttempt, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
+import type { ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -53,7 +53,10 @@ export class ContentController {
   updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
-  reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
+  reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason); }
+
+  @Get("manager/materials/:materialId/reviews") @RequirePermissions("class:manage")
+  listMaterialReviews(@Param("materialId") materialId: string): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId); }
 
   @Get("materials/:materialId/access") @RequirePermissions("material:view")
   getMaterialAccess(

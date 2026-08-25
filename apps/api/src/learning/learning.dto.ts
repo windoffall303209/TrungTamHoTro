@@ -42,6 +42,11 @@ export class UpdateMaterialDto {
   @IsOptional() @IsIn(["DRAFT", "PUBLISHED", "HIDDEN"]) visibility?: "DRAFT" | "PUBLISHED" | "HIDDEN";
 }
 
+export class ReviewMaterialDto {
+  @IsIn(["APPROVE", "HIDE", "REQUEST_CHANGES"]) action!: "APPROVE" | "HIDE" | "REQUEST_CHANGES";
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
 export class CreateQuestionDto {
   @IsString() courseId!: string;
   @IsIn(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"]) type!: LearningQuestion["type"];

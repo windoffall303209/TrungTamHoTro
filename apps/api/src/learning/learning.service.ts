@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass, LearningNotification,
+  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -73,6 +73,7 @@ export class LearningService {
   private readonly ticketComments: TicketComment[] = [];
   private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
   private readonly materialAccessLogs: Array<{ materialId: string; userId: string; action: MaterialAccessAction; createdAt: string }> = [];
+  private readonly materialReviews: FileReviewRecord[] = [];
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
@@ -468,6 +469,53 @@ export class LearningService {
     Object.assign(item, input);
     item.version += 1;
     return { ...item, tags: [...item.tags] };
+  }
+
+  async reviewClassMaterial(
+    materialId: string,
+    action: FileReviewRecord["action"],
+    rawReason?: string,
+    reviewerId = "usr-manager",
+  ): Promise<LearningMaterial> {
+    const reason = rawReason?.trim();
+    if ((action === "HIDE" || action === "REQUEST_CHANGES") && (!reason || reason.length < 5)) {
+      throw new BadRequestException("Cần lý do ít nhất 5 ký tự khi ẩn hoặc yêu cầu sửa học liệu.");
+    }
+    const visibility: LearningMaterial["visibility"] = action === "APPROVE" ? "PUBLISHED" : action === "HIDE" ? "HIDDEN" : "DRAFT";
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.material.findUnique({ where: { id: materialId } });
+        if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+        if (current.quarantinedAt && action === "APPROVE") throw new BadRequestException("Không thể duyệt tệp đang bị cách ly.");
+        const material = await transaction.material.update({ where: { id: materialId }, data: { visibility, version: { increment: 1 } } });
+        const reviewId = id("file-review");
+        await transaction.fileReview.create({ data: { id: reviewId, materialId, reviewerId, action, reason } });
+        await transaction.auditLog.create({ data: { actorId: reviewerId, action: `MATERIAL_${action}`, entityType: "material", entityId: materialId, context: { reason: reason ?? "Duyệt phát hành", before: current.visibility, after: visibility } } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: current.ownerId, type: "MATERIAL_REVIEWED", title: `Học liệu ${current.name}: ${action}`, entityType: "MATERIAL", entityId: materialId, dedupKey: `material-review:${reviewId}:${current.ownerId}` } });
+        return this.mapMaterial(material);
+      });
+    }
+    const item = this.materials.find((material) => material.id === materialId);
+    if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (item.quarantinedAt && action === "APPROVE") throw new BadRequestException("Không thể duyệt tệp đang bị cách ly.");
+    const review: FileReviewRecord = { id: id("file-review"), materialId, reviewerId, action, reason, createdAt: now() };
+    this.materialReviews.unshift(review);
+    item.visibility = visibility;
+    item.version += 1;
+    this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "MATERIAL_REVIEWED", title: `Học liệu ${item.name}: ${action}`, entityType: "MATERIAL", entityId: materialId, createdAt: now() });
+    return { ...item, tags: [...item.tags] };
+  }
+
+  async listMaterialReviews(materialId: string): Promise<FileReviewRecord[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const exists = await prisma.material.findUnique({ where: { id: materialId }, select: { id: true } });
+      if (!exists) throw new NotFoundException("Không tìm thấy học liệu.");
+      const rows = await prisma.fileReview.findMany({ where: { materialId }, orderBy: { createdAt: "desc" } });
+      return rows.map((row) => ({ id: row.id, materialId: row.materialId, reviewerId: row.reviewerId, action: this.fileReviewAction(row.action), reason: row.reason ?? undefined, createdAt: row.createdAt.toISOString() }));
+    }
+    return this.materialReviews.filter((review) => review.materialId === materialId).map((review) => ({ ...review }));
   }
 
   async listQuestions(query?: string): Promise<LearningQuestion[]> {
@@ -1796,6 +1844,11 @@ export class LearningService {
 
   private isLiveProvider(value: string): value is LiveSession["provider"] {
     return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI";
+  }
+
+  private fileReviewAction(value: string): FileReviewRecord["action"] {
+    if (value === "APPROVE" || value === "HIDE" || value === "REQUEST_CHANGES") return value;
+    throw new BadRequestException("Hành động kiểm duyệt học liệu không hợp lệ.");
   }
 
   private async getDatabaseClass(
