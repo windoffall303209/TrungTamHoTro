@@ -80,14 +80,17 @@ export interface ContentReport {
 export interface LiveSession {
   id: string; classId: string; title: string; startsAt: string; endsAt: string;
   provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
-  hostUrl: string; attendeeUrl: string; recordingUrl?: string;
+  hostUrl: string; attendeeUrl: string; recordingUrl?: string; attendanceLockedAt?: string; attendanceLockedById?: string;
 }
 
 export interface AttendanceRecord {
   sessionId: string; learnerId: string; joinedAt?: string; leftAt?: string;
   attendedMinutes: number; status: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED"; adjustmentReason?: string;
+  providerParticipantId?: string; providerSnapshot?: Record<string, unknown>;
 }
 export interface AttendanceAppeal { id: string; sessionId: string; learnerId: string; reason: string; status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string }
+export interface ProviderAttendanceInput { providerParticipantId: string; learnerId: string; joinedAt: string; leftAt: string }
+export interface AttendanceSessionReview { session: LiveSession; enrolledLearnerIds: string[]; records: AttendanceRecord[]; appeals: AttendanceAppeal[] }
 
 export interface SupportTicket {
   id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3";

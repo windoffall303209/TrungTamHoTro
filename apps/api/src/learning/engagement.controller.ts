@@ -4,7 +4,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
   AttachRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
-  CreateTopicDto, ResolveReportDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
+  CreateTopicDto, ResolveAttendanceAppealDto, ResolveReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
@@ -78,6 +78,20 @@ export class EngagementController {
 
   @Patch("instructor/sessions/:sessionId/attendance") @RequirePermissions("session:manage")
   updateAttendance(@Param("sessionId") sessionId: string, @Body() input: UpdateAttendanceDto): Promise<object> { return this.learning.updateAttendance(sessionId, input.learnerId, input.status, input.attendedMinutes, input.adjustmentReason); }
+
+  @Get("manager/sessions/:sessionId/attendance") @RequirePermissions("class:manage")
+  getAttendanceReview(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getAttendanceReview(sessionId); }
+
+  @Post("manager/sessions/:sessionId/attendance/sync") @RequirePermissions("class:manage")
+  syncAttendance(@Param("sessionId") sessionId: string, @Body() input: SyncAttendanceDto): Promise<object> { return this.learning.syncAttendance(sessionId, input.records); }
+
+  @Post("manager/sessions/:sessionId/attendance/lock") @RequirePermissions("class:manage")
+  lockAttendance(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.lockAttendance(sessionId); }
+
+  @Post("manager/attendance-appeals/:appealId/resolve") @RequirePermissions("class:manage")
+  resolveAttendanceAppeal(@Param("appealId") appealId: string, @Body() input: ResolveAttendanceAppealDto): Promise<object> {
+    return this.learning.resolveAttendanceAppeal(appealId, input.decision, input.resolution, input.status, input.attendedMinutes);
+  }
 
   @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
   attachRecording(@Param("sessionId") sessionId: string, @Body() input: AttachRecordingDto): Promise<LiveSession> { return this.learning.attachRecording(sessionId, input.recordingUrl); }

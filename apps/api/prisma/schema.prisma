@@ -123,37 +123,38 @@ enum AttendanceAppealStatus {
 }
 
 model User {
-  id                 String              @id @default(cuid())
-  email              String              @unique @db.VarChar(191)
-  passwordHash       String              @map("password_hash") @db.VarChar(255)
-  displayName        String              @map("display_name") @db.VarChar(150)
-  status             UserStatus          @default(ACTIVE)
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  roles              UserRole[]
-  ownedCourses       Course[]            @relation("CourseOwner")
-  instructedClasses  ClassInstructor[]
-  enrollments        ClassEnrollment[]
-  materials          Material[]          @relation("MaterialOwner")
-  materialAccessLogs MaterialAccessLog[]
-  regradeRequests    RegradeRequest[]
-  questions          Question[]          @relation("QuestionAuthor")
-  examAttempts       ExamAttempt[]       @relation("AttemptLearner")
-  forumTopics        ForumTopic[]        @relation("TopicAuthor")
-  forumPosts         ForumPost[]         @relation("PostAuthor")
-  forumMentions      ForumMention[]      @relation("MentionedUser")
-  notifications      Notification[]      @relation("NotificationRecipient")
-  contentReports     ContentReport[]     @relation("ReportAuthor")
-  hostedSessions     LiveSession[]       @relation("SessionHost")
-  attendance         AttendanceRecord[]
-  attendanceAppeals  AttendanceAppeal[]
-  reportedTickets    SupportTicket[]     @relation("TicketReporter")
-  assignedTickets    SupportTicket[]     @relation("TicketAssignee")
-  ticketComments     TicketComment[]     @relation("TicketCommentAuthor")
-  ticketAttachments  SupportAttachment[] @relation("TicketAttachmentUploader")
-  materialReviews    FileReview[]        @relation("MaterialReviewer")
-  examApprovals      ExamApproval[]      @relation("ExamReviewer")
-  auditLogs          AuditLog[]
+  id                       String              @id @default(cuid())
+  email                    String              @unique @db.VarChar(191)
+  passwordHash             String              @map("password_hash") @db.VarChar(255)
+  displayName              String              @map("display_name") @db.VarChar(150)
+  status                   UserStatus          @default(ACTIVE)
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  roles                    UserRole[]
+  ownedCourses             Course[]            @relation("CourseOwner")
+  instructedClasses        ClassInstructor[]
+  enrollments              ClassEnrollment[]
+  materials                Material[]          @relation("MaterialOwner")
+  materialAccessLogs       MaterialAccessLog[]
+  regradeRequests          RegradeRequest[]
+  questions                Question[]          @relation("QuestionAuthor")
+  examAttempts             ExamAttempt[]       @relation("AttemptLearner")
+  forumTopics              ForumTopic[]        @relation("TopicAuthor")
+  forumPosts               ForumPost[]         @relation("PostAuthor")
+  forumMentions            ForumMention[]      @relation("MentionedUser")
+  notifications            Notification[]      @relation("NotificationRecipient")
+  contentReports           ContentReport[]     @relation("ReportAuthor")
+  hostedSessions           LiveSession[]       @relation("SessionHost")
+  lockedAttendanceSessions LiveSession[]       @relation("AttendanceLocker")
+  attendance               AttendanceRecord[]
+  attendanceAppeals        AttendanceAppeal[]
+  reportedTickets          SupportTicket[]     @relation("TicketReporter")
+  assignedTickets          SupportTicket[]     @relation("TicketAssignee")
+  ticketComments           TicketComment[]     @relation("TicketCommentAuthor")
+  ticketAttachments        SupportAttachment[] @relation("TicketAttachmentUploader")
+  materialReviews          FileReview[]        @relation("MaterialReviewer")
+  examApprovals            ExamApproval[]      @relation("ExamReviewer")
+  auditLogs                AuditLog[]
 
   @@map("users")
 }
@@ -552,24 +553,27 @@ model ContentReport {
 }
 
 model LiveSession {
-  id           String             @id @default(cuid())
-  classId      String             @map("class_id")
-  hostId       String             @map("host_id")
-  title        String             @db.VarChar(255)
-  startsAt     DateTime           @map("starts_at")
-  endsAt       DateTime           @map("ends_at")
-  provider     String             @db.VarChar(50)
-  providerRef  String?            @map("provider_ref") @db.VarChar(255)
-  hostUrl      String             @map("host_url") @db.VarChar(1000)
-  attendeeUrl  String             @map("attendee_url") @db.VarChar(1000)
-  recordingUrl String?            @map("recording_url") @db.VarChar(1000)
-  status       SessionStatus      @default(SCHEDULED)
-  class        LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
-  host         User               @relation("SessionHost", fields: [hostId], references: [id])
-  attendance   AttendanceRecord[]
-  appeals      AttendanceAppeal[]
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
+  id                   String             @id @default(cuid())
+  classId              String             @map("class_id")
+  hostId               String             @map("host_id")
+  title                String             @db.VarChar(255)
+  startsAt             DateTime           @map("starts_at")
+  endsAt               DateTime           @map("ends_at")
+  provider             String             @db.VarChar(50)
+  providerRef          String?            @map("provider_ref") @db.VarChar(255)
+  hostUrl              String             @map("host_url") @db.VarChar(1000)
+  attendeeUrl          String             @map("attendee_url") @db.VarChar(1000)
+  recordingUrl         String?            @map("recording_url") @db.VarChar(1000)
+  status               SessionStatus      @default(SCHEDULED)
+  attendanceLockedAt   DateTime?          @map("attendance_locked_at")
+  attendanceLockedById String?            @map("attendance_locked_by_id")
+  class                LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  host                 User               @relation("SessionHost", fields: [hostId], references: [id])
+  attendanceLockedBy   User?              @relation("AttendanceLocker", fields: [attendanceLockedById], references: [id], onDelete: SetNull)
+  attendance           AttendanceRecord[]
+  appeals              AttendanceAppeal[]
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
 
   @@index([classId, startsAt])
   @@index([hostId])
@@ -577,18 +581,21 @@ model LiveSession {
 }
 
 model AttendanceRecord {
-  sessionId        String           @map("session_id")
-  learnerId        String           @map("learner_id")
-  joinedAt         DateTime?        @map("joined_at")
-  leftAt           DateTime?        @map("left_at")
-  attendedMinutes  Int              @default(0) @map("attended_minutes")
-  status           AttendanceStatus @default(ABSENT)
-  adjustmentReason String?          @map("adjustment_reason") @db.VarChar(500)
-  session          LiveSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  learner          User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  sessionId             String           @map("session_id")
+  learnerId             String           @map("learner_id")
+  joinedAt              DateTime?        @map("joined_at")
+  leftAt                DateTime?        @map("left_at")
+  attendedMinutes       Int              @default(0) @map("attended_minutes")
+  status                AttendanceStatus @default(ABSENT)
+  adjustmentReason      String?          @map("adjustment_reason") @db.VarChar(500)
+  providerParticipantId String?          @map("provider_participant_id") @db.VarChar(191)
+  providerSnapshot      Json?            @map("provider_snapshot")
+  session               LiveSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learner               User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  updatedAt             DateTime         @updatedAt @map("updated_at")
 
   @@id([sessionId, learnerId])
+  @@unique([sessionId, providerParticipantId])
   @@index([learnerId, status])
   @@map("attendance_records")
 }

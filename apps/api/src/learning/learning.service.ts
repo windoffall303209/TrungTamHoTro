@@ -7,9 +7,9 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
-  RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
+  ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -1349,26 +1349,188 @@ export class LearningService {
   }
 
   async updateAttendance(sessionId: string, learnerId: string, status: AttendanceRecord["status"], attendedMinutes: number, adjustmentReason: string): Promise<AttendanceRecord> {
+    const normalizedReason = adjustmentReason.trim();
+    if (normalizedReason.length < 3) throw new BadRequestException("Lý do điều chỉnh cần ít nhất 3 ký tự.");
     const prisma = this.database();
     if (prisma) {
       const session = await prisma.liveSession.findUnique({ where: { id: sessionId } });
       if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      if (session.status !== "COMPLETED") throw new ConflictException("Chỉ điều chỉnh điểm danh sau khi buổi học kết thúc.");
+      if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+      this.validateAttendanceMinutes(attendedMinutes, session.startsAt, session.endsAt);
       const enrollment = await prisma.classEnrollment.findFirst({ where: { classId: session.classId, learnerId, status: "ACTIVE" } });
       if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
       const row = await prisma.attendanceRecord.upsert({
         where: { sessionId_learnerId: { sessionId, learnerId } },
-        update: { status, attendedMinutes, adjustmentReason: adjustmentReason.trim() },
-        create: { sessionId, learnerId, status, attendedMinutes, adjustmentReason: adjustmentReason.trim() },
+        update: { status, attendedMinutes, adjustmentReason: normalizedReason },
+        create: { sessionId, learnerId, status, attendedMinutes, adjustmentReason: normalizedReason },
       });
       return this.mapAttendance(row);
     }
-    this.findSession(sessionId);
+    const session = this.findSession(sessionId);
+    if (session.status !== "COMPLETED") throw new ConflictException("Chỉ điều chỉnh điểm danh sau khi buổi học kết thúc.");
+    if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+    this.validateAttendanceMinutes(attendedMinutes, new Date(session.startsAt), new Date(session.endsAt));
+    if (!this.findClass(session.classId).learnerIds.includes(learnerId)) throw new BadRequestException("Học viên không thuộc lớp.");
     let record = this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId);
     if (!record) {
-      record = { sessionId, learnerId, attendedMinutes, status, adjustmentReason };
+      record = { sessionId, learnerId, attendedMinutes, status, adjustmentReason: normalizedReason };
       this.attendance.push(record);
-    } else Object.assign(record, { status, attendedMinutes, adjustmentReason });
+    } else Object.assign(record, { status, attendedMinutes, adjustmentReason: normalizedReason });
     return { ...record };
+  }
+
+  async getAttendanceReview(sessionId: string): Promise<AttendanceSessionReview> {
+    const prisma = this.database();
+    if (prisma) {
+      const session = await prisma.liveSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          class: { include: { enrollments: { where: { status: "ACTIVE" } } } },
+          attendance: { orderBy: { learnerId: "asc" } },
+          appeals: { orderBy: { createdAt: "desc" } },
+        },
+      });
+      if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      return {
+        session: this.mapSession(session),
+        enrolledLearnerIds: session.class.enrollments.map((item) => item.learnerId),
+        records: session.attendance.map((item) => this.mapAttendance(item)),
+        appeals: session.appeals.map((item) => this.mapAttendanceAppeal(item)),
+      };
+    }
+    const session = this.findSession(sessionId);
+    return {
+      session: { ...session },
+      enrolledLearnerIds: [...this.findClass(session.classId).learnerIds],
+      records: this.attendance.filter((item) => item.sessionId === sessionId).map((item) => ({ ...item, providerSnapshot: item.providerSnapshot ? { ...item.providerSnapshot } : undefined })),
+      appeals: this.attendanceAppeals.filter((item) => item.sessionId === sessionId).map((item) => ({ ...item })),
+    };
+  }
+
+  async syncAttendance(sessionId: string, inputRecords: ProviderAttendanceInput[], actorId = "usr-manager"): Promise<{ review: AttendanceSessionReview; skippedLearnerIds: string[] }> {
+    this.validateProviderAttendanceInput(inputRecords);
+    const prisma = this.database();
+    if (prisma) {
+      const skippedLearnerIds = await prisma.$transaction(async (transaction) => {
+        const session = await transaction.liveSession.findUnique({
+          where: { id: sessionId },
+          include: { class: { include: { enrollments: { where: { status: "ACTIVE" } } } } },
+        });
+        if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+        if (session.status !== "COMPLETED") throw new ConflictException("Chỉ đồng bộ điểm danh sau khi buổi học kết thúc.");
+        if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+        const enrolledIds = new Set(session.class.enrollments.map((item) => item.learnerId));
+        const validRecords = inputRecords.filter((item) => enrolledIds.has(item.learnerId));
+        const skipped = inputRecords.filter((item) => !enrolledIds.has(item.learnerId)).map((item) => item.learnerId);
+        for (const item of validRecords) {
+          const joinedAt = new Date(item.joinedAt);
+          const leftAt = new Date(item.leftAt);
+          const attendedMinutes = this.calculateProviderAttendanceMinutes(joinedAt, leftAt, session.startsAt, session.endsAt);
+          const status = this.deriveProviderAttendanceStatus(joinedAt, attendedMinutes, session.startsAt);
+          await transaction.attendanceRecord.upsert({
+            where: { sessionId_learnerId: { sessionId, learnerId: item.learnerId } },
+            update: { joinedAt, leftAt, attendedMinutes, status, providerParticipantId: item.providerParticipantId, providerSnapshot: { ...item } },
+            create: { sessionId, learnerId: item.learnerId, joinedAt, leftAt, attendedMinutes, status, providerParticipantId: item.providerParticipantId, providerSnapshot: { ...item } },
+          });
+        }
+        const seenLearners = new Set(validRecords.map((item) => item.learnerId));
+        for (const learnerId of enrolledIds) {
+          if (seenLearners.has(learnerId)) continue;
+          await transaction.attendanceRecord.upsert({
+            where: { sessionId_learnerId: { sessionId, learnerId } },
+            update: {},
+            create: { sessionId, learnerId, status: "ABSENT", attendedMinutes: 0, providerSnapshot: { absentFromProviderExport: true } },
+          });
+        }
+        await transaction.auditLog.create({ data: { actorId, action: "ATTENDANCE_SYNC", entityType: "live_session", entityId: sessionId, context: { received: inputRecords.length, accepted: validRecords.length, skippedLearnerIds: skipped } } });
+        return skipped;
+      });
+      return { review: await this.getAttendanceReview(sessionId), skippedLearnerIds };
+    }
+
+    const session = this.findSession(sessionId);
+    if (session.status !== "COMPLETED") throw new ConflictException("Chỉ đồng bộ điểm danh sau khi buổi học kết thúc.");
+    if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+    const enrolledIds = new Set(this.findClass(session.classId).learnerIds);
+    const skippedLearnerIds = inputRecords.filter((item) => !enrolledIds.has(item.learnerId)).map((item) => item.learnerId);
+    const seenLearners = new Set<string>();
+    for (const item of inputRecords.filter((record) => enrolledIds.has(record.learnerId))) {
+      const joinedAt = new Date(item.joinedAt);
+      const leftAt = new Date(item.leftAt);
+      const attendedMinutes = this.calculateProviderAttendanceMinutes(joinedAt, leftAt, new Date(session.startsAt), new Date(session.endsAt));
+      const status = this.deriveProviderAttendanceStatus(joinedAt, attendedMinutes, new Date(session.startsAt));
+      const providerSnapshot = { ...item };
+      const existing = this.attendance.find((record) => record.sessionId === sessionId && record.learnerId === item.learnerId);
+      if (existing) Object.assign(existing, { joinedAt: item.joinedAt, leftAt: item.leftAt, attendedMinutes, status, providerParticipantId: item.providerParticipantId, providerSnapshot });
+      else this.attendance.push({ sessionId, learnerId: item.learnerId, joinedAt: item.joinedAt, leftAt: item.leftAt, attendedMinutes, status, providerParticipantId: item.providerParticipantId, providerSnapshot });
+      seenLearners.add(item.learnerId);
+    }
+    for (const learnerId of enrolledIds) {
+      if (!seenLearners.has(learnerId) && !this.attendance.some((item) => item.sessionId === sessionId && item.learnerId === learnerId)) this.attendance.push({ sessionId, learnerId, attendedMinutes: 0, status: "ABSENT", providerSnapshot: { absentFromProviderExport: true } });
+    }
+    return { review: await this.getAttendanceReview(sessionId), skippedLearnerIds };
+  }
+
+  async lockAttendance(sessionId: string, actorId = "usr-manager"): Promise<LiveSession> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const session = await transaction.liveSession.findUnique({ where: { id: sessionId }, include: { appeals: { where: { status: { in: ["OPEN", "IN_REVIEW"] } } } } });
+        if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+        if (session.status !== "COMPLETED") throw new ConflictException("Chỉ khóa điểm danh của buổi học đã kết thúc.");
+        if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã được khóa trước đó.");
+        if (session.appeals.length) throw new ConflictException("Cần xử lý hết yêu cầu điều chỉnh trước khi khóa.");
+        const updated = await transaction.liveSession.update({ where: { id: sessionId }, data: { attendanceLockedAt: new Date(), attendanceLockedById: actorId } });
+        await transaction.auditLog.create({ data: { actorId, action: "ATTENDANCE_LOCK", entityType: "live_session", entityId: sessionId, context: { lockedAt: updated.attendanceLockedAt?.toISOString() } } });
+        return this.mapSession(updated);
+      });
+    }
+    const session = this.findSession(sessionId);
+    if (session.status !== "COMPLETED") throw new ConflictException("Chỉ khóa điểm danh của buổi học đã kết thúc.");
+    if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã được khóa trước đó.");
+    if (this.attendanceAppeals.some((item) => item.sessionId === sessionId && ["OPEN", "IN_REVIEW"].includes(item.status))) throw new ConflictException("Cần xử lý hết yêu cầu điều chỉnh trước khi khóa.");
+    session.attendanceLockedAt = now();
+    session.attendanceLockedById = actorId;
+    return { ...session };
+  }
+
+  async resolveAttendanceAppeal(appealId: string, decision: "APPROVE" | "REJECT", resolution: string, status?: AttendanceRecord["status"], attendedMinutes?: number, actorId = "usr-manager"): Promise<AttendanceAppeal> {
+    const normalizedResolution = resolution.trim();
+    if (normalizedResolution.length < 5) throw new BadRequestException("Kết luận xử lý cần ít nhất 5 ký tự.");
+    if (decision === "APPROVE" && (status === undefined || attendedMinutes === undefined)) throw new BadRequestException("Cần trạng thái và số phút mới khi phê duyệt điều chỉnh.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const appeal = await transaction.attendanceAppeal.findUnique({ where: { id: appealId }, include: { session: true } });
+        if (!appeal) throw new NotFoundException("Không tìm thấy yêu cầu điều chỉnh.");
+        if (!["OPEN", "IN_REVIEW"].includes(appeal.status)) throw new ConflictException("Yêu cầu đã được xử lý.");
+        if (appeal.session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+        if (decision === "APPROVE") {
+          this.validateAttendanceMinutes(attendedMinutes!, appeal.session.startsAt, appeal.session.endsAt);
+          await transaction.attendanceRecord.update({ where: { sessionId_learnerId: { sessionId: appeal.sessionId, learnerId: appeal.learnerId } }, data: { status, attendedMinutes, adjustmentReason: normalizedResolution } });
+        }
+        const updated = await transaction.attendanceAppeal.update({ where: { id: appealId }, data: { status: decision === "APPROVE" ? "RESOLVED" : "REJECTED", resolution: normalizedResolution } });
+        await transaction.auditLog.create({ data: { actorId, action: `ATTENDANCE_APPEAL_${decision}`, entityType: "attendance_appeal", entityId: appealId, context: { sessionId: appeal.sessionId, learnerId: appeal.learnerId, status, attendedMinutes, resolution: normalizedResolution } } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: appeal.learnerId, type: "ATTENDANCE_APPEAL_RESOLVED", title: decision === "APPROVE" ? "Yêu cầu điểm danh đã được chấp thuận" : "Yêu cầu điểm danh không được chấp thuận", entityType: "ATTENDANCE_APPEAL", entityId: appealId, dedupKey: `attendance-appeal:${appealId}:${decision}` } });
+        return this.mapAttendanceAppeal(updated);
+      });
+    }
+    const appeal = this.attendanceAppeals.find((item) => item.id === appealId);
+    if (!appeal) throw new NotFoundException("Không tìm thấy yêu cầu điều chỉnh.");
+    if (!["OPEN", "IN_REVIEW"].includes(appeal.status)) throw new ConflictException("Yêu cầu đã được xử lý.");
+    const session = this.findSession(appeal.sessionId);
+    if (session.attendanceLockedAt) throw new ConflictException("Kỳ điểm danh đã khóa.");
+    if (decision === "APPROVE") {
+      this.validateAttendanceMinutes(attendedMinutes!, new Date(session.startsAt), new Date(session.endsAt));
+      const record = this.attendance.find((item) => item.sessionId === appeal.sessionId && item.learnerId === appeal.learnerId);
+      if (!record) throw new NotFoundException("Không tìm thấy dữ liệu điểm danh cần điều chỉnh.");
+      Object.assign(record, { status, attendedMinutes, adjustmentReason: normalizedResolution });
+    }
+    appeal.status = decision === "APPROVE" ? "RESOLVED" : "REJECTED";
+    appeal.resolution = normalizedResolution;
+    this.notifications.unshift({ id: id("notification"), recipientId: appeal.learnerId, type: "ATTENDANCE_APPEAL_RESOLVED", title: decision === "APPROVE" ? "Yêu cầu điểm danh đã được chấp thuận" : "Yêu cầu điểm danh không được chấp thuận", entityType: "ATTENDANCE_APPEAL", entityId: appealId, createdAt: now() });
+    return { ...appeal };
   }
 
   async attachRecording(sessionId: string, recordingUrl: string): Promise<LiveSession> {
@@ -1838,6 +2000,8 @@ export class LearningService {
       hostUrl: row.hostUrl,
       attendeeUrl: row.attendeeUrl,
       recordingUrl: row.recordingUrl ?? undefined,
+      attendanceLockedAt: row.attendanceLockedAt?.toISOString(),
+      attendanceLockedById: row.attendanceLockedById ?? undefined,
     };
   }
 
@@ -1850,6 +2014,10 @@ export class LearningService {
       attendedMinutes: row.attendedMinutes,
       status: row.status,
       adjustmentReason: row.adjustmentReason ?? undefined,
+      providerParticipantId: row.providerParticipantId ?? undefined,
+      providerSnapshot: row.providerSnapshot && typeof row.providerSnapshot === "object" && !Array.isArray(row.providerSnapshot)
+        ? { ...row.providerSnapshot } as Record<string, unknown>
+        : undefined,
     };
   }
 
@@ -1885,6 +2053,38 @@ export class LearningService {
 
   private isLiveProvider(value: string): value is LiveSession["provider"] {
     return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI";
+  }
+
+  private validateProviderAttendanceInput(records: ProviderAttendanceInput[]): void {
+    if (!records.length) throw new BadRequestException("Cần ít nhất một bản ghi từ nhà cung cấp.");
+    const participantIds = new Set<string>();
+    const learnerIds = new Set<string>();
+    for (const record of records) {
+      if (participantIds.has(record.providerParticipantId)) throw new ConflictException(`Trùng mã người tham dự ${record.providerParticipantId}.`);
+      if (learnerIds.has(record.learnerId)) throw new ConflictException(`Trùng học viên ${record.learnerId} trong dữ liệu đồng bộ.`);
+      const joinedAt = new Date(record.joinedAt);
+      const leftAt = new Date(record.leftAt);
+      if (Number.isNaN(joinedAt.getTime()) || Number.isNaN(leftAt.getTime()) || leftAt <= joinedAt) throw new BadRequestException(`Khoảng tham dự của ${record.learnerId} không hợp lệ.`);
+      participantIds.add(record.providerParticipantId);
+      learnerIds.add(record.learnerId);
+    }
+  }
+
+  private calculateProviderAttendanceMinutes(joinedAt: Date, leftAt: Date, startsAt: Date, endsAt: Date): number {
+    if (joinedAt > new Date(endsAt.getTime() + 30 * 60_000) || leftAt < new Date(startsAt.getTime() - 15 * 60_000)) throw new BadRequestException("Khoảng tham dự nằm ngoài cửa sổ của buổi học.");
+    const effectiveStart = new Date(Math.max(joinedAt.getTime(), startsAt.getTime()));
+    const effectiveEnd = new Date(Math.min(leftAt.getTime(), endsAt.getTime()));
+    return Math.max(0, Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / 60_000));
+  }
+
+  private deriveProviderAttendanceStatus(joinedAt: Date, attendedMinutes: number, startsAt: Date): AttendanceRecord["status"] {
+    if (attendedMinutes === 0) return "ABSENT";
+    return joinedAt.getTime() > startsAt.getTime() + 10 * 60_000 ? "LATE" : "PRESENT";
+  }
+
+  private validateAttendanceMinutes(attendedMinutes: number, startsAt: Date, endsAt: Date): void {
+    const maximum = Math.max(0, Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000) + 30);
+    if (!Number.isInteger(attendedMinutes) || attendedMinutes < 0 || attendedMinutes > maximum) throw new BadRequestException(`Số phút tham dự phải từ 0 đến ${maximum}.`);
   }
 
   private fileReviewAction(value: string): FileReviewRecord["action"] {
