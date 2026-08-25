@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Headers, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Patch, Post } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { AssignUserDto, CloseClassDto, CreateClassDto, CreateCourseDto, ReopenClassDto } from "./learning.dto.js";
+import { ArchiveCourseDto, AssignUserDto, CloseClassDto, CreateClassDto, CreateCourseDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { LearningClass, LearningCourse } from "./learning.types.js";
+import type { CourseVersionSnapshot, LearningClass, LearningCourse } from "./learning.types.js";
 
 @ApiTags("Course & Class")
 @Controller()
@@ -18,6 +18,15 @@ export class CourseController {
 
   @Post("manager/courses/:courseId/publish") @RequirePermissions("course:manage")
   publishCourse(@Param("courseId") courseId: string): Promise<LearningCourse> { return this.learning.publishCourse(courseId); }
+
+  @Patch("manager/courses/:courseId") @RequirePermissions("course:manage")
+  updateCourse(@Param("courseId") courseId: string, @Body() input: UpdateCourseDto): Promise<LearningCourse> { return this.learning.updateCourse(courseId, input); }
+
+  @Get("manager/courses/:courseId/versions") @RequirePermissions("course:view")
+  listCourseVersions(@Param("courseId") courseId: string): Promise<CourseVersionSnapshot[]> { return this.learning.listCourseVersions(courseId); }
+
+  @Post("manager/courses/:courseId/archive") @RequirePermissions("course:manage")
+  archiveCourse(@Param("courseId") courseId: string, @Body() input: ArchiveCourseDto): Promise<LearningCourse> { return this.learning.archiveCourse(courseId, input.reason); }
 
   @Get("classes") @RequirePermissions("class:view")
   listClasses(@Headers("x-role-code") role = "LEARNER"): Promise<LearningClass[]> { return this.learning.listClasses(role); }
