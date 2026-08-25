@@ -182,4 +182,24 @@ describe("LearningService", () => {
     await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Gửi lại báo cáo đang mở" })).rejects.toThrow(ConflictException);
     await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-khong-ton-tai", reporterId: "usr-learner", reason: "Spam", details: "Không có quyền truy cập" })).rejects.toThrow(NotFoundException);
   });
+
+  it("chỉ cho học viên vào lớp đúng cửa sổ và ghi đủ sự kiện rời phòng", async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new LearningService();
+      const learnerSessions = await service.listSessions("LEARNER");
+      expect(learnerSessions[0]?.hostUrl).toBe("");
+      vi.setSystemTime(new Date("2026-08-26T01:30:00.000Z"));
+      await expect(service.joinSession("session-web-01")).rejects.toThrow("sớm tối đa 15 phút");
+      vi.setSystemTime(new Date("2026-08-26T01:50:00.000Z"));
+      const joined = await service.joinSession("session-web-01");
+      expect(joined.attendeeUrl).not.toContain("-host");
+      vi.setSystemTime(new Date("2026-08-26T02:10:00.000Z"));
+      const attendance = await service.leaveSession("session-web-01");
+      expect(attendance.attendedMinutes).toBe(20);
+      expect(attendance.leftAt).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

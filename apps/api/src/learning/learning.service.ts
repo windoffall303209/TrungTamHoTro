@@ -1023,21 +1023,34 @@ export class LearningService {
     return { ...item };
   }
 
-  async listSessions(): Promise<LiveSession[]> {
+  async listSessions(role = "LEARNER"): Promise<LiveSession[]> {
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.liveSession.findMany({ orderBy: { startsAt: "desc" } });
-      return rows.map((row) => this.mapSession(row));
+      const rows = await prisma.liveSession.findMany({
+        where: role === "LEARNER"
+          ? { class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } } }
+          : role === "INSTRUCTOR"
+            ? { class: { instructors: { some: { instructorId: "usr-instructor" } } } }
+            : undefined,
+        orderBy: { startsAt: "desc" },
+      });
+      return rows.map((row) => role === "LEARNER" ? { ...this.mapSession(row), hostUrl: "" } : this.mapSession(row));
     }
-    return this.sessions.map((item) => ({ ...item }));
+    return this.sessions.filter((item) => {
+      const classItem = this.classes.find((candidate) => candidate.id === item.classId);
+      if (role === "LEARNER") return classItem?.learnerIds.includes("usr-learner");
+      if (role === "INSTRUCTOR") return classItem?.instructorIds.includes("usr-instructor");
+      return true;
+    }).map((item) => role === "LEARNER" ? { ...item, hostUrl: "" } : { ...item });
   }
 
   async createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">): Promise<LiveSession> {
     if (new Date(input.endsAt) <= new Date(input.startsAt)) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
     const prisma = this.database();
     if (prisma) {
-      const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
+      const classItem = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: true } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (!classItem.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
       const overlaps = await prisma.liveSession.count({
         where: {
           classId, status: { not: "CANCELLED" },
@@ -1054,7 +1067,8 @@ export class LearningService {
         },
       }));
     }
-    this.findClass(classId);
+    const classItem = this.findClass(classId);
+    if (!classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
     const overlaps = this.sessions.some((item) => item.classId === classId && item.status !== "CANCELLED" && new Date(input.startsAt) < new Date(item.endsAt) && new Date(input.endsAt) > new Date(item.startsAt));
     if (overlaps) throw new ConflictException("Lịch học bị trùng.");
     const token = randomUUID();
@@ -1087,6 +1101,8 @@ export class LearningService {
       if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
       if (["CANCELLED", "COMPLETED"].includes(session.status)) throw new BadRequestException("Buổi học không còn cho phép tham gia.");
       const joinedAt = new Date();
+      if (joinedAt < new Date(session.startsAt.getTime() - 15 * 60_000)) throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
+      if (joinedAt > new Date(session.endsAt.getTime() + 30 * 60_000)) throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
       const existingAttendance = await prisma.attendanceRecord.findUnique({
         where: { sessionId_learnerId: { sessionId, learnerId } }, select: { joinedAt: true },
       });
@@ -1101,11 +1117,32 @@ export class LearningService {
     const classItem = this.findClass(item.classId);
     if (!classItem.learnerIds.includes(learnerId)) throw new BadRequestException("Học viên không thuộc lớp.");
     if (item.status === "CANCELLED" || item.status === "COMPLETED") throw new BadRequestException("Buổi học không còn cho phép tham gia.");
+    const timestamp = new Date();
+    if (timestamp < new Date(new Date(item.startsAt).getTime() - 15 * 60_000)) throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
+    if (timestamp > new Date(new Date(item.endsAt).getTime() + 30 * 60_000)) throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
     const joinedAt = now();
     const existing = this.attendance.find((record) => record.sessionId === sessionId && record.learnerId === learnerId);
     if (existing) existing.joinedAt = existing.joinedAt ?? joinedAt;
     else this.attendance.push({ sessionId, learnerId, joinedAt, attendedMinutes: 0, status: "PRESENT" });
     return { attendeeUrl: item.attendeeUrl, joinedAt };
+  }
+
+  async leaveSession(sessionId: string, learnerId = "usr-learner"): Promise<AttendanceRecord> {
+    const prisma = this.database();
+    if (prisma) {
+      const attendance = await prisma.attendanceRecord.findUnique({ where: { sessionId_learnerId: { sessionId, learnerId } } });
+      if (!attendance?.joinedAt) throw new BadRequestException("Chưa có lượt tham gia để kết thúc.");
+      const leftAt = new Date();
+      const attendedMinutes = Math.max(0, Math.round((leftAt.getTime() - attendance.joinedAt.getTime()) / 60_000));
+      return this.mapAttendance(await prisma.attendanceRecord.update({
+        where: { sessionId_learnerId: { sessionId, learnerId } }, data: { leftAt, attendedMinutes },
+      }));
+    }
+    const attendance = this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId);
+    if (!attendance?.joinedAt) throw new BadRequestException("Chưa có lượt tham gia để kết thúc.");
+    attendance.leftAt = now();
+    attendance.attendedMinutes = Math.max(0, Math.round((new Date(attendance.leftAt).getTime() - new Date(attendance.joinedAt).getTime()) / 60_000));
+    return { ...attendance };
   }
 
   async updateAttendance(sessionId: string, learnerId: string, status: AttendanceRecord["status"], attendedMinutes: number, adjustmentReason: string): Promise<AttendanceRecord> {
@@ -1150,11 +1187,14 @@ export class LearningService {
     if (prisma) {
       const session = await prisma.liveSession.findUnique({ where: { id: sessionId } });
       if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
+      const enrollment = await prisma.classEnrollment.findFirst({ where: { classId: session.classId, learnerId, status: "ACTIVE" } });
+      if (!enrollment) throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
       const attendance = await prisma.attendanceRecord.findUnique({ where: { sessionId_learnerId: { sessionId, learnerId } } });
       const mapped = this.mapSession(session);
       return { session: { ...mapped, hostUrl: undefined }, attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
     }
     const session = this.findSession(sessionId);
+    if (!this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
     return { session: { ...session, hostUrl: undefined }, attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" } };
   }
 
