@@ -5,7 +5,7 @@ import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
+import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -177,5 +177,8 @@ export class ContentController {
   listAttempts(@Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId); }
 
   @Patch("instructor/exam-attempts/:attemptId/grade") @RequirePermissions("exam:manage")
-  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback); }
+  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason); }
+
+  @Get("instructor/exam-attempts/:attemptId/grade-history") @RequirePermissions("exam:manage")
+  listGradeHistory(@Param("attemptId") attemptId: string): Promise<GradeHistoryRecord[]> { return this.learning.listGradeHistory(attemptId); }
 }

@@ -375,6 +375,36 @@ describe("LearningService", () => {
     expect((await service.listNotifications("usr-instructor")).filter((item) => item.type === "EXAM_REVIEWED")).toHaveLength(2);
   });
 
+  it("xáo câu hỏi tái lập theo seed và lưu lịch sử mỗi lần sửa điểm", async () => {
+    const service = new LearningService();
+    const examInput = {
+      classId: "class-web-01",
+      title: "Đề xáo câu hỏi",
+      questionIds: ["q-rest-01", "q-db-01"],
+      durationMinutes: 30,
+      totalScore: 10,
+      openAt: "2026-09-01T00:00:00.000Z",
+      closeAt: "2026-12-01T00:00:00.000Z",
+      attemptLimit: 1,
+      shuffleQuestions: true,
+      randomSeed: "lop-web-dot-1",
+    };
+    const firstExam = await service.createExam(examInput);
+    const secondExam = await service.createExam({ ...examInput, title: "Đề xáo câu hỏi bản sao" });
+    expect(firstExam.questionIds).toEqual(secondExam.questionIds);
+    expect(firstExam).toMatchObject({ shuffleQuestions: true, randomSeed: "lop-web-dot-1" });
+
+    const attempt = await service.startAttempt("exam-mid-web");
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    await service.submitAttempt(attempt.id);
+    await expect(service.gradeAttempt(attempt.id, 8, "Điều chỉnh sau phúc khảo")).rejects.toThrow("lý do");
+    await service.gradeAttempt(attempt.id, 8, "Điều chỉnh sau phúc khảo", "Chấp nhận đáp án tương đương");
+
+    expect(await service.listGradeHistory(attempt.id)).toEqual([
+      expect.objectContaining({ previousScore: 5, nextScore: 8, reason: "Chấp nhận đáp án tương đương" }),
+    ]);
+  });
+
   it("không nhận autosave sau khi thời lượng làm bài kết thúc", async () => {
     vi.useFakeTimers();
     try {

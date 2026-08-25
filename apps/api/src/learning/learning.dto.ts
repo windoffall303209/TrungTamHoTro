@@ -104,6 +104,8 @@ export class CreateExamDto {
   @IsDateString() openAt!: string;
   @IsDateString() closeAt!: string;
   @IsInt() @Min(1) @Max(10) attemptLimit!: number;
+  @IsOptional() @IsBoolean() shuffleQuestions = false;
+  @IsOptional() @IsString() @MinLength(3) @MaxLength(100) randomSeed?: string;
 }
 
 export class ReviewExamDto {
@@ -119,6 +121,7 @@ export class SaveAnswerDto {
 export class GradeAttemptDto {
   @IsNumber() @Min(0) score!: number;
   @IsString() @MinLength(3) feedback!: string;
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(500) correctionReason?: string;
 }
 
 export class RequestRegradeDto {

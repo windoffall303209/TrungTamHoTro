@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -62,6 +62,7 @@ export class LearningService {
   ];
 
   private readonly attempts: ExamAttempt[] = [];
+  private readonly gradeHistory: GradeHistoryRecord[] = [];
   private readonly examApprovals: ExamApprovalRecord[] = [];
   private readonly regradeRequests: RegradeRequest[] = [];
   private readonly topics: ForumTopic[] = [
@@ -1072,6 +1073,7 @@ export class LearningService {
   async createExam(input: Omit<LearningExam, "id" | "status" | "version">): Promise<LearningExam> {
     if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
     if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+    const orderedQuestionIds = input.shuffleQuestions ? this.seededOrder(input.questionIds, input.randomSeed?.trim() || "wind-exam-default") : [...input.questionIds];
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
@@ -1086,11 +1088,12 @@ export class LearningService {
             id: id("exam"), classId: input.classId, title: input.title.trim(),
             durationMinutes: input.durationMinutes, totalScore: input.totalScore,
             openAt: new Date(input.openAt), closeAt: new Date(input.closeAt), attemptLimit: input.attemptLimit,
+            shuffleQuestions: input.shuffleQuestions ?? false, randomSeed: input.randomSeed?.trim(),
           },
         });
         const scorePerQuestion = input.totalScore / input.questionIds.length;
         await transaction.examQuestion.createMany({
-          data: input.questionIds.map((questionId, position) => ({ examId: exam.id, questionId, position: position + 1, score: scorePerQuestion })),
+          data: orderedQuestionIds.map((questionId, position) => ({ examId: exam.id, questionId, position: position + 1, score: scorePerQuestion })),
         });
         return this.getDatabaseExam(transaction, exam.id);
       });
@@ -1099,7 +1102,7 @@ export class LearningService {
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
     if (input.questionIds.some((questionId) => !this.questions.some((question) => question.id === questionId && question.status === "PUBLISHED" && question.courseId === classItem.courseId))) throw new BadRequestException("Đề chỉ được dùng câu hỏi đã xuất bản thuộc khóa học của lớp.");
-    const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT", version: 1 };
+    const item: LearningExam = { ...input, questionIds: orderedQuestionIds, id: id("exam"), status: "DRAFT", version: 1 };
     this.exams.unshift(item);
     return { ...item, questionIds: [...item.questionIds] };
   }
@@ -1378,24 +1381,39 @@ export class LearningService {
     return this.attempts.filter((item) => !examId || item.examId === examId).map((item) => ({ ...item, answers: { ...item.answers } }));
   }
 
-  async gradeAttempt(attemptId: string, score: number, feedback: string): Promise<ExamAttempt> {
+  async gradeAttempt(attemptId: string, score: number, feedback: string, correctionReason?: string, graderId = "usr-instructor"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
       const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (score > Number(attempt.exam.totalScore)) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
-      return this.mapAttempt(await prisma.examAttempt.update({
-        where: { id: attemptId }, data: { score, feedback: feedback.trim(), status: "GRADED", gradePublishedAt: new Date() }, include: { answers: true },
-      }));
+      const reason = attempt.score === null ? "Chấm lần đầu" : correctionReason?.trim();
+      if (attempt.score !== null && (!reason || reason.length < 5)) throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
+      return prisma.$transaction(async (transaction) => {
+        await transaction.gradeHistory.create({ data: { id: id("grade-history"), attemptId, graderId, previousScore: attempt.score, nextScore: score, reason: reason! } });
+        return this.mapAttempt(await transaction.examAttempt.update({ where: { id: attemptId }, data: { score, feedback: feedback.trim(), status: "GRADED", gradePublishedAt: new Date() }, include: { answers: true } }));
+      });
     }
     const item = this.findAttempt(attemptId);
     const exam = this.findExam(item.examId);
     if (score > exam.totalScore) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
+    const reason = item.score === undefined ? "Chấm lần đầu" : correctionReason?.trim();
+    if (item.score !== undefined && (!reason || reason.length < 5)) throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
+    this.gradeHistory.unshift({ id: id("grade-history"), attemptId, graderId, previousScore: item.score, nextScore: score, reason: reason!, createdAt: now() });
     item.score = score;
     item.feedback = feedback.trim();
     item.status = "GRADED";
     item.gradePublishedAt = now();
     return { ...item, answers: { ...item.answers } };
+  }
+
+  async listGradeHistory(attemptId: string): Promise<GradeHistoryRecord[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.gradeHistory.findMany({ where: { attemptId }, orderBy: { createdAt: "desc" } });
+      return rows.map((row) => ({ id: row.id, attemptId: row.attemptId, graderId: row.graderId, previousScore: row.previousScore === null ? undefined : Number(row.previousScore), nextScore: Number(row.nextScore), reason: row.reason, createdAt: row.createdAt.toISOString() }));
+    }
+    return this.gradeHistory.filter((item) => item.attemptId === attemptId).map((item) => ({ ...item }));
   }
 
   async listTopics(role = "LEARNER"): Promise<ForumTopic[]> {
@@ -2839,6 +2857,8 @@ export class LearningService {
       openAt: row.openAt.toISOString(),
       closeAt: row.closeAt.toISOString(),
       attemptLimit: row.attemptLimit,
+      shuffleQuestions: row.shuffleQuestions,
+      randomSeed: row.randomSeed ?? undefined,
       status: row.status,
       version: row.version,
     };
@@ -3011,6 +3031,10 @@ export class LearningService {
   private buildProviderUrls(provider: LiveSession["provider"], token: string): { hostUrl: string; attendeeUrl: string } {
     const base = provider === "ZOOM" ? "https://zoom.us/wc/join" : provider === "GOOGLE_MEET" ? "https://meet.google.com" : "https://meet.jit.si";
     return { hostUrl: `${base}/${token}?role=host`, attendeeUrl: `${base}/${token}` };
+  }
+
+  private seededOrder(values: string[], seed: string): string[] {
+    return [...values].sort((left, right) => createHash("sha256").update(`${seed}:${left}`).digest("hex").localeCompare(createHash("sha256").update(`${seed}:${right}`).digest("hex")) || left.localeCompare(right));
   }
 
   private provisionProviderMeeting(requested: LiveSession["provider"]): { provider: LiveSession["provider"]; hostUrl: string; attendeeUrl: string; fallbackUsed: boolean; attempts: number } {
