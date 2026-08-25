@@ -6,6 +6,9 @@ import { RequestIdMiddleware } from "./common/request-id.middleware.js";
 import { validateEnvironment, type Environment } from "./config/environment.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { AuthModule } from "./auth/auth.module.js";
+import { IdentityModule } from "./identity/identity.module.js";
+import { LearningModule } from "./learning/learning.module.js";
 import { SystemModule } from "./system/system.module.js";
 
 @Module({
@@ -26,6 +29,9 @@ import { SystemModule } from "./system/system.module.js";
       }),
     }),
     DatabaseModule,
+    AuthModule,
+    IdentityModule,
+    LearningModule,
     HealthModule,
     SystemModule,
   ],
