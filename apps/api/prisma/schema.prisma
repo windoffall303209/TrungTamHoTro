@@ -19,11 +19,23 @@ enum CourseStatus {
   ARCHIVED
 }
 
+enum ClassStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
 enum EnrollmentStatus {
   PENDING
   ACTIVE
   COMPLETED
   CANCELLED
+}
+
+enum MaterialVisibility {
+  DRAFT
+  PUBLISHED
+  HIDDEN
 }
 
 enum QuestionType {
@@ -42,6 +54,19 @@ enum ContentStatus {
   ARCHIVED
 }
 
+enum ExamStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  CLOSED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+}
+
 enum SessionStatus {
   SCHEDULED
   LIVE
@@ -49,22 +74,64 @@ enum SessionStatus {
   CANCELLED
 }
 
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum Severity {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model User {
-  id            String       @id @default(cuid())
-  email         String       @unique @db.VarChar(191)
-  passwordHash  String       @map("password_hash") @db.VarChar(255)
-  displayName   String       @map("display_name") @db.VarChar(150)
-  status        UserStatus   @default(ACTIVE)
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
-  roles         UserRole[]
-  ownedCourses  Course[]     @relation("CourseOwner")
-  enrollments   Enrollment[]
-  files         FileAsset[]
-  questions     Question[]
-  forumPosts    ForumPost[]
-  classSessions ClassSession[] @relation("SessionHost")
-  auditLogs     AuditLog[]
+  id                String             @id @default(cuid())
+  email             String             @unique @db.VarChar(191)
+  passwordHash      String             @map("password_hash") @db.VarChar(255)
+  displayName       String             @map("display_name") @db.VarChar(150)
+  status            UserStatus         @default(ACTIVE)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  roles             UserRole[]
+  ownedCourses      Course[]           @relation("CourseOwner")
+  instructedClasses ClassInstructor[]
+  enrollments       ClassEnrollment[]
+  materials         Material[]         @relation("MaterialOwner")
+  questions         Question[]         @relation("QuestionAuthor")
+  examAttempts      ExamAttempt[]      @relation("AttemptLearner")
+  forumTopics       ForumTopic[]       @relation("TopicAuthor")
+  forumPosts        ForumPost[]        @relation("PostAuthor")
+  contentReports    ContentReport[]    @relation("ReportAuthor")
+  hostedSessions    LiveSession[]      @relation("SessionHost")
+  attendance        AttendanceRecord[]
+  reportedTickets   SupportTicket[]    @relation("TicketReporter")
+  assignedTickets   SupportTicket[]    @relation("TicketAssignee")
+  ticketComments    TicketComment[]    @relation("TicketCommentAuthor")
+  auditLogs         AuditLog[]
 
   @@map("users")
 }
@@ -74,6 +141,7 @@ model Role {
   code        String           @unique @db.VarChar(50)
   name        String           @db.VarChar(100)
   description String?          @db.VarChar(500)
+  version     Int              @default(1)
   users       UserRole[]
   permissions RolePermission[]
 
@@ -110,132 +178,425 @@ model RolePermission {
 }
 
 model Course {
-  id          String       @id @default(cuid())
-  code        String       @unique @db.VarChar(50)
-  name        String       @db.VarChar(200)
-  description String?      @db.Text
-  status      CourseStatus @default(DRAFT)
-  ownerId     String       @map("owner_id")
-  owner       User         @relation("CourseOwner", fields: [ownerId], references: [id])
-  enrollments Enrollment[]
-  files       FileAsset[]
+  id          String          @id @default(cuid())
+  code        String          @unique @db.VarChar(50)
+  name        String          @db.VarChar(200)
+  description String          @db.Text
+  outcomes    Json
+  status      CourseStatus    @default(DRAFT)
+  version     Int             @default(1)
+  ownerId     String          @map("owner_id")
+  owner       User            @relation("CourseOwner", fields: [ownerId], references: [id])
+  classes     LearningClass[]
   questions   Question[]
-  forumPosts  ForumPost[]
-  sessions    ClassSession[]
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  @@index([ownerId])
+  @@index([ownerId, status])
   @@map("courses")
 }
 
-model Enrollment {
-  id        String           @id @default(cuid())
-  userId    String           @map("user_id")
-  courseId  String           @map("course_id")
-  status    EnrollmentStatus @default(PENDING)
-  joinedAt  DateTime?        @map("joined_at")
-  createdAt DateTime         @default(now()) @map("created_at")
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  course    Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+model LearningClass {
+  id          String            @id @default(cuid())
+  courseId    String            @map("course_id")
+  code        String            @unique @db.VarChar(50)
+  name        String            @db.VarChar(200)
+  term        String            @db.VarChar(50)
+  startAt     DateTime          @map("start_at")
+  endAt       DateTime          @map("end_at")
+  capacity    Int
+  status      ClassStatus       @default(DRAFT)
+  course      Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  instructors ClassInstructor[]
+  enrollments ClassEnrollment[]
+  materials   Material[]
+  exams       Exam[]
+  forumTopics ForumTopic[]
+  sessions    LiveSession[]
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  @@unique([userId, courseId])
   @@index([courseId, status])
-  @@map("enrollments")
+  @@index([term])
+  @@map("learning_classes")
 }
 
-model FileAsset {
-  id          String   @id @default(cuid())
-  courseId    String?  @map("course_id")
-  ownerId     String   @map("owner_id")
-  objectKey   String   @unique @map("object_key") @db.VarChar(500)
-  originalName String  @map("original_name") @db.VarChar(255)
-  mimeType    String   @map("mime_type") @db.VarChar(150)
-  sizeBytes   BigInt   @map("size_bytes")
-  checksum    String?  @db.VarChar(128)
-  createdAt   DateTime @default(now()) @map("created_at")
-  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
-  owner       User     @relation(fields: [ownerId], references: [id])
+model ClassInstructor {
+  classId      String        @map("class_id")
+  instructorId String        @map("instructor_id")
+  assignedAt   DateTime      @default(now()) @map("assigned_at")
+  class        LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  instructor   User          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
 
-  @@index([courseId])
+  @@id([classId, instructorId])
+  @@index([instructorId])
+  @@map("class_instructors")
+}
+
+model ClassEnrollment {
+  id        String           @id @default(cuid())
+  classId   String           @map("class_id")
+  learnerId String           @map("learner_id")
+  status    EnrollmentStatus @default(ACTIVE)
+  joinedAt  DateTime         @default(now()) @map("joined_at")
+  class     LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  learner   User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, learnerId])
+  @@index([learnerId, status])
+  @@map("class_enrollments")
+}
+
+model Material {
+  id         String             @id @default(cuid())
+  classId    String             @map("class_id")
+  ownerId    String             @map("owner_id")
+  name       String             @db.VarChar(255)
+  objectKey  String             @unique @map("object_key") @db.VarChar(500)
+  mimeType   String             @map("mime_type") @db.VarChar(150)
+  sizeBytes  BigInt             @map("size_bytes")
+  checksum   String?            @db.VarChar(128)
+  folder     String             @db.VarChar(255)
+  tags       Json
+  version    Int                @default(1)
+  visibility MaterialVisibility @default(DRAFT)
+  class      LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  owner      User               @relation("MaterialOwner", fields: [ownerId], references: [id])
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  @@index([classId, visibility])
   @@index([ownerId])
-  @@map("file_assets")
+  @@map("materials")
 }
 
 model Question {
-  id          String        @id @default(cuid())
-  courseId    String        @map("course_id")
-  authorId    String        @map("author_id")
-  type        QuestionType
-  content     String        @db.Text
-  answerData  Json          @map("answer_data")
-  difficulty  Int           @default(1) @db.TinyInt
-  status      ContentStatus @default(DRAFT)
-  version     Int           @default(1)
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  course      Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  author      User          @relation(fields: [authorId], references: [id])
+  id             String          @id @default(cuid())
+  courseId       String          @map("course_id")
+  authorId       String          @map("author_id")
+  type           QuestionType
+  content        String          @db.Text
+  options        Json
+  correctAnswers Json            @map("correct_answers")
+  difficulty     Int             @default(1) @db.TinyInt
+  tags           Json
+  status         ContentStatus   @default(DRAFT)
+  version        Int             @default(1)
+  course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
+  exams          ExamQuestion[]
+  answers        AttemptAnswer[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   @@index([courseId, status])
   @@index([authorId])
   @@map("questions")
 }
 
-model ForumPost {
+model Exam {
+  id              String         @id @default(cuid())
+  classId         String         @map("class_id")
+  title           String         @db.VarChar(255)
+  durationMinutes Int            @map("duration_minutes")
+  totalScore      Decimal        @map("total_score") @db.Decimal(8, 2)
+  openAt          DateTime       @map("open_at")
+  closeAt         DateTime       @map("close_at")
+  attemptLimit    Int            @default(1) @map("attempt_limit")
+  status          ExamStatus     @default(DRAFT)
+  class           LearningClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  questions       ExamQuestion[]
+  attempts        ExamAttempt[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([classId, status, openAt])
+  @@map("exams")
+}
+
+model ExamQuestion {
+  examId     String   @map("exam_id")
+  questionId String   @map("question_id")
+  position   Int
+  score      Decimal  @db.Decimal(8, 2)
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@id([examId, questionId])
+  @@unique([examId, position])
+  @@map("exam_questions")
+}
+
+model ExamAttempt {
+  id          String          @id @default(cuid())
+  examId      String          @map("exam_id")
+  learnerId   String          @map("learner_id")
+  attemptNo   Int             @map("attempt_no")
+  status      AttemptStatus   @default(IN_PROGRESS)
+  score       Decimal?        @db.Decimal(8, 2)
+  feedback    String?         @db.Text
+  startedAt   DateTime        @default(now()) @map("started_at")
+  submittedAt DateTime?       @map("submitted_at")
+  exam        Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  learner     User            @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  answers     AttemptAnswer[]
+
+  @@unique([examId, learnerId, attemptNo])
+  @@index([learnerId, status])
+  @@map("exam_attempts")
+}
+
+model AttemptAnswer {
+  attemptId  String      @map("attempt_id")
+  questionId String      @map("question_id")
+  answerData Json        @map("answer_data")
+  score      Decimal?    @db.Decimal(8, 2)
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@id([attemptId, questionId])
+  @@map("attempt_answers")
+}
+
+model ForumTopic {
   id        String        @id @default(cuid())
-  courseId  String        @map("course_id")
+  classId   String        @map("class_id")
   authorId  String        @map("author_id")
-  parentId  String?       @map("parent_id")
-  title     String?       @db.VarChar(255)
-  content   String        @db.Text
-  status    ContentStatus @default(PUBLISHED)
+  title     String        @db.VarChar(255)
+  body      String        @db.Text
+  tags      Json
+  isPinned  Boolean       @default(false) @map("is_pinned")
+  isLocked  Boolean       @default(false) @map("is_locked")
+  class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author    User          @relation("TopicAuthor", fields: [authorId], references: [id])
+  posts     ForumPost[]
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
-  course    Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  author    User          @relation(fields: [authorId], references: [id])
+
+  @@index([classId, createdAt])
+  @@map("forum_topics")
+}
+
+model ForumPost {
+  id        String        @id @default(cuid())
+  topicId   String        @map("topic_id")
+  authorId  String        @map("author_id")
+  parentId  String?       @map("parent_id")
+  body      String        @db.Text
+  status    ContentStatus @default(PUBLISHED)
+  topic     ForumTopic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  author    User          @relation("PostAuthor", fields: [authorId], references: [id])
   parent    ForumPost?    @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   ForumPost[]   @relation("PostReplies")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
 
-  @@index([courseId, status, createdAt])
+  @@index([topicId, status, createdAt])
   @@index([parentId])
   @@map("forum_posts")
 }
 
-model ClassSession {
-  id          String        @id @default(cuid())
-  courseId    String        @map("course_id")
-  hostId      String        @map("host_id")
-  title       String        @db.VarChar(255)
-  startsAt    DateTime      @map("starts_at")
-  endsAt      DateTime      @map("ends_at")
-  provider    String        @db.VarChar(50)
-  providerRef String?       @map("provider_ref") @db.VarChar(255)
-  joinUrl     String?       @map("join_url") @db.VarChar(1000)
-  status      SessionStatus @default(SCHEDULED)
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  course      Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  host        User          @relation("SessionHost", fields: [hostId], references: [id])
+model ContentReport {
+  id         String       @id @default(cuid())
+  targetType String       @map("target_type") @db.VarChar(30)
+  targetId   String       @map("target_id") @db.VarChar(191)
+  reporterId String       @map("reporter_id")
+  reason     String       @db.VarChar(150)
+  details    String       @db.Text
+  status     ReportStatus @default(OPEN)
+  resolution String?      @db.Text
+  reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id])
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
 
-  @@index([courseId, startsAt])
+  @@unique([targetType, targetId, reporterId, status])
+  @@index([status, createdAt])
+  @@map("content_reports")
+}
+
+model LiveSession {
+  id           String             @id @default(cuid())
+  classId      String             @map("class_id")
+  hostId       String             @map("host_id")
+  title        String             @db.VarChar(255)
+  startsAt     DateTime           @map("starts_at")
+  endsAt       DateTime           @map("ends_at")
+  provider     String             @db.VarChar(50)
+  providerRef  String?            @map("provider_ref") @db.VarChar(255)
+  hostUrl      String             @map("host_url") @db.VarChar(1000)
+  attendeeUrl  String             @map("attendee_url") @db.VarChar(1000)
+  recordingUrl String?            @map("recording_url") @db.VarChar(1000)
+  status       SessionStatus      @default(SCHEDULED)
+  class        LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  host         User               @relation("SessionHost", fields: [hostId], references: [id])
+  attendance   AttendanceRecord[]
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@index([classId, startsAt])
   @@index([hostId])
-  @@map("class_sessions")
+  @@map("live_sessions")
+}
+
+model AttendanceRecord {
+  sessionId        String           @map("session_id")
+  learnerId        String           @map("learner_id")
+  joinedAt         DateTime?        @map("joined_at")
+  leftAt           DateTime?        @map("left_at")
+  attendedMinutes  Int              @default(0) @map("attended_minutes")
+  status           AttendanceStatus @default(ABSENT)
+  adjustmentReason String?          @map("adjustment_reason") @db.VarChar(500)
+  session          LiveSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learner          User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@id([sessionId, learnerId])
+  @@index([learnerId, status])
+  @@map("attendance_records")
+}
+
+model SupportTicket {
+  id          String          @id @default(cuid())
+  reporterId  String          @map("reporter_id")
+  assigneeId  String?         @map("assignee_id")
+  category    String          @db.VarChar(100)
+  severity    Severity
+  description String          @db.Text
+  status      TicketStatus    @default(OPEN)
+  resolution  String?         @db.Text
+  dueAt       DateTime        @map("due_at")
+  reporter    User            @relation("TicketReporter", fields: [reporterId], references: [id])
+  assignee    User?           @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments    TicketComment[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([status, severity, dueAt])
+  @@index([reporterId])
+  @@map("support_tickets")
+}
+
+model TicketComment {
+  id        String        @id @default(cuid())
+  ticketId  String        @map("ticket_id")
+  authorId  String        @map("author_id")
+  body      String        @db.Text
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User          @relation("TicketCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+  @@map("ticket_comments")
+}
+
+model SystemSetting {
+  key         String   @id @db.VarChar(100)
+  value       Json
+  version     Int      @default(1)
+  effectiveAt DateTime @default(now()) @map("effective_at")
+  updatedBy   String   @map("updated_by") @db.VarChar(191)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model IntegrationProvider {
+  id            String    @id @default(cuid())
+  provider      String    @unique @db.VarChar(50)
+  enabled       Boolean   @default(false)
+  credentialRef String?   @map("credential_ref") @db.VarChar(255)
+  healthStatus  String    @default("UNKNOWN") @map("health_status") @db.VarChar(30)
+  lastCheckedAt DateTime? @map("last_checked_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("integration_providers")
+}
+
+model BackupJob {
+  id          String       @id @default(cuid())
+  type        String       @db.VarChar(30)
+  status      JobStatus    @default(PENDING)
+  checksum    String?      @db.VarChar(128)
+  sizeBytes   BigInt?      @map("size_bytes")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  completedAt DateTime?    @map("completed_at")
+  restores    RestoreJob[]
+
+  @@index([status, createdAt])
+  @@map("backup_jobs")
+}
+
+model RestoreJob {
+  id           String    @id @default(cuid())
+  backupId     String    @map("backup_id")
+  approvedBy   String    @map("approved_by") @db.VarChar(191)
+  status       JobStatus @default(PENDING)
+  verification String?   @db.Text
+  backup       BackupJob @relation(fields: [backupId], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  completedAt  DateTime? @map("completed_at")
+
+  @@index([status, createdAt])
+  @@map("restore_jobs")
+}
+
+model DataExportJob {
+  id        String    @id @default(cuid())
+  category  String    @db.VarChar(100)
+  format    String    @db.VarChar(20)
+  status    JobStatus @default(PENDING)
+  rowCount  Int?      @map("row_count")
+  objectKey String?   @map("object_key") @db.VarChar(500)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([status, expiresAt])
+  @@map("data_export_jobs")
+}
+
+model NotificationTemplate {
+  id        String        @id @default(cuid())
+  eventCode String        @map("event_code") @db.VarChar(100)
+  locale    String        @db.VarChar(20)
+  subject   String        @db.VarChar(255)
+  body      String        @db.Text
+  version   Int           @default(1)
+  status    ContentStatus @default(DRAFT)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  @@unique([eventCode, locale, version])
+  @@index([eventCode, locale, status])
+  @@map("notification_templates")
+}
+
+model ModerationPolicy {
+  id                String   @id @default(cuid())
+  version           Int      @unique
+  prohibitedTerms   Json     @map("prohibited_terms")
+  maxPostsPerMinute Int      @map("max_posts_per_minute")
+  action            String   @db.VarChar(50)
+  publishedBy       String   @map("published_by") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("moderation_policies")
 }
 
 model AuditLog {
-  id          BigInt   @id @default(autoincrement())
-  actorId     String?  @map("actor_id")
-  action      String   @db.VarChar(100)
-  entityType  String   @map("entity_type") @db.VarChar(100)
-  entityId    String?  @map("entity_id") @db.VarChar(191)
-  requestId   String?  @map("request_id") @db.VarChar(100)
-  context     Json?
-  createdAt   DateTime @default(now()) @map("created_at")
-  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?  @map("actor_id")
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String?  @map("entity_id") @db.VarChar(191)
+  requestId  String?  @map("request_id") @db.VarChar(100)
+  context    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
   @@index([entityType, entityId])
+  @@index([action, createdAt])
   @@map("audit_logs")
 }
-

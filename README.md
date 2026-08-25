@@ -45,13 +45,16 @@ pnpm install
 pnpm db:generate
 ```
 
-4. Chỉ sau khi đã kiểm tra đúng `DATABASE_URL`, tạo migration đầu tiên:
+4. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
+
+5. Chỉ sau khi đã kiểm tra đúng `DATABASE_URL`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
 
 ```powershell
-pnpm db:migrate -- --name khoi-tao-du-lieu-nen
+pnpm db:deploy
+pnpm db:seed
 ```
 
-Không chạy migrate trên database đang chứa dữ liệu ngoài dự án. `.env` đã bị loại khỏi Git; chỉ `.env.example` được phép commit.
+`db:deploy` chỉ áp dụng các migration có sẵn trong repository; `db:migrate` dành cho lập trình viên khi chủ động thay đổi schema. Không chạy migration trên database đang chứa dữ liệu ngoài dự án. `.env` đã bị loại khỏi Git; chỉ `.env.example` được phép commit.
 
 ## Chạy phát triển
 
@@ -63,7 +66,7 @@ pnpm dev
 - API: `http://localhost:4000/api/v1/health`
 - Swagger: `http://localhost:4000/api/docs`
 
-Mặc định `DATABASE_CONNECT_ON_START=false`, vì vậy API có thể khởi động trước khi điền mật khẩu. Chuyển thành `true` sau khi database và tài khoản dự án đã sẵn sàng.
+Mặc định `DATABASE_CONNECT_ON_START=false`, vì vậy API có thể khởi động trước khi điền mật khẩu. Chuyển thành `true` sau khi `db:deploy` và `db:seed` thành công.
 
 ## Kiểm tra chất lượng
 
@@ -78,4 +81,3 @@ Lệnh này chạy lần lượt lint, typecheck, test và build cho toàn bộ 
 - `.env`: giá trị thật trên máy của từng thành viên, tuyệt đối không commit.
 - `.env.example`: danh sách biến bắt buộc và giá trị mẫu không chứa bí mật.
 - Biến mới phải được khai báo đồng thời trong `.env.example` và bộ kiểm tra tại `apps/api/src/config/environment.ts`.
-

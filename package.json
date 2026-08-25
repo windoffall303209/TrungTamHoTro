@@ -19,6 +19,8 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "db:generate": "pnpm --filter @wind-of-fall/api db:generate",
     "db:migrate": "pnpm --filter @wind-of-fall/api db:migrate",
+    "db:deploy": "pnpm --filter @wind-of-fall/api db:deploy",
+    "db:seed": "pnpm --filter @wind-of-fall/api db:seed",
     "db:studio": "pnpm --filter @wind-of-fall/api db:studio"
   }
 }
