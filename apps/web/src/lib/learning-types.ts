@@ -30,12 +30,14 @@ export interface Exam {
 
 export interface ExamAttempt {
   id: string; examId: string; learnerId: string; answers: Record<string, string[]>;
-  status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string; score?: number; feedback?: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string; score?: number; feedback?: string; gradePublishedAt?: string;
 }
+
+export interface RegradeRequest { id: string; attemptId: string; learnerId: string; reason: string; status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string }
+export interface LearnerResult { attempt: ExamAttempt; exam: { id: string; title: string; totalScore: number; closeAt: string }; answerBreakdown: Array<{ questionId: string; content: string; submittedAnswers: string[]; awardedScore: number; maxScore: number }>; regradeRequest?: RegradeRequest }
 
 export interface ForumTopic { id: string; classId: string; title: string; body: string; authorId: string; tags: string[]; isPinned: boolean; isLocked: boolean; createdAt: string }
 export interface ForumPost { id: string; topicId: string; authorId: string; body: string; parentId?: string; status: "VISIBLE" | "HIDDEN"; createdAt: string }
 export interface ContentReport { id: string; targetType: "TOPIC" | "POST"; targetId: string; reporterId: string; reason: string; details: string; status: "OPEN" | "RESOLVED" | "REJECTED"; resolution?: string }
 export interface LiveSession { id: string; classId: string; title: string; startsAt: string; endsAt: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED"; hostUrl: string; attendeeUrl: string; recordingUrl?: string }
 export interface Ticket { id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3"; description: string; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED"; assigneeId?: string; resolution?: string; createdAt: string }
-

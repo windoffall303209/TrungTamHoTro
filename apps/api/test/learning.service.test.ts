@@ -146,4 +146,20 @@ describe("LearningService", () => {
       vi.useRealTimers();
     }
   });
+
+  it("chỉ công bố kết quả của chính học viên và chặn phúc khảo trùng", async () => {
+    const service = new LearningService();
+    const attempt = await service.startAttempt("exam-mid-web");
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    await service.submitAttempt(attempt.id);
+
+    const result = await service.getLearnerResult(attempt.id);
+    expect(result.attempt.gradePublishedAt).toBeTruthy();
+    expect(result.answerBreakdown).toHaveLength(2);
+    expect(result.answerBreakdown[0]?.awardedScore).toBe(5);
+    const request = await service.requestRegrade(attempt.id, "Đề nghị kiểm tra lại câu số hai");
+    expect(request.status).toBe("OPEN");
+    await expect(service.requestRegrade(attempt.id, "Đề nghị kiểm tra lại lần nữa")).rejects.toThrow(ConflictException);
+    await expect(service.getLearnerResult("attempt-khong-thuoc-ve-minh")).rejects.toThrow(NotFoundException);
+  });
 });
