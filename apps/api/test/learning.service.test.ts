@@ -73,11 +73,12 @@ describe("LearningService", () => {
       const signedUrl = new URL(access.url, "http://localhost");
       const expires = Number(signedUrl.searchParams.get("expires"));
       const signature = signedUrl.searchParams.get("signature") ?? "";
-      const download = await service.readMaterialDownload(material.id, expires, signature, "LEARNER");
+      const download = await service.readMaterialDownload(material.id, expires, signature, "LEARNER", "DOWNLOAD");
 
       expect(download.buffer.equals(bytes)).toBe(true);
       expect(download.mimeType).toBe("application/pdf");
-      await expect(service.readMaterialDownload(material.id, expires, `${signature}x`, "LEARNER")).rejects.toThrow(BadRequestException);
+      await expect(service.readMaterialDownload(material.id, expires, `${signature}x`, "LEARNER", "DOWNLOAD")).rejects.toThrow(BadRequestException);
+      await expect(service.readMaterialDownload(material.id, expires, signature, "LEARNER", "PREVIEW")).rejects.toThrow(BadRequestException);
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }

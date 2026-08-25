@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
+import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
-import { LearningService, type UploadedMaterialFile } from "./learning.service.js";
+import { LearningService, type MaterialAccessAction, type UploadedMaterialFile } from "./learning.service.js";
 import type { ExamAttempt, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
@@ -45,8 +46,13 @@ export class ContentController {
   reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Get("materials/:materialId/access") @RequirePermissions("material:view")
-  getMaterialAccess(@Param("materialId") materialId: string, @Headers("x-role-code") role = "LEARNER"): Promise<{ url: string; expiresAt: string }> {
-    return this.learning.createMaterialAccess(materialId, role);
+  getMaterialAccess(
+    @Param("materialId") materialId: string,
+    @Headers("x-role-code") role = "LEARNER",
+    @Query("action") rawAction = "DOWNLOAD",
+  ): Promise<{ url: string; expiresAt: string }> {
+    const action = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
+    return this.learning.createMaterialAccess(materialId, role, action);
   }
 
   @Get("materials/:materialId/download") @RequirePermissions("material:view")
@@ -54,12 +60,18 @@ export class ContentController {
     @Param("materialId") materialId: string,
     @Query("expires") expires: string,
     @Query("signature") signature: string,
+    @Query("action") rawAction: string,
     @Headers("x-role-code") role = "LEARNER",
+    @Req() request: Request,
   ): Promise<StreamableFile> {
-    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", role);
+    const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
+    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", role, action, {
+      ipAddress: request.ip,
+      userAgent: request.header("user-agent"),
+    });
     return new StreamableFile(download.buffer, {
       type: download.mimeType,
-      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+      disposition: `${action === "PREVIEW" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
       length: download.buffer.length,
     });
   }

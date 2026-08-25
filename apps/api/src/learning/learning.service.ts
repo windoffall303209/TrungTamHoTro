@@ -23,6 +23,7 @@ type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>
 type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
 export interface UploadedMaterialFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
 export interface MaterialDownload { fileName: string; mimeType: string; buffer: Buffer }
+export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
 
 @Injectable()
 export class LearningService {
@@ -63,6 +64,7 @@ export class LearningService {
   private readonly attendance: AttendanceRecord[] = [];
   private readonly tickets: SupportTicket[] = [];
   private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
+  private readonly materialAccessLogs: Array<{ materialId: string; userId: string; action: MaterialAccessAction; createdAt: string }> = [];
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
@@ -289,7 +291,7 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
-  async createMaterialAccess(materialId: string, role: string): Promise<{ url: string; expiresAt: string }> {
+  async createMaterialAccess(materialId: string, role: string, action: MaterialAccessAction = "DOWNLOAD"): Promise<{ url: string; expiresAt: string }> {
     const prisma = this.database();
     if (prisma) {
       const material = await prisma.material.findUnique({
@@ -314,12 +316,19 @@ export class LearningService {
       if (!this.materialFiles.has(materialId)) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
     }
     const expires = Math.floor(Date.now() / 1000) + 300;
-    const signature = this.signMaterialAccess(materialId, expires);
-    return { url: `/materials/${materialId}/download?expires=${expires}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
+    const signature = this.signMaterialAccess(materialId, expires, action);
+    return { url: `/materials/${materialId}/download?expires=${expires}&action=${action}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
   }
 
-  async readMaterialDownload(materialId: string, expires: number, signature: string, role: string): Promise<MaterialDownload> {
-    this.verifyMaterialAccess(materialId, expires, signature);
+  async readMaterialDownload(
+    materialId: string,
+    expires: number,
+    signature: string,
+    role: string,
+    action: MaterialAccessAction = "DOWNLOAD",
+    context: { ipAddress?: string; userAgent?: string } = {},
+  ): Promise<MaterialDownload> {
+    this.verifyMaterialAccess(materialId, expires, signature, action);
     const prisma = this.database();
     let fileName: string;
     let mimeType: string;
@@ -358,6 +367,14 @@ export class LearningService {
     if (expectedChecksum) {
       const actualChecksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
       if (actualChecksum !== expectedChecksum) throw new BadRequestException("Checksum học liệu không hợp lệ; tệp đã được cách ly.");
+    }
+    const userId = this.userIdForRole(role);
+    if (prisma) {
+      await prisma.materialAccessLog.create({
+        data: { id: id("material-access"), materialId, userId, action, ipAddress: context.ipAddress?.slice(0, 45), userAgent: context.userAgent?.slice(0, 500) },
+      });
+    } else {
+      this.materialAccessLogs.unshift({ materialId, userId, action, createdAt: now() });
     }
     return { fileName, mimeType, buffer };
   }
@@ -1267,17 +1284,24 @@ export class LearningService {
     return target;
   }
 
-  private signMaterialAccess(materialId: string, expires: number): string {
+  private signMaterialAccess(materialId: string, expires: number, action: MaterialAccessAction): string {
     const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
-    return createHmac("sha256", secret).update(`${materialId}.${expires}`).digest("base64url");
+    return createHmac("sha256", secret).update(`${materialId}.${expires}.${action}`).digest("base64url");
   }
 
-  private verifyMaterialAccess(materialId: string, expires: number, signature: string): void {
+  private verifyMaterialAccess(materialId: string, expires: number, signature: string, action: MaterialAccessAction): void {
     const current = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(expires) || expires < current || expires > current + 600) throw new BadRequestException("Liên kết tải học liệu đã hết hạn hoặc không hợp lệ.");
-    const expected = Buffer.from(this.signMaterialAccess(materialId, expires));
+    const expected = Buffer.from(this.signMaterialAccess(materialId, expires, action));
     const received = Buffer.from(signature);
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException("Chữ ký tải học liệu không hợp lệ.");
+  }
+
+  private userIdForRole(role: string): string {
+    if (role === "SYSTEM_ADMIN") return "usr-admin";
+    if (role === "CENTER_MANAGER") return "usr-manager";
+    if (role === "INSTRUCTOR") return "usr-instructor";
+    return "usr-learner";
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {

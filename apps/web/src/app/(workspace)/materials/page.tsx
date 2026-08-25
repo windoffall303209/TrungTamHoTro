@@ -1,11 +1,11 @@
 "use client";
 
-import { Download, FileText, FolderOpen, Plus, Search, UploadCloud } from "lucide-react";
+import { Download, Eye, FileText, FolderOpen, Plus, Search, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
-import { apiRequest, downloadApiFile } from "@/lib/api-client";
+import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type { LearningClass, Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -96,6 +96,15 @@ export default function MaterialsPage() {
     }
   };
 
+  const preview = async (item: Material) => {
+    try {
+      const access = await apiRequest<{ url: string; expiresAt: string }>(`/materials/${item.id}/access?action=PREVIEW`, { roleCode: session.roleCode });
+      await previewApiFile(access.url, session.roleCode);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không mở được bản xem trước.", "error");
+    }
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
@@ -124,6 +133,7 @@ export default function MaterialsPage() {
               <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
                 <span>v{item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
                 <div className="flex items-center gap-1">
+                  <Button onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
                   <Button onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
                   {instructor ? <Button onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
                 </div>

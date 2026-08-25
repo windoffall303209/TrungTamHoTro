@@ -109,29 +109,30 @@ enum JobStatus {
 }
 
 model User {
-  id                String             @id @default(cuid())
-  email             String             @unique @db.VarChar(191)
-  passwordHash      String             @map("password_hash") @db.VarChar(255)
-  displayName       String             @map("display_name") @db.VarChar(150)
-  status            UserStatus         @default(ACTIVE)
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  roles             UserRole[]
-  ownedCourses      Course[]           @relation("CourseOwner")
-  instructedClasses ClassInstructor[]
-  enrollments       ClassEnrollment[]
-  materials         Material[]         @relation("MaterialOwner")
-  questions         Question[]         @relation("QuestionAuthor")
-  examAttempts      ExamAttempt[]      @relation("AttemptLearner")
-  forumTopics       ForumTopic[]       @relation("TopicAuthor")
-  forumPosts        ForumPost[]        @relation("PostAuthor")
-  contentReports    ContentReport[]    @relation("ReportAuthor")
-  hostedSessions    LiveSession[]      @relation("SessionHost")
-  attendance        AttendanceRecord[]
-  reportedTickets   SupportTicket[]    @relation("TicketReporter")
-  assignedTickets   SupportTicket[]    @relation("TicketAssignee")
-  ticketComments    TicketComment[]    @relation("TicketCommentAuthor")
-  auditLogs         AuditLog[]
+  id                 String              @id @default(cuid())
+  email              String              @unique @db.VarChar(191)
+  passwordHash       String              @map("password_hash") @db.VarChar(255)
+  displayName        String              @map("display_name") @db.VarChar(150)
+  status             UserStatus          @default(ACTIVE)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  roles              UserRole[]
+  ownedCourses       Course[]            @relation("CourseOwner")
+  instructedClasses  ClassInstructor[]
+  enrollments        ClassEnrollment[]
+  materials          Material[]          @relation("MaterialOwner")
+  materialAccessLogs MaterialAccessLog[]
+  questions          Question[]          @relation("QuestionAuthor")
+  examAttempts       ExamAttempt[]       @relation("AttemptLearner")
+  forumTopics        ForumTopic[]        @relation("TopicAuthor")
+  forumPosts         ForumPost[]         @relation("PostAuthor")
+  contentReports     ContentReport[]     @relation("ReportAuthor")
+  hostedSessions     LiveSession[]       @relation("SessionHost")
+  attendance         AttendanceRecord[]
+  reportedTickets    SupportTicket[]     @relation("TicketReporter")
+  assignedTickets    SupportTicket[]     @relation("TicketAssignee")
+  ticketComments     TicketComment[]     @relation("TicketCommentAuthor")
+  auditLogs          AuditLog[]
 
   @@map("users")
 }
@@ -248,26 +249,43 @@ model ClassEnrollment {
 }
 
 model Material {
-  id         String             @id @default(cuid())
-  classId    String             @map("class_id")
-  ownerId    String             @map("owner_id")
-  name       String             @db.VarChar(255)
-  objectKey  String             @unique @map("object_key") @db.VarChar(500)
-  mimeType   String             @map("mime_type") @db.VarChar(150)
-  sizeBytes  BigInt             @map("size_bytes")
-  checksum   String?            @db.VarChar(128)
-  folder     String             @db.VarChar(255)
+  id         String              @id @default(cuid())
+  classId    String              @map("class_id")
+  ownerId    String              @map("owner_id")
+  name       String              @db.VarChar(255)
+  objectKey  String              @unique @map("object_key") @db.VarChar(500)
+  mimeType   String              @map("mime_type") @db.VarChar(150)
+  sizeBytes  BigInt              @map("size_bytes")
+  checksum   String?             @db.VarChar(128)
+  folder     String              @db.VarChar(255)
   tags       Json
-  version    Int                @default(1)
-  visibility MaterialVisibility @default(DRAFT)
-  class      LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
-  owner      User               @relation("MaterialOwner", fields: [ownerId], references: [id])
-  createdAt  DateTime           @default(now()) @map("created_at")
-  updatedAt  DateTime           @updatedAt @map("updated_at")
+  version    Int                 @default(1)
+  visibility MaterialVisibility  @default(DRAFT)
+  class      LearningClass       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  owner      User                @relation("MaterialOwner", fields: [ownerId], references: [id])
+  accessLogs MaterialAccessLog[]
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
 
   @@index([classId, visibility])
   @@index([ownerId])
   @@map("materials")
+}
+
+model MaterialAccessLog {
+  id         String   @id @default(cuid())
+  materialId String   @map("material_id")
+  userId     String   @map("user_id")
+  action     String   @db.VarChar(20)
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([materialId, createdAt])
+  @@index([userId, createdAt])
+  @@map("material_access_logs")
 }
 
 model Question {
