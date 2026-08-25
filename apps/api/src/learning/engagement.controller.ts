@@ -14,7 +14,7 @@ export class EngagementController {
   constructor(private readonly learning: LearningService) {}
 
   @Get("forum/topics") @RequirePermissions("forum:view")
-  listTopics(): Promise<ForumTopic[]> { return this.learning.listTopics(); }
+  listTopics(@Headers("x-role-code") role = "LEARNER"): Promise<ForumTopic[]> { return this.learning.listTopics(role); }
 
   @Post("instructor/classes/:classId/forum/topics") @RequirePermissions("forum:moderate")
   createTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): Promise<ForumTopic> { return this.learning.createTopic(classId, input); }
@@ -23,13 +23,16 @@ export class EngagementController {
   createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): Promise<ForumTopic> { return this.learning.createTopic(classId, { ...input, isPinned: false }, "usr-learner"); }
 
   @Get("forum/topics/:topicId/posts") @RequirePermissions("forum:view")
-  listPosts(@Param("topicId") topicId: string): Promise<ForumPost[]> { return this.learning.listPosts(topicId); }
+  listPosts(@Param("topicId") topicId: string, @Headers("x-role-code") role = "LEARNER"): Promise<ForumPost[]> { return this.learning.listPosts(topicId, role); }
 
   @Post("learner/forum/topics/:topicId/posts") @RequirePermissions("forum:post")
   createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto): Promise<ForumPost> { return this.learning.createPost(topicId, input.body, "usr-learner", input.parentId); }
 
   @Post("learner/content-reports") @RequirePermissions("forum:view")
   reportContent(@Body() input: CreateReportDto): Promise<ContentReport> { return this.learning.reportContent({ ...input, reporterId: "usr-learner" }); }
+
+  @Get("learner/content-reports") @RequirePermissions("forum:view")
+  listLearnerReports(): Promise<ContentReport[]> { return this.learning.listLearnerReports(); }
 
   @Get("manager/forum/reports") @RequirePermissions("forum:moderate")
   listReports(): Promise<ContentReport[]> { return this.learning.listReports(); }

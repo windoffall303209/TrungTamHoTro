@@ -162,4 +162,24 @@ describe("LearningService", () => {
     await expect(service.requestRegrade(attempt.id, "Đề nghị kiểm tra lại lần nữa")).rejects.toThrow(ConflictException);
     await expect(service.getLearnerResult("attempt-khong-thuoc-ve-minh")).rejects.toThrow(NotFoundException);
   });
+
+  it("chặn HTML nguy hiểm, từ khóa cấm và spam trên diễn đàn", async () => {
+    const service = new LearningService();
+    await expect(service.createPost("topic-rest", "<script>alert(1)</script>")).rejects.toThrow(BadRequestException);
+    await expect(service.createPost("topic-rest", "Đây là nội dung lừa đảo")).rejects.toThrow(BadRequestException);
+    await service.createPost("topic-rest", "Phản hồi hợp lệ số một");
+    await service.createPost("topic-rest", "Phản hồi hợp lệ số hai");
+    await service.createPost("topic-rest", "Phản hồi hợp lệ số ba");
+    await service.createPost("topic-rest", "Phản hồi hợp lệ số bốn");
+    await expect(service.createPost("topic-rest", "Phản hồi vượt giới hạn")).rejects.toThrow("vượt giới hạn");
+  });
+
+  it("ghi báo cáo diễn đàn theo học viên và chặn báo cáo trùng", async () => {
+    const service = new LearningService();
+    const report = await service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Chủ đề có nội dung lặp lại" });
+    expect(report.status).toBe("OPEN");
+    expect(await service.listLearnerReports()).toHaveLength(1);
+    await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-rest", reporterId: "usr-learner", reason: "Spam", details: "Gửi lại báo cáo đang mở" })).rejects.toThrow(ConflictException);
+    await expect(service.reportContent({ targetType: "TOPIC", targetId: "topic-khong-ton-tai", reporterId: "usr-learner", reason: "Spam", details: "Không có quyền truy cập" })).rejects.toThrow(NotFoundException);
+  });
 });
