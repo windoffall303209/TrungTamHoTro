@@ -25,7 +25,7 @@ export interface Question {
 export interface Exam {
   id: string; classId: string; title: string; questionIds: string[]; durationMinutes: number;
   totalScore: number; openAt: string; closeAt: string; attemptLimit: number;
-  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED"; version: number;
 }
 
 export interface ExamAttempt {

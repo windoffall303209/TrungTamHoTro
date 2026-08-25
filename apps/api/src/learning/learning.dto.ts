@@ -68,6 +68,11 @@ export class CreateExamDto {
   @IsInt() @Min(1) @Max(10) attemptLimit!: number;
 }
 
+export class ReviewExamDto {
+  @IsIn(["APPROVE", "RETURN"]) decision!: "APPROVE" | "RETURN";
+  @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
+}
+
 export class SaveAnswerDto {
   @IsString() questionId!: string;
   @IsArray() @IsString({ each: true }) answers!: string[];

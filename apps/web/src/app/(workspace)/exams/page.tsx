@@ -124,11 +124,11 @@ export default function ExamsPage() {
         method: "POST",
         roleCode: session.roleCode,
       });
-      notify("Đã công bố đề thi.");
+      notify("Đã gửi đề sang quản lý trung tâm phê duyệt.");
       await load();
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "Không công bố được.",
+        error instanceof Error ? error.message : "Không gửi duyệt được.",
         "error",
       );
     }
@@ -383,7 +383,7 @@ export default function ExamsPage() {
                   variant="secondary"
                 >
                   <Send size={15} />
-                  Công bố đề
+                  Gửi phê duyệt
                 </Button>
               ) : null}
               {learner &&

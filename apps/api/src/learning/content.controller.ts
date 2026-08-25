@@ -3,9 +3,9 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
+import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -111,10 +111,13 @@ export class ContentController {
   createExam(@Body() input: CreateExamDto): Promise<LearningExam> { return this.learning.createExam(input); }
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
-  publishExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.publishExam(examId); }
+  publishExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.submitExamForReview(examId); }
 
   @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
-  approveExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.publishExam(examId); }
+  approveExam(@Param("examId") examId: string, @Body() input: ReviewExamDto): Promise<LearningExam> { return this.learning.reviewExam(examId, input.decision, input.reviewNote); }
+
+  @Get("manager/exams/:examId/approvals") @RequirePermissions("class:manage")
+  listExamApprovals(@Param("examId") examId: string): Promise<ExamApprovalRecord[]> { return this.learning.listExamApprovals(examId); }
 
   @Post("learner/exams/:examId/attempts") @RequirePermissions("exam:view")
   startAttempt(@Param("examId") examId: string): Promise<ExamAttempt> { return this.learning.startAttempt(examId); }

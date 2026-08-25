@@ -27,8 +27,9 @@ export interface LearningQuestion {
 export interface LearningExam {
   id: string; classId: string; title: string; questionIds: string[]; durationMinutes: number;
   totalScore: number; openAt: string; closeAt: string; attemptLimit: number;
-  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED";
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED"; version: number;
 }
+export interface ExamApprovalRecord { id: string; examId: string; reviewerId: string; examVersion: number; decision: "APPROVE" | "RETURN"; reviewNote?: string; createdAt: string }
 
 export interface LearnerExamSummary extends LearningExam {
   questionCount: number;
