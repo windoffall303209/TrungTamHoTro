@@ -2,6 +2,7 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  StreamableFile,
   type NestInterceptor,
 } from "@nestjs/common";
 import { map, type Observable } from "rxjs";
@@ -13,12 +14,12 @@ interface ApiEnvelope<T> {
 }
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, ApiEnvelope<T>> {
-  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiEnvelope<T>> {
+export class ResponseInterceptor<T> implements NestInterceptor<T, ApiEnvelope<T> | StreamableFile> {
+  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiEnvelope<T> | StreamableFile> {
     const request = context.switchToHttp().getRequest<RequestWithId>();
 
     return next.handle().pipe(
-      map((data) => ({
+      map((data) => data instanceof StreamableFile ? data : ({
         data,
         meta: {
           requestId: request.requestId,
@@ -28,4 +29,3 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiEnvelope<T>
     );
   }
 }
-

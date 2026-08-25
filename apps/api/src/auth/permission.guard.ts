@@ -29,7 +29,7 @@ export class PermissionGuard implements CanActivate {
     if (!permissions?.length) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithRole>();
-    const rawRole = request.header("x-role-code") ?? "SYSTEM_ADMIN";
+    const rawRole = request.header("x-role-code") ?? "LEARNER";
     const roleCode = ROLE_CODES.includes(rawRole as RoleCode) ? rawRole as RoleCode : "LEARNER";
     request.roleCode = roleCode;
     const granted = await this.getPermissions(roleCode);

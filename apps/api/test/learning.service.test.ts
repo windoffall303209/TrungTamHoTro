@@ -1,5 +1,10 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
 
 describe("LearningService", () => {
@@ -40,5 +45,41 @@ describe("LearningService", () => {
     expect(report.submittedAttempts).toBe(1);
     expect(report.averageScore).toBe(5);
     expect(report.attendanceRate).toBe(100);
+  });
+
+  it("lưu bytes, cấp liên kết có chữ ký và kiểm tra checksum khi tải học liệu", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "wind-material-"));
+    const config = {
+      get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT"
+        ? storageRoot
+        : key === "STORAGE_SIGNING_SECRET"
+          ? "test-storage-signing-secret-at-least-32-characters"
+          : undefined,
+    } as unknown as ConfigService<Environment, true>;
+    const service = new LearningService(undefined, config);
+
+    try {
+      const bytes = Buffer.from("%PDF-1.7\nnoi-dung-kiem-thu");
+      const material = await service.createMaterial("class-web-01", {
+        name: "kiem-thu.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: bytes.length,
+        folder: "Tuần kiểm thử",
+        tags: ["bao-mat"],
+      }, { originalName: "kiem-thu.pdf", mimeType: "application/pdf", size: bytes.length, buffer: bytes });
+      await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+
+      const access = await service.createMaterialAccess(material.id, "LEARNER");
+      const signedUrl = new URL(access.url, "http://localhost");
+      const expires = Number(signedUrl.searchParams.get("expires"));
+      const signature = signedUrl.searchParams.get("signature") ?? "";
+      const download = await service.readMaterialDownload(material.id, expires, signature, "LEARNER");
+
+      expect(download.buffer.equals(bytes)).toBe(true);
+      expect(download.mimeType).toBe("application/pdf");
+      await expect(service.readMaterialDownload(material.id, expires, `${signature}x`, "LEARNER")).rejects.toThrow(BadRequestException);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true });
+    }
   });
 });

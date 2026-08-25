@@ -18,7 +18,7 @@ export class SessionController {
   @Get()
   @ApiOperation({ summary: "Lấy phiên demo theo vai trò" })
   async getSession(@Headers("x-role-code") rawRole?: string): Promise<object> {
-    const roleCode = ROLE_CODES.includes(rawRole as RoleCode) ? rawRole as RoleCode : "SYSTEM_ADMIN";
+    const roleCode = ROLE_CODES.includes(rawRole as RoleCode) ? rawRole as RoleCode : "LEARNER";
     if (this.prisma?.isStartupConnectionEnabled()) {
       const profile = profiles[roleCode];
       const user = await this.prisma.user.findFirst({

@@ -13,6 +13,8 @@ const environmentSchema = z.object({
   WEB_ORIGIN: z.url().default("http://localhost:3000"),
   DATABASE_URL: z.string().startsWith("mysql://"),
   DATABASE_CONNECT_ON_START: booleanFromString.default(false),
+  STORAGE_ROOT: z.string().trim().min(1).default("../TestDoAn-data"),
+  STORAGE_SIGNING_SECRET: z.string().min(32).default("development-storage-signing-key-change-me"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -32,4 +34,3 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
 
   return result.data;
 }
-

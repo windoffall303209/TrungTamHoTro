@@ -31,6 +31,11 @@ export class CreateMaterialDto {
   @IsArray() @IsString({ each: true }) tags!: string[];
 }
 
+export class UploadMaterialDto {
+  @IsString() folder!: string;
+  @IsOptional() @IsString() tags = "";
+}
+
 export class UpdateMaterialDto {
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];

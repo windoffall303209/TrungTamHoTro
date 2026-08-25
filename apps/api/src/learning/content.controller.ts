@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto } from "./learning.dto.js";
-import { LearningService } from "./learning.service.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
+import { LearningService, type UploadedMaterialFile } from "./learning.service.js";
 import type { ExamAttempt, LearningExam, LearningMaterial, LearningQuestion } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
@@ -19,11 +20,49 @@ export class ContentController {
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input); }
 
+  @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
+  uploadMaterial(
+    @Param("classId") classId: string,
+    @Body() input: UploadMaterialDto,
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+  ): Promise<LearningMaterial> {
+    if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
+    const upload: UploadedMaterialFile = { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer };
+    return this.learning.createMaterial(classId, {
+      name: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      folder: input.folder,
+      tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+    }, upload);
+  }
+
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
   updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
   reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
+
+  @Get("materials/:materialId/access") @RequirePermissions("material:view")
+  getMaterialAccess(@Param("materialId") materialId: string, @Headers("x-role-code") role = "LEARNER"): Promise<{ url: string; expiresAt: string }> {
+    return this.learning.createMaterialAccess(materialId, role);
+  }
+
+  @Get("materials/:materialId/download") @RequirePermissions("material:view")
+  async downloadMaterial(
+    @Param("materialId") materialId: string,
+    @Query("expires") expires: string,
+    @Query("signature") signature: string,
+    @Headers("x-role-code") role = "LEARNER",
+  ): Promise<StreamableFile> {
+    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", role);
+    return new StreamableFile(download.buffer, {
+      type: download.mimeType,
+      disposition: `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+      length: download.buffer.length,
+    });
+  }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
   listQuestions(@Query("query") query?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions(query); }
