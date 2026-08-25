@@ -241,11 +241,15 @@ export class LearningService {
   }
 
   async createMaterial(classId: string, input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">): Promise<LearningMaterial> {
-    if (input.sizeBytes > 50_000_000) throw new BadRequestException("Tệp vượt giới hạn 50 MB.");
     const prisma = this.database();
+    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
+    if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
+    if (!policy.allowedMimeTypes.includes(input.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      const usage = await prisma.material.aggregate({ _sum: { sizeBytes: true } });
+      if ((usage._sum.sizeBytes ?? 0n) + BigInt(input.sizeBytes) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
       const materialId = id("material");
       return this.mapMaterial(await prisma.material.create({
         data: {
@@ -1124,6 +1128,20 @@ export class LearningService {
       select: { id: true },
     });
     if (!user) throw new BadRequestException(message);
+  }
+
+  private async getStoragePolicy(database: PrismaService): Promise<{ maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[] }> {
+    const row = await database.systemSetting.findUnique({ where: { key: "platform" }, select: { value: true } });
+    const record = typeof row?.value === "object" && row.value !== null && !Array.isArray(row.value)
+      ? row.value as Record<string, unknown>
+      : {};
+    return {
+      maxFileSizeMb: typeof record.maxFileSizeMb === "number" ? record.maxFileSizeMb : 50,
+      storageQuotaMb: typeof record.storageQuotaMb === "number" ? record.storageQuotaMb : 10_240,
+      allowedMimeTypes: Array.isArray(record.allowedMimeTypes) && record.allowedMimeTypes.every((item) => typeof item === "string")
+        ? record.allowedMimeTypes
+        : ["application/pdf", "video/mp4", "image/png", "image/jpeg"],
+    };
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {
