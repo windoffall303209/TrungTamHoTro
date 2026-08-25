@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassProgressReport, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -77,6 +77,9 @@ export class LearningService {
   private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
   private readonly materialAccessLogs: Array<{ materialId: string; userId: string; action: MaterialAccessAction; createdAt: string }> = [];
   private readonly materialReviews: FileReviewRecord[] = [];
+  private readonly progressInterventions: ProgressIntervention[] = [];
+  private readonly reportRuns: ReportRun[] = [];
+  private readonly reportExports: Array<ReportExport & { filePath?: string }> = [];
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
@@ -1940,27 +1943,197 @@ export class LearningService {
     return { ...comment };
   }
 
-  async getOperationalReport(): Promise<object> {
+  async getClassProgress(classId: string, input: { from?: string; to?: string } & Partial<RiskThresholds>): Promise<ClassProgressReport> {
+    const { from, to } = this.reportingPeriod(input.from, input.to);
+    const thresholds: RiskThresholds = {
+      attendanceBelow: input.attendanceBelow ?? 70,
+      scoreBelow: input.scoreBelow ?? 50,
+      completionBelow: input.completionBelow ?? 60,
+    };
+    this.validateRiskThresholds(thresholds);
+    const prisma = this.database();
+    if (prisma) {
+      const classItem = await prisma.learningClass.findUnique({
+        where: { id: classId },
+        include: {
+          enrollments: { where: { status: "ACTIVE" } },
+          materials: { where: { visibility: "PUBLISHED" }, include: { accessLogs: { where: { createdAt: { gte: from, lte: to } } } } },
+          exams: { where: { openAt: { lte: to }, closeAt: { gte: from } }, include: { attempts: { where: { submittedAt: { gte: from, lte: to } } } } },
+          sessions: { where: { startsAt: { gte: from, lte: to }, status: { in: ["COMPLETED", "LIVE"] } }, include: { attendance: true } },
+        },
+      });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      const interventions = await prisma.progressIntervention.findMany({ where: { classId }, orderBy: { createdAt: "desc" } });
+      const learners = classItem.enrollments.map(({ learnerId }) => {
+        const accessedMaterialIds = new Set(classItem.materials.filter((material) => material.accessLogs.some((log) => log.userId === learnerId)).map((material) => material.id));
+        const attempts = classItem.exams.flatMap((exam) => exam.attempts.filter((attempt) => attempt.learnerId === learnerId).map((attempt) => ({ ...attempt, totalScore: Number(exam.totalScore) })));
+        const completedExamIds = new Set(attempts.map((attempt) => attempt.examId));
+        const attendance = classItem.sessions.flatMap((session) => session.attendance.filter((record) => record.learnerId === learnerId));
+        const activityDates = [...classItem.materials.flatMap((material) => material.accessLogs.filter((log) => log.userId === learnerId).map((log) => log.createdAt)), ...attempts.flatMap((attempt) => attempt.submittedAt ? [attempt.submittedAt] : []), ...attendance.flatMap((record) => record.joinedAt ? [record.joinedAt] : [])];
+        return this.buildLearnerProgress({ learnerId, materialCompletionRate: this.percentage(accessedMaterialIds.size, classItem.materials.length), assessmentCompletionRate: this.percentage(completedExamIds.size, classItem.exams.length), attendanceRate: this.percentage(attendance.filter((record) => record.status === "PRESENT" || record.status === "LATE").length, classItem.sessions.length), averageScore: attempts.length ? Math.round((attempts.reduce((sum, attempt) => sum + (attempt.score === null ? 0 : Number(attempt.score) / attempt.totalScore * 100), 0) / attempts.length) * 100) / 100 : 0, lastActivityAt: this.latestDate(activityDates), thresholds, interventions: interventions.filter((item) => item.learnerId === learnerId).map((item) => this.mapProgressIntervention(item)) });
+      });
+      return { classId, classCode: classItem.code, from: from.toISOString(), to: to.toISOString(), thresholds, learners, generatedAt: now() };
+    }
+    const classItem = this.findClass(classId);
+    const materials = this.materials.filter((material) => material.classId === classId && material.visibility === "PUBLISHED");
+    const exams = this.exams.filter((exam) => exam.classId === classId && new Date(exam.openAt) <= to && new Date(exam.closeAt) >= from);
+    const sessions = this.sessions.filter((session) => session.classId === classId && new Date(session.startsAt) >= from && new Date(session.startsAt) <= to && ["COMPLETED", "LIVE"].includes(session.status));
+    const learners = classItem.learnerIds.map((learnerId) => {
+      const accessLogs = this.materialAccessLogs.filter((log) => log.userId === learnerId && materials.some((material) => material.id === log.materialId) && new Date(log.createdAt) >= from && new Date(log.createdAt) <= to);
+      const attempts = this.attempts.filter((attempt) => attempt.learnerId === learnerId && exams.some((exam) => exam.id === attempt.examId) && attempt.submittedAt && new Date(attempt.submittedAt) >= from && new Date(attempt.submittedAt) <= to);
+      const attendance = this.attendance.filter((record) => record.learnerId === learnerId && sessions.some((session) => session.id === record.sessionId));
+      const activityDates = [...accessLogs.map((log) => new Date(log.createdAt)), ...attempts.flatMap((attempt) => attempt.submittedAt ? [new Date(attempt.submittedAt)] : []), ...attendance.flatMap((record) => record.joinedAt ? [new Date(record.joinedAt)] : [])];
+      return this.buildLearnerProgress({ learnerId, materialCompletionRate: this.percentage(new Set(accessLogs.map((log) => log.materialId)).size, materials.length), assessmentCompletionRate: this.percentage(new Set(attempts.map((attempt) => attempt.examId)).size, exams.length), attendanceRate: this.percentage(attendance.filter((record) => record.status === "PRESENT" || record.status === "LATE").length, sessions.length), averageScore: attempts.length ? Math.round((attempts.reduce((sum, attempt) => { const exam = exams.find((candidate) => candidate.id === attempt.examId); return sum + (exam ? (attempt.score ?? 0) / exam.totalScore * 100 : 0); }, 0) / attempts.length) * 100) / 100 : 0, lastActivityAt: this.latestDate(activityDates), thresholds, interventions: this.progressInterventions.filter((item) => item.classId === classId && item.learnerId === learnerId).map((item) => ({ ...item })) });
+    });
+    return { classId, classCode: classItem.code, from: from.toISOString(), to: to.toISOString(), thresholds, learners, generatedAt: now() };
+  }
+
+  async createProgressIntervention(classId: string, input: Pick<ProgressIntervention, "learnerId" | "title" | "notes" | "dueAt">, ownerId = "usr-manager"): Promise<ProgressIntervention> {
+    const dueAt = new Date(input.dueAt);
+    if (Number.isNaN(dueAt.getTime()) || dueAt <= new Date()) throw new BadRequestException("Hạn hành động hỗ trợ phải ở tương lai.");
+    const title = input.title.trim();
+    const prisma = this.database();
+    if (prisma) {
+      const enrollment = await prisma.classEnrollment.findFirst({ where: { classId, learnerId: input.learnerId, status: "ACTIVE" } });
+      if (!enrollment) throw new NotFoundException("Học viên không thuộc lớp đang hoạt động.");
+      const row = await prisma.progressIntervention.create({ data: { id: id("intervention"), classId, learnerId: input.learnerId, ownerId, title, notes: input.notes?.trim(), dueAt } });
+      await prisma.auditLog.create({ data: { actorId: ownerId, action: "PROGRESS_INTERVENTION_CREATED", entityType: "progress_intervention", entityId: row.id, context: { classId, learnerId: input.learnerId, dueAt: dueAt.toISOString() } } });
+      return this.mapProgressIntervention(row);
+    }
+    if (!this.findClass(classId).learnerIds.includes(input.learnerId)) throw new NotFoundException("Học viên không thuộc lớp đang hoạt động.");
+    const item: ProgressIntervention = { id: id("intervention"), classId, learnerId: input.learnerId, ownerId, title, notes: input.notes?.trim(), dueAt: dueAt.toISOString(), status: "OPEN", createdAt: now() };
+    this.progressInterventions.unshift(item);
+    return { ...item };
+  }
+
+  async updateProgressIntervention(interventionId: string, status: "DONE" | "CANCELLED", ownerId = "usr-manager"): Promise<ProgressIntervention> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.progressIntervention.findUnique({ where: { id: interventionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+      if (current.status !== "OPEN") throw new ConflictException("Hành động hỗ trợ đã kết thúc.");
+      const row = await prisma.progressIntervention.update({ where: { id: interventionId }, data: { status, completedAt: status === "DONE" ? new Date() : null } });
+      await prisma.auditLog.create({ data: { actorId: ownerId, action: `PROGRESS_INTERVENTION_${status}`, entityType: "progress_intervention", entityId: interventionId, context: { previousStatus: current.status, nextStatus: status } } });
+      return this.mapProgressIntervention(row);
+    }
+    const item = this.progressInterventions.find((candidate) => candidate.id === interventionId);
+    if (!item) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (item.status !== "OPEN") throw new ConflictException("Hành động hỗ trợ đã kết thúc.");
+    item.status = status;
+    item.completedAt = status === "DONE" ? now() : undefined;
+    return { ...item };
+  }
+
+  async runOperationalReport(fromInput: string, toInput: string, requestedById = "usr-manager"): Promise<ReportRun> {
+    const { from, to } = this.reportingPeriod(fromInput, toInput);
+    const result = await this.getOperationalReport(from.toISOString(), to.toISOString());
+    const run: ReportRun = { id: id("report-run"), reportType: "OPERATIONS", definitionVersion: result.definitionVersion, timezone: result.timezone, filters: { from: from.toISOString(), to: to.toISOString() }, result, requestedById, createdAt: now() };
+    const prisma = this.database();
+    if (prisma) {
+      const row = await prisma.reportRun.create({ data: { id: run.id, reportType: run.reportType, definitionVersion: run.definitionVersion, timezone: run.timezone, filters: run.filters, result: run.result as unknown as Prisma.InputJsonValue, requestedById } });
+      await prisma.auditLog.create({ data: { actorId: requestedById, action: "OPERATIONAL_REPORT_RUN", entityType: "report_run", entityId: row.id, context: run.filters } });
+      return { ...run, createdAt: row.createdAt.toISOString() };
+    }
+    this.reportRuns.unshift(run);
+    return structuredClone(run);
+  }
+
+  async createReportExport(reportRunId: string, format: "CSV", requestedById = "usr-manager"): Promise<ReportExport> {
+    const prisma = this.database();
+    const run = prisma
+      ? await prisma.reportRun.findFirst({ where: { id: reportRunId, requestedById } })
+      : this.reportRuns.find((item) => item.id === reportRunId && item.requestedById === requestedById);
+    if (!run) throw new NotFoundException("Không tìm thấy lần chạy báo cáo được phép xuất.");
+    const exportId = id("report-export");
+    const fileName = `bao-cao-van-hanh-${new Date().toISOString().slice(0, 10)}-${exportId.slice(-8)}.csv`;
+    const objectKey = `report-exports/${exportId}.csv`;
+    const filePath = this.resolveObjectPath(objectKey);
+    const expiresAt = new Date(Date.now() + 24 * 3_600_000);
+    const result = ("result" in run ? run.result : {}) as unknown as OperationalReport;
+    const csv = this.operationalReportCsv(result);
+    if (prisma) await prisma.reportExport.create({ data: { id: exportId, reportRunId, format, fileName, expiresAt, requestedById } });
+    try {
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, `\uFEFF${csv}`, { flag: "wx" });
+      const sizeBytes = Buffer.byteLength(`\uFEFF${csv}`);
+      if (prisma) {
+        const row = await prisma.reportExport.update({ where: { id: exportId }, data: { status: "COMPLETED", filePath, sizeBytes } });
+        await prisma.auditLog.create({ data: { actorId: requestedById, action: "OPERATIONAL_REPORT_EXPORTED", entityType: "report_export", entityId: exportId, context: { reportRunId, format, sizeBytes, expiresAt: expiresAt.toISOString() } } });
+        return this.mapReportExport(row);
+      }
+      const item: ReportExport & { filePath: string } = { id: exportId, reportRunId, format, status: "COMPLETED", fileName, filePath, sizeBytes, expiresAt: expiresAt.toISOString(), createdAt: now() };
+      this.reportExports.unshift(item);
+      return { ...item, filePath: undefined } as ReportExport;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể tạo tệp xuất báo cáo.";
+      if (prisma) await prisma.reportExport.update({ where: { id: exportId }, data: { status: "FAILED", errorMessage: message } });
+      throw new BadRequestException("Không thể tạo tệp xuất báo cáo.");
+    }
+  }
+
+  async listReportExports(requestedById = "usr-manager"): Promise<ReportExport[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.reportExport.findMany({ where: { requestedById }, orderBy: { createdAt: "desc" }, take: 50 });
+      return rows.map((row) => this.mapReportExport(row));
+    }
+    return this.reportExports.filter((item) => item.status !== "EXPIRED").map((item) => ({ id: item.id, reportRunId: item.reportRunId, format: item.format, status: item.status, fileName: item.fileName, sizeBytes: item.sizeBytes, errorMessage: item.errorMessage, expiresAt: item.expiresAt, createdAt: item.createdAt }));
+  }
+
+  async downloadReportExport(exportId: string, requestedById = "usr-manager"): Promise<MaterialDownload> {
+    const prisma = this.database();
+    if (prisma) {
+      const row = await prisma.reportExport.findFirst({ where: { id: exportId, requestedById } });
+      if (!row) throw new NotFoundException("Không tìm thấy tệp xuất báo cáo.");
+      if (row.expiresAt <= new Date()) { await prisma.reportExport.update({ where: { id: exportId }, data: { status: "EXPIRED" } }); throw new BadRequestException("Tệp xuất báo cáo đã hết hạn."); }
+      if (row.status !== "COMPLETED" || !row.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
+      return { fileName: row.fileName, mimeType: "text/csv; charset=utf-8", buffer: await readFile(row.filePath) };
+    }
+    const item = this.reportExports.find((candidate) => candidate.id === exportId);
+    if (!item) throw new NotFoundException("Không tìm thấy tệp xuất báo cáo.");
+    if (new Date(item.expiresAt) <= new Date()) { item.status = "EXPIRED"; throw new BadRequestException("Tệp xuất báo cáo đã hết hạn."); }
+    if (item.status !== "COMPLETED" || !item.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
+    return { fileName: item.fileName, mimeType: "text/csv; charset=utf-8", buffer: await readFile(item.filePath) };
+  }
+
+  async getOperationalReport(fromInput?: string, toInput?: string): Promise<OperationalReport> {
+    const { from, to } = this.reportingPeriod(fromInput, toInput);
+    const createdAt = { gte: from, lte: to };
+    const metadata = {
+      definitionVersion: "1.0.0",
+      timezone: "Asia/Bangkok",
+      metricDefinitions: {
+        courses: "Số khóa học được tạo trong kỳ báo cáo.",
+        classes: "Số lớp học được tạo trong kỳ báo cáo.",
+        activeClasses: "Số lớp đang hoạt động và được tạo trong kỳ báo cáo.",
+        learners: "Số học viên duy nhất đang có ghi danh hoạt động.",
+        materials: "Số học liệu được tạo trong kỳ báo cáo.",
+        exams: "Số đề kiểm tra được tạo trong kỳ báo cáo.",
+        liveSessions: "Số buổi học trực tuyến bắt đầu trong kỳ báo cáo.",
+        openReports: "Báo cáo diễn đàn chưa kết thúc được tạo trong kỳ báo cáo.",
+        openTickets: "Phiếu hỗ trợ chưa kết thúc được tạo trong kỳ báo cáo.",
+      },
+    };
     const prisma = this.database();
     if (prisma) {
       const [courses, classes, activeClasses, learnerRows, materials, publishedMaterials, questions, exams, liveSessions, openReports, openTickets] = await prisma.$transaction([
-        prisma.course.count(),
-        prisma.learningClass.count(),
-        prisma.learningClass.count({ where: { status: "ACTIVE" } }),
+        prisma.course.count({ where: { createdAt } }),
+        prisma.learningClass.count({ where: { createdAt } }),
+        prisma.learningClass.count({ where: { status: "ACTIVE", createdAt } }),
         prisma.classEnrollment.findMany({ where: { status: "ACTIVE" }, distinct: ["learnerId"], select: { learnerId: true } }),
-        prisma.material.count(),
-        prisma.material.count({ where: { visibility: "PUBLISHED" } }),
-        prisma.question.count(),
-        prisma.exam.count(),
-        prisma.liveSession.count(),
-        prisma.contentReport.count({ where: { status: "OPEN" } }),
-        prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] } } }),
+        prisma.material.count({ where: { createdAt } }),
+        prisma.material.count({ where: { visibility: "PUBLISHED", createdAt } }),
+        prisma.question.count({ where: { createdAt } }),
+        prisma.exam.count({ where: { createdAt } }),
+        prisma.liveSession.count({ where: { startsAt: createdAt } }),
+        prisma.contentReport.count({ where: { status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] }, createdAt } }),
+        prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] }, createdAt } }),
       ]);
-      return { courses, classes, activeClasses, learners: learnerRows.length, materials, publishedMaterials, questions, exams, liveSessions, openReports, openTickets, generatedAt: now() };
+      return { courses, classes, activeClasses, learners: learnerRows.length, materials, publishedMaterials, questions, exams, liveSessions, openReports, openTickets, generatedAt: now(), ...metadata };
     }
     const classes = this.classes.filter((item) => item.status === "ACTIVE").length;
     const materials = this.materials.filter((item) => item.visibility === "PUBLISHED").length;
-    return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.length, openReports: this.reports.filter((item) => item.status === "OPEN").length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status)).length, generatedAt: now() };
+    return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.filter((item) => new Date(item.startsAt) >= from && new Date(item.startsAt) <= to).length, openReports: this.reports.filter((item) => ["OPEN", "IN_REVIEW", "ESCALATED"].includes(item.status) && new Date(item.createdAt) >= from && new Date(item.createdAt) <= to).length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status) && new Date(item.createdAt) >= from && new Date(item.createdAt) <= to).length, generatedAt: now(), ...metadata };
   }
 
   async getClassReports(): Promise<object[]> {
@@ -2180,6 +2353,59 @@ export class LearningService {
         createdAt: action.createdAt.toISOString(),
       })) : [],
     };
+  }
+
+  private mapProgressIntervention(row: Prisma.ProgressInterventionGetPayload<Record<string, never>>): ProgressIntervention {
+    return { id: row.id, classId: row.classId, learnerId: row.learnerId, ownerId: row.ownerId, title: row.title, notes: row.notes ?? undefined, dueAt: row.dueAt.toISOString(), status: row.status, completedAt: row.completedAt?.toISOString(), createdAt: row.createdAt.toISOString() };
+  }
+
+  private mapReportExport(row: Prisma.ReportExportGetPayload<Record<string, never>>): ReportExport {
+    const sizeBytes = row.sizeBytes === null ? undefined : Number(row.sizeBytes);
+    if (sizeBytes !== undefined && !Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước tệp báo cáo vượt giới hạn an toàn.");
+    return { id: row.id, reportRunId: row.reportRunId, format: row.format as "CSV", status: row.status, fileName: row.fileName, sizeBytes, errorMessage: row.errorMessage ?? undefined, expiresAt: row.expiresAt.toISOString(), createdAt: row.createdAt.toISOString() };
+  }
+
+  private reportingPeriod(fromInput?: string, toInput?: string): { from: Date; to: Date } {
+    const to = toInput ? new Date(toInput) : new Date();
+    const from = fromInput ? new Date(fromInput) : new Date(to.getTime() - 365 * 86_400_000);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) throw new BadRequestException("Khoảng thời gian báo cáo không hợp lệ.");
+    if (from > to) throw new BadRequestException("Ngày bắt đầu báo cáo phải trước ngày kết thúc.");
+    if (to.getTime() - from.getTime() > 5 * 365 * 86_400_000) throw new BadRequestException("Khoảng thời gian báo cáo không được vượt quá 5 năm.");
+    return { from, to };
+  }
+
+  private validateRiskThresholds(thresholds: RiskThresholds): void {
+    for (const [name, value] of Object.entries(thresholds)) if (!Number.isInteger(value) || value < 1 || value > 100) throw new BadRequestException(`Ngưỡng ${name} phải là số nguyên từ 1 đến 100.`);
+  }
+
+  private percentage(numerator: number, denominator: number): number {
+    return denominator > 0 ? Math.round(numerator / denominator * 10_000) / 100 : 0;
+  }
+
+  private latestDate(values: Date[]): string | undefined {
+    if (!values.length) return undefined;
+    return new Date(Math.max(...values.map((value) => value.getTime()))).toISOString();
+  }
+
+  private buildLearnerProgress(input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & { thresholds: RiskThresholds }): LearnerProgress {
+    const reasons: string[] = [];
+    if (input.attendanceRate < input.thresholds.attendanceBelow) reasons.push(`Điểm danh ${input.attendanceRate}% thấp hơn ngưỡng ${input.thresholds.attendanceBelow}%.`);
+    if (input.averageScore < input.thresholds.scoreBelow) reasons.push(`Điểm trung bình ${input.averageScore}% thấp hơn ngưỡng ${input.thresholds.scoreBelow}%.`);
+    const overallCompletion = Math.round((input.materialCompletionRate + input.assessmentCompletionRate) / 2 * 100) / 100;
+    if (overallCompletion < input.thresholds.completionBelow) reasons.push(`Tiến độ tổng hợp ${overallCompletion}% thấp hơn ngưỡng ${input.thresholds.completionBelow}%.`);
+    const riskLevel: LearnerProgress["riskLevel"] = reasons.length >= 2 ? "HIGH" : reasons.length === 1 ? "MEDIUM" : "LOW";
+    return { learnerId: input.learnerId, materialCompletionRate: input.materialCompletionRate, assessmentCompletionRate: input.assessmentCompletionRate, attendanceRate: input.attendanceRate, averageScore: input.averageScore, lastActivityAt: input.lastActivityAt, interventions: input.interventions, riskLevel, riskReasons: reasons };
+  }
+
+  private operationalReportCsv(report: OperationalReport): string {
+    const rows: Array<[string, string | number]> = [
+      ["Phiên bản định nghĩa", report.definitionVersion], ["Múi giờ", report.timezone], ["Thời điểm tạo", report.generatedAt],
+      ["Khóa học", report.courses], ["Lớp học", report.classes], ["Lớp đang hoạt động", report.activeClasses], ["Học viên", report.learners],
+      ["Học liệu", report.materials], ["Học liệu đã phát hành", report.publishedMaterials], ["Câu hỏi", report.questions], ["Đề thi", report.exams],
+      ["Buổi trực tuyến", report.liveSessions], ["Báo cáo diễn đàn mở", report.openReports], ["Phiếu hỗ trợ mở", report.openTickets],
+    ];
+    const escape = (value: string | number): string => `"${String(value).replaceAll('"', '""')}"`;
+    return [["Chỉ số", "Giá trị"], ...rows].map((row) => row.map(escape).join(",")).join("\r\n");
   }
 
   private recordMemoryModeration(report: ContentReport, actorId: string, action: ModerationActionRecord["action"], reason: string, nextStatus: ContentReport["status"]): void {
