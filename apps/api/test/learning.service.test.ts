@@ -8,11 +8,34 @@ import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
 
 describe("LearningService", () => {
-  it("chặn mã khóa học trùng và phát hành khóa học hợp lệ", async () => {
+  it("phiên bản hóa khóa học mà không làm đổi snapshot của lớp cũ", async () => {
     const service = new LearningService();
     await expect(service.createCourse({ code: "WEB-FULLSTACK", name: "Trùng mã", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Kết quả"] })).rejects.toThrow(ConflictException);
     const created = await service.createCourse({ code: "NEW-COURSE", name: "Khóa học mới", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Hoàn thành mục tiêu"] });
-    expect((await service.publishCourse(created.id)).status).toBe("PUBLISHED");
+    const publishedV1 = await service.publishCourse(created.id);
+    expect(publishedV1).toMatchObject({ status: "PUBLISHED", version: 1 });
+    const classV1 = await service.createClass({ courseId: created.id, code: "NEW-K01", name: "Lớp dùng bản một", term: "2026-HK1", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-12-01T00:00:00.000Z", capacity: 20 });
+    expect(classV1.courseVersion).toBe(1);
+
+    expect((await service.updateCourse(created.id, { name: "Khóa học mới cập nhật", description: "Mô tả phiên bản thứ hai đủ độ dài", outcomes: ["Mục tiêu phiên bản hai"] })).status).toBe("DRAFT");
+    expect((await service.publishCourse(created.id)).version).toBe(2);
+    expect((await service.listCourseVersions(created.id)).map((item) => item.version)).toEqual([2, 1]);
+    expect((await service.listClasses("CENTER_MANAGER")).find((item) => item.id === classV1.id)?.courseVersion).toBe(1);
+    expect((await service.archiveCourse(created.id, "Ngừng tuyển sinh khóa học này")).status).toBe("ARCHIVED");
+    await expect(service.createClass({ courseId: created.id, code: "NEW-K02", name: "Không được mở", term: "2026-HK2", startAt: "2027-01-01T00:00:00.000Z", endAt: "2027-03-01T00:00:00.000Z", capacity: 20 })).rejects.toThrow(BadRequestException);
+  });
+
+  it("cấu hình lớp theo học kỳ, múi giờ, sức chứa và điều kiện kích hoạt", async () => {
+    const service = new LearningService();
+    const first = await service.createClass({ courseId: "course-web", code: "SHARED", name: "Lớp học kỳ một", term: "2027-HK1", startAt: "2027-01-10T00:00:00.000Z", endAt: "2027-04-10T00:00:00.000Z", capacity: 30, timezone: "Asia/Bangkok", allowLateEnrollment: true });
+    expect(first).toMatchObject({ courseVersion: 1, timezone: "Asia/Bangkok", allowLateEnrollment: true, status: "DRAFT" });
+    await expect(service.createClass({ courseId: "course-web", code: "shared", name: "Trùng học kỳ", term: "2027-HK1", startAt: "2027-01-10T00:00:00.000Z", endAt: "2027-04-10T00:00:00.000Z", capacity: 30 })).rejects.toThrow(ConflictException);
+    expect((await service.createClass({ courseId: "course-web", code: "SHARED", name: "Khác học kỳ", term: "2027-HK2", startAt: "2027-05-10T00:00:00.000Z", endAt: "2027-08-10T00:00:00.000Z", capacity: 30 })).term).toBe("2027-HK2");
+    await expect(service.createClass({ courseId: "course-web", code: "BAD-TZ", name: "Sai múi giờ", term: "2027-HK1", startAt: "2027-01-10T00:00:00.000Z", endAt: "2027-04-10T00:00:00.000Z", capacity: 30, timezone: "Mars/Olympus" })).rejects.toThrow(BadRequestException);
+    await expect(service.activateClass(first.id)).rejects.toThrow(BadRequestException);
+    await service.assignInstructor(first.id, "usr-instructor");
+    expect((await service.activateClass(first.id)).status).toBe("ACTIVE");
+    expect((await service.activateClass(first.id)).status).toBe("ACTIVE");
   });
 
   it("lưu đáp án, nộp một lần và chấm tự động", async () => {

@@ -4,10 +4,11 @@ export interface LearningCourse {
   id: string; code: string; name: string; description: string; outcomes: string[];
   status: PublishStatus; version: number; createdAt: string; updatedAt: string;
 }
+export interface CourseVersionSnapshot { id: string; courseId: string; version: number; name: string; description: string; outcomes: string[]; publishedBy: string; publishedAt: string }
 
 export interface LearningClass {
-  id: string; courseId: string; code: string; name: string; term: string;
-  startAt: string; endAt: string; capacity: number; status: "DRAFT" | "ACTIVE" | "CLOSED";
+  id: string; courseId: string; courseVersion: number; code: string; name: string; term: string;
+  startAt: string; endAt: string; capacity: number; timezone: string; allowLateEnrollment: boolean; status: "DRAFT" | "ACTIVE" | "CLOSED";
   instructorIds: string[]; learnerIds: string[]; closeReason?: string; archivePolicy?: string; closedAt?: string; archivedAt?: string;
 }
 export interface ClassClosureReadiness { eligible: boolean; blockers: string[]; openExams: number; pendingGrades: number; activeSessions: number; unlockedAttendanceSessions: number; openAppeals: number }

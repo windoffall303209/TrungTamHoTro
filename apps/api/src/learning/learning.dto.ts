@@ -12,6 +12,14 @@ export class CreateCourseDto {
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
 }
 
+export class UpdateCourseDto {
+  @IsString() @MinLength(3) @MaxLength(200) name!: string;
+  @IsString() @MinLength(10) description!: string;
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
+}
+
+export class ArchiveCourseDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string; }
+
 export class CreateClassDto {
   @IsString() courseId!: string;
   @IsString() @MinLength(2) code!: string;
@@ -20,6 +28,8 @@ export class CreateClassDto {
   @IsDateString() startAt!: string;
   @IsDateString() endAt!: string;
   @IsInt() @Min(1) @Max(1000) capacity!: number;
+  @IsOptional() @IsString() timezone = "Asia/Bangkok";
+  @IsOptional() @IsBoolean() allowLateEnrollment = false;
 }
 
 export class AssignUserDto { @IsString() @IsNotEmpty() userId!: string; }

@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassProgressReport, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassProgressReport, ContentReport, CourseVersionSnapshot, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -37,8 +37,12 @@ export class LearningService {
     { id: "course-data", code: "DATA-FOUNDATION", name: "Nền tảng dữ liệu", description: "Tổ chức, phân tích và trực quan hóa dữ liệu.", outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu"], status: "DRAFT", version: 1, createdAt: now(), updatedAt: now() },
   ];
 
+  private readonly courseVersions: CourseVersionSnapshot[] = [
+    { id: "course-version-web-1", courseId: "course-web", version: 1, name: "Phát triển Web Full-stack", description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.", outcomes: ["Thiết kế giao diện responsive", "Xây dựng REST API", "Thiết kế cơ sở dữ liệu"], publishedBy: "usr-manager", publishedAt: now() },
+  ];
+
   private readonly classes: LearningClass[] = [
-    { id: "class-web-01", courseId: "course-web", code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: "2026-08-18T01:00:00.000Z", endAt: "2026-12-20T10:00:00.000Z", capacity: 40, status: "ACTIVE", instructorIds: ["usr-instructor"], learnerIds: ["usr-learner"] },
+    { id: "class-web-01", courseId: "course-web", courseVersion: 1, code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: "2026-08-18T01:00:00.000Z", endAt: "2026-12-20T10:00:00.000Z", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false, status: "ACTIVE", instructorIds: ["usr-instructor"], learnerIds: ["usr-learner"] },
   ];
 
   private readonly materials: LearningMaterial[] = [
@@ -121,23 +125,88 @@ export class LearningService {
     const course: LearningCourse = { id: id("course"), code, name: input.name.trim(), description: input.description.trim(), outcomes: input.outcomes.filter(Boolean), status: "DRAFT", version: 1, createdAt: timestamp, updatedAt: timestamp };
     this.courses.unshift(course); return { ...course, outcomes: [...course.outcomes] };
   }
-  async publishCourse(courseId: string): Promise<LearningCourse> {
+
+  async updateCourse(courseId: string, input: Pick<LearningCourse, "name" | "description" | "outcomes">, actorId = "usr-manager"): Promise<LearningCourse> {
+    const name = input.name.trim();
+    const description = input.description.trim();
+    const outcomes = input.outcomes.map((item) => item.trim()).filter(Boolean);
+    if (!outcomes.length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
     const prisma = this.database();
     if (prisma) {
-      const course = await prisma.course.findUnique({ where: { id: courseId } });
-      if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
-      if (!this.toStringArray(course.outcomes).length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
-      return this.mapCourse(await prisma.course.update({
-        where: { id: courseId },
-        data: { status: "PUBLISHED", version: { increment: 1 } },
-      }));
+      const current = await prisma.course.findUnique({ where: { id: courseId } });
+      if (!current) throw new NotFoundException("Không tìm thấy khóa học.");
+      if (current.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng và không thể sửa.");
+      return prisma.$transaction(async (transaction) => {
+        const row = await transaction.course.update({ where: { id: courseId }, data: { name, description, outcomes, status: "DRAFT" } });
+        await transaction.auditLog.create({ data: { actorId, action: "COURSE_DRAFT_UPDATED", entityType: "course", entityId: courseId, context: { publishedVersion: current.version, previousStatus: current.status, nextStatus: "DRAFT" } } });
+        return this.mapCourse(row);
+      });
+    }
+    const current = this.findCourse(courseId);
+    if (current.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng và không thể sửa.");
+    Object.assign(current, { name, description, outcomes, status: "DRAFT", updatedAt: now() });
+    return { ...current, outcomes: [...current.outcomes] };
+  }
+
+  async listCourseVersions(courseId: string): Promise<CourseVersionSnapshot[]> {
+    const prisma = this.database();
+    if (prisma) {
+      if (!await prisma.course.findUnique({ where: { id: courseId }, select: { id: true } })) throw new NotFoundException("Không tìm thấy khóa học.");
+      const rows = await prisma.courseVersion.findMany({ where: { courseId }, orderBy: { version: "desc" } });
+      return rows.map((row) => ({ id: row.id, courseId: row.courseId, version: row.version, name: row.name, description: row.description, outcomes: this.toStringArray(row.outcomes), publishedBy: row.publishedBy, publishedAt: row.publishedAt.toISOString() }));
+    }
+    this.findCourse(courseId);
+    return this.courseVersions.filter((item) => item.courseId === courseId).sort((a, b) => b.version - a.version).map((item) => ({ ...item, outcomes: [...item.outcomes] }));
+  }
+
+  async publishCourse(courseId: string, actorId = "usr-manager"): Promise<LearningCourse> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const course = await transaction.course.findUnique({ where: { id: courseId }, include: { versions: { orderBy: { version: "desc" }, take: 1 } } });
+        if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
+        if (course.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng.");
+        if (course.status === "PUBLISHED") return this.mapCourse(course);
+        const outcomes = this.toStringArray(course.outcomes);
+        if (!outcomes.length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
+        const nextVersion = course.versions.length ? course.versions[0]!.version + 1 : Math.max(1, course.version);
+        await transaction.courseVersion.create({ data: { id: id("course-version"), courseId, version: nextVersion, name: course.name, description: course.description, outcomes, publishedBy: actorId } });
+        const updated = await transaction.course.update({ where: { id: courseId }, data: { status: "PUBLISHED", version: nextVersion } });
+        await transaction.auditLog.create({ data: { actorId, action: "COURSE_VERSION_PUBLISHED", entityType: "course", entityId: courseId, context: { version: nextVersion } } });
+        return this.mapCourse(updated);
+      });
     }
     const course = this.findCourse(courseId);
+    if (course.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng.");
+    if (course.status === "PUBLISHED") return { ...course, outcomes: [...course.outcomes] };
     if (!course.outcomes.length) throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
+    const lastVersion = Math.max(0, ...this.courseVersions.filter((item) => item.courseId === courseId).map((item) => item.version));
+    course.version = lastVersion ? lastVersion + 1 : Math.max(1, course.version);
     course.status = "PUBLISHED";
-    course.version += 1;
     course.updatedAt = now();
+    this.courseVersions.unshift({ id: id("course-version"), courseId, version: course.version, name: course.name, description: course.description, outcomes: [...course.outcomes], publishedBy: actorId, publishedAt: now() });
     return { ...course, outcomes: [...course.outcomes] };
+  }
+
+  async archiveCourse(courseId: string, reason: string, actorId = "usr-manager"): Promise<LearningCourse> {
+    const normalizedReason = reason.trim();
+    if (normalizedReason.length < 5) throw new BadRequestException("Lý do ngừng sử dụng cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.course.findUnique({ where: { id: courseId } });
+      if (!current) throw new NotFoundException("Không tìm thấy khóa học.");
+      if (current.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng.");
+      return prisma.$transaction(async (transaction) => {
+        const row = await transaction.course.update({ where: { id: courseId }, data: { status: "ARCHIVED" } });
+        await transaction.auditLog.create({ data: { actorId, action: "COURSE_ARCHIVED", entityType: "course", entityId: courseId, context: { reason: normalizedReason, version: current.version } } });
+        return this.mapCourse(row);
+      });
+    }
+    const current = this.findCourse(courseId);
+    if (current.status === "ARCHIVED") throw new ConflictException("Khóa học đã ngừng sử dụng.");
+    current.status = "ARCHIVED";
+    current.updatedAt = now();
+    return { ...current, outcomes: [...current.outcomes] };
   }
 
   async listClasses(role: string): Promise<LearningClass[]> {
@@ -157,7 +226,11 @@ export class LearningService {
     return this.classes.filter((item) => role === "LEARNER" ? item.learnerIds.includes("usr-learner") : role === "INSTRUCTOR" ? item.instructorIds.includes("usr-instructor") : true).map((item) => ({ ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }));
   }
 
-  async createClass(input: Omit<LearningClass, "id" | "status" | "instructorIds" | "learnerIds">): Promise<LearningClass> {
+  async createClass(input: Pick<LearningClass, "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"> & Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment">>, actorId = "usr-manager"): Promise<LearningClass> {
+    const code = input.code.trim().toUpperCase();
+    const term = input.term.trim();
+    const timezone = input.timezone?.trim() || "Asia/Bangkok";
+    this.validateTimezone(timezone);
     const prisma = this.database();
     if (prisma) {
       const course = await prisma.course.findUnique({ where: { id: input.courseId } });
@@ -166,12 +239,13 @@ export class LearningService {
       try {
         const row = await prisma.learningClass.create({
           data: {
-            id: id("class"), courseId: input.courseId, code: input.code.trim().toUpperCase(),
-            name: input.name.trim(), term: input.term.trim(), startAt: new Date(input.startAt),
-            endAt: new Date(input.endAt), capacity: input.capacity,
+            id: id("class"), courseId: input.courseId, courseVersion: course.version, code,
+            name: input.name.trim(), term, startAt: new Date(input.startAt),
+            endAt: new Date(input.endAt), capacity: input.capacity, timezone, allowLateEnrollment: input.allowLateEnrollment ?? false,
           },
           include: { instructors: true, enrollments: true },
         });
+        await prisma.auditLog.create({ data: { actorId, action: "CLASS_DRAFT_CREATED", entityType: "learning_class", entityId: row.id, context: { courseId: input.courseId, courseVersion: course.version, code, term, timezone } } });
         return this.mapClass(row);
       } catch (error) {
         if (isUniqueConstraintError(error)) throw new ConflictException("Mã lớp đã tồn tại.");
@@ -180,8 +254,9 @@ export class LearningService {
     }
     if (!this.courses.some((course) => course.id === input.courseId && course.status === "PUBLISHED")) throw new BadRequestException("Khóa học phải được phát hành trước khi mở lớp.");
     if (new Date(input.endAt) <= new Date(input.startAt)) throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
-    if (this.classes.some((item) => item.code === input.code)) throw new ConflictException("Mã lớp đã tồn tại.");
-    const item: LearningClass = { ...input, id: id("class"), status: "DRAFT", instructorIds: [], learnerIds: [] }; this.classes.unshift(item); return { ...item, instructorIds: [], learnerIds: [] };
+    if (this.classes.some((item) => item.code === code && item.term === term)) throw new ConflictException("Mã lớp đã tồn tại trong học kỳ.");
+    const course = this.findCourse(input.courseId);
+    const item: LearningClass = { ...input, courseVersion: course.version, code, term, timezone, allowLateEnrollment: input.allowLateEnrollment ?? false, id: id("class"), status: "DRAFT", instructorIds: [], learnerIds: [] }; this.classes.unshift(item); return { ...item, instructorIds: [], learnerIds: [] };
   }
   async assignInstructor(classId: string, instructorId: string): Promise<LearningClass> {
     const prisma = this.database();
@@ -229,16 +304,27 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
-  async activateClass(classId: string): Promise<LearningClass> {
+  async activateClass(classId: string, actorId = "usr-manager"): Promise<LearningClass> {
     const prisma = this.database();
     if (prisma) {
       const item = await this.getDatabaseClass(prisma, classId);
+      if (item.status === "ACTIVE") return item;
+      if (item.status === "CLOSED") throw new ConflictException("Lớp đã đóng và không thể kích hoạt trực tiếp.");
       if (!item.instructorIds.length) throw new BadRequestException("Cần phân công ít nhất một giảng viên trước khi kích hoạt.");
-      await prisma.learningClass.update({ where: { id: classId }, data: { status: "ACTIVE" } });
+      if (new Date(item.endAt) <= new Date(item.startAt)) throw new BadRequestException("Lịch lớp không hợp lệ.");
+      if (item.learnerIds.length > item.capacity) throw new BadRequestException("Sĩ số hiện tại vượt quá sức chứa lớp.");
+      await prisma.$transaction([
+        prisma.learningClass.update({ where: { id: classId }, data: { status: "ACTIVE" } }),
+        prisma.auditLog.create({ data: { actorId, action: "CLASS_ACTIVATED", entityType: "learning_class", entityId: classId, context: { courseId: item.courseId, courseVersion: item.courseVersion, instructorCount: item.instructorIds.length, learnerCount: item.learnerIds.length } } }),
+      ]);
       return this.getDatabaseClass(prisma, classId);
     }
     const item = this.findClass(classId);
+    if (item.status === "ACTIVE") return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
+    if (item.status === "CLOSED") throw new ConflictException("Lớp đã đóng và không thể kích hoạt trực tiếp.");
     if (!item.instructorIds.length) throw new BadRequestException("Cần phân công ít nhất một giảng viên trước khi kích hoạt.");
+    if (new Date(item.endAt) <= new Date(item.startAt)) throw new BadRequestException("Lịch lớp không hợp lệ.");
+    if (item.learnerIds.length > item.capacity) throw new BadRequestException("Sĩ số hiện tại vượt quá sức chứa lớp.");
     item.status = "ACTIVE";
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
@@ -2202,12 +2288,15 @@ export class LearningService {
     return {
       id: row.id,
       courseId: row.courseId,
+      courseVersion: row.courseVersion,
       code: row.code,
       name: row.name,
       term: row.term,
       startAt: row.startAt.toISOString(),
       endAt: row.endAt.toISOString(),
       capacity: row.capacity,
+      timezone: row.timezone,
+      allowLateEnrollment: row.allowLateEnrollment,
       status: row.status,
       instructorIds: row.instructors.map(({ instructorId }) => instructorId),
       learnerIds: row.enrollments.map(({ learnerId }) => learnerId),
@@ -2376,6 +2465,14 @@ export class LearningService {
 
   private validateRiskThresholds(thresholds: RiskThresholds): void {
     for (const [name, value] of Object.entries(thresholds)) if (!Number.isInteger(value) || value < 1 || value > 100) throw new BadRequestException(`Ngưỡng ${name} phải là số nguyên từ 1 đến 100.`);
+  }
+
+  private validateTimezone(timezone: string): void {
+    try {
+      new Intl.DateTimeFormat("vi-VN", { timeZone: timezone }).format(new Date());
+    } catch {
+      throw new BadRequestException("Múi giờ lớp học không hợp lệ.");
+    }
   }
 
   private percentage(numerator: number, denominator: number): number {
