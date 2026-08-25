@@ -101,6 +101,17 @@ describe("LearningService", () => {
     }
   });
 
+  it("lưu lịch sử kiểm duyệt học liệu, bắt buộc lý do và thông báo người đăng", async () => {
+    const service = new LearningService();
+    const material = await service.createMaterial("class-web-01", { name: "slide-review.pdf", mimeType: "application/pdf", sizeBytes: 2048, folder: "Tuần 3", tags: ["review"] });
+    await expect(service.reviewClassMaterial(material.id, "HIDE", "")).rejects.toThrow("lý do");
+    expect((await service.reviewClassMaterial(material.id, "APPROVE")).visibility).toBe("PUBLISHED");
+    expect((await service.reviewClassMaterial(material.id, "REQUEST_CHANGES", "Cần bổ sung nguồn trích dẫn")).visibility).toBe("DRAFT");
+    const reviews = await service.listMaterialReviews(material.id);
+    expect(reviews.map((item) => item.action)).toEqual(["REQUEST_CHANGES", "APPROVE"]);
+    expect((await service.listNotifications("usr-instructor")).filter((item) => item.type === "MATERIAL_REVIEWED")).toHaveLength(2);
+  });
+
   it("lọc và phân trang học liệu chỉ trong lớp đã ghi danh", async () => {
     const service = new LearningService();
     const firstPage = await service.searchAccessibleMaterials({ query: "pdf", mimeType: "application/pdf", page: 1, pageSize: 1 });

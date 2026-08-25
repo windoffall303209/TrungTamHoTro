@@ -16,6 +16,7 @@ export interface LearningMaterial {
   folder: string; tags: string[]; version: number; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
   quarantinedAt?: string; quarantineReason?: string; createdAt: string;
 }
+export interface FileReviewRecord { id: string; materialId: string; reviewerId: string; action: "APPROVE" | "HIDE" | "REQUEST_CHANGES"; reason?: string; createdAt: string }
 
 export interface LearningQuestion {
   id: string; courseId: string; type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER" | "ESSAY";
