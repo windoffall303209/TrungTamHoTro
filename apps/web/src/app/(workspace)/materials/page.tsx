@@ -13,9 +13,16 @@ export default function MaterialsPage() {
   const { session, notify } = useApp();
   const instructor = session.roleCode === "INSTRUCTOR";
   const manager = session.roleCode === "CENTER_MANAGER";
+  const learner = session.roleCode === "LEARNER";
   const [items, setItems] = useState<Material[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [query, setQuery] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [mimeFilter, setMimeFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -25,18 +32,35 @@ export default function MaterialsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [materials, classData] = await Promise.all([
-        apiRequest<Material[]>(`/materials${query ? `?query=${encodeURIComponent(query)}` : ""}`, { roleCode: session.roleCode }),
+      const params = new URLSearchParams();
+      if (query) params.set("query", query);
+      if (classFilter) params.set("classId", classFilter);
+      if (mimeFilter) params.set("mimeType", mimeFilter);
+      if (tagFilter) params.set("tag", tagFilter);
+      params.set("page", String(page));
+      params.set("pageSize", "12");
+      const [materialData, classData] = await Promise.all([
+        learner
+          ? apiRequest<{ items: Material[]; total: number; totalPages: number }>(`/learner/materials/search?${params}`, { roleCode: session.roleCode })
+          : apiRequest<Material[]>(`/materials${query ? `?query=${encodeURIComponent(query)}` : ""}`, { roleCode: session.roleCode }),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
       ]);
-      setItems(materials);
+      if (Array.isArray(materialData)) {
+        setItems(materialData);
+        setTotal(materialData.length);
+        setTotalPages(1);
+      } else {
+        setItems(materialData.items);
+        setTotal(materialData.total);
+        setTotalPages(materialData.totalPages);
+      }
       setClasses(classData);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được học liệu.", "error");
     } finally {
       setLoading(false);
     }
-  }, [notify, query, session.roleCode]);
+  }, [classFilter, learner, mimeFilter, notify, page, query, session.roleCode, tagFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
@@ -113,9 +137,14 @@ export default function MaterialsPage() {
         description="Tổ chức, tải lên và phân phối tài liệu bằng liên kết có chữ ký hết hạn."
         actions={instructor ? <Button onClick={() => setOpen(true)}><Plus size={17} />Thêm học liệu</Button> : undefined}
       />
-      <div className="relative mb-6 max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-        <input className={`${inputClass} pl-10`} placeholder="Tìm tên, thư mục hoặc thẻ…" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <div className="mb-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+          <input className={`${inputClass} pl-10`} placeholder="Tìm tên, thư mục…" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
+        </div>
+        {learner ? <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); setPage(1); }}><option value="">Tất cả lớp đã ghi danh</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}</select> : null}
+        {learner ? <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select> : null}
+        {learner ? <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setPage(1); }} /> : null}
       </div>
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -142,6 +171,7 @@ export default function MaterialsPage() {
           ))}
         </div>
       </SectionState>
+      {learner && total > 0 ? <div className="mt-6 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"><p className="text-sm text-slate-600">{total} học liệu · Trang {page}/{totalPages}</p><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} variant="secondary">Trang trước</Button><Button disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} variant="secondary">Trang sau</Button></div></div> : null}
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Lớp học">

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,5 +82,41 @@ describe("LearningService", () => {
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }
+  });
+
+  it("lọc và phân trang học liệu chỉ trong lớp đã ghi danh", async () => {
+    const service = new LearningService();
+    const firstPage = await service.searchAccessibleMaterials({ query: "pdf", mimeType: "application/pdf", page: 1, pageSize: 1 });
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.total).toBe(2);
+    expect(firstPage.totalPages).toBe(2);
+
+    const outside = await service.searchAccessibleMaterials({ classId: "class-khong-ghi-danh" });
+    expect(outside.items).toHaveLength(0);
+    expect(outside.total).toBe(0);
+  });
+
+  it("chặn học viên mở học liệu của lớp chưa ghi danh", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({
+      courseId: "course-web",
+      code: "WEB-NO-ENROLLMENT",
+      name: "Lớp chưa ghi danh",
+      term: "2026-HK2",
+      startAt: "2026-09-01T00:00:00.000Z",
+      endAt: "2026-12-01T00:00:00.000Z",
+      capacity: 20,
+    });
+    const material = await service.createMaterial(classItem.id, {
+      name: "tai-lieu-ngoai-lop.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
+      folder: "Tuần 1",
+      tags: ["ngoai-lop"],
+    });
+    await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+
+    await expect(service.createMaterialAccess(material.id, "LEARNER")).rejects.toThrow(NotFoundException);
+    await expect(service.createMaterialAccess(material.id, "LEARNER")).rejects.toThrow("Học viên không thuộc lớp");
   });
 });
