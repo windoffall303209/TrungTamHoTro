@@ -7,7 +7,7 @@ import {
   CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ClassProgressReport, ContentReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
+import type { ClassProgressReport, ContentReport, ExamAnalytics, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -177,6 +177,15 @@ export class EngagementController {
 
   @Get("reports/classes") @RequirePermissions("report:view")
   getClassReports(): Promise<object[]> { return this.learning.getClassReports(); }
+
+  @Get("instructor/analytics/exams") @RequirePermissions("report:view")
+  getExamAnalytics(@Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<ExamAnalytics> { return this.learning.getExamAnalytics({ classId, examId, from, to }); }
+
+  @Get("instructor/analytics/exams/export") @RequirePermissions("report:view")
+  async exportExamAnalytics(@Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<StreamableFile> {
+    const buffer = await this.learning.exportExamAnalytics({ classId, examId, from, to });
+    return new StreamableFile(buffer, { type: "text/csv; charset=utf-8", disposition: `attachment; filename="exam-analytics-${Date.now()}.csv"`, length: buffer.length });
+  }
 
   @Get("manager/classes/:classId/progress") @RequirePermissions("report:view")
   getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input); }

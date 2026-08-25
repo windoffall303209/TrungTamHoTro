@@ -76,6 +76,7 @@ export interface ForumPost {
   status: "VISIBLE" | "HIDDEN"; attachmentIds: string[]; mentionedUserIds: string[]; createdAt: string;
   editedAt?: string; deletedAt?: string; editCount?: number;
 }
+export interface ExamAnalytics { generatedAt: string; filters: { classId?: string; examId?: string; from?: string; to?: string }; metricDefinitions: Record<string, string>; exams: Array<{ examId: string; classId: string; title: string; sampleSize: number; smallSampleWarning: boolean; averagePercentage: number; passRate: number; questionStatsAvailable: boolean; questionStats: Array<{ questionId: string; difficulty: number; responseCount: number; correctRate: number }> }> }
 
 export interface LearningNotification {
   id: string; recipientId: string; type: string; title: string; entityType: string;

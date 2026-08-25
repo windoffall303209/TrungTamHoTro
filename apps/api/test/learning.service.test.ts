@@ -400,6 +400,27 @@ describe("LearningService", () => {
     await expect(service.createPost("topic-rest", "Phản hồi vượt giới hạn")).rejects.toThrow("vượt giới hạn");
   });
 
+  it("phân tích bài đã chấm, cảnh báo mẫu nhỏ và giữ kín thống kê câu khi đề còn mở", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-10T02:00:00.000Z"));
+      const service = new LearningService();
+      const first = await service.startAttempt("exam-mid-web");
+      await service.saveAnswer(first.id, "q-rest-01", ["PATCH"]); await service.saveAnswer(first.id, "q-db-01", ["Đúng"]); await service.submitAttempt(first.id);
+      const second = await service.startAttempt("exam-mid-web");
+      await service.saveAnswer(second.id, "q-rest-01", ["GET"]); await service.saveAnswer(second.id, "q-db-01", ["Sai"]); await service.submitAttempt(second.id);
+      const openReport = await service.getExamAnalytics({ classId: "class-web-01" });
+      expect(openReport.exams[0]).toMatchObject({ sampleSize: 2, smallSampleWarning: true, averagePercentage: 50, passRate: 50, questionStatsAvailable: false, questionStats: [] });
+
+      vi.setSystemTime(new Date("2027-01-10T02:00:00.000Z"));
+      const closedReport = await service.getExamAnalytics({ examId: "exam-mid-web" });
+      expect(closedReport.exams[0]?.questionStats).toEqual([expect.objectContaining({ responseCount: 2, correctRate: 50 }), expect.objectContaining({ responseCount: 2, correctRate: 50 })]);
+      const csv = (await service.exportExamAnalytics({ examId: "exam-mid-web" })).toString("utf8");
+      expect(csv).toContain("averagePercentage");
+      expect(csv).not.toContain("PATCH");
+    } finally { vi.useRealTimers(); }
+  });
+
   it("điều phối chủ đề, giới hạn độ sâu và xóa mềm phản hồi", async () => {
     const service = new LearningService();
     const topic = await service.createTopic("class-web-01", { title: "Luồng kiểm thử diễn đàn", body: "Nội dung thảo luận hợp lệ cho cả lớp.", tags: ["testing"], isPinned: false });
