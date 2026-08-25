@@ -26,44 +26,44 @@ export class ContentController {
   reviewMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
-  listQuestions(@Query("query") query?: string): LearningQuestion[] { return this.learning.listQuestions(query); }
+  listQuestions(@Query("query") query?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions(query); }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
-  createQuestion(@Body() input: CreateQuestionDto): LearningQuestion { return this.learning.createQuestion(input); }
+  createQuestion(@Body() input: CreateQuestionDto): Promise<LearningQuestion> { return this.learning.createQuestion(input); }
 
   @Get("exams") @RequirePermissions("exam:view")
-  listExams(@Headers("x-role-code") role = "LEARNER"): LearningExam[] { return this.learning.listExams(role); }
+  listExams(@Headers("x-role-code") role = "LEARNER"): Promise<LearningExam[]> { return this.learning.listExams(role); }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
-  listLearnerExams(@Param("classId") classId: string): LearningExam[] { return this.learning.listExams("LEARNER").filter((item) => item.classId === classId); }
+  async listLearnerExams(@Param("classId") classId: string): Promise<LearningExam[]> { return (await this.learning.listExams("LEARNER")).filter((item) => item.classId === classId); }
 
   @Get("learner/exams/:examId/questions") @RequirePermissions("exam:view")
-  getLearnerExamQuestions(@Param("examId") examId: string): LearningQuestion[] { return this.learning.getExamQuestions(examId); }
+  getLearnerExamQuestions(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
-  createExam(@Body() input: CreateExamDto): LearningExam { return this.learning.createExam(input); }
+  createExam(@Body() input: CreateExamDto): Promise<LearningExam> { return this.learning.createExam(input); }
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
-  publishExam(@Param("examId") examId: string): LearningExam { return this.learning.publishExam(examId); }
+  publishExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.publishExam(examId); }
 
   @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
-  approveExam(@Param("examId") examId: string): LearningExam { return this.learning.publishExam(examId); }
+  approveExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.publishExam(examId); }
 
   @Post("learner/exams/:examId/attempts") @RequirePermissions("exam:view")
-  startAttempt(@Param("examId") examId: string): ExamAttempt { return this.learning.startAttempt(examId); }
+  startAttempt(@Param("examId") examId: string): Promise<ExamAttempt> { return this.learning.startAttempt(examId); }
 
   @Patch("learner/exam-attempts/:attemptId/answers") @RequirePermissions("exam:view")
-  saveAnswer(@Param("attemptId") attemptId: string, @Body() input: SaveAnswerDto): ExamAttempt { return this.learning.saveAnswer(attemptId, input.questionId, input.answers); }
+  saveAnswer(@Param("attemptId") attemptId: string, @Body() input: SaveAnswerDto): Promise<ExamAttempt> { return this.learning.saveAnswer(attemptId, input.questionId, input.answers); }
 
   @Post("learner/exam-attempts/:attemptId/submit") @RequirePermissions("exam:view")
-  submitAttempt(@Param("attemptId") attemptId: string): ExamAttempt { return this.learning.submitAttempt(attemptId); }
+  submitAttempt(@Param("attemptId") attemptId: string): Promise<ExamAttempt> { return this.learning.submitAttempt(attemptId); }
 
   @Get("learner/attempts/:attemptId/result") @RequirePermissions("exam:view")
-  getAttempt(@Param("attemptId") attemptId: string): ExamAttempt { return this.learning.getAttempt(attemptId); }
+  getAttempt(@Param("attemptId") attemptId: string): Promise<ExamAttempt> { return this.learning.getAttempt(attemptId); }
 
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")
-  listAttempts(@Query("examId") examId?: string): ExamAttempt[] { return this.learning.listAttempts(examId); }
+  listAttempts(@Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId); }
 
   @Patch("instructor/exam-attempts/:attemptId/grade") @RequirePermissions("exam:manage")
-  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto): ExamAttempt { return this.learning.gradeAttempt(attemptId, input.score, input.feedback); }
+  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback); }
 }

@@ -10,14 +10,14 @@ describe("LearningService", () => {
     expect((await service.publishCourse(created.id)).status).toBe("PUBLISHED");
   });
 
-  it("lưu đáp án, nộp một lần và chấm tự động", () => {
+  it("lưu đáp án, nộp một lần và chấm tự động", async () => {
     const service = new LearningService();
-    const attempt = service.startAttempt("exam-mid-web");
-    service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
-    service.saveAnswer(attempt.id, "q-db-01", ["Đúng"]);
-    const result = service.submitAttempt(attempt.id);
+    const attempt = await service.startAttempt("exam-mid-web");
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    await service.saveAnswer(attempt.id, "q-db-01", ["Đúng"]);
+    const result = await service.submitAttempt(attempt.id);
     expect(result.score).toBe(10);
-    expect(() => service.submitAttempt(attempt.id)).toThrow(ConflictException);
+    await expect(service.submitAttempt(attempt.id)).rejects.toThrow(ConflictException);
   });
 
   it("chặn lịch buổi học trùng", () => {
@@ -30,11 +30,11 @@ describe("LearningService", () => {
     expect(() => service.attachRecording("session-web-01", "https://recording.example/video")).toThrow(BadRequestException);
   });
 
-  it("tổng hợp đúng điểm và điểm danh theo lớp", () => {
+  it("tổng hợp đúng điểm và điểm danh theo lớp", async () => {
     const service = new LearningService();
-    const attempt = service.startAttempt("exam-mid-web");
-    service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
-    service.submitAttempt(attempt.id);
+    const attempt = await service.startAttempt("exam-mid-web");
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    await service.submitAttempt(attempt.id);
     service.updateAttendance("session-web-01", "usr-learner", "PRESENT", 60, "Đối soát nhật ký");
     const report = service.getClassReports()[0] as { submittedAttempts: number; averageScore: number; attendanceRate: number };
     expect(report.submittedAttempts).toBe(1);

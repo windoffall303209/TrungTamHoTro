@@ -15,6 +15,8 @@ const isUniqueConstraintError = (error: unknown): boolean =>
 type ClassWithMembers = Prisma.LearningClassGetPayload<{
   include: { instructors: true; enrollments: true };
 }>;
+type ExamWithQuestions = Prisma.ExamGetPayload<{ include: { questions: true } }>;
+type AttemptWithAnswers = Prisma.ExamAttemptGetPayload<{ include: { answers: true } }>;
 
 @Injectable()
 export class LearningService {
@@ -276,19 +278,254 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
-  listQuestions(query?: string): LearningQuestion[] { const normalized = query?.toLowerCase() ?? ""; return this.questions.filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] })); }
-  createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">): LearningQuestion { if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(input.type) && !input.correctAnswers.length) throw new BadRequestException("Câu hỏi trắc nghiệm cần đáp án đúng."); const item: LearningQuestion = { ...input, id: id("question"), status: "DRAFT", version: 1 }; this.questions.unshift(item); return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] }; }
+  async listQuestions(query?: string): Promise<LearningQuestion[]> {
+    const normalized = query?.toLowerCase() ?? "";
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.question.findMany({ orderBy: { createdAt: "desc" } });
+      return rows.map((row) => this.mapQuestion(row)).filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized));
+    }
+    return this.questions.filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] }));
+  }
 
-  listExams(role: string): LearningExam[] { return this.exams.filter((item) => role !== "LEARNER" || item.status === "PUBLISHED").map((item) => ({ ...item, questionIds: [...item.questionIds] })); }
-  getExamQuestions(examId: string): LearningQuestion[] { const exam = this.findExam(examId); if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành."); return exam.questionIds.map((questionId) => { const question = this.questions.find((item) => item.id === questionId); if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại."); return { ...question, options: [...question.options], correctAnswers: [], tags: [...question.tags] }; }); }
-  createExam(input: Omit<LearningExam, "id" | "status">): LearningExam { this.findClass(input.classId); if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở."); if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi."); const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT" }; this.exams.unshift(item); return { ...item, questionIds: [...item.questionIds] }; }
-  publishExam(examId: string): LearningExam { const item = this.findExam(examId); item.status = "PUBLISHED"; return { ...item, questionIds: [...item.questionIds] }; }
-  startAttempt(examId: string, learnerId = "usr-learner"): ExamAttempt { const exam = this.findExam(examId); if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành."); const attempts = this.attempts.filter((item) => item.examId === examId && item.learnerId === learnerId); if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài."); const existing = attempts.find((item) => item.status === "IN_PROGRESS"); if (existing) return { ...existing, answers: { ...existing.answers } }; const item: ExamAttempt = { id: id("attempt"), examId, learnerId, answers: {}, status: "IN_PROGRESS", startedAt: now() }; this.attempts.push(item); return { ...item, answers: {} }; }
-  saveAnswer(attemptId: string, questionId: string, answers: string[]): ExamAttempt { const item = this.findAttempt(attemptId); if (item.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa."); if (!this.findExam(item.examId).questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề."); item.answers[questionId] = [...answers]; return { ...item, answers: { ...item.answers } }; }
-  submitAttempt(attemptId: string): ExamAttempt { const item = this.findAttempt(attemptId); if (item.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó."); const exam = this.findExam(item.examId); let correct = 0; exam.questionIds.forEach((questionId) => { const question = this.questions.find((candidate) => candidate.id === questionId); if (question && JSON.stringify([...(item.answers[questionId] ?? [])].sort()) === JSON.stringify([...question.correctAnswers].sort())) correct += 1; }); item.score = Math.round((correct / exam.questionIds.length) * exam.totalScore * 100) / 100; item.status = "GRADED"; item.submittedAt = now(); item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét."; return { ...item, answers: { ...item.answers } }; }
-  getAttempt(attemptId: string): ExamAttempt { const item = this.findAttempt(attemptId); return { ...item, answers: { ...item.answers } }; }
-  listAttempts(examId?: string): ExamAttempt[] { return this.attempts.filter((item) => !examId || item.examId === examId).map((item) => ({ ...item, answers: { ...item.answers } })); }
-  gradeAttempt(attemptId: string, score: number, feedback: string): ExamAttempt { const item = this.findAttempt(attemptId); const exam = this.findExam(item.examId); if (score > exam.totalScore) throw new BadRequestException("Điểm không được vượt tổng điểm của đề."); item.score = score; item.feedback = feedback.trim(); item.status = "GRADED"; return { ...item, answers: { ...item.answers } }; }
+  async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">): Promise<LearningQuestion> {
+    if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(input.type) && !input.correctAnswers.length) throw new BadRequestException("Câu hỏi trắc nghiệm cần đáp án đúng.");
+    const prisma = this.database();
+    if (prisma) {
+      const course = await prisma.course.findUnique({ where: { id: input.courseId } });
+      if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
+      return this.mapQuestion(await prisma.question.create({
+        data: {
+          id: id("question"), courseId: input.courseId, authorId: "usr-instructor",
+          type: input.type, content: input.content.trim(), options: input.options,
+          correctAnswers: input.correctAnswers, difficulty: input.difficulty, tags: input.tags,
+        },
+      }));
+    }
+    const item: LearningQuestion = { ...input, id: id("question"), status: "DRAFT", version: 1 };
+    this.questions.unshift(item);
+    return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] };
+  }
+
+  async listExams(role: string): Promise<LearningExam[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.exam.findMany({
+        where: role === "LEARNER" ? { status: "PUBLISHED" } : undefined,
+        include: { questions: { orderBy: { position: "asc" } } }, orderBy: { openAt: "desc" },
+      });
+      return rows.map((row) => this.mapExam(row));
+    }
+    return this.exams.filter((item) => role !== "LEARNER" || item.status === "PUBLISHED").map((item) => ({ ...item, questionIds: [...item.questionIds] }));
+  }
+
+  async getExamQuestions(examId: string): Promise<LearningQuestion[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const exam = await prisma.exam.findUnique({
+        where: { id: examId }, include: { questions: { include: { question: true }, orderBy: { position: "asc" } } },
+      });
+      if (!exam) throw new NotFoundException("Không tìm thấy đề.");
+      if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+      return exam.questions.map(({ question }) => ({ ...this.mapQuestion(question), correctAnswers: [] }));
+    }
+    const exam = this.findExam(examId);
+    if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+    return exam.questionIds.map((questionId) => {
+      const question = this.questions.find((item) => item.id === questionId);
+      if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
+      return { ...question, options: [...question.options], correctAnswers: [], tags: [...question.tags] };
+    });
+  }
+
+  async createExam(input: Omit<LearningExam, "id" | "status">): Promise<LearningExam> {
+    if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
+    if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const classItem = await transaction.learningClass.findUnique({ where: { id: input.classId } });
+        if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+        if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
+        const questionCount = await transaction.question.count({ where: { id: { in: input.questionIds } } });
+        if (questionCount !== input.questionIds.length) throw new BadRequestException("Danh sách đề chứa câu hỏi không tồn tại.");
+        const exam = await transaction.exam.create({
+          data: {
+            id: id("exam"), classId: input.classId, title: input.title.trim(),
+            durationMinutes: input.durationMinutes, totalScore: input.totalScore,
+            openAt: new Date(input.openAt), closeAt: new Date(input.closeAt), attemptLimit: input.attemptLimit,
+          },
+        });
+        const scorePerQuestion = input.totalScore / input.questionIds.length;
+        await transaction.examQuestion.createMany({
+          data: input.questionIds.map((questionId, position) => ({ examId: exam.id, questionId, position: position + 1, score: scorePerQuestion })),
+        });
+        return this.getDatabaseExam(transaction, exam.id);
+      });
+    }
+    this.findClass(input.classId);
+    const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT" };
+    this.exams.unshift(item);
+    return { ...item, questionIds: [...item.questionIds] };
+  }
+
+  async publishExam(examId: string): Promise<LearningExam> {
+    const prisma = this.database();
+    if (prisma) {
+      const exam = await this.getDatabaseExam(prisma, examId);
+      if (!exam.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+      await prisma.exam.update({ where: { id: examId }, data: { status: "PUBLISHED" } });
+      return this.getDatabaseExam(prisma, examId);
+    }
+    const item = this.findExam(examId);
+    item.status = "PUBLISHED";
+    return { ...item, questionIds: [...item.questionIds] };
+  }
+
+  async startAttempt(examId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const exam = await transaction.exam.findUnique({ where: { id: examId } });
+        if (!exam) throw new NotFoundException("Không tìm thấy đề.");
+        if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+        const timestamp = new Date();
+        if (timestamp < exam.openAt || timestamp > exam.closeAt) throw new BadRequestException("Đề chưa mở hoặc đã đóng.");
+        const attempts = await transaction.examAttempt.findMany({
+          where: { examId, learnerId }, include: { answers: true }, orderBy: { attemptNo: "asc" },
+        });
+        const existing = attempts.find((item) => item.status === "IN_PROGRESS");
+        if (existing) return this.mapAttempt(existing);
+        if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
+        const created = await transaction.examAttempt.create({
+          data: { id: id("attempt"), examId, learnerId, attemptNo: attempts.length + 1 },
+          include: { answers: true },
+        });
+        return this.mapAttempt(created);
+      });
+    }
+    const exam = this.findExam(examId);
+    if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
+    const attempts = this.attempts.filter((item) => item.examId === examId && item.learnerId === learnerId);
+    if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
+    const existing = attempts.find((item) => item.status === "IN_PROGRESS");
+    if (existing) return { ...existing, answers: { ...existing.answers } };
+    const item: ExamAttempt = { id: id("attempt"), examId, learnerId, answers: {}, status: "IN_PROGRESS", startedAt: now() };
+    this.attempts.push(item);
+    return { ...item, answers: {} };
+  }
+
+  async saveAnswer(attemptId: string, questionId: string, answers: string[]): Promise<ExamAttempt> {
+    const prisma = this.database();
+    if (prisma) {
+      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+      if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+      if (attempt.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
+      const examQuestion = await prisma.examQuestion.findUnique({ where: { examId_questionId: { examId: attempt.examId, questionId } } });
+      if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
+      await prisma.attemptAnswer.upsert({
+        where: { attemptId_questionId: { attemptId, questionId } },
+        update: { answerData: answers }, create: { attemptId, questionId, answerData: answers },
+      });
+      return this.getDatabaseAttempt(prisma, attemptId);
+    }
+    const item = this.findAttempt(attemptId);
+    if (item.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
+    if (!this.findExam(item.examId).questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề.");
+    item.answers[questionId] = [...answers];
+    return { ...item, answers: { ...item.answers } };
+  }
+
+  async submitAttempt(attemptId: string): Promise<ExamAttempt> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const attempt = await transaction.examAttempt.findUnique({
+          where: { id: attemptId },
+          include: { answers: true, exam: { include: { questions: { include: { question: true } } } } },
+        });
+        if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+        if (attempt.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó.");
+        let score = 0;
+        let requiresManualGrade = false;
+        for (const examQuestion of attempt.exam.questions) {
+          const objective = !["SHORT_ANSWER", "ESSAY"].includes(examQuestion.question.type);
+          if (!objective) {
+            requiresManualGrade = true;
+            continue;
+          }
+          const answer = attempt.answers.find((item) => item.questionId === examQuestion.questionId);
+          const submitted = this.toStringArray(answer?.answerData ?? []);
+          const expected = this.toStringArray(examQuestion.question.correctAnswers);
+          const isCorrect = JSON.stringify([...submitted].sort()) === JSON.stringify([...expected].sort());
+          const awarded = isCorrect ? Number(examQuestion.score) : 0;
+          score += awarded;
+          if (answer) await transaction.attemptAnswer.update({
+            where: { attemptId_questionId: { attemptId, questionId: examQuestion.questionId } }, data: { score: awarded },
+          });
+        }
+        const updated = await transaction.examAttempt.update({
+          where: { id: attemptId },
+          data: {
+            score, submittedAt: new Date(), status: requiresManualGrade ? "SUBMITTED" : "GRADED",
+            feedback: requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.",
+          },
+          include: { answers: true },
+        });
+        return this.mapAttempt(updated);
+      });
+    }
+    const item = this.findAttempt(attemptId);
+    if (item.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó.");
+    const exam = this.findExam(item.examId);
+    let correct = 0;
+    exam.questionIds.forEach((questionId) => {
+      const question = this.questions.find((candidate) => candidate.id === questionId);
+      if (question && JSON.stringify([...(item.answers[questionId] ?? [])].sort()) === JSON.stringify([...question.correctAnswers].sort())) correct += 1;
+    });
+    item.score = Math.round((correct / exam.questionIds.length) * exam.totalScore * 100) / 100;
+    item.status = "GRADED";
+    item.submittedAt = now();
+    item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
+    return { ...item, answers: { ...item.answers } };
+  }
+
+  async getAttempt(attemptId: string): Promise<ExamAttempt> {
+    const prisma = this.database();
+    if (prisma) return this.getDatabaseAttempt(prisma, attemptId);
+    const item = this.findAttempt(attemptId);
+    return { ...item, answers: { ...item.answers } };
+  }
+
+  async listAttempts(examId?: string): Promise<ExamAttempt[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.examAttempt.findMany({
+        where: examId ? { examId } : undefined, include: { answers: true }, orderBy: { startedAt: "desc" },
+      });
+      return rows.map((row) => this.mapAttempt(row));
+    }
+    return this.attempts.filter((item) => !examId || item.examId === examId).map((item) => ({ ...item, answers: { ...item.answers } }));
+  }
+
+  async gradeAttempt(attemptId: string, score: number, feedback: string): Promise<ExamAttempt> {
+    const prisma = this.database();
+    if (prisma) {
+      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
+      if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+      if (score > Number(attempt.exam.totalScore)) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
+      return this.mapAttempt(await prisma.examAttempt.update({
+        where: { id: attemptId }, data: { score, feedback: feedback.trim(), status: "GRADED" }, include: { answers: true },
+      }));
+    }
+    const item = this.findAttempt(attemptId);
+    const exam = this.findExam(item.examId);
+    if (score > exam.totalScore) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
+    item.score = score;
+    item.feedback = feedback.trim();
+    item.status = "GRADED";
+    return { ...item, answers: { ...item.answers } };
+  }
 
   listTopics(): ForumTopic[] { return this.topics.map((item) => ({ ...item, tags: [...item.tags] })); }
   createTopic(classId: string, input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">, authorId = "usr-instructor"): ForumTopic { this.findClass(classId); const item: ForumTopic = { ...input, id: id("topic"), classId, authorId, isLocked: false, createdAt: now() }; this.topics.unshift(item); return { ...item, tags: [...item.tags] }; }
@@ -364,6 +601,50 @@ export class LearningService {
     };
   }
 
+  private mapQuestion(row: Prisma.QuestionGetPayload<Record<string, never>>): LearningQuestion {
+    return {
+      id: row.id,
+      courseId: row.courseId,
+      type: row.type,
+      content: row.content,
+      options: this.toStringArray(row.options),
+      correctAnswers: this.toStringArray(row.correctAnswers),
+      difficulty: Math.min(3, Math.max(1, row.difficulty)) as 1 | 2 | 3,
+      tags: this.toStringArray(row.tags),
+      status: row.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+      version: row.version,
+    };
+  }
+
+  private mapExam(row: ExamWithQuestions): LearningExam {
+    return {
+      id: row.id,
+      classId: row.classId,
+      title: row.title,
+      questionIds: row.questions.map(({ questionId }) => questionId),
+      durationMinutes: row.durationMinutes,
+      totalScore: Number(row.totalScore),
+      openAt: row.openAt.toISOString(),
+      closeAt: row.closeAt.toISOString(),
+      attemptLimit: row.attemptLimit,
+      status: row.status,
+    };
+  }
+
+  private mapAttempt(row: AttemptWithAnswers): ExamAttempt {
+    return {
+      id: row.id,
+      examId: row.examId,
+      learnerId: row.learnerId,
+      answers: Object.fromEntries(row.answers.map((answer) => [answer.questionId, this.toStringArray(answer.answerData)])),
+      status: row.status,
+      startedAt: row.startedAt.toISOString(),
+      submittedAt: row.submittedAt?.toISOString(),
+      score: row.score === null ? undefined : Number(row.score),
+      feedback: row.feedback ?? undefined,
+    };
+  }
+
   private async getDatabaseClass(
     database: PrismaService | Prisma.TransactionClient,
     classId: string,
@@ -374,6 +655,26 @@ export class LearningService {
     });
     if (!row) throw new NotFoundException("Không tìm thấy lớp học.");
     return this.mapClass(row);
+  }
+
+  private async getDatabaseExam(
+    database: PrismaService | Prisma.TransactionClient,
+    examId: string,
+  ): Promise<LearningExam> {
+    const row = await database.exam.findUnique({
+      where: { id: examId }, include: { questions: { orderBy: { position: "asc" } } },
+    });
+    if (!row) throw new NotFoundException("Không tìm thấy đề.");
+    return this.mapExam(row);
+  }
+
+  private async getDatabaseAttempt(
+    database: PrismaService | Prisma.TransactionClient,
+    attemptId: string,
+  ): Promise<ExamAttempt> {
+    const row = await database.examAttempt.findUnique({ where: { id: attemptId }, include: { answers: true } });
+    if (!row) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+    return this.mapAttempt(row);
   }
 
   private async requireUserRole(
