@@ -424,6 +424,9 @@ model Question {
   tags           Json
   status         ContentStatus   @default(DRAFT)
   version        Int             @default(1)
+  familyId       String          @map("family_id") @db.VarChar(191)
+  supersedesId   String?         @map("supersedes_id") @db.VarChar(191)
+  contentHash    String          @map("content_hash") @db.VarChar(64)
   course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
   exams          ExamQuestion[]
@@ -432,6 +435,8 @@ model Question {
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
   @@index([courseId, status])
+  @@index([familyId, version])
+  @@index([courseId, contentHash])
   @@index([authorId])
   @@map("questions")
 }

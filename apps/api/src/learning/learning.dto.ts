@@ -87,6 +87,14 @@ export class CreateQuestionDto {
   @IsArray() @IsString({ each: true }) tags!: string[];
 }
 
+export class UpdateQuestionDto extends CreateQuestionDto {}
+
+export class ImportQuestionsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
+  @ValidateNested({ each: true }) @Type(() => CreateQuestionDto)
+  questions!: CreateQuestionDto[];
+}
+
 export class CreateExamDto {
   @IsString() classId!: string;
   @IsString() @MinLength(3) title!: string;

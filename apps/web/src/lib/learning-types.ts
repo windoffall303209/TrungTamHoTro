@@ -26,8 +26,9 @@ export interface Material {
 export interface Question {
   id: string; courseId: string; type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER" | "ESSAY";
   content: string; options: string[]; correctAnswers: string[]; difficulty: 1 | 2 | 3;
-  tags: string[]; status: "DRAFT" | "PUBLISHED"; version: number;
+  tags: string[]; status: "DRAFT" | "PUBLISHED"; version: number; familyId?: string; supersedesId?: string;
 }
+export interface QuestionImportResult { row: number; status: "IMPORTED" | "FAILED"; questionId?: string; message: string }
 
 export interface Exam {
   id: string; classId: string; title: string; questionIds: string[]; durationMinutes: number;

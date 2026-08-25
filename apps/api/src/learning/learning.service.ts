@@ -8,7 +8,7 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
-  LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
+  LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, QuestionImportResult,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
 
@@ -51,8 +51,8 @@ export class LearningService {
   ];
 
   private readonly questions: LearningQuestion[] = [
-    { id: "q-rest-01", courseId: "course-web", type: "SINGLE_CHOICE", content: "HTTP method nào phù hợp để cập nhật một phần tài nguyên?", options: ["GET", "POST", "PATCH", "DELETE"], correctAnswers: ["PATCH"], difficulty: 1, tags: ["http", "api"], status: "PUBLISHED", version: 1 },
-    { id: "q-db-01", courseId: "course-web", type: "TRUE_FALSE", content: "Khóa ngoại giúp duy trì tính toàn vẹn tham chiếu.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["database"], status: "PUBLISHED", version: 1 },
+    { id: "q-rest-01", familyId: "q-rest-01", courseId: "course-web", type: "SINGLE_CHOICE", content: "HTTP method nào phù hợp để cập nhật một phần tài nguyên?", options: ["GET", "POST", "PATCH", "DELETE"], correctAnswers: ["PATCH"], difficulty: 1, tags: ["http", "api"], status: "PUBLISHED", version: 1 },
+    { id: "q-db-01", familyId: "q-db-01", courseId: "course-web", type: "TRUE_FALSE", content: "Khóa ngoại giúp duy trì tính toàn vẹn tham chiếu.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["database"], status: "PUBLISHED", version: 1 },
   ];
 
   private readonly exams: LearningExam[] = [
@@ -764,33 +764,110 @@ export class LearningService {
     return this.materialReviews.filter((review) => review.materialId === materialId).map((review) => ({ ...review }));
   }
 
-  async listQuestions(query?: string): Promise<LearningQuestion[]> {
-    const normalized = query?.toLowerCase() ?? "";
+  async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string } = {}): Promise<LearningQuestion[]> {
+    const input = typeof filters === "string" ? { query: filters } : filters;
+    const normalized = input.query?.trim().toLowerCase() ?? "";
+    const matches = (item: LearningQuestion): boolean =>
+      (!normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized))
+      && (!input.courseId || item.courseId === input.courseId)
+      && (!input.type || item.type === input.type)
+      && (!input.difficulty || item.difficulty === input.difficulty)
+      && (!input.tag || item.tags.some((tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase()));
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.question.findMany({ orderBy: { createdAt: "desc" } });
-      return rows.map((row) => this.mapQuestion(row)).filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized));
+      return this.latestQuestionVersions(rows.map((row) => this.mapQuestion(row))).filter(matches);
     }
-    return this.questions.filter((item) => !normalized || `${item.content} ${item.tags.join(" ")}`.toLowerCase().includes(normalized)).map((item) => ({ ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] }));
+    return this.latestQuestionVersions(this.questions).filter(matches).map((item) => this.cloneQuestion(item));
   }
 
   async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">): Promise<LearningQuestion> {
-    if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(input.type) && !input.correctAnswers.length) throw new BadRequestException("Câu hỏi trắc nghiệm cần đáp án đúng.");
+    const normalized = this.validateQuestionInput(input);
+    const contentHash = this.questionContentHash(normalized.content);
     const prisma = this.database();
     if (prisma) {
-      const course = await prisma.course.findUnique({ where: { id: input.courseId } });
+      const course = await prisma.course.findUnique({ where: { id: normalized.courseId } });
       if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
+      const duplicate = await prisma.question.findFirst({ where: { courseId: normalized.courseId, contentHash } });
+      if (duplicate) throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
+      const questionId = id("question");
       return this.mapQuestion(await prisma.question.create({
         data: {
-          id: id("question"), courseId: input.courseId, authorId: "usr-instructor",
-          type: input.type, content: input.content.trim(), options: input.options,
-          correctAnswers: input.correctAnswers, difficulty: input.difficulty, tags: input.tags,
+          id: questionId, familyId: questionId, contentHash, courseId: normalized.courseId, authorId: "usr-instructor",
+          type: normalized.type, content: normalized.content, options: normalized.options,
+          correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags,
         },
       }));
     }
-    const item: LearningQuestion = { ...input, id: id("question"), status: "DRAFT", version: 1 };
+    if (this.questions.some((item) => item.courseId === normalized.courseId && this.questionContentHash(item.content) === contentHash)) throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
+    const questionId = id("question");
+    const item: LearningQuestion = { ...normalized, id: questionId, familyId: questionId, status: "DRAFT", version: 1 };
     this.questions.unshift(item);
-    return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] };
+    return this.cloneQuestion(item);
+  }
+
+  async updateQuestion(questionId: string, input: Omit<LearningQuestion, "id" | "status" | "version">): Promise<LearningQuestion> {
+    const normalized = this.validateQuestionInput(input);
+    const contentHash = this.questionContentHash(normalized.content);
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.question.findUnique({ where: { id: questionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+      const familyId = current.familyId || current.id;
+      const duplicate = await prisma.question.findFirst({ where: { courseId: normalized.courseId, contentHash, familyId: { not: familyId } } });
+      if (duplicate) throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
+      const latest = await prisma.question.findFirst({ where: { familyId }, orderBy: { version: "desc" } });
+      if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể sửa phiên bản mới nhất của câu hỏi.");
+      return this.mapQuestion(await prisma.question.create({ data: {
+        id: id("question"), familyId, supersedesId: current.id, contentHash, courseId: normalized.courseId,
+        authorId: "usr-instructor", type: normalized.type, content: normalized.content, options: normalized.options,
+        correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags,
+        status: "DRAFT", version: current.version + 1,
+      } }));
+    }
+    const current = this.questions.find((item) => item.id === questionId);
+    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    const familyId = current.familyId ?? current.id;
+    const latest = this.questions.filter((item) => (item.familyId ?? item.id) === familyId).sort((a, b) => b.version - a.version)[0];
+    if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể sửa phiên bản mới nhất của câu hỏi.");
+    if (this.questions.some((item) => item.courseId === normalized.courseId && (item.familyId ?? item.id) !== familyId && this.questionContentHash(item.content) === contentHash)) throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
+    const next: LearningQuestion = { ...normalized, id: id("question"), familyId, supersedesId: current.id, status: "DRAFT", version: current.version + 1 };
+    this.questions.unshift(next);
+    return this.cloneQuestion(next);
+  }
+
+  async publishQuestion(questionId: string): Promise<LearningQuestion> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.question.findUnique({ where: { id: questionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+      if (current.status === "PUBLISHED") return this.mapQuestion(current);
+      const latest = await prisma.question.findFirst({ where: { familyId: current.familyId }, orderBy: { version: "desc" } });
+      if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.");
+      return this.mapQuestion(await prisma.question.update({ where: { id: questionId }, data: { status: "PUBLISHED" } }));
+    }
+    const current = this.questions.find((item) => item.id === questionId);
+    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    if (current.status === "PUBLISHED") return this.cloneQuestion(current);
+    const familyId = current.familyId ?? current.id;
+    const latest = this.questions.filter((item) => (item.familyId ?? item.id) === familyId).sort((a, b) => b.version - a.version)[0];
+    if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.");
+    current.status = "PUBLISHED";
+    return this.cloneQuestion(current);
+  }
+
+  async importQuestions(inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>): Promise<QuestionImportResult[]> {
+    const results: QuestionImportResult[] = [];
+    for (const [index, input] of inputs.entries()) {
+      try {
+        const question = await this.createQuestion(input);
+        results.push({ row: index + 1, status: "IMPORTED", questionId: question.id, message: "Đã nhập câu hỏi." });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Không thể nhập câu hỏi.";
+        results.push({ row: index + 1, status: "FAILED", message });
+      }
+    }
+    return results;
   }
 
   async listExams(role: string): Promise<LearningExam[]> {
@@ -898,8 +975,8 @@ export class LearningService {
         if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
         if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
         if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
-        const questionCount = await transaction.question.count({ where: { id: { in: input.questionIds } } });
-        if (questionCount !== input.questionIds.length) throw new BadRequestException("Danh sách đề chứa câu hỏi không tồn tại.");
+        const questionCount = await transaction.question.count({ where: { id: { in: input.questionIds }, status: "PUBLISHED", courseId: classItem.courseId } });
+        if (questionCount !== input.questionIds.length) throw new BadRequestException("Đề chỉ được dùng câu hỏi đã xuất bản thuộc khóa học của lớp.");
         const exam = await transaction.exam.create({
           data: {
             id: id("exam"), classId: input.classId, title: input.title.trim(),
@@ -914,7 +991,10 @@ export class LearningService {
         return this.getDatabaseExam(transaction, exam.id);
       });
     }
-    if (this.findClass(input.classId).status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    const classItem = this.findClass(input.classId);
+    if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
+    if (input.questionIds.some((questionId) => !this.questions.some((question) => question.id === questionId && question.status === "PUBLISHED" && question.courseId === classItem.courseId))) throw new BadRequestException("Đề chỉ được dùng câu hỏi đã xuất bản thuộc khóa học của lớp.");
     const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT", version: 1 };
     this.exams.unshift(item);
     return { ...item, questionIds: [...item.questionIds] };
@@ -2471,7 +2551,43 @@ export class LearningService {
       tags: this.toStringArray(row.tags),
       status: row.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
       version: row.version,
+      familyId: row.familyId,
+      supersedesId: row.supersedesId ?? undefined,
     };
+  }
+
+  private cloneQuestion(item: LearningQuestion): LearningQuestion {
+    return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] };
+  }
+
+  private latestQuestionVersions(items: LearningQuestion[]): LearningQuestion[] {
+    const latest = new Map<string, LearningQuestion>();
+    for (const item of items) {
+      const familyId = item.familyId ?? item.id;
+      const current = latest.get(familyId);
+      if (!current || item.version > current.version) latest.set(familyId, item);
+    }
+    return [...latest.values()].sort((a, b) => b.version - a.version);
+  }
+
+  private questionContentHash(content: string): string {
+    return createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
+  }
+
+  private validateQuestionInput(input: Omit<LearningQuestion, "id" | "status" | "version">): Omit<LearningQuestion, "id" | "status" | "version" | "familyId" | "supersedesId"> {
+    const content = input.content.trim().replace(/\s+/g, " ");
+    const options = [...new Set(input.options.map((item) => item.trim()).filter(Boolean))];
+    const correctAnswers = [...new Set(input.correctAnswers.map((item) => item.trim()).filter(Boolean))];
+    const tags = [...new Set(input.tags.map((item) => item.trim().toLowerCase()).filter(Boolean))];
+    if (content.length < 5) throw new BadRequestException("Nội dung câu hỏi cần ít nhất 5 ký tự.");
+    if (!Number.isInteger(input.difficulty) || input.difficulty < 1 || input.difficulty > 3) throw new BadRequestException("Độ khó phải từ 1 đến 3.");
+    const objective = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(input.type);
+    if (objective && options.length < 2) throw new BadRequestException("Câu hỏi trắc nghiệm cần ít nhất hai lựa chọn khác nhau.");
+    if (correctAnswers.some((answer) => !options.includes(answer)) && objective) throw new BadRequestException("Đáp án đúng phải nằm trong danh sách lựa chọn.");
+    if ((input.type === "SINGLE_CHOICE" || input.type === "TRUE_FALSE") && correctAnswers.length !== 1) throw new BadRequestException("Câu hỏi một đáp án cần đúng một đáp án đúng.");
+    if (input.type === "MULTIPLE_CHOICE" && correctAnswers.length < 1) throw new BadRequestException("Câu hỏi nhiều đáp án cần ít nhất một đáp án đúng.");
+    if (input.type === "TRUE_FALSE" && (options.length !== 2 || !options.includes("Đúng") || !options.includes("Sai"))) throw new BadRequestException("Câu hỏi đúng/sai phải có hai lựa chọn Đúng và Sai.");
+    return { courseId: input.courseId.trim(), type: input.type, content, options, correctAnswers, difficulty: input.difficulty, tags };
   }
 
   private mapExam(row: ExamWithQuestions): LearningExam {

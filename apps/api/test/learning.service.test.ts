@@ -304,6 +304,32 @@ describe("LearningService", () => {
     expect(active[0]?.availabilityStatus).toBe("IN_PROGRESS");
   });
 
+  it("phiên bản hóa, kiểm tra trùng và xuất bản câu hỏi trước khi đưa vào đề", async () => {
+    const service = new LearningService();
+    const draft = await service.createQuestion({ courseId: "course-web", type: "SINGLE_CHOICE", content: "Giao thức nào mã hóa lưu lượng web?", options: ["HTTP", "HTTPS", "FTP"], correctAnswers: ["HTTPS"], difficulty: 1, tags: [" Security ", "web"] });
+    expect(draft).toMatchObject({ status: "DRAFT", version: 1, tags: ["security", "web"] });
+    await expect(service.createExam({ classId: "class-web-01", title: "Đề dùng câu nháp", questionIds: [draft.id], durationMinutes: 15, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-10-01T00:00:00.000Z", attemptLimit: 1 })).rejects.toThrow("đã xuất bản");
+    await expect(service.createQuestion({ courseId: "course-web", type: "SINGLE_CHOICE", content: "  Giao thức nào mã hóa   lưu lượng WEB? ", options: ["HTTP", "HTTPS"], correctAnswers: ["HTTPS"], difficulty: 1, tags: [] })).rejects.toThrow(ConflictException);
+    const published = await service.publishQuestion(draft.id);
+    const versionTwo = await service.updateQuestion(published.id, { ...published, content: "Giao thức nào bảo vệ lưu lượng web?", difficulty: 2 });
+    expect(versionTwo).toMatchObject({ version: 2, status: "DRAFT", supersedesId: published.id, familyId: published.familyId });
+    await expect(service.updateQuestion(published.id, { ...published, content: "Không được sửa bản cũ" })).rejects.toThrow(ConflictException);
+    expect((await service.listQuestions({ tag: "security", difficulty: 2 }))[0]?.id).toBe(versionTwo.id);
+    await service.publishQuestion(versionTwo.id);
+    expect((await service.createExam({ classId: "class-web-01", title: "Đề dùng câu đã duyệt", questionIds: [versionTwo.id], durationMinutes: 15, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-10-01T00:00:00.000Z", attemptLimit: 1 })).status).toBe("DRAFT");
+  });
+
+  it("nhập câu hỏi hàng loạt và trả kết quả riêng cho từng dòng", async () => {
+    const service = new LearningService();
+    const results = await service.importQuestions([
+      { courseId: "course-web", type: "TRUE_FALSE", content: "TLS giúp mã hóa kết nối mạng.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["tls"] },
+      { courseId: "course-web", type: "SINGLE_CHOICE", content: "Câu hỏi thiếu lựa chọn hợp lệ", options: ["Một"], correctAnswers: ["Một"], difficulty: 1, tags: [] },
+    ]);
+    expect(results.map((item) => item.status)).toEqual(["IMPORTED", "FAILED"]);
+    expect(results[0]?.questionId).toBeTruthy();
+    expect(results[1]?.message).toContain("hai lựa chọn");
+  });
+
   it("tách gửi duyệt và phê duyệt đề theo phiên bản có lịch sử", async () => {
     const service = new LearningService();
     const exam = await service.createExam({ classId: "class-web-01", title: "Đề cần phê duyệt", questionIds: ["q-rest-01"], durationMinutes: 30, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-12-01T00:00:00.000Z", attemptLimit: 1 });

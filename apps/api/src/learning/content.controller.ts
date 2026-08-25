@@ -3,9 +3,9 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, RegradeRequest } from "./learning.types.js";
+import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -90,10 +90,19 @@ export class ContentController {
   }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
-  listQuestions(@Query("query") query?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions(query); }
+  listQuestions(@Query("query") query?: string, @Query("courseId") courseId?: string, @Query("type") type?: string, @Query("difficulty") difficulty?: string, @Query("tag") tag?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions({ query, courseId, type, difficulty: difficulty ? Number(difficulty) : undefined, tag }); }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
   createQuestion(@Body() input: CreateQuestionDto): Promise<LearningQuestion> { return this.learning.createQuestion(input); }
+
+  @Patch("instructor/question-bank/questions/:questionId") @RequirePermissions("question:manage")
+  updateQuestion(@Param("questionId") questionId: string, @Body() input: UpdateQuestionDto): Promise<LearningQuestion> { return this.learning.updateQuestion(questionId, input); }
+
+  @Post("instructor/question-bank/questions/:questionId/publish") @RequirePermissions("question:manage")
+  publishQuestion(@Param("questionId") questionId: string): Promise<LearningQuestion> { return this.learning.publishQuestion(questionId); }
+
+  @Post("instructor/question-bank/questions/import") @RequirePermissions("question:manage")
+  importQuestions(@Body() input: ImportQuestionsDto): Promise<QuestionImportResult[]> { return this.learning.importQuestions(input.questions); }
 
   @Get("exams") @RequirePermissions("exam:view")
   listExams(@Headers("x-role-code") role = "LEARNER"): Promise<LearningExam[]> { return this.learning.listExams(role); }
