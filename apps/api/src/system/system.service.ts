@@ -3,16 +3,22 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 
-export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; updatedAt: string }
+export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; version: number; effectiveAt: string; updatedBy: string; updatedAt: string }
+export interface SystemSettingRevision extends SystemSettings { id: string; key: string }
 export interface StorageOverview { quotaBytes: number; usedBytes: number; usagePercent: number; maxFileSizeMb: number; allowedMimeTypes: string[]; byClass: Array<{ classId: string; classCode: string; className: string; fileCount: number; usedBytes: number }> }
 export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; maskedCredential: string; webhookConfigured: boolean; lastCheckedAt?: string; updatedAt: string }
 export interface BackupRun { id: string; type: "FULL" | "INCREMENTAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; createdAt: string; checksum: string; sizeMb: number }
 export interface AuditEvent { id: string; actor: string; action: string; target: string; detail: string; createdAt: string }
+export interface AuditFilter { query?: string; actor?: string; action?: string; target?: string; from?: string; to?: string; limit?: number }
 export interface RestoreRun { id: string; backupId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; approvedBy: string; createdAt: string; verification: string }
 export interface DataExport { id: string; category: string; format: "CSV" | "JSON"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; rowCount: number; expiresAt: string; createdAt: string }
 export interface NotificationTemplate { id: string; eventCode: string; locale: string; subject: string; body: string; version: number; status: "DRAFT" | "PUBLISHED"; updatedAt: string }
 export interface ModerationPolicy { version: number; prohibitedTerms: string[]; maxPostsPerMinute: number; action: "FLAG" | "HIDE_PENDING_REVIEW"; updatedAt: string }
 export interface TemplateTestDelivery { recipient: string; subject: string; body: string; status: "DELIVERED"; sentAt: string }
+export interface RetentionPreview { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; estimatedRows: number; legalHoldRows: number; deletableRows: number; cutoffAt: string }
+export interface RetentionPolicyView { id: string; category: string; version: number; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt: string; createdAt: string }
+export interface RetentionJobView { id: string; policyId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; affectedRows: number; skippedRows: number; requestedBy: string; approvedBy: string; evidence: Record<string, unknown>; createdAt: string; completedAt?: string }
+export interface SystemAlertView { id: string; fingerprint: string; serviceName: string; severity: "WARNING" | "CRITICAL"; status: "OPEN" | "ACKNOWLEDGED" | "MUTED" | "RESOLVED"; summary: string; metricValue?: number; threshold?: number; detectedAt: string; acknowledgedBy?: string; mutedUntil?: string; recoveredAt?: string; updatedAt: string }
 
 const templateVariables: Record<string, readonly string[]> = {
   ACCOUNT_UPDATED: ["displayName", "accountStatus"],
@@ -33,6 +39,9 @@ const defaultSettings = (): SystemSettings => ({
   moderationEnabled: true,
   notificationSender: "Wind EDU",
   maintenanceMode: false,
+  version: 1,
+  effectiveAt: new Date().toISOString(),
+  updatedBy: "system",
   updatedAt: new Date().toISOString(),
 });
 
@@ -46,40 +55,64 @@ export class SystemService {
   private templates: NotificationTemplate[] = [{ id: "tpl-class-reminder", eventCode: "CLASS_REMINDER", locale: "vi-VN", subject: "Nhắc lịch học {{className}}", body: "Buổi học {{sessionTitle}} bắt đầu lúc {{startsAt}}.", version: 1, status: "PUBLISHED", updatedAt: new Date().toISOString() }];
   private moderation: ModerationPolicy = { version: 1, prohibitedTerms: ["spam", "lừa đảo"], maxPostsPerMinute: 5, action: "FLAG", updatedAt: new Date().toISOString() };
   private audit: AuditEvent[] = [{ id: "audit-seed", actor: "system", action: "SYSTEM_STARTED", target: "platform", detail: "Khởi tạo cấu hình vận hành.", createdAt: new Date().toISOString() }];
+  private settingRevisions: SystemSettingRevision[] = [{ id: "setting-revision-1", key: "platform", ...defaultSettings() }];
+  private retentionPolicies: RetentionPolicyView[] = [];
+  private retentionJobs: RetentionJobView[] = [];
+  private legalHolds: Array<{ id: string; category: string; reason: string; active: boolean; createdBy: string; createdAt: string }> = [];
+  private alerts: SystemAlertView[] = [];
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
   async getSettings(): Promise<SystemSettings> {
     const prisma = this.database();
     if (prisma) {
+      const revision = await prisma.systemSettingRevision.findFirst({ where: { key: "platform", effectiveAt: { lte: new Date() } }, orderBy: { version: "desc" } });
+      if (revision) return this.mapSettings(revision.value, revision.createdAt, revision.version, revision.effectiveAt, revision.updatedBy);
       const row = await prisma.systemSetting.findUnique({ where: { key: "platform" } });
       if (!row) return defaultSettings();
-      return this.mapSettings(row.value, row.updatedAt);
+      return this.mapSettings(row.value, row.updatedAt, row.version, row.effectiveAt, row.updatedBy);
     }
-    return structuredClone(this.settings);
+    const active = this.settingRevisions.filter((item) => new Date(item.effectiveAt) <= new Date()).sort((a, b) => b.version - a.version)[0];
+    return structuredClone(active ?? this.settings);
   }
 
-  async updateSettings(input: Partial<Omit<SystemSettings, "updatedAt">>): Promise<SystemSettings> {
+  async listSettingRevisions(): Promise<SystemSettingRevision[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.systemSettingRevision.findMany({ where: { key: "platform" }, orderBy: { version: "desc" }, take: 50 });
+      return rows.map((row) => ({ id: row.id, key: row.key, ...this.mapSettings(row.value, row.createdAt, row.version, row.effectiveAt, row.updatedBy) }));
+    }
+    return structuredClone([...this.settingRevisions].sort((a, b) => b.version - a.version));
+  }
+
+  async updateSettings(input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>, actorId = "usr-admin"): Promise<SystemSettings> {
     if (input.retentionDays !== undefined && (input.retentionDays < 30 || input.retentionDays > 3650)) throw new BadRequestException("Thời gian lưu trữ phải từ 30 đến 3650 ngày.");
     if (input.maxFileSizeMb !== undefined && (input.maxFileSizeMb < 1 || input.maxFileSizeMb > 500)) throw new BadRequestException("Giới hạn tệp phải từ 1 đến 500 MB.");
     if (input.storageQuotaMb !== undefined && (input.storageQuotaMb < 100 || input.storageQuotaMb > 1_000_000)) throw new BadRequestException("Quota lưu trữ phải từ 100 đến 1.000.000 MB.");
+    if (input.timezone) { try { new Intl.DateTimeFormat("vi-VN", { timeZone: input.timezone }).format(); } catch { throw new BadRequestException("Múi giờ IANA không hợp lệ."); } }
+    const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date();
+    if (Number.isNaN(effectiveAt.getTime())) throw new BadRequestException("Thời điểm hiệu lực không hợp lệ.");
+    const settingValues = { ...input };
+    delete settingValues.effectiveAt;
     const prisma = this.database();
     if (prisma) {
       const current = await this.getSettings();
-      const next = { ...current, ...input };
+      const next = { ...current, ...settingValues };
       return prisma.$transaction(async (transaction) => {
-        const row = await transaction.systemSetting.upsert({
-          where: { key: "platform" },
-          update: { value: next, version: { increment: 1 }, effectiveAt: new Date(), updatedBy: "usr-admin" },
-          create: { key: "platform", value: next, updatedBy: "usr-admin" },
-        });
-        await this.logDatabase(transaction, "SETTINGS_UPDATED", "system-settings", "Cập nhật chính sách vận hành.");
-        return this.mapSettings(row.value, row.updatedAt);
+        const latest = await transaction.systemSettingRevision.findFirst({ where: { key: "platform" }, orderBy: { version: "desc" } });
+        const version = (latest?.version ?? current.version) + 1;
+        const revision = await transaction.systemSettingRevision.create({ data: { id: `setting-revision-${randomUUID()}`, key: "platform", value: next, version, effectiveAt, updatedBy: actorId } });
+        if (effectiveAt <= new Date()) await transaction.systemSetting.upsert({ where: { key: "platform" }, update: { value: next, version, effectiveAt, updatedBy: actorId }, create: { key: "platform", value: next, version, effectiveAt, updatedBy: actorId } });
+        await this.logDatabase(transaction, "SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${version}; hiệu lực ${effectiveAt.toISOString()}.`);
+        return this.mapSettings(revision.value, revision.createdAt, revision.version, revision.effectiveAt, revision.updatedBy);
       });
     }
-    this.settings = { ...this.settings, ...input, updatedAt: new Date().toISOString() };
-    this.log("SETTINGS_UPDATED", "system-settings", "Cập nhật chính sách vận hành.");
-    return structuredClone(this.settings);
+    const latestVersion = Math.max(0, ...this.settingRevisions.map((item) => item.version));
+    const revision: SystemSettingRevision = { id: `setting-revision-${randomUUID()}`, key: "platform", ...this.settings, ...settingValues, version: latestVersion + 1, effectiveAt: effectiveAt.toISOString(), updatedBy: actorId, updatedAt: new Date().toISOString() };
+    this.settingRevisions.unshift(revision);
+    if (effectiveAt <= new Date()) this.settings = { ...revision };
+    this.log("SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${revision.version}; hiệu lực ${revision.effectiveAt}.`);
+    return structuredClone(revision);
   }
 
   async listIntegrations(): Promise<IntegrationConfig[]> {
@@ -249,10 +282,73 @@ export class SystemService {
     return structuredClone(this.restores);
   }
 
-  async previewRetention(category: string): Promise<object> {
-    const estimatedRows = category === "AUDIT" ? 12_840 : category === "LEARNING" ? 3_260 : 840;
+  async previewRetention(categoryInput: string): Promise<RetentionPreview> {
+    const category = categoryInput.trim().toUpperCase();
+    if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
+    const policy = await this.getLatestRetentionPolicy(category);
     const settings = await this.getSettings();
-    return { category, retentionDays: settings.retentionDays, estimatedRows, legalHoldRows: 0, deletableRows: Math.floor(estimatedRows * 0.08) };
+    const retentionDays = policy?.retentionDays ?? settings.retentionDays;
+    const action = policy?.action ?? "ARCHIVE";
+    const cutoffAt = new Date(Date.now() - retentionDays * 86_400_000);
+    const prisma = this.database();
+    const estimatedRows = prisma ? await this.countRetentionRows(prisma, category, cutoffAt) : category === "AUDIT" ? 12_840 : category === "LEARNING" ? 3_260 : 840;
+    const hasLegalHold = prisma ? Boolean(await prisma.legalHold.findFirst({ where: { category, active: true } })) : this.legalHolds.some((item) => item.category === category && item.active);
+    const legalHoldRows = hasLegalHold ? estimatedRows : 0;
+    return { category, retentionDays, action, estimatedRows, legalHoldRows, deletableRows: estimatedRows - legalHoldRows, cutoffAt: cutoffAt.toISOString() };
+  }
+
+  async listRetentionPolicies(): Promise<RetentionPolicyView[]> {
+    const prisma = this.database();
+    if (prisma) return (await prisma.retentionPolicy.findMany({ orderBy: [{ category: "asc" }, { version: "desc" }] })).map((row) => this.mapRetentionPolicy(row));
+    return structuredClone([...this.retentionPolicies].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  }
+
+  async createRetentionPolicy(input: { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt?: string }): Promise<RetentionPolicyView> {
+    const category = input.category.trim().toUpperCase(); const approvedBy = input.approvedBy.trim();
+    if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
+    if (input.retentionDays < 30 || input.retentionDays > 3650) throw new BadRequestException("Thời hạn lưu phải từ 30 đến 3650 ngày.");
+    if (approvedBy.length < 3) throw new BadRequestException("Cần người phê duyệt chính sách.");
+    const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date(); if (Number.isNaN(effectiveAt.getTime())) throw new BadRequestException("Thời điểm hiệu lực không hợp lệ.");
+    const prisma = this.database();
+    if (prisma) {
+      const latest = await prisma.retentionPolicy.findFirst({ where: { category }, orderBy: { version: "desc" } });
+      const row = await prisma.$transaction(async (transaction) => {
+        const created = await transaction.retentionPolicy.create({ data: { id: `retention-policy-${randomUUID()}`, category, version: (latest?.version ?? 0) + 1, retentionDays: input.retentionDays, action: input.action, approvedBy, effectiveAt } });
+        await this.logDatabase(transaction, "RETENTION_POLICY_PUBLISHED", created.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return created;
+      });
+      return this.mapRetentionPolicy(row);
+    }
+    const version = Math.max(0, ...this.retentionPolicies.filter((item) => item.category === category).map((item) => item.version)) + 1;
+    const item: RetentionPolicyView = { id: `retention-policy-${randomUUID()}`, category, version, retentionDays: input.retentionDays, action: input.action, approvedBy, effectiveAt: effectiveAt.toISOString(), createdAt: new Date().toISOString() };
+    this.retentionPolicies.unshift(item); this.log("RETENTION_POLICY_PUBLISHED", item.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return structuredClone(item);
+  }
+
+  async createLegalHold(categoryInput: string, reasonInput: string, actorId = "usr-admin"): Promise<object> {
+    const category = categoryInput.trim().toUpperCase(); const reason = reasonInput.trim(); if (!category || reason.length < 5) throw new BadRequestException("Loại dữ liệu và lý do legal hold là bắt buộc.");
+    const prisma = this.database();
+    if (prisma) return prisma.legalHold.create({ data: { id: `legal-hold-${randomUUID()}`, category, reason, createdBy: actorId } });
+    const item = { id: `legal-hold-${randomUUID()}`, category, reason, active: true, createdBy: actorId, createdAt: new Date().toISOString() }; this.legalHolds.unshift(item); return structuredClone(item);
+  }
+
+  async runRetention(policyId: string, requestedBy: string, approvedBy: string): Promise<RetentionJobView> {
+    if (!requestedBy.trim() || !approvedBy.trim()) throw new BadRequestException("Cần người yêu cầu và người phê duyệt.");
+    if (requestedBy.trim().toLowerCase() === approvedBy.trim().toLowerCase()) throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
+    const prisma = this.database();
+    if (prisma) {
+      const policy = await prisma.retentionPolicy.findUnique({ where: { id: policyId } }); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention.");
+      const preview = await this.previewRetention(policy.category); const completedAt = new Date();
+      const row = await prisma.$transaction(async (transaction) => {
+        const created = await transaction.retentionJob.create({ data: { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, completedAt } });
+        await this.logDatabase(transaction, "RETENTION_JOB_COMPLETED", created.id, `${preview.deletableRows} bản ghi xử lý; ${preview.legalHoldRows} bản ghi được giữ.`); return created;
+      }); return this.mapRetentionJob(row);
+    }
+    const policy = this.retentionPolicies.find((item) => item.id === policyId); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention."); const preview = await this.previewRetention(policy.category);
+    const item: RetentionJobView = { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, createdAt: new Date().toISOString(), completedAt: new Date().toISOString() };
+    this.retentionJobs.unshift(item); this.log("RETENTION_JOB_COMPLETED", item.id, `${item.affectedRows} bản ghi xử lý; ${item.skippedRows} bản ghi được giữ.`); return structuredClone(item);
+  }
+
+  async listRetentionJobs(): Promise<RetentionJobView[]> {
+    const prisma = this.database(); if (prisma) return (await prisma.retentionJob.findMany({ orderBy: { createdAt: "desc" } })).map((row) => this.mapRetentionJob(row)); return structuredClone(this.retentionJobs);
   }
 
   async runExport(category: string, format: DataExport["format"]): Promise<DataExport> {
@@ -390,19 +486,23 @@ export class SystemService {
     return structuredClone(this.moderation);
   }
 
-  async listAudit(query?: string): Promise<AuditEvent[]> {
-    const normalized = query?.trim().toLowerCase() ?? "";
+  async listAudit(filter: AuditFilter = {}): Promise<AuditEvent[]> {
+    const normalized = filter.query?.trim().toLowerCase() ?? "";
+    const from = filter.from ? new Date(filter.from) : undefined; const to = filter.to ? new Date(filter.to) : undefined;
+    if (from && Number.isNaN(from.getTime()) || to && Number.isNaN(to.getTime())) throw new BadRequestException("Khoảng thời gian audit không hợp lệ.");
+    if (from && to && from > to) throw new BadRequestException("Thời gian bắt đầu phải trước thời gian kết thúc.");
+    const limit = Math.min(500, Math.max(1, filter.limit ?? 100));
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 500 });
+      const rows = await prisma.auditLog.findMany({ where: { actorId: filter.actor ? { contains: filter.actor.trim() } : undefined, action: filter.action ? { contains: filter.action.trim() } : undefined, entityId: filter.target ? { contains: filter.target.trim() } : undefined, createdAt: from || to ? { gte: from, lte: to } : undefined }, orderBy: { createdAt: "desc" }, take: limit });
       return rows.map((row) => this.mapAudit(row)).filter((item) => !normalized || `${item.actor} ${item.action} ${item.target} ${item.detail}`.toLowerCase().includes(normalized));
     }
-    return structuredClone(this.audit.filter((item) => !normalized || `${item.actor} ${item.action} ${item.target} ${item.detail}`.toLowerCase().includes(normalized)));
+    return structuredClone(this.audit.filter((item) => (!normalized || `${item.actor} ${item.action} ${item.target} ${item.detail}`.toLowerCase().includes(normalized)) && (!filter.actor || item.actor.includes(filter.actor)) && (!filter.action || item.action.includes(filter.action)) && (!filter.target || item.target.includes(filter.target)) && (!from || new Date(item.createdAt) >= from) && (!to || new Date(item.createdAt) <= to)).slice(0, limit));
   }
 
   async healthOverview(): Promise<object> {
     const prisma = this.database();
-    if (!prisma) return { status: "degraded", database: "disabled", apiLatencyMs: 0, storageUsagePercent: 0, queueDepth: 0, checkedAt: new Date().toISOString() };
+    if (!prisma) { await this.recordAlert("database:disabled", "database", "CRITICAL", "Kết nối cơ sở dữ liệu đang tắt."); return { status: "degraded", database: "disabled", apiLatencyMs: 0, storageUsagePercent: 0, queueDepth: 0, checkedAt: new Date().toISOString() }; }
     const startedAt = performance.now();
     await prisma.$queryRaw`SELECT 1`;
     const storage = await this.getStorageOverview();
@@ -411,7 +511,23 @@ export class SystemService {
       prisma.restoreJob.count({ where: { status: { in: ["PENDING", "RUNNING"] } } }),
       prisma.dataExportJob.count({ where: { status: { in: ["PENDING", "RUNNING"] } } }),
     ]);
-    return { status: storage.usagePercent >= 90 ? "warning" : "healthy", database: "connected", apiLatencyMs: Math.max(1, Math.round(performance.now() - startedAt)), storageUsagePercent: storage.usagePercent, queueDepth: queueDepth.reduce((sum, value) => sum + value, 0), checkedAt: new Date().toISOString() };
+    const apiLatencyMs = Math.max(1, Math.round(performance.now() - startedAt)); const totalQueueDepth = queueDepth.reduce((sum, value) => sum + value, 0);
+    if (storage.usagePercent >= 90) await this.recordAlert("storage:usage", "storage", "CRITICAL", "Dung lượng lưu trữ vượt ngưỡng 90%.", storage.usagePercent, 90); else await this.recoverAlert("storage:usage");
+    if (totalQueueDepth >= 20) await this.recordAlert("queue:depth", "job-queue", "WARNING", "Hàng đợi tác vụ vượt ngưỡng 20.", totalQueueDepth, 20); else await this.recoverAlert("queue:depth");
+    if (apiLatencyMs >= 1000) await this.recordAlert("api:latency", "api", "WARNING", "Độ trễ API vượt ngưỡng 1000 ms.", apiLatencyMs, 1000); else await this.recoverAlert("api:latency");
+    await this.recoverAlert("database:disabled");
+    return { status: storage.usagePercent >= 90 ? "warning" : "healthy", database: "connected", apiLatencyMs, storageUsagePercent: storage.usagePercent, queueDepth: totalQueueDepth, checkedAt: new Date().toISOString() };
+  }
+
+  async listAlerts(): Promise<SystemAlertView[]> {
+    const prisma = this.database(); if (prisma) return (await prisma.systemAlert.findMany({ orderBy: { detectedAt: "desc" }, take: 200 })).map((row) => this.mapAlert(row)); return structuredClone(this.alerts);
+  }
+
+  async updateAlert(alertId: string, action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE", actorId = "usr-admin", muteMinutes = 60): Promise<SystemAlertView> {
+    const prisma = this.database();
+    const data = action === "ACKNOWLEDGE" ? { status: "ACKNOWLEDGED", acknowledgedBy: actorId } : action === "MUTE" ? { status: "MUTED", acknowledgedBy: actorId, mutedUntil: new Date(Date.now() + Math.min(1440, Math.max(5, muteMinutes)) * 60_000) } : { status: "RESOLVED", recoveredAt: new Date(), acknowledgedBy: actorId };
+    if (prisma) { const current = await prisma.systemAlert.findUnique({ where: { id: alertId } }); if (!current) throw new NotFoundException("Không tìm thấy cảnh báo."); const row = await prisma.systemAlert.update({ where: { id: alertId }, data }); await this.logDatabase(prisma, `ALERT_${action}`, alertId, row.summary); return this.mapAlert(row); }
+    const item = this.alerts.find((row) => row.id === alertId); if (!item) throw new NotFoundException("Không tìm thấy cảnh báo."); Object.assign(item, { ...data, mutedUntil: data.mutedUntil?.toISOString(), recoveredAt: data.recoveredAt?.toISOString(), updatedAt: new Date().toISOString() }); this.log(`ALERT_${action}`, alertId, item.summary); return structuredClone(item);
   }
 
   async getStorageOverview(): Promise<StorageOverview> {
@@ -436,7 +552,7 @@ export class SystemService {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
   }
 
-  private mapSettings(value: Prisma.JsonValue, updatedAt: Date): SystemSettings {
+  private mapSettings(value: Prisma.JsonValue, updatedAt: Date, version = 1, effectiveAt = updatedAt, updatedBy = "system"): SystemSettings {
     const fallback = defaultSettings();
     const record = this.asRecord(value);
     return {
@@ -450,6 +566,9 @@ export class SystemService {
       moderationEnabled: this.booleanValue(record.moderationEnabled, fallback.moderationEnabled),
       notificationSender: this.stringValue(record.notificationSender, fallback.notificationSender),
       maintenanceMode: this.booleanValue(record.maintenanceMode, fallback.maintenanceMode),
+      version,
+      effectiveAt: effectiveAt.toISOString(),
+      updatedBy,
       updatedAt: updatedAt.toISOString(),
     };
   }
@@ -498,7 +617,46 @@ export class SystemService {
 
   private mapAudit(row: Prisma.AuditLogGetPayload<Record<string, never>>): AuditEvent {
     const context = this.asRecord(row.context);
-    return { id: row.id.toString(), actor: row.actorId ?? "system", action: row.action, target: row.entityId ?? row.entityType, detail: this.stringValue(context.detail ?? context.summary, row.action), createdAt: row.createdAt.toISOString() };
+    return { id: row.id.toString(), actor: row.actorId ?? "system", action: row.action, target: row.entityId ?? row.entityType, detail: this.redactSensitive(this.stringValue(context.detail ?? context.summary, row.action)), createdAt: row.createdAt.toISOString() };
+  }
+
+  private mapRetentionPolicy(row: Prisma.RetentionPolicyGetPayload<Record<string, never>>): RetentionPolicyView {
+    if (row.action !== "ARCHIVE" && row.action !== "DELETE") throw new BadRequestException("Hành động retention không hợp lệ.");
+    return { id: row.id, category: row.category, version: row.version, retentionDays: row.retentionDays, action: row.action, approvedBy: row.approvedBy, effectiveAt: row.effectiveAt.toISOString(), createdAt: row.createdAt.toISOString() };
+  }
+
+  private mapRetentionJob(row: Prisma.RetentionJobGetPayload<Record<string, never>>): RetentionJobView {
+    return { id: row.id, policyId: row.policyId, status: row.status, affectedRows: row.affectedRows, skippedRows: row.skippedRows, requestedBy: row.requestedBy, approvedBy: row.approvedBy, evidence: this.asRecord(row.evidence), createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString() };
+  }
+
+  private mapAlert(row: Prisma.SystemAlertGetPayload<Record<string, never>>): SystemAlertView {
+    const severity = row.severity === "CRITICAL" ? "CRITICAL" : "WARNING"; const status = ["OPEN", "ACKNOWLEDGED", "MUTED", "RESOLVED"].includes(row.status) ? row.status as SystemAlertView["status"] : "OPEN";
+    return { id: row.id, fingerprint: row.fingerprint, serviceName: row.serviceName, severity, status, summary: row.summary, metricValue: row.metricValue ?? undefined, threshold: row.threshold ?? undefined, detectedAt: row.detectedAt.toISOString(), acknowledgedBy: row.acknowledgedBy ?? undefined, mutedUntil: row.mutedUntil?.toISOString(), recoveredAt: row.recoveredAt?.toISOString(), updatedAt: row.updatedAt.toISOString() };
+  }
+
+  private async getLatestRetentionPolicy(category: string): Promise<RetentionPolicyView | undefined> {
+    const prisma = this.database(); if (prisma) { const row = await prisma.retentionPolicy.findFirst({ where: { category, effectiveAt: { lte: new Date() } }, orderBy: { version: "desc" } }); return row ? this.mapRetentionPolicy(row) : undefined; }
+    return this.retentionPolicies.filter((item) => item.category === category && new Date(item.effectiveAt) <= new Date()).sort((a, b) => b.version - a.version)[0];
+  }
+
+  private async countRetentionRows(prisma: PrismaService, category: string, cutoffAt: Date): Promise<number> {
+    if (category === "AUDIT") return prisma.auditLog.count({ where: { createdAt: { lt: cutoffAt } } });
+    if (category === "SUPPORT") return prisma.supportTicket.count({ where: { createdAt: { lt: cutoffAt }, status: "CLOSED" } });
+    if (category === "LEARNING") return prisma.learningClass.count({ where: { archivedAt: { lt: cutoffAt } } });
+    return 0;
+  }
+
+  private async recordAlert(fingerprint: string, serviceName: string, severity: SystemAlertView["severity"], summary: string, metricValue?: number, threshold?: number): Promise<void> {
+    const prisma = this.database();
+    if (prisma) { const current = await prisma.systemAlert.findUnique({ where: { fingerprint } }); if (current?.status === "MUTED" && current.mutedUntil && current.mutedUntil > new Date()) return; await prisma.systemAlert.upsert({ where: { fingerprint }, update: { serviceName, severity, summary, metricValue, threshold, status: current?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "OPEN", recoveredAt: null }, create: { id: `alert-${randomUUID()}`, fingerprint, serviceName, severity, summary, metricValue, threshold } }); return; }
+    const current = this.alerts.find((item) => item.fingerprint === fingerprint); if (current?.status === "MUTED" && current.mutedUntil && new Date(current.mutedUntil) > new Date()) return;
+    if (current) Object.assign(current, { serviceName, severity, summary, metricValue, threshold, status: current.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "OPEN", recoveredAt: undefined, updatedAt: new Date().toISOString() });
+    else { const timestamp = new Date().toISOString(); this.alerts.unshift({ id: `alert-${randomUUID()}`, fingerprint, serviceName, severity, status: "OPEN", summary, metricValue, threshold, detectedAt: timestamp, updatedAt: timestamp }); }
+  }
+
+  private async recoverAlert(fingerprint: string): Promise<void> {
+    const prisma = this.database(); if (prisma) { await prisma.systemAlert.updateMany({ where: { fingerprint, status: { not: "RESOLVED" } }, data: { status: "RESOLVED", recoveredAt: new Date() } }); return; }
+    const current = this.alerts.find((item) => item.fingerprint === fingerprint && item.status !== "RESOLVED"); if (current) Object.assign(current, { status: "RESOLVED", recoveredAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   }
 
   private async countExportRows(prisma: PrismaService, category: string): Promise<number> {
@@ -523,6 +681,7 @@ export class SystemService {
   private booleanValue(value: unknown, fallback: boolean): boolean { return typeof value === "boolean" ? value : fallback; }
   private stringArray(value: unknown, fallback: string[]): string[] { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [...fallback]; }
   private extractTemplateVariables(value: string): string[] { return [...new Set([...value.matchAll(/{{([a-zA-Z0-9_]+)}}/g)].map((match) => match[1] ?? "").filter(Boolean))]; }
+  private redactSensitive(value: string): string { return value.replace(/(password|token|secret|credential|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]"); }
   private isProvider(value: string): value is IntegrationConfig["provider"] { return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI"; }
   private log(action: string, target: string, detail: string): void { this.audit.unshift({ id: `audit-${randomUUID()}`, actor: "usr-admin", action, target, detail, createdAt: new Date().toISOString() }); }
 }

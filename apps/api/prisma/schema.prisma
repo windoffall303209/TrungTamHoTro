@@ -795,6 +795,85 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+model SystemSettingRevision {
+  id          String   @id @default(cuid())
+  key         String   @db.VarChar(100)
+  value       Json
+  version     Int
+  effectiveAt DateTime @map("effective_at")
+  updatedBy   String   @map("updated_by") @db.VarChar(191)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([key, version])
+  @@index([key, effectiveAt])
+  @@map("system_setting_revisions")
+}
+
+model RetentionPolicy {
+  id            String   @id @default(cuid())
+  category      String   @db.VarChar(100)
+  version       Int
+  retentionDays Int      @map("retention_days")
+  action        String   @db.VarChar(20)
+  approvedBy    String   @map("approved_by") @db.VarChar(191)
+  effectiveAt   DateTime @map("effective_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  jobs          RetentionJob[]
+
+  @@unique([category, version])
+  @@index([category, effectiveAt])
+  @@map("retention_policies")
+}
+
+model LegalHold {
+  id        String    @id @default(cuid())
+  category  String    @db.VarChar(100)
+  reason    String    @db.VarChar(500)
+  active    Boolean   @default(true)
+  createdBy String    @map("created_by") @db.VarChar(191)
+  releasedAt DateTime? @map("released_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([category, active])
+  @@map("legal_holds")
+}
+
+model RetentionJob {
+  id            String          @id @default(cuid())
+  policyId      String          @map("policy_id")
+  status        JobStatus       @default(PENDING)
+  affectedRows  Int             @default(0) @map("affected_rows")
+  skippedRows   Int             @default(0) @map("skipped_rows")
+  evidence      Json?
+  requestedBy   String          @map("requested_by") @db.VarChar(191)
+  approvedBy    String          @map("approved_by") @db.VarChar(191)
+  completedAt   DateTime?       @map("completed_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  policy        RetentionPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("retention_jobs")
+}
+
+model SystemAlert {
+  id           String    @id @default(cuid())
+  fingerprint  String    @unique @db.VarChar(191)
+  serviceName  String    @map("service_name") @db.VarChar(100)
+  severity     String    @db.VarChar(20)
+  status       String    @default("OPEN") @db.VarChar(30)
+  summary      String    @db.VarChar(500)
+  metricValue  Float?    @map("metric_value")
+  threshold    Float?
+  detectedAt   DateTime  @default(now()) @map("detected_at")
+  acknowledgedBy String? @map("acknowledged_by") @db.VarChar(191)
+  mutedUntil   DateTime? @map("muted_until")
+  recoveredAt  DateTime? @map("recovered_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, severity, detectedAt])
+  @@map("system_alerts")
+}
+
 model IntegrationProvider {
   id            String    @id @default(cuid())
   provider      String    @unique @db.VarChar(50)
