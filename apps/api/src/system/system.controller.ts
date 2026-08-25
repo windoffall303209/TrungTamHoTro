@@ -18,22 +18,22 @@ class UpdateModerationDto { @IsArray() @IsString({ each: true }) prohibitedTerms
 export class SystemController {
   constructor(private readonly system: SystemService) {}
   @Get("modules") @ApiOperation({ summary: "Liệt kê các phân hệ sản phẩm" }) @ApiOkResponse({ description: "Danh sách phân hệ và trạng thái nền tảng" }) getModules(): typeof modules { return modules; }
-  @Get("settings") @RequirePermissions("system:configure") getSettings(): SystemSettings { return this.system.getSettings(); }
-  @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto): SystemSettings { return this.system.updateSettings(input); }
-  @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): IntegrationConfig[] { return this.system.listIntegrations(); }
-  @Patch("integrations/:integrationId") @RequirePermissions("system:configure") updateIntegration(@Param("integrationId") id: string, @Body() input: ToggleIntegrationDto): IntegrationConfig { return this.system.updateIntegration(id, input.enabled); }
-  @Get("backups") @RequirePermissions("system:configure") listBackups(): BackupRun[] { return this.system.listBackups(); }
-  @Post("backups") @RequirePermissions("system:configure") runBackup(@Body() input: RunBackupDto): BackupRun { return this.system.runBackup(input.type); }
-  @Get("restores") @RequirePermissions("system:configure") listRestores(): RestoreRun[] { return this.system.listRestores(); }
-  @Post("restores") @RequirePermissions("system:configure") restoreBackup(@Body() input: RestoreBackupDto): RestoreRun { return this.system.restoreBackup(input.backupId, input.approvedBy); }
-  @Get("retention-preview") @RequirePermissions("system:configure") previewRetention(@Query("category") category = "LEARNING"): object { return this.system.previewRetention(category); }
-  @Get("exports") @RequirePermissions("system:configure") listExports(): DataExport[] { return this.system.listExports(); }
-  @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto): DataExport { return this.system.runExport(input.category, input.format); }
-  @Get("notification-templates") @RequirePermissions("system:configure") listTemplates(): NotificationTemplate[] { return this.system.listTemplates(); }
-  @Post("notification-templates") @RequirePermissions("system:configure") saveTemplate(@Body() input: SaveTemplateDto): NotificationTemplate { return this.system.saveTemplate(input); }
-  @Post("notification-templates/:templateId/preview") @RequirePermissions("system:configure") previewTemplate(@Param("templateId") id: string, @Body() input: PreviewTemplateDto): object { return this.system.previewTemplate(id, input.variables ?? {}); }
-  @Get("moderation-policy") @RequirePermissions("system:configure") getModeration(): ModerationPolicy { return this.system.getModerationPolicy(); }
-  @Patch("moderation-policy") @RequirePermissions("system:configure") updateModeration(@Body() input: UpdateModerationDto): ModerationPolicy { return this.system.updateModerationPolicy(input); }
-  @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string): AuditEvent[] { return this.system.listAudit(query); }
-  @Get("health-overview") @RequirePermissions("system:configure") healthOverview(): object { return this.system.healthOverview(); }
+  @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
+  @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto): Promise<SystemSettings> { return this.system.updateSettings(input); }
+  @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
+  @Patch("integrations/:integrationId") @RequirePermissions("system:configure") updateIntegration(@Param("integrationId") id: string, @Body() input: ToggleIntegrationDto): Promise<IntegrationConfig> { return this.system.updateIntegration(id, input.enabled); }
+  @Get("backups") @RequirePermissions("system:configure") listBackups(): Promise<BackupRun[]> { return this.system.listBackups(); }
+  @Post("backups") @RequirePermissions("system:configure") runBackup(@Body() input: RunBackupDto): Promise<BackupRun> { return this.system.runBackup(input.type); }
+  @Get("restores") @RequirePermissions("system:configure") listRestores(): Promise<RestoreRun[]> { return this.system.listRestores(); }
+  @Post("restores") @RequirePermissions("system:configure") restoreBackup(@Body() input: RestoreBackupDto): Promise<RestoreRun> { return this.system.restoreBackup(input.backupId, input.approvedBy); }
+  @Get("retention-preview") @RequirePermissions("system:configure") previewRetention(@Query("category") category = "LEARNING"): Promise<object> { return this.system.previewRetention(category); }
+  @Get("exports") @RequirePermissions("system:configure") listExports(): Promise<DataExport[]> { return this.system.listExports(); }
+  @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto): Promise<DataExport> { return this.system.runExport(input.category, input.format); }
+  @Get("notification-templates") @RequirePermissions("system:configure") listTemplates(): Promise<NotificationTemplate[]> { return this.system.listTemplates(); }
+  @Post("notification-templates") @RequirePermissions("system:configure") saveTemplate(@Body() input: SaveTemplateDto): Promise<NotificationTemplate> { return this.system.saveTemplate(input); }
+  @Post("notification-templates/:templateId/preview") @RequirePermissions("system:configure") previewTemplate(@Param("templateId") id: string, @Body() input: PreviewTemplateDto): Promise<object> { return this.system.previewTemplate(id, input.variables ?? {}); }
+  @Get("moderation-policy") @RequirePermissions("system:configure") getModeration(): Promise<ModerationPolicy> { return this.system.getModerationPolicy(); }
+  @Patch("moderation-policy") @RequirePermissions("system:configure") updateModeration(@Body() input: UpdateModerationDto): Promise<ModerationPolicy> { return this.system.updateModerationPolicy(input); }
+  @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string): Promise<AuditEvent[]> { return this.system.listAudit(query); }
+  @Get("health-overview") @RequirePermissions("system:configure") healthOverview(): Promise<object> { return this.system.healthOverview(); }
 }
