@@ -130,3 +130,5 @@ export class UpdateTicketDto {
   @IsOptional() @IsString() assigneeId?: string;
   @IsOptional() @IsString() resolution?: string;
 }
+
+export class CreateTicketCommentDto { @IsString() @MinLength(2) body!: string; }

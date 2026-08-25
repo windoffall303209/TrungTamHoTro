@@ -9,7 +9,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import type {
   AttendanceRecord, ContentReport, ExamAttempt, ForumPost, ForumTopic, LearningClass,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
-  RegradeRequest, SupportTicket,
+  RegradeRequest, SupportTicket, TicketComment,
 } from "./learning.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -66,6 +66,7 @@ export class LearningService {
   ];
   private readonly attendance: AttendanceRecord[] = [];
   private readonly tickets: SupportTicket[] = [];
+  private readonly ticketComments: TicketComment[] = [];
   private readonly materialFiles = new Map<string, { objectKey: string; checksum: string }>();
   private readonly materialAccessLogs: Array<{ materialId: string; userId: string; action: MaterialAccessAction; createdAt: string }> = [];
 
@@ -1211,9 +1212,9 @@ export class LearningService {
   }
 
   async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description">, reporterId = "usr-learner"): Promise<SupportTicket> {
+    const slaHours: Record<SupportTicket["severity"], number> = { P0: 4, P1: 24, P2: 72, P3: 120 };
     const prisma = this.database();
     if (prisma) {
-      const slaHours: Record<SupportTicket["severity"], number> = { P0: 4, P1: 24, P2: 72, P3: 120 };
       return this.mapTicket(await prisma.supportTicket.create({
         data: {
           id: id("ticket"), reporterId, category: input.category.trim(), severity: input.severity,
@@ -1221,7 +1222,7 @@ export class LearningService {
         },
       }));
     }
-    const item: SupportTicket = { ...input, id: id("ticket"), reporterId, status: "OPEN", createdAt: now() };
+    const item: SupportTicket = { ...input, id: id("ticket"), reporterId, status: "OPEN", dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000).toISOString(), createdAt: now() };
     this.tickets.unshift(item);
     return { ...item };
   }
@@ -1245,6 +1246,40 @@ export class LearningService {
     if (!item) throw new NotFoundException("Không tìm thấy ticket.");
     Object.assign(item, input);
     return { ...item };
+  }
+
+  async listTicketComments(ticketId: string, role: string): Promise<TicketComment[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
+      if (!ticket || role === "LEARNER" && ticket.reporterId !== "usr-learner") throw new NotFoundException("Không tìm thấy ticket được phép xem.");
+      const rows = await prisma.ticketComment.findMany({ where: { ticketId }, orderBy: { createdAt: "asc" } });
+      return rows.map((row) => ({ id: row.id, ticketId: row.ticketId, authorId: row.authorId, body: row.body, createdAt: row.createdAt.toISOString() }));
+    }
+    const ticket = this.tickets.find((item) => item.id === ticketId);
+    if (!ticket || role === "LEARNER" && ticket.reporterId !== "usr-learner") throw new NotFoundException("Không tìm thấy ticket được phép xem.");
+    return this.ticketComments.filter((item) => item.ticketId === ticketId).map((item) => ({ ...item }));
+  }
+
+  async addTicketComment(ticketId: string, body: string, role: string): Promise<TicketComment> {
+    const normalized = this.validateForumContent(body, "Nội dung trao đổi");
+    const authorId = this.userIdForRole(role);
+    const prisma = this.database();
+    if (prisma) {
+      const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
+      if (!ticket || role === "LEARNER" && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
+      if (ticket.status === "CLOSED") throw new BadRequestException("Ticket đã đóng, không thể thêm trao đổi.");
+      const row = await prisma.ticketComment.create({ data: { id: id("ticket-comment"), ticketId, authorId, body: normalized } });
+      if (role !== "LEARNER" && ticket.status === "OPEN") await prisma.supportTicket.update({ where: { id: ticketId }, data: { status: "IN_PROGRESS", assigneeId: authorId } });
+      return { id: row.id, ticketId: row.ticketId, authorId: row.authorId, body: row.body, createdAt: row.createdAt.toISOString() };
+    }
+    const ticket = this.tickets.find((item) => item.id === ticketId);
+    if (!ticket || role === "LEARNER" && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
+    if (ticket.status === "CLOSED") throw new BadRequestException("Ticket đã đóng, không thể thêm trao đổi.");
+    if (role !== "LEARNER" && ticket.status === "OPEN") Object.assign(ticket, { status: "IN_PROGRESS", assigneeId: authorId });
+    const comment: TicketComment = { id: id("ticket-comment"), ticketId, authorId, body: normalized, createdAt: now() };
+    this.ticketComments.push(comment);
+    return { ...comment };
   }
 
   async getOperationalReport(): Promise<object> {
@@ -1500,6 +1535,7 @@ export class LearningService {
       status: row.status,
       assigneeId: row.assigneeId ?? undefined,
       resolution: row.resolution ?? undefined,
+      dueAt: row.dueAt.toISOString(),
       createdAt: row.createdAt.toISOString(),
     };
   }

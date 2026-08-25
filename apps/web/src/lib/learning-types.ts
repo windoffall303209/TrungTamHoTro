@@ -40,4 +40,5 @@ export interface ForumTopic { id: string; classId: string; title: string; body: 
 export interface ForumPost { id: string; topicId: string; authorId: string; body: string; parentId?: string; status: "VISIBLE" | "HIDDEN"; createdAt: string }
 export interface ContentReport { id: string; targetType: "TOPIC" | "POST"; targetId: string; reporterId: string; reason: string; details: string; status: "OPEN" | "RESOLVED" | "REJECTED"; resolution?: string }
 export interface LiveSession { id: string; classId: string; title: string; startsAt: string; endsAt: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED"; hostUrl: string; attendeeUrl: string; recordingUrl?: string }
-export interface Ticket { id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3"; description: string; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED"; assigneeId?: string; resolution?: string; createdAt: string }
+export interface Ticket { id: string; reporterId: string; category: string; severity: "P0" | "P1" | "P2" | "P3"; description: string; status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED"; assigneeId?: string; resolution?: string; dueAt: string; createdAt: string }
+export interface TicketComment { id: string; ticketId: string; authorId: string; body: string; createdAt: string }
