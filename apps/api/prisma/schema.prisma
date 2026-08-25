@@ -646,10 +646,13 @@ model IntegrationProvider {
   provider      String    @unique @db.VarChar(50)
   enabled       Boolean   @default(false)
   credentialRef String?   @map("credential_ref") @db.VarChar(255)
+  webhookUrl    String?   @map("webhook_url") @db.VarChar(1000)
+  isDefault     Boolean   @default(false) @map("is_default")
   healthStatus  String    @default("UNKNOWN") @map("health_status") @db.VarChar(30)
   lastCheckedAt DateTime? @map("last_checked_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
+  @@index([isDefault, enabled])
   @@map("integration_providers")
 }
 

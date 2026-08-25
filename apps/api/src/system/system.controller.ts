@@ -7,6 +7,7 @@ import { SystemService, type AuditEvent, type BackupRun, type DataExport, type I
 const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
 class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsBoolean() moderationEnabled?: boolean; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean }
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
+class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() credentialReference?: string; @IsOptional() @IsString() webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
 class RestoreBackupDto { @IsString() backupId!: string; @IsString() approvedBy!: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
@@ -23,6 +24,10 @@ export class SystemController {
   @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto): Promise<SystemSettings> { return this.system.updateSettings(input); }
   @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
   @Patch("integrations/:integrationId") @RequirePermissions("system:configure") updateIntegration(@Param("integrationId") id: string, @Body() input: ToggleIntegrationDto): Promise<IntegrationConfig> { return this.system.updateIntegration(id, input.enabled); }
+  @Post("integrations/configure") @RequirePermissions("system:configure") configureIntegration(@Body() input: ConfigureIntegrationDto): Promise<IntegrationConfig> { return this.system.configureIntegration(input); }
+  @Post("integrations/:integrationId/test") @RequirePermissions("system:configure") testIntegration(@Param("integrationId") id: string): Promise<IntegrationConfig> { return this.system.testIntegration(id); }
+  @Post("integrations/:integrationId/default") @RequirePermissions("system:configure") setDefaultIntegration(@Param("integrationId") id: string): Promise<IntegrationConfig> { return this.system.setDefaultIntegration(id); }
+  @Post("integrations/:integrationId/test-meeting") @RequirePermissions("system:configure") createTestMeeting(@Param("integrationId") id: string): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> { return this.system.createTestMeeting(id); }
   @Get("backups") @RequirePermissions("system:configure") listBackups(): Promise<BackupRun[]> { return this.system.listBackups(); }
   @Post("backups") @RequirePermissions("system:configure") runBackup(@Body() input: RunBackupDto): Promise<BackupRun> { return this.system.runBackup(input.type); }
   @Get("restores") @RequirePermissions("system:configure") listRestores(): Promise<RestoreRun[]> { return this.system.listRestores(); }
