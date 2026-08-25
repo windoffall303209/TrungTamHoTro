@@ -51,4 +51,49 @@ describe("SystemService", () => {
     expect(policy.version).toBe(2);
     expect(policy.prohibitedTerms).toEqual(["spam", "lừa đảo"]);
   });
+
+  it("lập phiên bản cấu hình theo thời điểm hiệu lực và giữ lịch sử", async () => {
+    const service = new SystemService();
+    await expect(service.updateSettings({ timezone: "Mars/Olympus" })).rejects.toThrow("Múi giờ");
+    const scheduled = await service.updateSettings({ timezone: "Asia/Ho_Chi_Minh", effectiveAt: "2030-01-01T00:00:00.000Z" });
+    expect(scheduled).toMatchObject({ version: 2, updatedBy: "usr-admin" });
+    expect((await service.getSettings()).timezone).toBe("Asia/Bangkok");
+    expect(await service.listSettingRevisions()).toHaveLength(2);
+    const active = await service.updateSettings({ locale: "en-US" });
+    expect(active.version).toBe(3);
+    expect((await service.getSettings()).locale).toBe("en-US");
+  });
+
+  it("lọc audit, xuất audit có hạn và che thông tin nhạy cảm khỏi log", async () => {
+    const service = new SystemService();
+    await service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom-secret", webhookUrl: "https://hooks.wind.edu.vn/zoom" });
+    const events = await service.listAudit({ action: "INTEGRATION_CONFIGURED", actor: "usr-admin" });
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toContain("vault://zoom-secret");
+    expect((await service.runExport("AUDIT", "CSV")).expiresAt).toBeTruthy();
+    await expect(service.listAudit({ from: "2030-01-02", to: "2030-01-01" })).rejects.toThrow("bắt đầu");
+  });
+
+  it("mô phỏng retention, bảo vệ legal hold và tách người duyệt job", async () => {
+    const service = new SystemService();
+    const policy = await service.createRetentionPolicy({ category: "AUDIT", retentionDays: 365, action: "ARCHIVE", approvedBy: "Trưởng quản trị" });
+    await service.createLegalHold("AUDIT", "Phục vụ cuộc kiểm toán đang mở");
+    const preview = await service.previewRetention("AUDIT");
+    expect(preview.legalHoldRows).toBe(preview.estimatedRows);
+    await expect(service.runRetention(policy.id, "Nguyễn Admin", "Nguyễn Admin")).rejects.toThrow("phải khác");
+    const job = await service.runRetention(policy.id, "Nguyễn Admin", "Trưởng tuân thủ");
+    expect(job).toMatchObject({ status: "COMPLETED", affectedRows: 0, skippedRows: preview.estimatedRows });
+  });
+
+  it("chống cảnh báo trùng và quản lý nhận việc, im lặng, phục hồi", async () => {
+    const service = new SystemService();
+    await service.healthOverview();
+    await service.healthOverview();
+    const alerts = await service.listAlerts();
+    expect(alerts.filter((item) => item.fingerprint === "database:disabled")).toHaveLength(1);
+    const acknowledged = await service.updateAlert(alerts[0]!.id, "ACKNOWLEDGE");
+    expect(acknowledged.status).toBe("ACKNOWLEDGED");
+    expect((await service.updateAlert(alerts[0]!.id, "MUTE", "usr-admin", 30)).status).toBe("MUTED");
+    expect((await service.updateAlert(alerts[0]!.id, "RESOLVE")).recoveredAt).toBeTruthy();
+  });
 });
