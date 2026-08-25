@@ -112,6 +112,7 @@ export interface LiveSession {
   id: string; classId: string; title: string; startsAt: string; endsAt: string;
   provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
   hostUrl: string; attendeeUrl: string; recordingUrl?: string; timezone: string; changeReason?: string; cancellationReason?: string; attendanceLockedAt?: string; attendanceLockedById?: string;
+  requestedProvider?: "GOOGLE_MEET" | "ZOOM" | "JITSI"; fallbackUsed?: boolean; provisioningAttempts?: number;
 }
 
 export interface AttendanceRecord {
