@@ -162,6 +162,20 @@ describe("LearningService", () => {
     expect(active[0]?.availabilityStatus).toBe("IN_PROGRESS");
   });
 
+  it("tách gửi duyệt và phê duyệt đề theo phiên bản có lịch sử", async () => {
+    const service = new LearningService();
+    const exam = await service.createExam({ classId: "class-web-01", title: "Đề cần phê duyệt", questionIds: ["q-rest-01"], durationMinutes: 30, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-12-01T00:00:00.000Z", attemptLimit: 1 });
+    expect((await service.submitExamForReview(exam.id)).status).toBe("PENDING_REVIEW");
+    await expect(service.reviewExam(exam.id, "RETURN", "")).rejects.toThrow("lý do");
+    expect((await service.reviewExam(exam.id, "RETURN", "Cần cân đối lại độ khó")).status).toBe("DRAFT");
+    await service.submitExamForReview(exam.id);
+    expect((await service.reviewExam(exam.id, "APPROVE")).status).toBe("PUBLISHED");
+    const history = await service.listExamApprovals(exam.id);
+    expect(history.map((item) => item.decision)).toEqual(["APPROVE", "RETURN"]);
+    expect(history.every((item) => item.examVersion === exam.version)).toBe(true);
+    expect((await service.listNotifications("usr-instructor")).filter((item) => item.type === "EXAM_REVIEWED")).toHaveLength(2);
+  });
+
   it("không nhận autosave sau khi thời lượng làm bài kết thúc", async () => {
     vi.useFakeTimers();
     try {

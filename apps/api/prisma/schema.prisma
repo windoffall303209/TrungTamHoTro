@@ -152,6 +152,7 @@ model User {
   ticketComments     TicketComment[]     @relation("TicketCommentAuthor")
   ticketAttachments  SupportAttachment[] @relation("TicketAttachmentUploader")
   materialReviews    FileReview[]        @relation("MaterialReviewer")
+  examApprovals      ExamApproval[]      @relation("ExamReviewer")
   auditLogs          AuditLog[]
 
   @@map("users")
@@ -362,14 +363,32 @@ model Exam {
   closeAt         DateTime       @map("close_at")
   attemptLimit    Int            @default(1) @map("attempt_limit")
   status          ExamStatus     @default(DRAFT)
+  version         Int            @default(1)
   class           LearningClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
   questions       ExamQuestion[]
   attempts        ExamAttempt[]
+  approvals       ExamApproval[]
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([classId, status, openAt])
   @@map("exams")
+}
+
+model ExamApproval {
+  id          String   @id @default(cuid())
+  examId      String   @map("exam_id")
+  reviewerId  String   @map("reviewer_id")
+  examVersion Int      @map("exam_version")
+  decision    String   @db.VarChar(30)
+  reviewNote  String?  @map("review_note") @db.VarChar(1000)
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  reviewer    User     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([examId, createdAt])
+  @@index([reviewerId])
+  @@map("exam_approvals")
 }
 
 model ExamQuestion {

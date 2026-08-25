@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, ContentReport, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
+  AttendanceAppeal, AttendanceRecord, ContentReport, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, LearningClass, LearningNotification,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession,
   RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -51,10 +51,11 @@ export class LearningService {
   ];
 
   private readonly exams: LearningExam[] = [
-    { id: "exam-mid-web", classId: "class-web-01", title: "Kiểm tra giữa kỳ Web Full-stack", questionIds: ["q-rest-01", "q-db-01"], durationMinutes: 45, totalScore: 10, openAt: "2026-08-20T00:00:00.000Z", closeAt: "2026-12-30T23:59:00.000Z", attemptLimit: 2, status: "PUBLISHED" },
+    { id: "exam-mid-web", classId: "class-web-01", title: "Kiểm tra giữa kỳ Web Full-stack", questionIds: ["q-rest-01", "q-db-01"], durationMinutes: 45, totalScore: 10, openAt: "2026-08-20T00:00:00.000Z", closeAt: "2026-12-30T23:59:00.000Z", attemptLimit: 2, status: "PUBLISHED", version: 1 },
   ];
 
   private readonly attempts: ExamAttempt[] = [];
+  private readonly examApprovals: ExamApprovalRecord[] = [];
   private readonly regradeRequests: RegradeRequest[] = [];
   private readonly topics: ForumTopic[] = [
     { id: "topic-rest", classId: "class-web-01", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", authorId: "usr-instructor", tags: ["api", "thảo luận"], isPinned: true, isLocked: false, createdAt: now() },
@@ -642,7 +643,7 @@ export class LearningService {
     });
   }
 
-  async createExam(input: Omit<LearningExam, "id" | "status">): Promise<LearningExam> {
+  async createExam(input: Omit<LearningExam, "id" | "status" | "version">): Promise<LearningExam> {
     if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
     if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     const prisma = this.database();
@@ -668,22 +669,61 @@ export class LearningService {
       });
     }
     this.findClass(input.classId);
-    const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT" };
+    const item: LearningExam = { ...input, id: id("exam"), status: "DRAFT", version: 1 };
     this.exams.unshift(item);
     return { ...item, questionIds: [...item.questionIds] };
   }
 
-  async publishExam(examId: string): Promise<LearningExam> {
+  async submitExamForReview(examId: string): Promise<LearningExam> {
     const prisma = this.database();
     if (prisma) {
       const exam = await this.getDatabaseExam(prisma, examId);
       if (!exam.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
-      await prisma.exam.update({ where: { id: examId }, data: { status: "PUBLISHED" } });
+      if (exam.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
+      await prisma.exam.update({ where: { id: examId }, data: { status: "PENDING_REVIEW" } });
       return this.getDatabaseExam(prisma, examId);
     }
     const item = this.findExam(examId);
-    item.status = "PUBLISHED";
+    if (!item.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+    if (item.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
+    item.status = "PENDING_REVIEW";
     return { ...item, questionIds: [...item.questionIds] };
+  }
+
+  async reviewExam(examId: string, decision: ExamApprovalRecord["decision"], rawNote?: string, reviewerId = "usr-manager"): Promise<LearningExam> {
+    const reviewNote = rawNote?.trim();
+    if (decision === "RETURN" && (!reviewNote || reviewNote.length < 5)) throw new BadRequestException("Cần lý do ít nhất 5 ký tự khi trả lại đề.");
+    const nextStatus: LearningExam["status"] = decision === "APPROVE" ? "PUBLISHED" : "DRAFT";
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.exam.findUnique({ where: { id: examId } });
+        if (!current) throw new NotFoundException("Không tìm thấy đề.");
+        if (current.status !== "PENDING_REVIEW") throw new ConflictException("Đề không ở trạng thái chờ phê duyệt.");
+        const approvalId = id("exam-approval");
+        await transaction.examApproval.create({ data: { id: approvalId, examId, reviewerId, examVersion: current.version, decision, reviewNote } });
+        await transaction.auditLog.create({ data: { actorId: reviewerId, action: `EXAM_${decision}`, entityType: "exam", entityId: examId, context: { version: current.version, reviewNote: reviewNote ?? "Đạt yêu cầu" } } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-instructor", type: "EXAM_REVIEWED", title: `Đề ${current.title}: ${decision}`, entityType: "EXAM", entityId: examId, dedupKey: `exam-review:${approvalId}:usr-instructor` } });
+        await transaction.exam.update({ where: { id: examId }, data: { status: nextStatus } });
+        return this.getDatabaseExam(transaction, examId);
+      });
+    }
+    const item = this.findExam(examId);
+    if (item.status !== "PENDING_REVIEW") throw new ConflictException("Đề không ở trạng thái chờ phê duyệt.");
+    const approval: ExamApprovalRecord = { id: id("exam-approval"), examId, reviewerId, examVersion: item.version, decision, reviewNote, createdAt: now() };
+    this.examApprovals.unshift(approval);
+    item.status = nextStatus;
+    this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "EXAM_REVIEWED", title: `Đề ${item.title}: ${decision}`, entityType: "EXAM", entityId: examId, createdAt: now() });
+    return { ...item, questionIds: [...item.questionIds] };
+  }
+
+  async listExamApprovals(examId: string): Promise<ExamApprovalRecord[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.examApproval.findMany({ where: { examId }, orderBy: { createdAt: "desc" } });
+      return rows.map((row) => ({ id: row.id, examId: row.examId, reviewerId: row.reviewerId, examVersion: row.examVersion, decision: row.decision === "APPROVE" ? "APPROVE" : "RETURN", reviewNote: row.reviewNote ?? undefined, createdAt: row.createdAt.toISOString() }));
+    }
+    return this.examApprovals.filter((item) => item.examId === examId).map((item) => ({ ...item }));
   }
 
   async startAttempt(examId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
@@ -1712,6 +1752,7 @@ export class LearningService {
       closeAt: row.closeAt.toISOString(),
       attemptLimit: row.attemptLimit,
       status: row.status,
+      version: row.version,
     };
   }
 
