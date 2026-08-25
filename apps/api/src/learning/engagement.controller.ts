@@ -19,6 +19,9 @@ export class EngagementController {
   @Post("instructor/classes/:classId/forum/topics") @RequirePermissions("forum:moderate")
   createTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): ForumTopic { return this.learning.createTopic(classId, input); }
 
+  @Post("learner/classes/:classId/forum/topics") @RequirePermissions("forum:post")
+  createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): ForumTopic { return this.learning.createTopic(classId, { ...input, isPinned: false }, "usr-learner"); }
+
   @Get("forum/topics/:topicId/posts") @RequirePermissions("forum:view")
   listPosts(@Param("topicId") topicId: string): ForumPost[] { return this.learning.listPosts(topicId); }
 
@@ -67,4 +70,3 @@ export class EngagementController {
   @Get("reports/operations") @RequirePermissions("report:view")
   getOperationalReport(): object { return this.learning.getOperationalReport(); }
 }
-

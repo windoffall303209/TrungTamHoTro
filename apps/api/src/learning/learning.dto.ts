@@ -63,6 +63,11 @@ export class SaveAnswerDto {
   @IsArray() @IsString({ each: true }) answers!: string[];
 }
 
+export class GradeAttemptDto {
+  @IsNumber() @Min(0) score!: number;
+  @IsString() @MinLength(3) feedback!: string;
+}
+
 export class CreateTopicDto {
   @IsString() @MinLength(3) title!: string;
   @IsString() @MinLength(5) body!: string;
