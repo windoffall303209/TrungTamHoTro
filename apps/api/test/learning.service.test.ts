@@ -40,11 +40,40 @@ describe("LearningService", () => {
     const attempt = await service.startAttempt("exam-mid-web");
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
     await service.submitAttempt(attempt.id);
+    await service.transitionSession("session-web-01", "LIVE");
+    await service.transitionSession("session-web-01", "COMPLETED");
     await service.updateAttendance("session-web-01", "usr-learner", "PRESENT", 60, "Đối soát nhật ký");
     const report = (await service.getClassReports())[0] as { submittedAttempts: number; averageScore: number; attendanceRate: number };
     expect(report.submittedAttempts).toBe(1);
     expect(report.averageScore).toBe(5);
     expect(report.attendanceRate).toBe(100);
+  });
+
+  it("đồng bộ, đối chiếu, xử lý điều chỉnh và khóa kỳ điểm danh", async () => {
+    const service = new LearningService();
+    await service.transitionSession("session-web-01", "LIVE");
+    await service.transitionSession("session-web-01", "COMPLETED");
+    await expect(service.syncAttendance("session-web-01", [
+      { providerParticipantId: "provider-01", learnerId: "usr-learner", joinedAt: "2026-08-26T02:12:00.000Z", leftAt: "2026-08-26T03:20:00.000Z" },
+      { providerParticipantId: "provider-01", learnerId: "usr-outsider", joinedAt: "2026-08-26T02:10:00.000Z", leftAt: "2026-08-26T03:00:00.000Z" },
+    ])).rejects.toThrow("Trùng mã người tham dự");
+
+    const synced = await service.syncAttendance("session-web-01", [
+      { providerParticipantId: "provider-01", learnerId: "usr-learner", joinedAt: "2026-08-26T02:12:00.000Z", leftAt: "2026-08-26T03:20:00.000Z" },
+      { providerParticipantId: "provider-outside", learnerId: "usr-outsider", joinedAt: "2026-08-26T02:10:00.000Z", leftAt: "2026-08-26T03:00:00.000Z" },
+    ]);
+    expect(synced.skippedLearnerIds).toEqual(["usr-outsider"]);
+    expect(synced.review.records).toMatchObject([{ learnerId: "usr-learner", status: "LATE", attendedMinutes: 68, providerParticipantId: "provider-01" }]);
+
+    const appeal = await service.requestAttendanceAppeal("session-web-01", "Hệ thống ghi thiếu thời gian em tham dự");
+    const resolved = await service.resolveAttendanceAppeal(appeal.id, "APPROVE", "Đã đối chiếu bản ghi nhà cung cấp", "PRESENT", 80);
+    expect(resolved.status).toBe("RESOLVED");
+    expect((await service.getAttendanceReview("session-web-01")).records[0]).toMatchObject({ status: "PRESENT", attendedMinutes: 80 });
+    expect((await service.lockAttendance("session-web-01")).attendanceLockedAt).toBeTruthy();
+    await expect(service.updateAttendance("session-web-01", "usr-learner", "ABSENT", 0, "Sửa sau khóa")).rejects.toThrow("đã khóa");
+    await expect(service.syncAttendance("session-web-01", [
+      { providerParticipantId: "provider-02", learnerId: "usr-learner", joinedAt: "2026-08-26T02:00:00.000Z", leftAt: "2026-08-26T03:00:00.000Z" },
+    ])).rejects.toThrow("đã khóa");
   });
 
   it("lưu bytes, cấp liên kết có chữ ký và kiểm tra checksum khi tải học liệu", async () => {

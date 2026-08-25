@@ -1,7 +1,8 @@
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber,
-  IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength,
+  IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength, ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
 import type { LearningQuestion } from "./learning.types.js";
 
 export class CreateCourseDto {
@@ -131,6 +132,27 @@ export class UpdateAttendanceDto {
 
 export class AttachRecordingDto { @IsUrl({ require_tld: false }) recordingUrl!: string; }
 export class CreateAttendanceAppealDto { @IsString() @MinLength(10) reason!: string; }
+
+export class ProviderAttendanceRowDto {
+  @IsString() @MinLength(1) @MaxLength(191) providerParticipantId!: string;
+  @IsString() @MinLength(1) learnerId!: string;
+  @IsDateString() joinedAt!: string;
+  @IsDateString() leftAt!: string;
+}
+
+export class SyncAttendanceDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
+  @ValidateNested({ each: true }) @Type(() => ProviderAttendanceRowDto)
+  records!: ProviderAttendanceRowDto[];
+}
+
+export class ResolveAttendanceAppealDto {
+  @IsIn(["APPROVE", "REJECT"]) decision!: "APPROVE" | "REJECT";
+  @IsString() @MinLength(5) resolution!: string;
+  @IsOptional() @IsIn(["PRESENT", "LATE", "ABSENT", "EXCUSED"])
+  status?: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
+  @IsOptional() @IsInt() @Min(0) attendedMinutes?: number;
+}
 
 export class CreateTicketDto {
   @IsString() category!: string;

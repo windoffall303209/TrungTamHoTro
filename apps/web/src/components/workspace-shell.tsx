@@ -3,7 +3,7 @@
 import {
   Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, Database, FileQuestion,
   GraduationCap, Headphones, History, LayoutDashboard, ListChecks, Menu, MessageSquareText, Presentation, Settings,
-  ShieldCheck, ShieldEllipsis, Users, X,
+  ShieldCheck, ShieldEllipsis, UserCheck, Users, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -28,6 +28,7 @@ const navItems = [
   { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
   { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, roles: ["CENTER_MANAGER", "INSTRUCTOR"] },
   { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, roles: ["CENTER_MANAGER"] },
+  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, roles: ["CENTER_MANAGER"] },
   { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, roles: ["INSTRUCTOR"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, roles: roleOptions.map((role) => role.code) },
