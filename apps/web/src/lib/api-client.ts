@@ -20,10 +20,10 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("accept", "application/json");
-  headers.set("x-role-code", options.roleCode ?? "LEARNER");
+  if (options.roleCode) headers.set("x-role-code", options.roleCode);
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, cache: "no-store" });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, cache: "no-store", credentials: "include" });
   const payload = await response.json() as ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
   if (!response.ok) {
     const error = "error" in payload ? payload.error : undefined;
@@ -36,6 +36,7 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { accept: "application/octet-stream", "x-role-code": roleCode },
     cache: "no-store",
+    credentials: "include",
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
@@ -59,6 +60,7 @@ export async function previewApiFile(path: string, roleCode: RoleCode): Promise<
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { accept: "application/pdf,image/*", "x-role-code": roleCode },
       cache: "no-store",
+      credentials: "include",
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };

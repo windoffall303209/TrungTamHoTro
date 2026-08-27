@@ -17,9 +17,11 @@ export interface SessionUser {
 }
 
 export interface SessionData {
+  sessionId: string;
   user: SessionUser;
   roleCode: RoleCode;
   permissions: PermissionCode[];
+  availableRoles: Array<{ code: RoleCode; name: string }>;
 }
 
 export interface IdentityUser {
@@ -39,4 +41,3 @@ export interface IdentityRole {
   permissions: PermissionCode[];
   version: number;
 }
-

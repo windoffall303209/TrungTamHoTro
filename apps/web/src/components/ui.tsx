@@ -19,7 +19,8 @@ export function Modal({ open, title, description, onClose, children }: { open: b
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!open) return;

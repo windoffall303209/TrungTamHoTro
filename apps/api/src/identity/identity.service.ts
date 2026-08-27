@@ -4,6 +4,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { DEFAULT_ROLE_PERMISSIONS, type PermissionCode, type RoleCode } from "../auth/permissions.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { CreateUserDto, UpdateRolePermissionsDto, UpdateUserDto } from "./identity.dto.js";
+import { hashPassword } from "../auth/password.js";
 import type { IdentityAuditEvent, IdentityRole, IdentityUser } from "./identity.types.js";
 
 const now = (): string => new Date().toISOString();
@@ -68,7 +69,7 @@ export class IdentityService {
               id: `usr-${randomUUID()}`,
               displayName: input.displayName.trim(),
               email: normalizedEmail,
-              passwordHash: this.createDisabledPasswordHash(),
+              passwordHash: input.initialPassword ? await hashPassword(input.initialPassword) : this.createDisabledPasswordHash(),
               roles: { create: { roleId: role.id } },
             },
             include: { roles: { include: { role: true }, take: 1 } },

@@ -4,58 +4,60 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { apiRequest } from "@/lib/api-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 
-const fallbackSessions: Record<RoleCode, SessionData> = {
-  SYSTEM_ADMIN: { user: { id: "usr-admin", name: "Wind Of Fall", email: "admin@wind.edu.vn", roleName: "Quản trị hệ thống" }, roleCode: "SYSTEM_ADMIN", permissions: ["user:view", "user:create", "user:update", "user:suspend", "role:view", "role:update", "system:configure"] },
-  CENTER_MANAGER: { user: { id: "usr-manager", name: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleName: "Quản lý trung tâm" }, roleCode: "CENTER_MANAGER", permissions: ["course:view", "course:manage", "class:view", "class:manage", "report:view"] },
-  INSTRUCTOR: { user: { id: "usr-instructor", name: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleName: "Giảng viên" }, roleCode: "INSTRUCTOR", permissions: ["class:view", "material:view", "material:manage", "question:view", "question:manage", "exam:view", "exam:manage", "forum:view", "forum:post", "session:view", "session:manage"] },
-  LEARNER: { user: { id: "usr-learner", name: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleName: "Học viên" }, roleCode: "LEARNER", permissions: ["class:view", "material:view", "exam:view", "forum:view", "forum:post", "session:view", "support:create"] },
+const emptySession: SessionData = {
+  sessionId: "", user: { id: "", name: "", email: "", roleName: "" }, roleCode: "LEARNER", permissions: [], availableRoles: [],
 };
 
 interface ToastState { id: number; message: string; tone: "success" | "error" | "info" }
-
+interface LoginInput { email: string; password: string; rememberMe: boolean }
+interface RegisterInput { displayName: string; email: string; password: string }
 interface AppContextValue {
   session: SessionData;
-  setRole: (role: RoleCode) => void;
+  authenticated: boolean;
+  authLoading: boolean;
+  login: (input: LoginInput) => Promise<void>;
+  register: (input: RegisterInput) => Promise<void>;
+  logout: () => Promise<void>;
+  setRole: (role: RoleCode) => Promise<void>;
+  refreshSession: () => Promise<boolean>;
   notify: (message: string, tone?: ToastState["tone"]) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<SessionData>(fallbackSessions.SYSTEM_ADMIN);
+  const [session, setSession] = useState<SessionData>(emptySession);
+  const [authLoading, setAuthLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  const setRole = useCallback((role: RoleCode) => {
-    setSession(fallbackSessions[role]);
-    window.localStorage.setItem("wind-edu-role", role);
-    void apiRequest<SessionData>("/auth/session", { roleCode: role })
-      .then(setSession)
-      .catch(() => undefined);
+  const refreshSession = useCallback(async (): Promise<boolean> => {
+    try { setSession(await apiRequest<SessionData>("/auth/session")); return true; }
+    catch { setSession(emptySession); return false; }
+    finally { setAuthLoading(false); }
   }, []);
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem("wind-edu-role") as RoleCode | null;
-    if (stored && stored in fallbackSessions) window.queueMicrotask(() => setRole(stored));
-  }, [setRole]);
+  useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
 
+  const login = useCallback(async (input: LoginInput) => {
+    setSession(await apiRequest<SessionData>("/auth/login", { method: "POST", body: JSON.stringify(input) }));
+  }, []);
+  const register = useCallback(async (input: RegisterInput) => {
+    setSession(await apiRequest<SessionData>("/auth/register", { method: "POST", body: JSON.stringify(input) }));
+  }, []);
+  const logout = useCallback(async () => {
+    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
+  }, []);
+  const setRole = useCallback(async (role: RoleCode) => {
+    setSession(await apiRequest<SessionData>("/auth/session", { roleCode: role }));
+  }, []);
   const notify = useCallback((message: string, tone: ToastState["tone"] = "success") => {
     const next = { id: Date.now(), message, tone };
     setToast(next);
     window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
   }, []);
 
-  const value = useMemo(() => ({ session, setRole, notify }), [notify, session, setRole]);
-
-  return (
-    <AppContext.Provider value={value}>
-      {children}
-      {toast ? (
-        <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${
-          toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"
-        }`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div>
-      ) : null}
-    </AppContext.Provider>
-  );
+  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, logout, setRole, refreshSession, notify }), [authLoading, login, logout, notify, refreshSession, register, session, setRole]);
+  return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 
 export function useApp(): AppContextValue {
