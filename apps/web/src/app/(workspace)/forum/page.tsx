@@ -302,7 +302,7 @@ export default function ForumPage() {
       />
       {learner && notifications.length ? (
         <section className="mb-6 border-y border-slate-200 py-3">
-          <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-sky-700">
+          <div className="flex items-center gap-2 text-sm font-bold text-sky-700">
             <Bell size={14} /> Thông báo diễn đàn
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -321,7 +321,7 @@ export default function ForumPage() {
       ) : null}
       {manager && reports.length ? (
         <section className="mb-7">
-          <h2 className="mb-3 text-xs font-extrabold uppercase tracking-widest text-rose-600">
+          <h2 className="mb-3 text-lg font-extrabold tracking-tight text-rose-700">
             Báo cáo cần xử lý
           </h2>
           <div className="space-y-2">
@@ -353,10 +353,10 @@ export default function ForumPage() {
       {learner && reports.length ? <div className="mb-6 space-y-2 border-y border-slate-200 py-3">{reports.map((item) => <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600" key={item.id}><span className="inline-flex items-center gap-2"><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>{(["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt) ? <Button className="min-h-8 px-3 text-xs" onClick={() => setAppealTarget(item)} variant="ghost">Kháng nghị</Button> : null}</div>)}</div> : null}
       <SectionState loading={loading} empty={topics.length === 0}>
         <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
-          <div className="space-y-3">
+          <div className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
             {topics.map((topic) => (
               <button
-                className={`w-full rounded-2xl border bg-white p-5 text-left transition ${selected?.id === topic.id ? "border-sky-400 ring-2 ring-sky-100" : "border-slate-200 hover:border-sky-300"}`}
+                className={`data-row w-full border-b border-[#d5dfe2] p-5 text-left transition-colors last:border-b-0 ${selected?.id === topic.id ? "bg-[#f8ece6]" : "bg-transparent"}`}
                 key={topic.id}
                 onClick={() => void choose(topic)}
               >

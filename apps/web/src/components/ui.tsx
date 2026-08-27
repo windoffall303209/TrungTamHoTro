@@ -4,7 +4,7 @@ import { LoaderCircle, X } from "lucide-react";
 
 export function Button({ children, variant = "primary", loading = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost"; loading?: boolean }) {
   const styles = { primary: "bg-[#102a43] text-[#fffdfa] hover:bg-[#c75b39]", secondary: "border border-[#a9bac1] bg-[#fffdfa] text-[#102a43] hover:border-[#102a43]", danger: "bg-[#a84343] text-white hover:bg-[#853333]", ghost: "text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43]" };
-  return <button className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform] duration-200 hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle className="animate-spin" size={16} /> : null}{children}</button>;
+  return <button className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform] duration-200 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle className="animate-spin" size={16} /> : null}{children}</button>;
 }
 
 export function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
@@ -20,5 +20,5 @@ export function Modal({ open, title, description, onClose, children }: { open: b
 
 export function StatusBadge({ status }: { status: string }) {
   const style = status === "ACTIVE" || status === "PUBLISHED" ? "border-[#27685f]/25 bg-[#27685f]/10 text-[#1f574f]" : status === "LOCKED" || status === "REJECTED" ? "border-[#a84343]/25 bg-[#a84343]/10 text-[#873737]" : "border-[#a9bac1] bg-[#eee8dc] text-[#516274]";
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${style}`}>{status}</span>;
+  return <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-[0.02em] ${style}`}>{status}</span>;
 }

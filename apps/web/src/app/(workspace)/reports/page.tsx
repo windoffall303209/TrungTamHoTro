@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BookOpenCheck, CheckCircle2, Download, FileStack, Filter, MessageSquareWarning, Plus, Radio, ShieldAlert, TicketCheck } from "lucide-react";
+import { CheckCircle2, Download, Filter, Plus, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -75,10 +75,10 @@ export default function ReportsPage() {
   if (!allowed) return <AccessDenied />;
 
   const metrics = report ? [
-    { label: "Khóa học", value: report.courses, icon: BookOpenCheck }, { label: "Lớp học", value: report.classes, icon: Activity },
-    { label: "Học liệu", value: report.materials, icon: FileStack }, { label: "Đề thi", value: report.exams, icon: BookOpenCheck },
-    { label: "Báo cáo mở", value: report.openReports, icon: MessageSquareWarning }, { label: "Buổi trực tuyến", value: report.liveSessions, icon: Radio },
-    { label: "Phiếu hỗ trợ mở", value: report.openTickets, icon: TicketCheck },
+    { label: "Khóa học", value: report.courses }, { label: "Lớp học", value: report.classes },
+    { label: "Học liệu", value: report.materials }, { label: "Đề thi", value: report.exams },
+    { label: "Báo cáo mở", value: report.openReports }, { label: "Buổi trực tuyến", value: report.liveSessions },
+    { label: "Phiếu hỗ trợ mở", value: report.openTickets },
   ] : [];
 
   const createExport = async () => {
@@ -133,7 +133,7 @@ export default function ReportsPage() {
       </div>
     </section>
 
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{metrics.map(({ label, value, icon: Icon }, index) => <article className={`rounded-2xl border p-5 ${index === 0 ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"}`} key={label}><Icon className={index === 0 ? "text-sky-400" : "text-sky-700"} size={21} /><p className="mt-7 text-3xl font-extrabold">{value}</p><p className={`mt-1 text-xs font-bold ${index === 0 ? "text-slate-400" : "text-slate-500"}`}>{label}</p></article>)}</div>
+    <section aria-label="Chỉ số báo cáo" className="grid border-y border-[#a9bac1] bg-[#fffdfa]/55 sm:grid-cols-2 lg:grid-cols-4">{metrics.map(({ label, value }) => <div className="border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 sm:border-r sm:[&:nth-child(even)]:border-r-0 lg:[&:nth-child(even)]:border-r lg:[&:nth-child(4n)]:border-r-0" key={label}><p className="tabular text-2xl font-extrabold tracking-[-0.03em]">{value}</p><p className="mt-1 text-xs font-bold text-slate-500">{label}</p></div>)}</section>
 
     {report ? <section className="mt-7 grid gap-6 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6 lg:grid-cols-[1.2fr_.8fr]">
       <div><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-heading text-xl font-extrabold">Định nghĩa chỉ số</h2><span className="text-xs font-bold text-slate-500">v{report.definitionVersion} · {report.timezone}</span></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{Object.entries(report.metricDefinitions).map(([key, definition]) => <p className="rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600" key={key}><strong className="text-slate-900">{key}:</strong> {definition}</p>)}</div></div>

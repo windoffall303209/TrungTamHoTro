@@ -410,8 +410,7 @@ export default function ExamsPage() {
       {learner && results.length ? (
         <section className="mt-10 border-t border-slate-200 pt-7">
           <div className="mb-5 flex items-end justify-between gap-4">
-            <div><p className="text-xs font-extrabold uppercase tracking-widest text-sky-700">Kết quả đã công bố</p><h2 className="mt-1 font-heading text-2xl font-extrabold">Điểm, phản hồi và phúc khảo</h2></div>
-            <p className="text-sm text-slate-500">Chỉ hiển thị bài của tài khoản hiện tại</p>
+            <div><h2 className="font-heading text-2xl font-extrabold tracking-tight">Kết quả, phản hồi và phúc khảo</h2><p className="mt-1 text-sm text-slate-500">Các bài đã chấm và công bố cho tài khoản hiện tại.</p></div>
           </div>
           <div className="divide-y divide-slate-200 border-y border-slate-200">
             {results.map((result) => (

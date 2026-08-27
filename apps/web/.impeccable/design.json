@@ -9,7 +9,7 @@
       "vermilion": { "role": "primary", "displayName": "Dấu đỏ gạch", "canonical": "#c75b39", "tonalRamp": ["#4a1d16", "#703022", "#963e2b", "#c75b39", "#dc8163", "#edb3a0", "#f7dcd2", "#fdf2ee"] }
     },
     "typographyMeta": {
-      "display": { "displayName": "Tiêu đề biên soạn", "purpose": "Tiêu đề trang và phần nghiệp vụ quan trọng." },
+      "display": { "displayName": "Tiêu đề vận hành", "purpose": "Tiêu đề trang sans-serif đậm và phần nghiệp vụ quan trọng." },
       "body": { "displayName": "Chữ vận hành", "purpose": "Dữ liệu, mô tả và control tiếng Việt." }
     },
     "shadows": [

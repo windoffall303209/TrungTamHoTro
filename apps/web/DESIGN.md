@@ -12,7 +12,7 @@ colors:
   vermilion: "#c75b39"
 typography:
   display:
-    fontFamily: "Lora, Georgia, serif"
+    fontFamily: "Be Vietnam Pro, Arial, sans-serif"
     fontWeight: 700
     lineHeight: 1.2
   body:
@@ -74,14 +74,14 @@ Nền giấy ấm giữ trải nghiệm bình tĩnh, còn mực xanh đen và đ
 
 ## Typography
 
-**Display Font:** Lora, Georgia, serif.
+**Display Font:** Be Vietnam Pro, Arial, sans-serif.
 **Body Font:** Be Vietnam Pro, Arial, sans-serif.
 
-**Character:** Lora tạo nhịp tiêu đề có chiều sâu và cảm giác biên soạn. Be Vietnam Pro giữ chữ dữ liệu, nhãn và thao tác sắc nét khi hiển thị tiếng Việt ở mật độ cao.
+**Character:** Be Vietnam Pro tạo một hệ chữ sans-serif thống nhất cho phần mềm vận hành: tiêu đề đậm, gọn và có độ tương phản bằng kích thước; dữ liệu, nhãn và thao tác vẫn sắc nét khi hiển thị tiếng Việt ở mật độ cao.
 
 ### Hierarchy
 
-- **Display:** 700, 1.875rem, 1.2; dành cho tiêu đề trang và điểm vào công việc.
+- **Display:** 700, 1.875–2.125rem, 1.2; dành cho tiêu đề trang và điểm vào công việc.
 - **Headline:** 700, 1.25rem, 1.3; dành cho tiêu đề mục và đối tượng nghiệp vụ.
 - **Body:** 400–600, 0.875–1rem, 1.5; dành cho mô tả và dữ liệu đọc liên tục.
 - **Label:** 700, 0.75rem, giãn chữ nhẹ; dành cho meta và điều hướng phụ, không dùng để tạo “eyebrow” phía trên tiêu đề.
@@ -139,3 +139,4 @@ Các control dùng góc mềm 8–12px để dễ chạm nhưng không biến gi
 - **Don't** biến danh sách dữ liệu thành lưới thẻ bo tròn, bóng đổ và chỉ số trang trí.
 - **Don't** dùng gradient, màu accent bão hòa khắp màn hình hoặc badge nhiều màu không có ý nghĩa nghiệp vụ.
 - **Don't** đặt nhãn viết hoa trang trí phía trên mọi tiêu đề; tiêu đề phải nói thẳng công việc của trang.
+- **Don't** dùng serif trong dashboard hoặc màn hình vận hành; phân cấp bằng weight, size và khoảng trắng.
