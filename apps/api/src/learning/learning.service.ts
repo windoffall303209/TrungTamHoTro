@@ -1419,14 +1419,14 @@ export class LearningService {
     return this.gradeHistory.filter((item) => item.attemptId === attemptId).map((item) => ({ ...item }));
   }
 
-  async listTopics(role = "LEARNER"): Promise<ForumTopic[]> {
+  async listTopics(role = "LEARNER", actorId = this.userIdForRole(role)): Promise<ForumTopic[]> {
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.forumTopic.findMany({
         where: role === "LEARNER"
-          ? { status: "PUBLISHED", class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } } }
+          ? { status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
           : role === "INSTRUCTOR"
-            ? { class: { instructors: { some: { instructorId: "usr-instructor" } } } }
+            ? { class: { instructors: { some: { instructorId: actorId } } } }
             : undefined,
         orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
       });
@@ -1434,8 +1434,8 @@ export class LearningService {
     }
     return this.topics.filter((item) => {
       const classItem = this.classes.find((candidate) => candidate.id === item.classId);
-      if (role === "LEARNER") return item.status === "VISIBLE" && classItem?.learnerIds.includes("usr-learner");
-      if (role === "INSTRUCTOR") return classItem?.instructorIds.includes("usr-instructor");
+      if (role === "LEARNER") return item.status === "VISIBLE" && classItem?.learnerIds.includes(actorId);
+      if (role === "INSTRUCTOR") return classItem?.instructorIds.includes(actorId);
       return true;
     }).map((item) => ({ ...item, tags: [...item.tags] }));
   }
@@ -1444,6 +1444,7 @@ export class LearningService {
     classId: string,
     input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">,
     authorId = "usr-instructor",
+    authorRole = authorId === "usr-learner" ? "LEARNER" : "INSTRUCTOR",
   ): Promise<ForumTopic> {
     const safeTitle = this.validateForumContent(input.title, "Tiêu đề");
     const safeBody = this.validateForumContent(input.body, "Nội dung");
@@ -1454,8 +1455,8 @@ export class LearningService {
       });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
       if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      if (authorId === "usr-learner" && !classItem.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp này.");
-      if (authorId === "usr-instructor" && !classItem.instructors.some((item) => item.instructorId === authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
+      if (authorRole === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === authorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp này.");
+      if (authorRole === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
       await this.enforceForumPolicy(prisma, authorId, `${safeTitle} ${safeBody}`);
       const created = await prisma.forumTopic.create({
         data: {
@@ -1468,8 +1469,8 @@ export class LearningService {
     }
     const classItem = this.findClass(classId);
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    if (authorId === "usr-learner" && !classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp này.");
-    if (authorId === "usr-instructor" && !classItem.instructorIds.includes(authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
+    if (authorRole === "LEARNER" && !classItem.learnerIds.includes(authorId)) throw new NotFoundException("Học viên không thuộc lớp này.");
+    if (authorRole === "INSTRUCTOR" && !classItem.instructorIds.includes(authorId)) throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
     this.enforceMemoryForumPolicy(authorId, `${safeTitle} ${safeBody}`);
     const item: ForumTopic = { ...input, title: safeTitle, body: safeBody, id: id("topic"), classId, authorId, isLocked: false, status: "VISIBLE", createdAt: now() };
     this.topics.unshift(item);
@@ -1498,19 +1499,19 @@ export class LearningService {
     return { ...current, tags: [...current.tags] };
   }
 
-  async listPosts(topicId: string, role = "LEARNER"): Promise<ForumPost[]> {
+  async listPosts(topicId: string, role = "LEARNER", actorId = this.userIdForRole(role)): Promise<ForumPost[]> {
     const prisma = this.database();
     if (prisma) {
       const topic = await prisma.forumTopic.findUnique({ where: { id: topicId }, include: { class: { include: { enrollments: true, instructors: true } } } });
       if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
       if (role === "LEARNER" && topic.status !== "PUBLISHED") throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
-      this.assertForumClassAccess(topic.class, role);
+      this.assertForumClassAccess(topic.class, role, actorId);
       const rows = await prisma.forumPost.findMany({ where: { topicId }, include: { attachments: true, mentions: true }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => this.mapPost(row));
     }
     const topic = this.findTopic(topicId);
     if (role === "LEARNER" && topic.status !== "VISIBLE") throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
-    this.assertMemoryForumClassAccess(topic.classId, role);
+    this.assertMemoryForumClassAccess(topic.classId, role, actorId);
     return this.posts.filter((item) => item.topicId === topicId).map((item) => ({
       ...item,
       body: item.status === "HIDDEN" ? "[Nội dung đã bị ẩn]" : item.body,
@@ -3491,15 +3492,15 @@ export class LearningService {
     return ["spam", "lừa đảo"];
   }
 
-  private assertForumClassAccess(classItem: ClassWithMembers, role: string): void {
-    if (role === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === "usr-learner" && item.status === "ACTIVE")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
-    if (role === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === "usr-instructor")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
+  private assertForumClassAccess(classItem: ClassWithMembers, role: string, actorId: string): void {
+    if (role === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === actorId && item.status === "ACTIVE")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
+    if (role === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
   }
 
-  private assertMemoryForumClassAccess(classId: string, role: string): void {
+  private assertMemoryForumClassAccess(classId: string, role: string, actorId: string): void {
     const classItem = this.findClass(classId);
-    if (role === "LEARNER" && !classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
-    if (role === "INSTRUCTOR" && !classItem.instructorIds.includes("usr-instructor")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
+    if (role === "LEARNER" && !classItem.learnerIds.includes(actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
+    if (role === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
   }
 
   private toStringArray(value: Prisma.JsonValue): string[] {
