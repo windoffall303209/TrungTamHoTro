@@ -12,7 +12,8 @@ if (!defaultPassword || defaultPassword.length < 12) throw new Error("SEED_DEFAU
 const database = readDatabaseConnection(process.env);
 const adapter = new PrismaMariaDb({ ...database, connectionLimit: 4, allowPublicKeyRetrieval: true });
 const prisma = new PrismaClient({ adapter });
-const passwordHash = scryptSync(defaultPassword, "wind-edu-seed-v1", 64).toString("hex");
+const seedPasswordSalt = "wind-edu-seed-v1";
+const passwordHash = `scrypt:${seedPasswordSalt}:${scryptSync(defaultPassword, seedPasswordSalt, 64).toString("hex")}`;
 const questionHash = (content) => createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
 
 const permissions = ["user:view", "user:create", "user:update", "user:suspend", "role:view", "role:update", "course:view", "course:manage", "class:view", "class:manage", "material:view", "material:manage", "question:view", "question:manage", "exam:view", "exam:manage", "forum:view", "forum:post", "forum:moderate", "session:view", "session:manage", "report:view", "support:create", "support:manage", "system:configure"];
@@ -39,7 +40,7 @@ async function seed() {
     { id: "usr-learner", email: "learner@wind.edu.vn", displayName: "Lê Hoàng Nam", role: "LEARNER" },
   ];
   for (const input of users) {
-    const user = await prisma.user.upsert({ where: { email: input.email }, update: { displayName: input.displayName, status: "ACTIVE" }, create: { id: input.id, email: input.email, displayName: input.displayName, passwordHash } });
+    const user = await prisma.user.upsert({ where: { email: input.email }, update: { displayName: input.displayName, status: "ACTIVE", passwordHash }, create: { id: input.id, email: input.email, displayName: input.displayName, passwordHash } });
     const role = await prisma.role.findUniqueOrThrow({ where: { code: input.role } });
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   }

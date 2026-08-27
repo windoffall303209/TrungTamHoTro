@@ -8,12 +8,13 @@ const notify = vi.fn();
 vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args) }));
 vi.mock("@/providers/app-provider", () => ({
   useApp: () => ({
-    session: { roleCode: "LEARNER", user: { id: "usr-learner", name: "Lê Hoàng Nam", roleName: "Học viên" } },
+    session: { roleCode: "LEARNER", availableRoles: [{ code: "LEARNER", name: "Học viên" }], user: { id: "usr-learner", name: "Lê Hoàng Nam", roleName: "Học viên" } },
     setRole: vi.fn(),
+    logout: vi.fn(),
     notify,
   }),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard", useRouter: () => ({ replace: vi.fn() }) }));
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {

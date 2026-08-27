@@ -12,6 +12,11 @@ export class CreateUserDto {
 
   @IsIn(ROLE_CODES)
   roleCode!: RoleCode;
+
+  @IsOptional()
+  @IsString()
+  @Length(8, 128)
+  initialPassword?: string;
 }
 
 export class UpdateUserDto {

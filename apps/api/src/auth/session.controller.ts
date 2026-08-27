@@ -1,39 +1,52 @@
-import { Controller, ForbiddenException, Get, Headers, Optional } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Post, Res } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { DEFAULT_ROLE_PERMISSIONS, ROLE_CODES, type RoleCode } from "./permissions.js";
-import { PrismaService } from "../database/prisma.service.js";
+import type { Response } from "express";
+import { AuthService } from "./auth.service.js";
+import { LoginDto, RegisterDto } from "./auth.dto.js";
 
-const profiles: Record<RoleCode, { id: string; name: string; email: string; roleName: string }> = {
-  SYSTEM_ADMIN: { id: "usr-admin", name: "Wind Of Fall", email: "admin@wind.edu.vn", roleName: "Quản trị hệ thống" },
-  CENTER_MANAGER: { id: "usr-manager", name: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleName: "Quản lý trung tâm" },
-  INSTRUCTOR: { id: "usr-instructor", name: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleName: "Giảng viên" },
-  LEARNER: { id: "usr-learner", name: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleName: "Học viên" },
-};
-
-@ApiTags("Session")
-@Controller("auth/session")
+@ApiTags("Authentication")
+@Controller("auth")
 export class SessionController {
-  constructor(@Optional() private readonly prisma?: PrismaService) {}
+  constructor(private readonly auth: AuthService) {}
 
-  @Get()
-  @ApiOperation({ summary: "Lấy phiên demo theo vai trò" })
-  async getSession(@Headers("x-role-code") rawRole?: string): Promise<object> {
-    const roleCode = ROLE_CODES.includes(rawRole as RoleCode) ? rawRole as RoleCode : "LEARNER";
-    if (this.prisma?.isStartupConnectionEnabled()) {
-      const profile = profiles[roleCode];
-      const user = await this.prisma.user.findFirst({
-        where: { id: profile.id, status: "ACTIVE", roles: { some: { role: { code: roleCode } } } },
-        include: { roles: { where: { role: { code: roleCode } }, include: { role: { include: { permissions: { include: { permission: true } } } } }, take: 1 } },
-      });
-      if (!user) throw new ForbiddenException("Tài khoản demo không hoạt động hoặc không còn vai trò được yêu cầu.");
-      const role = user.roles[0]?.role;
-      if (!role) throw new ForbiddenException("Tài khoản chưa có vai trò hợp lệ.");
-      return {
-        user: { id: user.id, name: user.displayName, email: user.email, roleName: role.name },
-        roleCode,
-        permissions: role.permissions.map(({ permission }) => permission.code),
-      };
-    }
-    return { user: profiles[roleCode], roleCode, permissions: DEFAULT_ROLE_PERMISSIONS[roleCode] };
+  @Post("login")
+  @HttpCode(200)
+  @ApiOperation({ summary: "Đăng nhập bằng email và mật khẩu" })
+  async login(@Body() input: LoginDto, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.login(input.email, input.password, input.rememberMe);
+    this.setSessionCookie(response, result.token, result.maxAgeMs);
+    return result.session;
+  }
+
+  @Post("register")
+  @ApiOperation({ summary: "Đăng ký tài khoản học viên" })
+  async register(@Body() input: RegisterDto, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.register(input.displayName, input.email, input.password);
+    this.setSessionCookie(response, result.token, result.maxAgeMs);
+    return result.session;
+  }
+
+  @Get("session")
+  @ApiOperation({ summary: "Lấy phiên đăng nhập hiện tại" })
+  getSession(@Headers("cookie") cookies?: string, @Headers("x-role-code") roleCode?: string): Promise<object> {
+    return this.auth.resolve(this.auth.readToken(cookies), roleCode);
+  }
+
+  @Post("logout")
+  @HttpCode(204)
+  @ApiOperation({ summary: "Đăng xuất và thu hồi phiên" })
+  async logout(@Headers("cookie") cookies: string | undefined, @Res({ passthrough: true }) response: Response): Promise<void> {
+    await this.auth.logout(this.auth.readToken(cookies));
+    response.clearCookie(this.auth.cookieName(), { httpOnly: true, sameSite: "lax", path: "/" });
+  }
+
+  private setSessionCookie(response: Response, token: string, maxAge: number): void {
+    response.cookie(this.auth.cookieName(), token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge,
+    });
   }
 }

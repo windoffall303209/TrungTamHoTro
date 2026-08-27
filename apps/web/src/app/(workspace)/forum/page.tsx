@@ -99,7 +99,7 @@ export default function ForumPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
-  const choose = async (topic: ForumTopic) => {
+  const choose = useCallback(async (topic: ForumTopic) => {
     setSelected(topic);
     setAttachmentIds([]);
     setMentionedUserIds([]);
@@ -116,11 +116,14 @@ export default function ForumPage() {
         "error",
       );
     }
-  };
+  }, [notify, session.roleCode]);
   useEffect(() => {
     const firstTopic = topics[0];
-    if (!selected && firstTopic) void choose(firstTopic);
-  }, [selected, topics]);
+    if (!selected && firstTopic) {
+      const timer = window.setTimeout(() => void choose(firstTopic), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [choose, selected, topics]);
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
