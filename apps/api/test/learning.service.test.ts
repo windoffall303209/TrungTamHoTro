@@ -67,6 +67,30 @@ describe("LearningService", () => {
     expect(await service.listLearnerResults("learner-second")).toHaveLength(1);
   });
 
+  it("cô lập chủ đề, phản hồi và báo cáo diễn đàn theo thành viên thật", async () => {
+    const service = new LearningService();
+    await service.enrollLearner("class-web-01", "learner-forum");
+    const topic = await service.createTopic("class-web-01", {
+      title: "Chủ đề của học viên thứ hai",
+      body: "Trao đổi cách tổ chức API cho bài tập nhóm.",
+      tags: ["api"],
+      isPinned: false,
+    }, "learner-forum", "LEARNER");
+
+    expect((await service.listTopics("LEARNER", "learner-forum")).some((item) => item.id === topic.id)).toBe(true);
+    expect(await service.listTopics("LEARNER", "learner-outside")).toHaveLength(0);
+    await expect(service.listPosts(topic.id, "LEARNER", "learner-outside")).rejects.toThrow(NotFoundException);
+
+    const post = await service.createPost(topic.id, "Em bổ sung một phương án triển khai hợp lệ.", "learner-forum");
+    await expect(service.updatePost(post.id, "Sửa bài của tài khoản khác.", "usr-learner")).rejects.toThrow(NotFoundException);
+    await expect(service.deletePost(post.id, "usr-learner")).rejects.toThrow(NotFoundException);
+    expect((await service.updatePost(post.id, "Em cập nhật phương án triển khai chi tiết hơn.", "learner-forum")).authorId).toBe("learner-forum");
+
+    const report = await service.reportContent({ targetType: "TOPIC", targetId: topic.id, reporterId: "learner-forum", reason: "OTHER", details: "Nội dung cần được quản lý xem lại." });
+    expect((await service.listLearnerReports("learner-forum"))[0]?.id).toBe(report.id);
+    expect(await service.listLearnerReports("usr-learner")).toHaveLength(0);
+  });
+
   it("chặn lịch buổi học trùng", async () => {
     vi.useFakeTimers();
     try {

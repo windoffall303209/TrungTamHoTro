@@ -17,33 +17,33 @@ export class EngagementController {
   constructor(private readonly learning: LearningService) {}
 
   @Get("forum/topics") @RequirePermissions("forum:view")
-  listTopics(@Headers("x-role-code") role = "LEARNER"): Promise<ForumTopic[]> { return this.learning.listTopics(role); }
+  listTopics(@CurrentSession() session: AuthenticatedSession): Promise<ForumTopic[]> { return this.learning.listTopics(session.roleCode, session.user.id); }
 
   @Post("instructor/classes/:classId/forum/topics") @RequirePermissions("forum:moderate")
-  createTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): Promise<ForumTopic> { return this.learning.createTopic(classId, input); }
+  createTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.createTopic(classId, input, session.user.id, session.roleCode); }
 
   @Post("learner/classes/:classId/forum/topics") @RequirePermissions("forum:post")
-  createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto): Promise<ForumTopic> { return this.learning.createTopic(classId, { ...input, isPinned: false }, "usr-learner"); }
+  createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.createTopic(classId, { ...input, isPinned: false }, session.user.id, session.roleCode); }
 
   @Patch("instructor/forum/topics/:topicId") @RequirePermissions("forum:moderate")
-  moderateTopic(@Param("topicId") topicId: string, @Body() input: ModerateTopicDto): Promise<ForumTopic> { return this.learning.moderateTopic(topicId, input); }
+  moderateTopic(@Param("topicId") topicId: string, @Body() input: ModerateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.moderateTopic(topicId, input, session.user.id); }
 
   @Get("forum/topics/:topicId/posts") @RequirePermissions("forum:view")
-  listPosts(@Param("topicId") topicId: string, @Headers("x-role-code") role = "LEARNER"): Promise<ForumPost[]> { return this.learning.listPosts(topicId, role); }
+  listPosts(@Param("topicId") topicId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost[]> { return this.learning.listPosts(topicId, session.roleCode, session.user.id); }
 
   @Post("learner/forum/topics/:topicId/posts") @RequirePermissions("forum:post")
-  createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto): Promise<ForumPost> {
-    return this.learning.createPost(topicId, input.body, "usr-learner", input.parentId, input.attachmentIds, input.mentionedUserIds);
+  createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> {
+    return this.learning.createPost(topicId, input.body, session.user.id, input.parentId, input.attachmentIds, input.mentionedUserIds);
   }
 
   @Patch("learner/forum/posts/:postId") @RequirePermissions("forum:post")
-  updatePost(@Param("postId") postId: string, @Body() input: UpdatePostDto): Promise<ForumPost> { return this.learning.updatePost(postId, input.body); }
+  updatePost(@Param("postId") postId: string, @Body() input: UpdatePostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.updatePost(postId, input.body, session.user.id); }
 
   @Post("learner/forum/posts/:postId/delete") @RequirePermissions("forum:post")
-  deletePost(@Param("postId") postId: string): Promise<ForumPost> { return this.learning.deletePost(postId); }
+  deletePost(@Param("postId") postId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.deletePost(postId, session.user.id); }
 
   @Post("instructor/forum/posts/:postId/hide") @RequirePermissions("forum:moderate")
-  hidePost(@Param("postId") postId: string, @Body() input: HideForumPostDto): Promise<ForumPost> { return this.learning.hidePost(postId, input.reason); }
+  hidePost(@Param("postId") postId: string, @Body() input: HideForumPostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.hidePost(postId, input.reason, session.user.id); }
 
   @Get("learner/notifications") @RequirePermissions("forum:view")
   listNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> { return this.learning.listNotifications(session.user.id); }
@@ -64,10 +64,10 @@ export class EngagementController {
   }
 
   @Post("learner/content-reports") @RequirePermissions("forum:view")
-  reportContent(@Body() input: CreateReportDto): Promise<ContentReport> { return this.learning.reportContent({ ...input, reporterId: "usr-learner" }); }
+  reportContent(@Body() input: CreateReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.reportContent({ ...input, reporterId: session.user.id }); }
 
   @Get("learner/content-reports") @RequirePermissions("forum:view")
-  listLearnerReports(): Promise<ContentReport[]> { return this.learning.listLearnerReports(); }
+  listLearnerReports(@CurrentSession() session: AuthenticatedSession): Promise<ContentReport[]> { return this.learning.listLearnerReports(session.user.id); }
 
   @Get("manager/forum/reports") @RequirePermissions("forum:moderate")
   listReports(): Promise<ContentReport[]> { return this.learning.listReports(); }
@@ -76,13 +76,13 @@ export class EngagementController {
   getReportContext(@Param("reportId") reportId: string): Promise<ModerationContext> { return this.learning.getReportContext(reportId); }
 
   @Post("manager/forum/reports/:reportId/claim") @RequirePermissions("forum:moderate")
-  claimReport(@Param("reportId") reportId: string): Promise<ContentReport> { return this.learning.claimReport(reportId); }
+  claimReport(@Param("reportId") reportId: string, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.claimReport(reportId, session.user.id); }
 
   @Post("manager/forum/reports/:reportId/resolve") @RequirePermissions("forum:moderate")
-  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution); }
+  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution, session.user.id); }
 
   @Post("learner/content-reports/:reportId/appeal") @RequirePermissions("forum:view")
-  appealReport(@Param("reportId") reportId: string, @Body() input: AppealReportDto): Promise<ContentReport> { return this.learning.appealReport(reportId, input.reason); }
+  appealReport(@Param("reportId") reportId: string, @Body() input: AppealReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.appealReport(reportId, input.reason, session.user.id); }
 
   @Get("sessions") @RequirePermissions("session:view")
   listSessions(@Headers("x-role-code") role = "LEARNER"): Promise<LiveSession[]> { return this.learning.listSessions(role); }
