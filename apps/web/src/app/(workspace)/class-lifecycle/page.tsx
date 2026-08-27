@@ -108,10 +108,10 @@ export default function ClassLifecyclePage() {
             {classes.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name} · {item.status}</option>)}
           </select>
         </Field>
-        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString("vi-VN")} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
+        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d5dfe2] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString("vi-VN")} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
       </section>
 
-      {readiness ? <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{metrics.map(([label, value]) => <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4" key={label}><p className={`text-2xl font-extrabold ${value ? "text-rose-700" : "text-emerald-700"}`}>{value}</p><p className="mt-1 text-xs font-bold text-slate-500">{label}</p></div>)}</div> : null}
+      {readiness ? <div className="metric-ledger mt-6 [--metric-columns:5]">{metrics.map(([label, value]) => <div key={label}><p className={`tabular text-2xl font-extrabold ${value ? "text-rose-700" : "text-emerald-700"}`}>{value}</p><p className="mt-1 text-xs font-bold text-slate-500">{label}</p></div>)}</div> : null}
 
       <div className="mt-7 grid gap-7 lg:grid-cols-[1fr_.9fr]">
         <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">

@@ -454,8 +454,9 @@ export default function ExamsPage() {
           <Field label="Câu hỏi">
             <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
               {questions.map((q) => (
-                <label className="flex gap-2 text-sm" key={q.id}>
+                <label className="flex min-h-11 items-center gap-3 rounded-lg px-2 text-sm hover:bg-slate-50" key={q.id}>
                   <input
+                    className="size-5 shrink-0 accent-sky-600"
                     type="checkbox"
                     checked={form.questionIds.includes(q.id)}
                     onChange={(e) =>
@@ -472,7 +473,7 @@ export default function ExamsPage() {
               ))}
             </div>
           </Field>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Phút">
               <input
                 className={inputClass}
@@ -508,7 +509,7 @@ export default function ExamsPage() {
               />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Mở đề">
               <input
                 className={inputClass}
@@ -528,7 +529,7 @@ export default function ExamsPage() {
               />
             </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input checked={form.shuffleQuestions} onChange={(event) => setForm({ ...form, shuffleQuestions: event.target.checked })} type="checkbox" />Xáo thứ tự câu hỏi theo seed có thể tái lập</label>
+          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700"><input checked={form.shuffleQuestions} className="size-5 accent-sky-600" onChange={(event) => setForm({ ...form, shuffleQuestions: event.target.checked })} type="checkbox" />Xáo thứ tự câu hỏi theo seed có thể tái lập</label>
           {form.shuffleQuestions ? <Field label="Random seed"><input className={inputClass} minLength={3} required value={form.randomSeed} onChange={(event) => setForm({ ...form, randomSeed: event.target.value })} /></Field> : null}
           <Button
             disabled={form.questionIds.length === 0}

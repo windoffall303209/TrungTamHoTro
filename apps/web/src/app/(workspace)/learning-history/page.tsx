@@ -112,12 +112,12 @@ export default function LearningHistoryPage() {
         title="Lịch sử học tập"
         description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
       />
-      <div className="space-y-4">
-        {items.map((item) => {
+      <div className="section-ledger mt-7">
+        {items.length ? items.map((item) => {
           const summary = summaries[item.id];
           return (
             <article
-              className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5"
+              className="bg-[#fffdfa]/65 p-5"
               key={item.id}
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -139,23 +139,23 @@ export default function LearningHistoryPage() {
                 </Button>
               </div>
               {summary ? (
-                <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-3">
-                  <div className="rounded-xl bg-slate-50 p-4">
+                <div className="mt-5 grid border-t border-slate-100 pt-5 sm:grid-cols-3 sm:divide-x sm:divide-[#d5dfe2]">
+                  <div className="px-4 py-3 sm:first:pl-0">
                     <p className="text-2xl font-extrabold">
                       {summary.attendance.attendedMinutes}&apos;
                     </p>
                     <p className="text-xs text-slate-500">Thời lượng tham dự</p>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-4">
+                  <div className="px-4 py-3">
                     <StatusBadge status={summary.attendance.status} />
                     <p className="mt-2 text-xs text-slate-500">
                       Trạng thái điểm danh
                     </p>
                   </div>
-                  <div className="rounded-xl bg-slate-50 p-4">
+                  <div className="px-4 py-3">
                     {summary.recordingAvailable ? (
                       <button
-                        className="inline-flex items-center gap-2 text-sm font-bold text-sky-700"
+                        className="action-link px-0 text-sm"
                         onClick={() => void openRecording(item)}
                         type="button"
                       >
@@ -200,7 +200,7 @@ export default function LearningHistoryPage() {
               ) : null}
             </article>
           );
-        })}
+        }) : <p className="empty-copy">Chưa có buổi học nào trong lịch sử.</p>}
       </div>
       <Modal
         open={Boolean(appealSession)}

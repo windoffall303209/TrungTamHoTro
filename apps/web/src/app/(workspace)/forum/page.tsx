@@ -58,6 +58,9 @@ export default function ForumPage() {
   });
   const load = useCallback(async () => {
     setLoading(true);
+    setTopics([]);
+    setSelected(null);
+    setPosts([]);
     try {
       const [topicData, classData, reportData, materialData, notificationData] = await Promise.all([
         apiRequest<ForumTopic[]>("/forum/topics", {
@@ -114,6 +117,10 @@ export default function ForumPage() {
       );
     }
   };
+  useEffect(() => {
+    const firstTopic = topics[0];
+    if (!selected && firstTopic) void choose(firstTopic);
+  }, [selected, topics]);
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -308,7 +315,7 @@ export default function ForumPage() {
           <div className="mt-2 flex flex-wrap gap-2">
             {notifications.map((item) => (
               <button
-                className={`rounded-full px-3 py-1.5 text-xs font-bold ${item.readAt ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-800"}`}
+                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-800"}`}
                 key={item.id}
                 onClick={() => void markNotificationRead(item)}
                 type="button"
@@ -324,10 +331,10 @@ export default function ForumPage() {
           <h2 className="mb-3 text-lg font-extrabold tracking-tight text-rose-700">
             Báo cáo cần xử lý
           </h2>
-          <div className="space-y-2">
+          <div className="divide-y divide-rose-200 border-y border-rose-200 bg-rose-50">
             {reports.map((item) => (
               <div
-                className="flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50 p-4"
+                className="flex items-center justify-between gap-4 p-4"
                 key={item.id}
               >
                 <div>
@@ -350,15 +357,17 @@ export default function ForumPage() {
           </div>
         </section>
       ) : null}
-      {learner && reports.length ? <div className="mb-6 space-y-2 border-y border-slate-200 py-3">{reports.map((item) => <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600" key={item.id}><span className="inline-flex items-center gap-2"><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>{(["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt) ? <Button className="min-h-8 px-3 text-xs" onClick={() => setAppealTarget(item)} variant="ghost">Kháng nghị</Button> : null}</div>)}</div> : null}
+      {learner && reports.length ? <div className="mb-6 space-y-2 border-y border-slate-200 py-3">{reports.map((item) => <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600" key={item.id}><span className="inline-flex items-center gap-2"><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>{(["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt) ? <Button className="px-3 text-xs" onClick={() => setAppealTarget(item)} variant="ghost">Kháng nghị</Button> : null}</div>)}</div> : null}
       <SectionState loading={loading} empty={topics.length === 0}>
         <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
           <div className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
             {topics.map((topic) => (
+              <article className={`data-row border-b border-[#d5dfe2] last:border-b-0 ${selected?.id === topic.id ? "bg-[#f8ece6]" : "bg-transparent"}`} key={topic.id}>
               <button
-                className={`data-row w-full border-b border-[#d5dfe2] p-5 text-left transition-colors last:border-b-0 ${selected?.id === topic.id ? "bg-[#f8ece6]" : "bg-transparent"}`}
-                key={topic.id}
+                aria-pressed={selected?.id === topic.id}
+                className="w-full p-5 pb-3 text-left"
                 onClick={() => void choose(topic)}
+                type="button"
               >
                 <div className="flex items-center gap-2 text-xs font-bold text-sky-700">
                   {topic.isPinned ? (
@@ -373,19 +382,9 @@ export default function ForumPage() {
                 <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">
                   {topic.body}
                 </p>
-                {learner ? (
-                  <span
-                    className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-rose-600"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setReportTarget(topic);
-                    }}
-                  >
-                    <Flag size={13} />
-                    Báo cáo
-                  </span>
-                ) : null}
               </button>
+              {learner ? <button className="action-link mb-3 ml-3" onClick={() => setReportTarget(topic)} type="button"><Flag size={13} />Báo cáo</button> : null}
+              </article>
             ))}
           </div>
           <section className="min-h-80 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5">
@@ -397,7 +396,7 @@ export default function ForumPage() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <StatusBadge status={selected.isLocked ? "LOCKED" : "ACTIVE"} />
                   {selected.isPinned ? <span className="inline-flex items-center gap-1 text-xs font-bold text-sky-700"><Pin size={13} />Đã ghim</span> : null}
-                  {instructor ? <><Button className="min-h-8 px-3 text-xs" onClick={() => setTopicAction({ isLocked: !selected.isLocked, label: selected.isLocked ? "Mở khóa chủ đề" : "Khóa chủ đề" })} variant="secondary">{selected.isLocked ? <Unlock size={14} /> : <Lock size={14} />}{selected.isLocked ? "Mở khóa" : "Khóa"}</Button><Button className="min-h-8 px-3 text-xs" onClick={() => setTopicAction({ isPinned: !selected.isPinned, label: selected.isPinned ? "Bỏ ghim chủ đề" : "Ghim chủ đề" })} variant="ghost"><Pin size={14} />{selected.isPinned ? "Bỏ ghim" : "Ghim"}</Button></> : null}
+                  {instructor ? <><Button className="px-3 text-xs" onClick={() => setTopicAction({ isLocked: !selected.isLocked, label: selected.isLocked ? "Mở khóa chủ đề" : "Khóa chủ đề" })} variant="secondary">{selected.isLocked ? <Unlock size={14} /> : <Lock size={14} />}{selected.isLocked ? "Mở khóa" : "Khóa"}</Button><Button className="px-3 text-xs" onClick={() => setTopicAction({ isPinned: !selected.isPinned, label: selected.isPinned ? "Bỏ ghim chủ đề" : "Ghim chủ đề" })} variant="ghost"><Pin size={14} />{selected.isPinned ? "Bỏ ghim" : "Ghim"}</Button></> : null}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   {selected.body}
@@ -406,7 +405,7 @@ export default function ForumPage() {
                 <div className="space-y-3">
                   {posts.length ? (
                     posts.map((item) => (
-                      <div className={`rounded-xl bg-slate-50 p-4 ${item.parentId ? "ml-6 border-t border-sky-200" : ""}`} key={item.id}>
+                      <article className={`border-b border-[#d5dfe2] py-4 last:border-b-0 ${item.parentId ? "ml-6 border-t border-sky-200 pl-4" : ""}`} key={item.id}>
                         <p className="text-sm leading-6">{item.body}</p>
                         {item.mentionedUserIds.length ? (
                           <p className="mt-2 text-xs font-bold text-violet-700">
@@ -426,8 +425,8 @@ export default function ForumPage() {
                         <p className="mt-2 text-[10px] font-bold text-slate-400">
                           {new Date(item.createdAt).toLocaleString("vi-VN")}{item.editedAt ? ` · đã sửa ${item.editCount ?? 1} lần` : ""}{item.deletedAt ? " · đã xóa mềm" : ""}
                         </p>
-                        {!item.deletedAt && item.status === "VISIBLE" ? <div className="mt-2 flex flex-wrap gap-3">{learner && !selected.isLocked ? <><button className="text-xs font-bold text-sky-700" onClick={() => setReplyTo(item)} type="button">Trả lời</button>{item.authorId === "usr-learner" ? <><button className="inline-flex items-center gap-1 text-xs font-bold text-amber-700" onClick={() => { setEditingPost(item); setEditBody(item.body); }} type="button"><Pencil size={12} />Sửa</button><button className="inline-flex items-center gap-1 text-xs font-bold text-rose-700" onClick={() => void deletePost(item)} type="button"><Trash2 size={12} />Xóa</button></> : null}</> : null}{instructor ? <button className="inline-flex items-center gap-1 text-xs font-bold text-rose-700" onClick={() => setHideTarget(item)} type="button"><EyeOff size={12} />Ẩn có lý do</button> : null}</div> : null}
-                      </div>
+                        {!item.deletedAt && item.status === "VISIBLE" ? <div className="mt-2 flex flex-wrap gap-1">{learner && !selected.isLocked ? <><button className="action-link" onClick={() => setReplyTo(item)} type="button">Trả lời</button>{item.authorId === "usr-learner" ? <><button className="action-link text-amber-700" onClick={() => { setEditingPost(item); setEditBody(item.body); }} type="button"><Pencil size={12} />Sửa</button><button className="action-link text-rose-700" onClick={() => void deletePost(item)} type="button"><Trash2 size={12} />Xóa</button></> : null}</> : null}{instructor ? <button className="action-link text-rose-700" onClick={() => setHideTarget(item)} type="button"><EyeOff size={12} />Ẩn có lý do</button> : null}</div> : null}
+                      </article>
                     ))
                   ) : (
                     <p className="text-sm text-slate-400">Chưa có phản hồi.</p>
@@ -435,7 +434,7 @@ export default function ForumPage() {
                 </div>
                 {learner ? (
                   <form className="mt-5" onSubmit={(e) => void createPost(e)}>
-                    {replyTo ? <div className="mb-2 flex items-center justify-between rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800"><span>Đang trả lời: {replyTo.body.slice(0, 60)}</span><button className="font-bold" onClick={() => setReplyTo(null)} type="button">Hủy</button></div> : null}
+                    {replyTo ? <div className="mb-2 flex items-center justify-between rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800"><span>Đang trả lời: {replyTo.body.slice(0, 60)}</span><button className="action-link" onClick={() => setReplyTo(null)} type="button">Hủy</button></div> : null}
                     <div className="flex gap-2">
                     <input
                       className={inputClass}
@@ -531,8 +530,9 @@ export default function ForumPage() {
             />
           </Field>
           {instructor ? (
-            <label className="flex gap-2 text-sm font-bold">
+            <label className="flex min-h-11 items-center gap-3 text-sm font-bold">
               <input
+                className="size-5 accent-sky-600"
                 type="checkbox"
                 checked={form.isPinned}
                 onChange={(e) =>
