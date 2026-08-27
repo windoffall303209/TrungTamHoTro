@@ -40,7 +40,7 @@ export interface Exam {
 
 export interface ExamAttempt {
   id: string; examId: string; learnerId: string; answers: Record<string, string[]>;
-  status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string; score?: number; feedback?: string; gradePublishedAt?: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string; score?: number; feedback?: string; gradePublishedAt?: string; serverTime?: string; lastSavedAt?: string; submissionReceipt?: string;
 }
 
 export interface RegradeRequest { id: string; attemptId: string; learnerId: string; reason: string; status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED"; resolution?: string; createdAt: string }

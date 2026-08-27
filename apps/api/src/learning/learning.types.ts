@@ -54,6 +54,7 @@ export interface ExamAttempt {
   status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string;
   score?: number; feedback?: string;
   gradePublishedAt?: string;
+  serverTime?: string; lastSavedAt?: string; submissionReceipt?: string;
 }
 
 export interface RegradeRequest {

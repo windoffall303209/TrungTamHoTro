@@ -41,10 +41,13 @@ describe("LearningService", () => {
   it("lưu đáp án, nộp một lần và chấm tự động", async () => {
     const service = new LearningService();
     const attempt = await service.startAttempt("exam-mid-web");
-    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    const saved = await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
+    expect(saved.lastSavedAt).toBeTruthy();
+    expect(saved.serverTime).toBeTruthy();
     await service.saveAnswer(attempt.id, "q-db-01", ["Đúng"]);
     const result = await service.submitAttempt(attempt.id);
     expect(result.score).toBe(10);
+    expect(result.submissionReceipt).toMatch(/^SUB-[A-F0-9]{16}$/);
     await expect(service.submitAttempt(attempt.id)).rejects.toThrow(ConflictException);
   });
 
