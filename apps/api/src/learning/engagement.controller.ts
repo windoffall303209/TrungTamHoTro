@@ -1,7 +1,9 @@
 import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { RequirePermissions } from "../auth/require-permissions.decorator.js";
+import type { AuthenticatedSession } from "../auth/auth.service.js";
+import { CurrentSession } from "../auth/current-session.decorator.js";
+import { RequireAuthentication, RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
   AppealReportDto, AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
   CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
@@ -44,21 +46,21 @@ export class EngagementController {
   hidePost(@Param("postId") postId: string, @Body() input: HideForumPostDto): Promise<ForumPost> { return this.learning.hidePost(postId, input.reason); }
 
   @Get("learner/notifications") @RequirePermissions("forum:view")
-  listNotifications(): Promise<LearningNotification[]> { return this.learning.listNotifications(); }
+  listNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> { return this.learning.listNotifications(session.user.id); }
 
   @Patch("learner/notifications/:notificationId/read") @RequirePermissions("forum:view")
-  markNotificationRead(@Param("notificationId") notificationId: string): Promise<LearningNotification> {
-    return this.learning.markNotificationRead(notificationId);
+  markNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {
+    return this.learning.markNotificationRead(notificationId, session.user.id);
   }
 
-  @Get("notifications")
-  listRoleNotifications(@Headers("x-role-code") role = "LEARNER"): Promise<LearningNotification[]> {
-    return this.learning.listRoleNotifications(role);
+  @Get("notifications") @RequireAuthentication()
+  listRoleNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> {
+    return this.learning.listNotifications(session.user.id);
   }
 
-  @Patch("notifications/:notificationId/read")
-  markRoleNotificationRead(@Param("notificationId") notificationId: string, @Headers("x-role-code") role = "LEARNER"): Promise<LearningNotification> {
-    return this.learning.markRoleNotificationRead(notificationId, role);
+  @Patch("notifications/:notificationId/read") @RequireAuthentication()
+  markRoleNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {
+    return this.learning.markNotificationRead(notificationId, session.user.id);
   }
 
   @Post("learner/content-reports") @RequirePermissions("forum:view")
@@ -147,37 +149,37 @@ export class EngagementController {
     return this.learning.requestAttendanceAppeal(sessionId, input.reason);
   }
 
-  @Get("support/tickets")
-  listTickets(@Headers("x-role-code") role = "LEARNER"): Promise<SupportTicket[]> { return this.learning.listTickets(role); }
+  @Get("support/tickets") @RequireAuthentication()
+  listTickets(@CurrentSession() session: AuthenticatedSession): Promise<SupportTicket[]> { return this.learning.listTickets(session.roleCode, session.user.id); }
 
   @Post("support/tickets") @RequirePermissions("support:create")
-  createTicket(@Body() input: CreateTicketDto): Promise<SupportTicket> { return this.learning.createTicket(input); }
+  createTicket(@Body() input: CreateTicketDto, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.createTicket(input, session.user.id); }
 
   @Post("support/tickets/:ticketId/attachments") @RequirePermissions("support:create")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
   addSupportAttachment(
     @Param("ticketId") ticketId: string,
-    @Headers("x-role-code") role = "LEARNER",
+    @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<SupportAttachment> {
     if (!file) throw new BadRequestException("Cần chọn một tệp bằng chứng.");
-    return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, role);
+    return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
   }
 
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
   updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input); }
 
   @Post("support/tickets/:ticketId/close") @RequirePermissions("support:create")
-  closeTicket(@Param("ticketId") ticketId: string): Promise<SupportTicket> { return this.learning.closeTicketByReporter(ticketId); }
+  closeTicket(@Param("ticketId") ticketId: string, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.closeTicketByReporter(ticketId, session.user.id); }
 
-  @Get("support/tickets/:ticketId/comments")
-  listTicketComments(@Param("ticketId") ticketId: string, @Headers("x-role-code") role = "LEARNER"): Promise<TicketComment[]> {
-    return this.learning.listTicketComments(ticketId, role);
+  @Get("support/tickets/:ticketId/comments") @RequireAuthentication()
+  listTicketComments(@Param("ticketId") ticketId: string, @CurrentSession() session: AuthenticatedSession): Promise<TicketComment[]> {
+    return this.learning.listTicketComments(ticketId, session.roleCode, session.user.id);
   }
 
-  @Post("support/tickets/:ticketId/comments")
-  addTicketComment(@Param("ticketId") ticketId: string, @Headers("x-role-code") role = "LEARNER", @Body() input: CreateTicketCommentDto): Promise<TicketComment> {
-    return this.learning.addTicketComment(ticketId, input.body, role);
+  @Post("support/tickets/:ticketId/comments") @RequireAuthentication()
+  addTicketComment(@Param("ticketId") ticketId: string, @Body() input: CreateTicketCommentDto, @CurrentSession() session: AuthenticatedSession): Promise<TicketComment> {
+    return this.learning.addTicketComment(ticketId, input.body, session.roleCode, session.user.id);
   }
 
   @Get("reports/operations") @RequirePermissions("report:view")
