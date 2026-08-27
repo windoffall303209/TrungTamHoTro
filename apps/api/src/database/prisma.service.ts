@@ -10,14 +10,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
   private readonly connectOnStart: boolean;
 
   constructor(config: ConfigService<Environment, true>) {
-    const databaseUrl = new URL(config.get("DATABASE_URL", { infer: true }));
     const adapter = new PrismaMariaDb({
-      host: databaseUrl.hostname,
-      port: Number(databaseUrl.port || 3306),
-      user: decodeURIComponent(databaseUrl.username),
-      password: decodeURIComponent(databaseUrl.password),
-      database: databaseUrl.pathname.replace(/^\//, ""),
+      host: config.get("DB_HOST", { infer: true }),
+      port: config.get("DB_PORT", { infer: true }),
+      user: config.get("DB_USER", { infer: true }),
+      password: config.get("DB_PASSWORD", { infer: true }),
+      database: config.get("DB_NAME", { infer: true }),
       connectionLimit: 10,
+      allowPublicKeyRetrieval: true,
     });
     super({ adapter });
     this.connectOnStart = config.get("DATABASE_CONNECT_ON_START", { infer: true });
@@ -40,4 +40,3 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
     return this.connectOnStart;
   }
 }
-

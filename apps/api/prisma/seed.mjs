@@ -2,16 +2,15 @@ import { createHash, scryptSync } from "node:crypto";
 import { config } from "dotenv";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { readDatabaseConnection } from "../src/config/database-connection.js";
 
 config({ path: new URL("../../../.env", import.meta.url) });
 
-const databaseUrl = process.env.DATABASE_URL;
 const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
-if (!databaseUrl) throw new Error("Thiếu DATABASE_URL trong .env.");
 if (!defaultPassword || defaultPassword.length < 12) throw new Error("SEED_DEFAULT_PASSWORD phải có ít nhất 12 ký tự.");
 
-const url = new URL(databaseUrl);
-const adapter = new PrismaMariaDb({ host: url.hostname, port: Number(url.port || 3306), user: decodeURIComponent(url.username), password: decodeURIComponent(url.password), database: url.pathname.replace(/^\//, ""), connectionLimit: 4 });
+const database = readDatabaseConnection(process.env);
+const adapter = new PrismaMariaDb({ ...database, connectionLimit: 4, allowPublicKeyRetrieval: true });
 const prisma = new PrismaClient({ adapter });
 const passwordHash = scryptSync(defaultPassword, "wind-edu-seed-v1", 64).toString("hex");
 const questionHash = (content) => createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
@@ -46,7 +45,7 @@ async function seed() {
   }
   const course = await prisma.course.upsert({ where: { code: "WEB-FULLSTACK" }, update: { status: "PUBLISHED" }, create: { id: "course-web", code: "WEB-FULLSTACK", name: "Phát triển Web Full-stack", description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.", outcomes: ["Thiết kế giao diện responsive", "Xây dựng REST API", "Thiết kế cơ sở dữ liệu"], status: "PUBLISHED", ownerId: "usr-manager" } });
   await prisma.course.upsert({ where: { code: "DATA-FOUNDATION" }, update: {}, create: { id: "course-data", code: "DATA-FOUNDATION", name: "Nền tảng dữ liệu", description: "Tổ chức, phân tích và trực quan hóa dữ liệu.", outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu"], status: "DRAFT", ownerId: "usr-manager" } });
-  const learningClass = await prisma.learningClass.upsert({ where: { code: "WEB-K01" }, update: { status: "ACTIVE" }, create: { id: "class-web-01", courseId: course.id, code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: new Date("2026-08-18T01:00:00.000Z"), endAt: new Date("2026-12-20T10:00:00.000Z"), capacity: 40, status: "ACTIVE" } });
+  const learningClass = await prisma.learningClass.upsert({ where: { code_term: { code: "WEB-K01", term: "2026-HK1" } }, update: { status: "ACTIVE" }, create: { id: "class-web-01", courseId: course.id, courseVersion: 1, code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: new Date("2026-08-18T01:00:00.000Z"), endAt: new Date("2026-12-20T10:00:00.000Z"), capacity: 40, status: "ACTIVE" } });
   await prisma.classInstructor.upsert({ where: { classId_instructorId: { classId: learningClass.id, instructorId: "usr-instructor" } }, update: {}, create: { classId: learningClass.id, instructorId: "usr-instructor" } });
   await prisma.classEnrollment.upsert({ where: { classId_learnerId: { classId: learningClass.id, learnerId: "usr-learner" } }, update: { status: "ACTIVE" }, create: { classId: learningClass.id, learnerId: "usr-learner", status: "ACTIVE" } });
   const seededMaterials = [
