@@ -1,15 +1,17 @@
 "use client";
 
 import {
-  Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, Database, FileQuestion,
-  GraduationCap, Headphones, History, LayoutDashboard, ListChecks, Menu, MessageSquareText, Presentation, Settings,
+  Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, CheckCheck, Database, FileQuestion,
+  GraduationCap, Headphones, History, LayoutDashboard, ListChecks, LoaderCircle, Menu, MessageSquareText, Presentation, Settings,
   ShieldCheck, ShieldEllipsis, UserCheck, Users, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import type { RoleCode } from "@/lib/app-types";
+import type { LearningNotification } from "@/lib/learning-types";
 
 const roleOptions: Array<{ code: RoleCode; label: string }> = [
   { code: "SYSTEM_ADMIN", label: "Quản trị hệ thống" },
@@ -75,7 +77,60 @@ function Sidebar({ close }: { close?: () => void }) {
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { session, setRole } = useApp();
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<LearningNotification[]>([]);
+  const [notificationLoading, setNotificationLoading] = useState(true);
+  const [notificationError, setNotificationError] = useState("");
+  const { session, setRole, notify } = useApp();
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationLoading(true);
+    setNotificationError("");
+    try {
+      setNotifications(await apiRequest<LearningNotification[]>("/notifications", { roleCode: session.roleCode }));
+    } catch (error) {
+      setNotifications([]);
+      setNotificationError(error instanceof Error ? error.message : "Không thể tải thông báo.");
+    } finally {
+      setNotificationLoading(false);
+    }
+  }, [session.roleCode]);
+
+  useEffect(() => {
+    window.queueMicrotask(() => { void loadNotifications(); });
+  }, [loadNotifications]);
+
+  async function markRead(item: LearningNotification): Promise<void> {
+    if (item.readAt) return;
+    try {
+      const updated = await apiRequest<LearningNotification>(`/notifications/${item.id}/read`, { method: "PATCH", roleCode: session.roleCode });
+      setNotifications((current) => current.map((notification) => notification.id === updated.id ? updated : notification));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể cập nhật thông báo.", "error");
+    }
+  }
+
+  async function markAllRead(): Promise<void> {
+    const unread = notifications.filter((item) => !item.readAt);
+    if (!unread.length) return;
+    try {
+      const updated = await Promise.all(unread.map((item) => apiRequest<LearningNotification>(`/notifications/${item.id}/read`, { method: "PATCH", roleCode: session.roleCode })));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setNotifications((current) => current.map((item) => byId.get(item.id) ?? item));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể đánh dấu toàn bộ thông báo.", "error");
+    }
+  }
+
+  function notificationHref(item: LearningNotification): string {
+    if (item.type.includes("SUPPORT")) return "/support";
+    if (item.type.includes("FORUM") || item.type.includes("MENTION") || item.type.includes("REPORT")) return "/forum";
+    if (item.type.includes("SESSION") || item.type.includes("ATTENDANCE") || item.type.includes("RECORDING")) return "/live-classes";
+    if (item.type.includes("EXAM") || item.type.includes("GRADE")) return "/exams";
+    if (item.type.includes("MATERIAL")) return "/materials";
+    return "/dashboard";
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f7fa] text-slate-900">
@@ -89,12 +144,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex h-18 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur md:px-7">
           <div className="flex items-center gap-3"><button aria-label="Mở menu" className="rounded-lg border border-slate-200 p-2 text-slate-600 lg:hidden" onClick={() => setMenuOpen(true)} type="button"><Menu size={20} /></button><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-sky-700">Wind EDU</p><p className="text-sm font-bold text-slate-700">Trung tâm hỗ trợ giảng dạy</p></div></div>
-          <div className="flex items-center gap-2 md:gap-3">
+          <div className="relative flex items-center gap-2 md:gap-3">
             <label className="sr-only" htmlFor="role-switcher">Vai trò đang sử dụng</label>
             <select className="max-w-38 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100 md:max-w-none md:text-sm" id="role-switcher" onChange={(event) => setRole(event.target.value as RoleCode)} value={session.roleCode}>
               {roleOptions.map((role) => <option key={role.code} value={role.code}>{role.label}</option>)}
             </select>
-            <button aria-label="Thông báo" className="relative grid size-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-700" type="button"><Bell size={17} /><span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-rose-500 ring-2 ring-white" /></button>
+            <button aria-expanded={notificationOpen} aria-label={unreadCount ? `Thông báo, ${unreadCount} chưa đọc` : "Thông báo"} className="relative grid size-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:border-sky-300 hover:text-sky-700" onClick={() => setNotificationOpen((open) => !open)} type="button"><Bell size={17} />{unreadCount ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-rose-600 px-1 text-[10px] font-extrabold leading-4 text-white ring-2 ring-white">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
+            {notificationOpen ? <><button aria-label="Đóng trung tâm thông báo" className="fixed inset-0 z-20 cursor-default bg-transparent" onClick={() => setNotificationOpen(false)} type="button" /><section aria-label="Trung tâm thông báo" className="absolute right-0 top-12 z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="font-heading text-base font-extrabold">Thông báo</h2><p className="mt-0.5 text-xs text-slate-500">{unreadCount ? `${unreadCount} mục chưa đọc` : "Đã đọc tất cả"}</p></div><button className="inline-flex items-center gap-1.5 text-xs font-extrabold text-sky-700 disabled:text-slate-300" disabled={!unreadCount} onClick={() => void markAllRead()} type="button"><CheckCheck size={15} />Đọc tất cả</button></div><div className="max-h-[min(32rem,70vh)] overflow-y-auto">{notificationLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-semibold text-slate-500"><LoaderCircle className="animate-spin text-sky-600" size={19} />Đang tải…</div> : notificationError ? <div className="grid min-h-40 place-items-center px-5 text-center"><div><p className="text-sm font-bold text-rose-700">{notificationError}</p><button className="mt-2 text-xs font-extrabold text-sky-700 hover:underline" onClick={() => void loadNotifications()} type="button">Thử lại</button></div></div> : notifications.length ? notifications.map((item) => <Link className={`block border-b border-slate-100 px-5 py-4 transition last:border-0 hover:bg-slate-50 ${item.readAt ? "bg-white" : "bg-sky-50/60"}`} href={notificationHref(item)} key={item.id} onClick={() => { void markRead(item); setNotificationOpen(false); }}><div className="flex items-start gap-3"><span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.readAt ? "bg-slate-200" : "bg-sky-500"}`} /><div><p className="text-sm font-bold text-slate-800">{item.title}</p><p className="mt-1 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("vi-VN")}</p></div></div></Link>) : <div className="grid min-h-40 place-items-center px-5 text-center"><div><Bell className="mx-auto text-slate-300" size={28} /><p className="mt-2 text-sm font-bold text-slate-600">Chưa có thông báo</p></div></div>}</div></section></> : null}
           </div>
         </header>
         <main>{children}</main>
