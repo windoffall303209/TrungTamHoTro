@@ -126,16 +126,45 @@ describe("LearningService", () => {
     expect(roster.history.some((item) => item.memberId === "learner-a" && item.action === "REMOVED")).toBe(true);
   });
 
+  it("lọc danh sách lớp theo đúng tài khoản học viên và giảng viên", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "IDENTITY-CLASS", name: "Lớp kiểm thử danh tính", term: "2027-HK3", startAt: "2027-09-01T00:00:00.000Z", endAt: "2027-11-01T00:00:00.000Z", capacity: 20 }, "manager-real");
+    await service.assignInstructor(classItem.id, "instructor-real", "PRIMARY", "manager-real");
+    await service.enrollLearner(classItem.id, "learner-real", "manager-real");
+
+    expect((await service.listClasses("INSTRUCTOR", "instructor-real")).map((item) => item.id)).toContain(classItem.id);
+    expect((await service.listClasses("INSTRUCTOR", "instructor-outside")).map((item) => item.id)).not.toContain(classItem.id);
+    expect((await service.listClasses("LEARNER", "learner-real")).map((item) => item.id)).toContain(classItem.id);
+    expect((await service.listClasses("LEARNER", "learner-outside")).map((item) => item.id)).not.toContain(classItem.id);
+    expect((await service.getClassRoster(classItem.id)).history.every((item) => item.actorId === "manager-real")).toBe(true);
+  });
+
   it("quản lý đổi và hủy lịch có lý do, chặn thao tác quá khứ", async () => {
     const service = new LearningService();
     const classItem = await service.createClass({ courseId: "course-web", code: "LIVE-OPS", name: "Lớp kiểm thử lịch", term: "2027", startAt: "2027-07-01T00:00:00.000Z", endAt: "2027-09-01T00:00:00.000Z", capacity: 20, timezone: "Asia/Bangkok" });
     await service.assignInstructor(classItem.id, "host-live", "PRIMARY");
-    const created = await service.createSession(classItem.id, { title: "Buổi một", startsAt: "2027-07-10T02:00:00.000Z", endsAt: "2027-07-10T03:00:00.000Z", provider: "GOOGLE_MEET" }, "usr-manager");
+    const created = await service.createSession(classItem.id, { title: "Buổi một", startsAt: "2027-07-10T02:00:00.000Z", endsAt: "2027-07-10T03:00:00.000Z", provider: "GOOGLE_MEET" }, "usr-manager", "CENTER_MANAGER");
     expect(created).toMatchObject({ timezone: "Asia/Bangkok", status: "SCHEDULED" });
     const updated = await service.updateSession(created.id, { title: "Buổi một đổi lịch", startsAt: "2027-07-11T02:00:00.000Z", endsAt: "2027-07-11T03:00:00.000Z", provider: "ZOOM", reason: "Điều chỉnh theo lịch giảng viên" });
     expect(updated).toMatchObject({ provider: "ZOOM", changeReason: "Điều chỉnh theo lịch giảng viên" });
     expect((await service.cancelSession(created.id, "Nghỉ theo lịch của trung tâm")).status).toBe("CANCELLED");
-    await expect(service.createSession(classItem.id, { title: "Quá khứ", startsAt: "2020-01-01T00:00:00.000Z", endsAt: "2020-01-01T01:00:00.000Z", provider: "JITSI" }, "usr-manager")).rejects.toThrow(BadRequestException);
+    await expect(service.createSession(classItem.id, { title: "Quá khứ", startsAt: "2020-01-01T00:00:00.000Z", endsAt: "2020-01-01T01:00:00.000Z", provider: "JITSI" }, "usr-manager", "CENTER_MANAGER")).rejects.toThrow(BadRequestException);
+  });
+
+  it("cô lập lớp online theo đúng chủ trì và học viên ghi danh", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "IDENTITY-LIVE", name: "Lớp kiểm thử quyền online", term: "2027-HK4", startAt: "2027-11-01T00:00:00.000Z", endAt: "2028-01-15T00:00:00.000Z", capacity: 20 }, "manager-real");
+    await service.assignInstructor(classItem.id, "instructor-real", "PRIMARY", "manager-real");
+    await service.enrollLearner(classItem.id, "learner-real", "manager-real");
+    const liveSession = await service.createSession(classItem.id, { title: "Phân quyền lớp online", startsAt: "2027-11-10T02:00:00.000Z", endsAt: "2027-11-10T03:00:00.000Z", provider: "JITSI" }, "instructor-real", "INSTRUCTOR");
+
+    expect(liveSession.hostId).toBe("instructor-real");
+    expect((await service.listSessions("INSTRUCTOR", "instructor-real")).map((item) => item.id)).toContain(liveSession.id);
+    expect((await service.listSessions("INSTRUCTOR", "instructor-outside")).map((item) => item.id)).not.toContain(liveSession.id);
+    expect((await service.listSessions("LEARNER", "learner-real")).map((item) => item.id)).toContain(liveSession.id);
+    expect((await service.listSessions("LEARNER", "learner-outside")).map((item) => item.id)).not.toContain(liveSession.id);
+    await expect(service.transitionSession(liveSession.id, "LIVE", "instructor-outside")).rejects.toThrow(NotFoundException);
+    await expect(service.getSessionSummary(liveSession.id, "learner-outside")).rejects.toThrow(NotFoundException);
   });
 
   it("chặn đóng lớp thiếu điều kiện, lưu trữ chỉ đọc và mở lại có lý do", async () => {
@@ -331,17 +360,49 @@ describe("LearningService", () => {
     expect(outside.total).toBe(0);
   });
 
+  it("cô lập học liệu theo đúng tài khoản giảng viên và học viên", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({
+      courseId: "course-web",
+      code: "IDENTITY-MATERIAL",
+      name: "Lớp kiểm thử quyền học liệu",
+      term: "2027-HK3",
+      startAt: "2027-09-01T00:00:00.000Z",
+      endAt: "2027-11-01T00:00:00.000Z",
+      capacity: 20,
+    }, "manager-real");
+    await service.assignInstructor(classItem.id, "instructor-real", "PRIMARY", "manager-real");
+    await service.enrollLearner(classItem.id, "learner-real", "manager-real");
+    const material = await service.createMaterial(classItem.id, {
+      name: "identity.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 100,
+      folder: "Phân quyền",
+      tags: ["identity"],
+    }, undefined, "instructor-real");
+    await service.updateMaterial(material.id, { visibility: "PUBLISHED" }, "instructor-real");
+
+    expect((await service.listMaterials("INSTRUCTOR", undefined, "instructor-real")).map((item) => item.id)).toContain(material.id);
+    expect((await service.listMaterials("INSTRUCTOR", undefined, "instructor-outside")).map((item) => item.id)).not.toContain(material.id);
+    expect((await service.searchAccessibleMaterials({ classId: classItem.id }, "learner-real")).items.map((item) => item.id)).toContain(material.id);
+    expect((await service.searchAccessibleMaterials({ classId: classItem.id }, "learner-outside")).items).toHaveLength(0);
+    await expect(service.listMaterialVersions(material.id, "LEARNER", "learner-outside")).rejects.toThrow(NotFoundException);
+    await expect(service.updateMaterial(material.id, { folder: "Xâm nhập" }, "instructor-outside")).rejects.toThrow(NotFoundException);
+    await expect(service.createMaterial(classItem.id, { name: "outside.pdf", mimeType: "application/pdf", sizeBytes: 1, folder: "", tags: [] }, undefined, "instructor-outside")).rejects.toThrow(NotFoundException);
+  });
+
   it("chặn học viên mở học liệu của lớp chưa ghi danh", async () => {
     const service = new LearningService();
     const classItem = await service.createClass({
       courseId: "course-web",
       code: "WEB-NO-ENROLLMENT",
       name: "Lớp chưa ghi danh",
-      term: "2026-HK2",
-      startAt: "2026-09-01T00:00:00.000Z",
-      endAt: "2026-12-01T00:00:00.000Z",
+      term: "2027-HK2",
+      startAt: "2027-09-01T00:00:00.000Z",
+      endAt: "2027-12-01T00:00:00.000Z",
       capacity: 20,
     });
+    await service.assignInstructor(classItem.id, "usr-instructor");
     const material = await service.createMaterial(classItem.id, {
       name: "tai-lieu-ngoai-lop.pdf",
       mimeType: "application/pdf",

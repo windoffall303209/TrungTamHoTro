@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
@@ -85,68 +85,68 @@ export class EngagementController {
   appealReport(@Param("reportId") reportId: string, @Body() input: AppealReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.appealReport(reportId, input.reason, session.user.id); }
 
   @Get("sessions") @RequirePermissions("session:view")
-  listSessions(@Headers("x-role-code") role = "LEARNER"): Promise<LiveSession[]> { return this.learning.listSessions(role); }
+  listSessions(@CurrentSession() session: AuthenticatedSession): Promise<LiveSession[]> { return this.learning.listSessions(session.roleCode, session.user.id); }
 
   @Post("instructor/classes/:classId/sessions") @RequirePermissions("session:manage")
-  createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto): Promise<LiveSession> { return this.learning.createSession(classId, input); }
+  createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.createSession(classId, input, session.user.id, session.roleCode); }
 
   @Post("manager/classes/:classId/sessions") @RequirePermissions("class:manage")
-  createManagerSession(@Param("classId") classId: string, @Body() input: CreateSessionDto): Promise<LiveSession> { return this.learning.createSession(classId, input, "usr-manager"); }
+  createManagerSession(@Param("classId") classId: string, @Body() input: CreateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.createSession(classId, input, session.user.id, session.roleCode); }
 
   @Patch("manager/sessions/:sessionId") @RequirePermissions("class:manage")
-  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto): Promise<LiveSession> { return this.learning.updateSession(sessionId, input); }
+  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.updateSession(sessionId, input, session.user.id); }
 
   @Post("manager/sessions/:sessionId/cancel") @RequirePermissions("class:manage")
-  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason); }
+  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason, session.user.id); }
 
   @Patch("instructor/sessions/:sessionId/status") @RequirePermissions("session:manage")
-  transitionSession(@Param("sessionId") sessionId: string, @Body() input: TransitionSessionDto): Promise<LiveSession> { return this.learning.transitionSession(sessionId, input.status); }
+  transitionSession(@Param("sessionId") sessionId: string, @Body() input: TransitionSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.transitionSession(sessionId, input.status, session.user.id); }
 
   @Post("learner/sessions/:sessionId/join") @RequirePermissions("session:view")
-  joinSession(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.joinSession(sessionId); }
+  joinSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id); }
 
   @Post("learner/sessions/:sessionId/leave") @RequirePermissions("session:view")
-  leaveSession(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.leaveSession(sessionId); }
+  leaveSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.leaveSession(sessionId, session.user.id); }
 
   @Patch("instructor/sessions/:sessionId/attendance") @RequirePermissions("session:manage")
-  updateAttendance(@Param("sessionId") sessionId: string, @Body() input: UpdateAttendanceDto): Promise<object> { return this.learning.updateAttendance(sessionId, input.learnerId, input.status, input.attendedMinutes, input.adjustmentReason); }
+  updateAttendance(@Param("sessionId") sessionId: string, @Body() input: UpdateAttendanceDto, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.updateAttendance(sessionId, input.learnerId, input.status, input.attendedMinutes, input.adjustmentReason, session.user.id); }
 
   @Get("manager/sessions/:sessionId/attendance") @RequirePermissions("class:manage")
   getAttendanceReview(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getAttendanceReview(sessionId); }
 
   @Post("manager/sessions/:sessionId/attendance/sync") @RequirePermissions("class:manage")
-  syncAttendance(@Param("sessionId") sessionId: string, @Body() input: SyncAttendanceDto): Promise<object> { return this.learning.syncAttendance(sessionId, input.records); }
+  syncAttendance(@Param("sessionId") sessionId: string, @Body() input: SyncAttendanceDto, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.syncAttendance(sessionId, input.records, session.user.id); }
 
   @Post("manager/sessions/:sessionId/attendance/lock") @RequirePermissions("class:manage")
-  lockAttendance(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.lockAttendance(sessionId); }
+  lockAttendance(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.lockAttendance(sessionId, session.user.id); }
 
   @Post("manager/attendance-appeals/:appealId/resolve") @RequirePermissions("class:manage")
-  resolveAttendanceAppeal(@Param("appealId") appealId: string, @Body() input: ResolveAttendanceAppealDto): Promise<object> {
-    return this.learning.resolveAttendanceAppeal(appealId, input.decision, input.resolution, input.status, input.attendedMinutes);
+  resolveAttendanceAppeal(@Param("appealId") appealId: string, @Body() input: ResolveAttendanceAppealDto, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.resolveAttendanceAppeal(appealId, input.decision, input.resolution, input.status, input.attendedMinutes, session.user.id);
   }
 
   @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
-  attachRecording(@Param("sessionId") sessionId: string, @Body() input: AttachRecordingDto): Promise<LiveSession> { return this.learning.attachRecording(sessionId, input.recordingUrl); }
+  attachRecording(@Param("sessionId") sessionId: string, @Body() input: AttachRecordingDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.attachRecording(sessionId, input.recordingUrl, session.user.id); }
 
   @Patch("instructor/sessions/:sessionId/recordings/status") @RequirePermissions("session:manage")
-  completeRecording(@Param("sessionId") sessionId: string, @Body() input: CompleteRecordingDto): Promise<LiveSession> {
-    return this.learning.completeRecording(sessionId, input.status, input.retentionDays, input.errorMessage);
+  completeRecording(@Param("sessionId") sessionId: string, @Body() input: CompleteRecordingDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> {
+    return this.learning.completeRecording(sessionId, input.status, input.retentionDays, input.errorMessage, session.user.id);
   }
 
   @Get("learner/sessions/:sessionId/summary") @RequirePermissions("session:view")
-  getSessionSummary(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getSessionSummary(sessionId); }
+  getSessionSummary(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.getSessionSummary(sessionId, session.user.id); }
 
   @Get("learner/sessions/:sessionId/recording-access") @RequirePermissions("session:view")
-  createRecordingAccess(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.createRecordingAccess(sessionId); }
+  createRecordingAccess(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.createRecordingAccess(sessionId, session.user.id); }
 
   @Get("learner/sessions/:sessionId/recording") @RequirePermissions("session:view")
-  resolveRecordingAccess(@Param("sessionId") sessionId: string, @Query("expires") expires: string, @Query("signature") signature: string): Promise<object> {
-    return this.learning.resolveRecordingAccess(sessionId, Number(expires), signature ?? "");
+  resolveRecordingAccess(@Param("sessionId") sessionId: string, @Query("expires") expires: string, @Query("signature") signature: string, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.resolveRecordingAccess(sessionId, Number(expires), signature ?? "", session.user.id);
   }
 
   @Post("learner/sessions/:sessionId/attendance-appeals") @RequirePermissions("session:view")
-  requestAttendanceAppeal(@Param("sessionId") sessionId: string, @Body() input: CreateAttendanceAppealDto): Promise<object> {
-    return this.learning.requestAttendanceAppeal(sessionId, input.reason);
+  requestAttendanceAppeal(@Param("sessionId") sessionId: string, @Body() input: CreateAttendanceAppealDto, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.requestAttendanceAppeal(sessionId, input.reason, session.user.id);
   }
 
   @Get("support/tickets") @RequireAuthentication()
