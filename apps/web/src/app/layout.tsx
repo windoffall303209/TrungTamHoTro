@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Be_Vietnam_Pro, Lora } from "next/font/google";
+import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/providers/app-provider";
 
@@ -7,12 +7,6 @@ const beVietnamPro = Be_Vietnam_Pro({
   variable: "--font-body",
   subsets: ["latin", "vietnamese"],
   weight: ["400", "500", "600", "700"],
-});
-
-const lora = Lora({
-  variable: "--font-heading",
-  subsets: ["latin", "vietnamese"],
-  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -23,7 +17,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi">
-      <body className={`${beVietnamPro.variable} ${lora.variable}`}>
+      <body className={beVietnamPro.variable}>
         {/*
           THESIS: Wind EDU is a contemporary registrar's desk, not a generic dashboard-card mosaic.
           OWN-WORLD: warm paper ground, blue-black ink, ledger rules, archival tabs and one vermilion action accent.

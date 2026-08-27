@@ -53,7 +53,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 button, input, textarea, select { font: inherit; }
-.font-heading { font-family: var(--font-heading), Georgia, serif; }
+.font-heading { font-family: var(--font-body), Arial, sans-serif; }
 .ledger-surface { background: rgb(255 253 250 / 88%); }
 .ledger-rule { border-color: var(--rule); }
 .ledger-label { color: var(--ink-soft); font-size: 0.69rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -74,6 +74,11 @@ button, input, textarea, select { font: inherit; }
 .animate-slide-in { animation: slide-in 220ms ease-out both; }
 .animate-toast { animation: toast 180ms ease-out both; }
 .workspace-enter { animation: workspace-enter 460ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.section-ledger { overflow: hidden; border-block: 1px solid var(--rule-strong); background: rgb(255 253 250 / 65%); }
+.section-ledger > * + * { border-top: 1px solid var(--rule); }
+.section-title { font-size: 1.25rem; font-weight: 700; line-height: 1.35; letter-spacing: -0.025em; color: var(--ink); }
+.data-row { transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.data-row:hover { background: rgb(238 232 220 / 42%); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
