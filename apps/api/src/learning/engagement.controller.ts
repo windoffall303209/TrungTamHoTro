@@ -3,7 +3,7 @@ import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
-  AppealReportDto, AttachRecordingDto, CancelSessionDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
+  AppealReportDto, AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
   CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
@@ -125,6 +125,11 @@ export class EngagementController {
 
   @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
   attachRecording(@Param("sessionId") sessionId: string, @Body() input: AttachRecordingDto): Promise<LiveSession> { return this.learning.attachRecording(sessionId, input.recordingUrl); }
+
+  @Patch("instructor/sessions/:sessionId/recordings/status") @RequirePermissions("session:manage")
+  completeRecording(@Param("sessionId") sessionId: string, @Body() input: CompleteRecordingDto): Promise<LiveSession> {
+    return this.learning.completeRecording(sessionId, input.status, input.retentionDays, input.errorMessage);
+  }
 
   @Get("learner/sessions/:sessionId/summary") @RequirePermissions("session:view")
   getSessionSummary(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getSessionSummary(sessionId); }

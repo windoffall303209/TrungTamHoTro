@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardCheck, Link2, Save, UserCheck } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Link2, Save, UserCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -115,7 +115,7 @@ export default function TeachingOperationsPage() {
           body: JSON.stringify({ recordingUrl: recording.recordingUrl }),
         },
       );
-      notify("Đã gắn bản ghi vào buổi học.");
+      notify("Đã tiếp nhận bản ghi và chuyển sang trạng thái đang xử lý.");
       setRecording({ ...recording, recordingUrl: "" });
       await load();
     } catch (error) {
@@ -123,6 +123,20 @@ export default function TeachingOperationsPage() {
         error instanceof Error ? error.message : "Không gắn được bản ghi.",
         "error",
       );
+    }
+  };
+  const markRecordingReady = async () => {
+    if (!recording.sessionId) return;
+    try {
+      await apiRequest(`/instructor/sessions/${recording.sessionId}/recordings/status`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ status: "READY", retentionDays: 90 }),
+      });
+      notify("Bản ghi đã sẵn sàng và được phát hành trong 90 ngày.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không phát hành được bản ghi.", "error");
     }
   };
   if (session.roleCode !== "INSTRUCTOR") return <AccessDenied />;
@@ -314,6 +328,19 @@ export default function TeachingOperationsPage() {
               </Field>
               <Button type="submit">Gắn bản ghi</Button>
             </form>
+            {sessions.find((item) => item.id === recording.sessionId)?.recordingStatus === "PROCESSING" ? (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-bold text-amber-900">Bản ghi đang xử lý và chưa hiển thị cho học viên.</p>
+                <Button className="mt-3" onClick={() => void markRecordingReady()} variant="secondary">
+                  <CheckCircle2 size={16} /> Xác nhận sẵn sàng
+                </Button>
+              </div>
+            ) : null}
+            {sessions.find((item) => item.id === recording.sessionId)?.recordingStatus === "READY" ? (
+              <p className="mt-4 text-sm font-bold text-emerald-700">
+                Bản ghi sẵn sàng đến {new Date(sessions.find((item) => item.id === recording.sessionId)?.recordingExpiresAt ?? "").toLocaleDateString("vi-VN")}.
+              </p>
+            ) : null}
           </section>
         </div>
       </div>

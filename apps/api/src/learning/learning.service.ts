@@ -2217,12 +2217,54 @@ export class LearningService {
       const item = await prisma.liveSession.findUnique({ where: { id: sessionId } });
       if (!item) throw new NotFoundException("Không tìm thấy buổi học.");
       if (item.status !== "COMPLETED") throw new BadRequestException("Chỉ gắn bản ghi sau khi buổi học kết thúc.");
-      return this.mapSession(await prisma.liveSession.update({ where: { id: sessionId }, data: { recordingUrl } }));
+      return this.mapSession(await prisma.liveSession.update({
+        where: { id: sessionId },
+        data: { recordingUrl, recordingStatus: "PROCESSING", recordingReadyAt: null, recordingExpiresAt: null, recordingError: null },
+      }));
     }
     const item = this.findSession(sessionId);
     if (item.status !== "COMPLETED") throw new BadRequestException("Chỉ gắn bản ghi sau khi buổi học kết thúc.");
     item.recordingUrl = recordingUrl;
+    item.recordingStatus = "PROCESSING";
+    item.recordingReadyAt = undefined;
+    item.recordingExpiresAt = undefined;
+    item.recordingError = undefined;
     return { ...item };
+  }
+
+  async completeRecording(sessionId: string, status: "READY" | "FAILED", retentionDays = 90, errorMessage?: string): Promise<LiveSession> {
+    const normalizedError = errorMessage?.trim();
+    if (status === "FAILED" && (!normalizedError || normalizedError.length < 5)) throw new BadRequestException("Cần mô tả lỗi xử lý bản ghi ít nhất 5 ký tự.");
+    const readyAt = status === "READY" ? new Date() : null;
+    const expiresAt = readyAt ? new Date(readyAt.getTime() + retentionDays * 86_400_000) : null;
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.liveSession.findUnique({ where: { id: sessionId } });
+        if (!current) throw new NotFoundException("Không tìm thấy buổi học.");
+        if (current.status !== "COMPLETED" || !current.recordingUrl) throw new ConflictException("Buổi học chưa có bản ghi để cập nhật.");
+        if (current.recordingStatus !== "PROCESSING") throw new ConflictException("Bản ghi không ở trạng thái đang xử lý.");
+        const updated = await transaction.liveSession.update({
+          where: { id: sessionId },
+          data: { recordingStatus: status, recordingReadyAt: readyAt, recordingExpiresAt: expiresAt, recordingError: status === "FAILED" ? normalizedError : null },
+        });
+        await transaction.auditLog.create({ data: { actorId: "usr-instructor", action: `RECORDING_${status}`, entityType: "live_session", entityId: sessionId, context: { retentionDays, expiresAt, errorMessage: normalizedError } } });
+        if (status === "READY") await this.notifyClassMembers(transaction, current.classId, "RECORDING_READY", `Bản ghi đã sẵn sàng: ${current.title}`, sessionId);
+        return this.mapSession(updated);
+      });
+    }
+    const item = this.findSession(sessionId);
+    if (item.status !== "COMPLETED" || !item.recordingUrl) throw new ConflictException("Buổi học chưa có bản ghi để cập nhật.");
+    if (item.recordingStatus !== "PROCESSING") throw new ConflictException("Bản ghi không ở trạng thái đang xử lý.");
+    item.recordingStatus = status;
+    item.recordingReadyAt = readyAt?.toISOString();
+    item.recordingExpiresAt = expiresAt?.toISOString();
+    item.recordingError = status === "FAILED" ? normalizedError : undefined;
+    return { ...item };
+  }
+
+  private isRecordingAvailable(session: Pick<LiveSession, "recordingUrl" | "recordingStatus" | "recordingExpiresAt">): boolean {
+    return Boolean(session.recordingUrl && session.recordingStatus === "READY" && session.recordingExpiresAt && new Date(session.recordingExpiresAt) > new Date());
   }
 
   async getSessionSummary(sessionId: string, learnerId = "usr-learner"): Promise<object> {
@@ -2235,21 +2277,21 @@ export class LearningService {
       const attendance = await prisma.attendanceRecord.findUnique({ where: { sessionId_learnerId: { sessionId, learnerId } } });
       const appeal = await prisma.attendanceAppeal.findFirst({ where: { sessionId, learnerId }, orderBy: { createdAt: "desc" } });
       const mapped = this.mapSession(session);
-      return { session: { ...mapped, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: Boolean(session.recordingUrl), attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: appeal ? this.mapAttendanceAppeal(appeal) : undefined };
+      return { session: { ...mapped, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: this.isRecordingAvailable(mapped), attendance: attendance ? this.mapAttendance(attendance) : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: appeal ? this.mapAttendanceAppeal(appeal) : undefined };
     }
     const session = this.findSession(sessionId);
     if (!this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
-    return { session: { ...session, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: Boolean(session.recordingUrl), attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: this.attendanceAppeals.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) };
+    return { session: { ...session, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: this.isRecordingAvailable(session), attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: this.attendanceAppeals.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) };
   }
 
   async createRecordingAccess(sessionId: string, learnerId = "usr-learner"): Promise<{ url: string; expiresAt: string }> {
     const prisma = this.database();
     if (prisma) {
-      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingUrl: { not: null }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
+      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingStatus: "READY", recordingUrl: { not: null }, recordingExpiresAt: { gt: new Date() }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
       if (!session) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
     } else {
       const session = this.findSession(sessionId);
-      if (session.status !== "COMPLETED" || !session.recordingUrl || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
+      if (session.status !== "COMPLETED" || !this.isRecordingAvailable(session) || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng, đã hết hạn hoặc học viên không có quyền xem.");
     }
     const expires = Math.floor(Date.now() / 1000) + 300;
     const signature = this.signRecordingAccess(sessionId, expires, learnerId);
@@ -2260,13 +2302,13 @@ export class LearningService {
     this.verifyExpiringSignature(this.signRecordingAccess(sessionId, expires, learnerId), expires, signature, "Chữ ký bản ghi không hợp lệ.");
     const prisma = this.database();
     if (prisma) {
-      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingUrl: { not: null }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
+      const session = await prisma.liveSession.findFirst({ where: { id: sessionId, status: "COMPLETED", recordingStatus: "READY", recordingUrl: { not: null }, recordingExpiresAt: { gt: new Date() }, class: { enrollments: { some: { learnerId, status: "ACTIVE" } } } } });
       if (!session?.recordingUrl) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
       return { recordingUrl: session.recordingUrl };
     }
     const session = this.findSession(sessionId);
-    if (session.status !== "COMPLETED" || !session.recordingUrl || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng hoặc học viên không có quyền xem.");
-    return { recordingUrl: session.recordingUrl };
+    if (session.status !== "COMPLETED" || !this.isRecordingAvailable(session) || !this.findClass(session.classId).learnerIds.includes(learnerId)) throw new NotFoundException("Bản ghi chưa sẵn sàng, đã hết hạn hoặc học viên không có quyền xem.");
+    return { recordingUrl: session.recordingUrl! };
   }
 
   async requestAttendanceAppeal(sessionId: string, reason: string, learnerId = "usr-learner"): Promise<AttendanceAppeal> {
@@ -3055,7 +3097,7 @@ export class LearningService {
     throw new ServiceUnavailableException(`Không thể tạo phòng học sau ${attempts} lần thử. Vui lòng kiểm tra cấu hình provider hoặc thử lại sau.`);
   }
 
-  private async notifyClassMembers(database: PrismaService, classId: string, type: string, title: string, entityId: string): Promise<void> {
+  private async notifyClassMembers(database: PrismaService | Prisma.TransactionClient, classId: string, type: string, title: string, entityId: string): Promise<void> {
     const item = await database.learningClass.findUnique({ where: { id: classId }, include: { instructors: { select: { instructorId: true } }, enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } } } });
     if (!item) return;
     const recipients = new Set([...item.instructors.map((row) => row.instructorId), ...item.enrollments.map((row) => row.learnerId)]);
@@ -3078,6 +3120,10 @@ export class LearningService {
       hostUrl: row.hostUrl,
       attendeeUrl: row.attendeeUrl,
       recordingUrl: row.recordingUrl ?? undefined,
+      recordingStatus: row.recordingExpiresAt && row.recordingExpiresAt <= new Date() && row.recordingStatus === "READY" ? "EXPIRED" : row.recordingStatus as LiveSession["recordingStatus"],
+      recordingReadyAt: row.recordingReadyAt?.toISOString(),
+      recordingExpiresAt: row.recordingExpiresAt?.toISOString(),
+      recordingError: row.recordingError ?? undefined,
       timezone: row.timezone,
       changeReason: row.changeReason ?? undefined,
       cancellationReason: row.cancellationReason ?? undefined,

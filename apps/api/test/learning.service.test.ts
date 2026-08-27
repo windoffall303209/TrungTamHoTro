@@ -49,8 +49,14 @@ describe("LearningService", () => {
   });
 
   it("chặn lịch buổi học trùng", async () => {
-    const service = new LearningService();
-    await expect(service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).rejects.toThrow(ConflictException);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
+      const service = new LearningService();
+      await expect(service.createSession("class-web-01", { title: "Trùng lịch", startsAt: "2026-08-26T02:30:00.000Z", endsAt: "2026-08-26T04:00:00.000Z", provider: "JITSI" })).rejects.toThrow(ConflictException);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("quản trị vai trò giảng viên, thay thế và lưu lịch sử", async () => {
@@ -617,9 +623,16 @@ describe("LearningService", () => {
       await service.transitionSession("session-web-01", "LIVE");
       await service.transitionSession("session-web-01", "COMPLETED");
       await service.attachRecording("session-web-01", "https://recording.example/session-web-01");
-      const summary = await service.getSessionSummary("session-web-01") as { recordingAvailable: boolean; session: { recordingUrl?: string } };
-      expect(summary.recordingAvailable).toBe(true);
-      expect(summary.session.recordingUrl).toBeUndefined();
+      const processing = await service.getSessionSummary("session-web-01") as { recordingAvailable: boolean; session: { recordingUrl?: string; recordingStatus?: string } };
+      expect(processing).toMatchObject({ recordingAvailable: false, session: { recordingStatus: "PROCESSING" } });
+      expect(processing.session.recordingUrl).toBeUndefined();
+      await expect(service.createRecordingAccess("session-web-01")).rejects.toThrow(NotFoundException);
+
+      const ready = await service.completeRecording("session-web-01", "READY", 90);
+      expect(ready).toMatchObject({ recordingStatus: "READY" });
+      expect(ready.recordingExpiresAt).toBeTruthy();
+      const summary = await service.getSessionSummary("session-web-01") as { recordingAvailable: boolean; session: { recordingStatus?: string } };
+      expect(summary).toMatchObject({ recordingAvailable: true, session: { recordingStatus: "READY" } });
       const access = await service.createRecordingAccess("session-web-01");
       const url = new URL(access.url, "http://localhost");
       const expires = Number(url.searchParams.get("expires"));
