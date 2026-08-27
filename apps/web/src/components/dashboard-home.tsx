@@ -31,7 +31,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     const [users, roles, health] = await Promise.all([
       apiRequest<IdentityUser[]>("/admin/users", { roleCode }),
       apiRequest<IdentityRole[]>("/admin/roles", { roleCode }),
-      apiRequest<HealthOverview>("/admin/health-overview", { roleCode }),
+      apiRequest<HealthOverview>("/system/health-overview", { roleCode }),
     ]);
     const healthLabel = health.status === "healthy" ? "Sẵn sàng" : health.status === "warning" ? "Cần theo dõi" : "Suy giảm";
     return [

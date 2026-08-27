@@ -33,7 +33,9 @@ describe("DashboardHome", () => {
       ? [{ status: "ACTIVE" }, { status: "LOCKED" }]
       : path === "/admin/roles"
         ? [{ code: "SYSTEM_ADMIN" }, { code: "LEARNER" }]
-        : { status: "degraded", database: "disabled" }));
+        : path === "/system/health-overview"
+          ? { status: "degraded", database: "disabled" }
+          : []));
 
     render(<DashboardHome />);
     expect(await screen.findByText("Suy giảm")).toBeInTheDocument();
