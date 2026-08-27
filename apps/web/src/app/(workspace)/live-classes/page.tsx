@@ -20,6 +20,7 @@ export default function LiveClassesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LiveSession | null>(null);
   const [joinedSessionId, setJoinedSessionId] = useState<string | null>(null);
+  const [clock, setClock] = useState(0);
   const [form, setForm] = useState({
     classId: "",
     title: "",
@@ -54,6 +55,12 @@ export default function LiveClassesPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    const updateClock = () => setClock(Date.now());
+    updateClock();
+    const timer = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -200,10 +207,12 @@ export default function LiveClassesPage() {
                 {manager && item.status === "SCHEDULED" && new Date(item.startsAt) > new Date() ? <><Button onClick={() => openEdit(item)} variant="secondary"><Pencil size={15} />Đổi lịch</Button><Button onClick={() => void cancel(item)} variant="ghost"><Trash2 size={15} />Hủy</Button></> : null}
                 {learner && joinedSessionId === item.id ? (
                   <Button onClick={() => void leave(item)} variant="secondary">Rời phòng và chốt điểm danh</Button>
-                ) : learner &&
-                (item.status === "SCHEDULED" || item.status === "LIVE") ? (
-                  <Button onClick={() => void join(item)}>
-                    Vào lớp <ExternalLink size={15} />
+                ) : learner && (item.status === "SCHEDULED" || item.status === "LIVE") ? (
+                  <Button
+                    disabled={clock < new Date(item.startsAt).getTime() - 15 * 60_000 || clock > new Date(item.endsAt).getTime() + 30 * 60_000}
+                    onClick={() => void join(item)}
+                  >
+                    {clock < new Date(item.startsAt).getTime() - 15 * 60_000 ? "Mở trước giờ học 15 phút" : clock > new Date(item.endsAt).getTime() + 30 * 60_000 ? "Đã hết giờ tham gia" : "Vào lớp"} <ExternalLink size={15} />
                   </Button>
                 ) : null}
               </div>
