@@ -15,10 +15,11 @@ export class ContentController {
   constructor(private readonly learning: LearningService) {}
 
   @Get("materials") @RequirePermissions("material:view")
-  listMaterials(@Headers("x-role-code") role = "LEARNER", @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(role, query); }
+  listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id); }
 
   @Get("learner/materials/search") @RequirePermissions("material:view")
   searchMaterials(
+    @CurrentSession() session: AuthenticatedSession,
     @Query("query") query?: string,
     @Query("classId") classId?: string,
     @Query("folder") folder?: string,
@@ -27,17 +28,18 @@ export class ContentController {
     @Query("page") rawPage?: string,
     @Query("pageSize") rawPageSize?: string,
   ): Promise<MaterialSearchResult> {
-    return this.learning.searchAccessibleMaterials({ query, classId, folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) });
+    return this.learning.searchAccessibleMaterials({ query, classId, folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id);
   }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
-  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input); }
+  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id); }
 
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
   uploadMaterial(
     @Param("classId") classId: string,
     @Body() input: UploadMaterialDto,
+    @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
@@ -48,20 +50,20 @@ export class ContentController {
       sizeBytes: file.size,
       folder: input.folder,
       tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-    }, upload);
+    }, upload, session.user.id);
   }
 
   @Get("materials/:materialId/versions") @RequirePermissions("material:view")
-  listMaterialVersions(@Param("materialId") materialId: string, @Headers("x-role-code") role = "LEARNER"): Promise<MaterialVersionSnapshot[]> { return this.learning.listMaterialVersions(materialId, role); }
+  listMaterialVersions(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<MaterialVersionSnapshot[]> { return this.learning.listMaterialVersions(materialId, session.roleCode, session.user.id); }
 
   @Get("materials/:materialId/versions/:version/access") @RequirePermissions("material:view")
-  getMaterialVersionAccess(@Param("materialId") materialId: string, @Param("version") version: string, @Headers("x-role-code") role = "LEARNER", @Query("action") rawAction = "DOWNLOAD"): Promise<{ url: string; expiresAt: string }> {
-    return this.learning.createMaterialVersionAccess(materialId, Number(version), role, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD");
+  getMaterialVersionAccess(@Param("materialId") materialId: string, @Param("version") version: string, @CurrentSession() session: AuthenticatedSession, @Query("action") rawAction = "DOWNLOAD"): Promise<{ url: string; expiresAt: string }> {
+    return this.learning.createMaterialVersionAccess(materialId, Number(version), session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
   }
 
   @Get("materials/:materialId/versions/:version/download") @RequirePermissions("material:view")
-  async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @Headers("x-role-code") role = "LEARNER"): Promise<StreamableFile> {
-    const download = await this.learning.readMaterialVersionDownload(materialId, Number(version), Number(expires), signature ?? "", role, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD");
+  async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
+    const download = await this.learning.readMaterialVersionDownload(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
     return new StreamableFile(download.buffer, { type: download.mimeType, disposition: `${rawAction === "PREVIEW" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(download.fileName)}`, length: download.buffer.length });
   }
 
@@ -70,17 +72,18 @@ export class ContentController {
   uploadMaterialVersion(
     @Param("materialId") materialId: string,
     @Body() input: UploadMaterialDto,
+    @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn tệp cho phiên bản mới.");
-    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer });
+    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
   }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
-  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input); }
+  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input, session.user.id); }
 
   @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
-  reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason); }
+  reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }
 
   @Get("manager/materials/:materialId/reviews") @RequirePermissions("class:manage")
   listMaterialReviews(@Param("materialId") materialId: string): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId); }
@@ -88,11 +91,11 @@ export class ContentController {
   @Get("materials/:materialId/access") @RequirePermissions("material:view")
   getMaterialAccess(
     @Param("materialId") materialId: string,
-    @Headers("x-role-code") role = "LEARNER",
+    @CurrentSession() session: AuthenticatedSession,
     @Query("action") rawAction = "DOWNLOAD",
   ): Promise<{ url: string; expiresAt: string }> {
     const action = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    return this.learning.createMaterialAccess(materialId, role, action);
+    return this.learning.createMaterialAccess(materialId, session.roleCode, action, session.user.id);
   }
 
   @Get("materials/:materialId/download") @RequirePermissions("material:view")
@@ -101,14 +104,14 @@ export class ContentController {
     @Query("expires") expires: string,
     @Query("signature") signature: string,
     @Query("action") rawAction: string,
-    @Headers("x-role-code") role = "LEARNER",
+    @CurrentSession() session: AuthenticatedSession,
     @Req() request: Request,
   ): Promise<StreamableFile> {
     const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", role, action, {
+    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", session.roleCode, action, {
       ipAddress: request.ip,
       userAgent: request.header("user-agent"),
-    });
+    }, session.user.id);
     return new StreamableFile(download.buffer, {
       type: download.mimeType,
       disposition: `${action === "PREVIEW" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,

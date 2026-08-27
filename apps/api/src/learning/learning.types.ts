@@ -19,7 +19,7 @@ export interface ClassRoster { classId: string; instructors: ClassInstructorAssi
 export interface EnrollmentImportResult { userId: string; status: "ENROLLED" | "SKIPPED" | "FAILED"; message: string }
 
 export interface LearningMaterial {
-  id: string; classId: string; name: string; mimeType: string; sizeBytes: number;
+  id: string; classId: string; ownerId: string; name: string; mimeType: string; sizeBytes: number;
   folder: string; tags: string[]; version: number; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
   quarantinedAt?: string; quarantineReason?: string; createdAt: string;
 }
@@ -112,7 +112,7 @@ export interface ReportRun { id: string; reportType: "OPERATIONS"; definitionVer
 export interface ReportExport { id: string; reportRunId: string; format: "CSV"; status: "QUEUED" | "COMPLETED" | "FAILED" | "EXPIRED"; fileName: string; sizeBytes?: number; errorMessage?: string; expiresAt: string; createdAt: string }
 
 export interface LiveSession {
-  id: string; classId: string; title: string; startsAt: string; endsAt: string;
+  id: string; classId: string; hostId: string; title: string; startsAt: string; endsAt: string;
   provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; status: "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
   hostUrl: string; attendeeUrl: string; recordingUrl?: string; timezone: string; changeReason?: string; cancellationReason?: string; attendanceLockedAt?: string; attendanceLockedById?: string;
   recordingStatus?: "NONE" | "PROCESSING" | "READY" | "FAILED" | "EXPIRED"; recordingReadyAt?: string; recordingExpiresAt?: string; recordingError?: string;
