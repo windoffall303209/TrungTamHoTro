@@ -2,6 +2,8 @@ import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
+import type { AuthenticatedSession } from "../auth/auth.service.js";
+import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
@@ -133,13 +135,13 @@ export class ContentController {
   listExams(@Headers("x-role-code") role = "LEARNER"): Promise<LearningExam[]> { return this.learning.listExams(role); }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
-  listLearnerExams(@Param("classId") classId: string): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(classId); }
+  listLearnerExams(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(classId, session.user.id); }
 
   @Get("learner/exams") @RequirePermissions("exam:view")
-  listAllLearnerExams(): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(); }
+  listAllLearnerExams(@CurrentSession() session: AuthenticatedSession): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(undefined, session.user.id); }
 
   @Get("learner/exams/:examId/questions") @RequirePermissions("exam:view")
-  getLearnerExamQuestions(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId); }
+  getLearnerExamQuestions(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId, session.user.id); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
   createExam(@Body() input: CreateExamDto): Promise<LearningExam> { return this.learning.createExam(input); }
@@ -154,23 +156,23 @@ export class ContentController {
   listExamApprovals(@Param("examId") examId: string): Promise<ExamApprovalRecord[]> { return this.learning.listExamApprovals(examId); }
 
   @Post("learner/exams/:examId/attempts") @RequirePermissions("exam:view")
-  startAttempt(@Param("examId") examId: string): Promise<ExamAttempt> { return this.learning.startAttempt(examId); }
+  startAttempt(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.startAttempt(examId, session.user.id); }
 
   @Patch("learner/exam-attempts/:attemptId/answers") @RequirePermissions("exam:view")
-  saveAnswer(@Param("attemptId") attemptId: string, @Body() input: SaveAnswerDto): Promise<ExamAttempt> { return this.learning.saveAnswer(attemptId, input.questionId, input.answers); }
+  saveAnswer(@Param("attemptId") attemptId: string, @Body() input: SaveAnswerDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.saveAnswer(attemptId, input.questionId, input.answers, session.user.id); }
 
   @Post("learner/exam-attempts/:attemptId/submit") @RequirePermissions("exam:view")
-  submitAttempt(@Param("attemptId") attemptId: string): Promise<ExamAttempt> { return this.learning.submitAttempt(attemptId); }
+  submitAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.submitAttempt(attemptId, session.user.id); }
 
   @Get("learner/attempts/:attemptId/result") @RequirePermissions("exam:view")
-  getAttempt(@Param("attemptId") attemptId: string): Promise<LearnerResult> { return this.learning.getLearnerResult(attemptId); }
+  getAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearnerResult> { return this.learning.getLearnerResult(attemptId, session.user.id); }
 
   @Get("learner/results") @RequirePermissions("exam:view")
-  listLearnerResults(): Promise<LearnerResult[]> { return this.learning.listLearnerResults(); }
+  listLearnerResults(@CurrentSession() session: AuthenticatedSession): Promise<LearnerResult[]> { return this.learning.listLearnerResults(session.user.id); }
 
   @Post("learner/attempts/:attemptId/regrade-requests") @RequirePermissions("exam:view")
-  requestRegrade(@Param("attemptId") attemptId: string, @Body() input: RequestRegradeDto): Promise<RegradeRequest> {
-    return this.learning.requestRegrade(attemptId, input.reason);
+  requestRegrade(@Param("attemptId") attemptId: string, @Body() input: RequestRegradeDto, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    return this.learning.requestRegrade(attemptId, input.reason, session.user.id);
   }
 
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")

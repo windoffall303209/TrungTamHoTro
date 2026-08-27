@@ -51,6 +51,22 @@ describe("LearningService", () => {
     await expect(service.submitAttempt(attempt.id)).rejects.toThrow(ConflictException);
   });
 
+  it("cô lập lượt làm bài theo đúng tài khoản học viên", async () => {
+    const service = new LearningService();
+    await service.enrollLearner("class-web-01", "learner-second");
+    const attempt = await service.startAttempt("exam-mid-web", "learner-second");
+
+    await expect(service.getExamQuestions("exam-mid-web", "usr-learner")).rejects.toThrow(NotFoundException);
+    await expect(service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"], "usr-learner")).rejects.toThrow(NotFoundException);
+    await expect(service.submitAttempt(attempt.id, "usr-learner")).rejects.toThrow(NotFoundException);
+
+    expect(await service.getExamQuestions("exam-mid-web", "learner-second")).toHaveLength(2);
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"], "learner-second");
+    expect((await service.submitAttempt(attempt.id, "learner-second")).learnerId).toBe("learner-second");
+    expect(await service.listLearnerResults("usr-learner")).toHaveLength(0);
+    expect(await service.listLearnerResults("learner-second")).toHaveLength(1);
+  });
+
   it("chặn lịch buổi học trùng", async () => {
     vi.useFakeTimers();
     try {
@@ -587,6 +603,24 @@ describe("LearningService", () => {
     expect(await service.listTicketComments(ticket.id, "LEARNER")).toHaveLength(2);
     expect((await service.listTickets("SYSTEM_ADMIN"))[0]?.status).toBe("IN_PROGRESS");
     await expect(service.updateTicket(ticket.id, { status: "RESOLVED" })).rejects.toThrow(BadRequestException);
+  });
+
+  it("chỉ cho người báo hoặc đội quản lý hỗ trợ truy cập ticket", async () => {
+    const service = new LearningService();
+    const ticket = await service.createTicket(
+      { category: "ACCOUNT", severity: "P1", description: "Tài khoản không tải được hồ sơ cá nhân" },
+      "reporter-one",
+    );
+
+    expect(await service.listTickets("LEARNER", "reporter-two")).toHaveLength(0);
+    expect(await service.listTickets("INSTRUCTOR", "reporter-two")).toHaveLength(0);
+    await expect(service.listTicketComments(ticket.id, "LEARNER", "reporter-two")).rejects.toThrow(NotFoundException);
+    await expect(service.addTicketComment(ticket.id, "Tôi muốn xem ticket của người khác", "INSTRUCTOR", "reporter-two")).rejects.toThrow(NotFoundException);
+
+    expect(await service.listTickets("CENTER_MANAGER", "support-manager")).toHaveLength(1);
+    const comment = await service.addTicketComment(ticket.id, "Đội hỗ trợ đã tiếp nhận yêu cầu", "CENTER_MANAGER", "support-manager");
+    expect(comment.authorId).toBe("support-manager");
+    expect((await service.listTickets("LEARNER", "reporter-one"))[0]?.status).toBe("IN_PROGRESS");
   });
 
   it("chặn bí mật và lưu bằng chứng hỗ trợ có checksum", async () => {

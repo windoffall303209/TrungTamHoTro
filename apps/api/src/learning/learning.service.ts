@@ -987,8 +987,7 @@ export class LearningService {
     return this.exams.filter((item) => role !== "LEARNER" || item.status === "PUBLISHED").map((item) => ({ ...item, questionIds: [...item.questionIds] }));
   }
 
-  async listLearnerExamSummaries(classId?: string): Promise<LearnerExamSummary[]> {
-    const learnerId = "usr-learner";
+  async listLearnerExamSummaries(classId?: string, learnerId = "usr-learner"): Promise<LearnerExamSummary[]> {
     const timestamp = new Date();
     const prisma = this.database();
     if (prisma) {
@@ -1030,19 +1029,19 @@ export class LearningService {
       });
   }
 
-  async getExamQuestions(examId: string): Promise<LearningQuestion[]> {
+  async getExamQuestions(examId: string, learnerId = "usr-learner"): Promise<LearningQuestion[]> {
     const prisma = this.database();
     if (prisma) {
       const exam = await prisma.exam.findFirst({
         where: {
           id: examId,
           status: "PUBLISHED",
-          class: { enrollments: { some: { learnerId: "usr-learner", status: "ACTIVE" } } },
-          attempts: { some: { learnerId: "usr-learner", status: "IN_PROGRESS" } },
+          class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
+          attempts: { some: { learnerId, status: "IN_PROGRESS" } },
         },
         include: {
           questions: { include: { question: true }, orderBy: { position: "asc" } },
-          attempts: { where: { learnerId: "usr-learner", status: "IN_PROGRESS" }, take: 1 },
+          attempts: { where: { learnerId, status: "IN_PROGRESS" }, take: 1 },
         },
       });
       if (!exam) throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
@@ -1055,11 +1054,11 @@ export class LearningService {
     const exam = this.findExam(examId);
     if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
     const classItem = this.findClass(exam.classId);
-    if (!classItem.learnerIds.includes("usr-learner")) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
-    if (!this.attempts.some((attempt) => attempt.examId === examId && attempt.learnerId === "usr-learner" && attempt.status === "IN_PROGRESS")) {
+    if (!classItem.learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
+    if (!this.attempts.some((attempt) => attempt.examId === examId && attempt.learnerId === learnerId && attempt.status === "IN_PROGRESS")) {
       throw new NotFoundException("Không tìm thấy lượt làm bài đang mở cho đề này.");
     }
-    const activeAttempt = this.attempts.find((attempt) => attempt.examId === examId && attempt.learnerId === "usr-learner" && attempt.status === "IN_PROGRESS");
+    const activeAttempt = this.attempts.find((attempt) => attempt.examId === examId && attempt.learnerId === learnerId && attempt.status === "IN_PROGRESS");
     if (!activeAttempt || this.attemptDeadline(new Date(activeAttempt.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) {
       throw new BadRequestException("Lượt làm bài đã hết thời gian.");
     }
@@ -1203,10 +1202,10 @@ export class LearningService {
     return { ...item, answers: {} };
   }
 
-  async saveAnswer(attemptId: string, questionId: string, answers: string[]): Promise<ExamAttempt> {
+  async saveAnswer(attemptId: string, questionId: string, answers: string[], learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
-      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
+      const attempt = await prisma.examAttempt.findFirst({ where: { id: attemptId, learnerId }, include: { exam: true } });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (attempt.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
       if (this.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
@@ -1218,7 +1217,8 @@ export class LearningService {
       });
       return this.getDatabaseAttempt(prisma, attemptId);
     }
-    const item = this.findAttempt(attemptId);
+    const item = this.attempts.find((attempt) => attempt.id === attemptId && attempt.learnerId === learnerId);
+    if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
     if (item.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
     const exam = this.findExam(item.examId);
     if (this.attemptDeadline(new Date(item.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
@@ -1228,12 +1228,12 @@ export class LearningService {
     return { ...item, answers: { ...item.answers }, serverTime: now() };
   }
 
-  async submitAttempt(attemptId: string): Promise<ExamAttempt> {
+  async submitAttempt(attemptId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
-        const attempt = await transaction.examAttempt.findUnique({
-          where: { id: attemptId },
+        const attempt = await transaction.examAttempt.findFirst({
+          where: { id: attemptId, learnerId },
           include: { answers: true, exam: { include: { questions: { include: { question: true } } } } },
         });
         if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
@@ -1268,7 +1268,8 @@ export class LearningService {
         return this.mapAttempt(updated);
       });
     }
-    const item = this.findAttempt(attemptId);
+    const item = this.attempts.find((attempt) => attempt.id === attemptId && attempt.learnerId === learnerId);
+    if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
     if (item.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó.");
     const exam = this.findExam(item.examId);
     let correct = 0;
@@ -2333,17 +2334,18 @@ export class LearningService {
     return { ...appeal };
   }
 
-  async listTickets(role: string): Promise<SupportTicket[]> {
+  async listTickets(role: string, actorId = this.userIdForRole(role)): Promise<SupportTicket[]> {
+    const canManage = this.canManageSupport(role);
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.supportTicket.findMany({
-        where: role === "LEARNER" ? { reporterId: "usr-learner" } : undefined,
+        where: canManage ? undefined : { reporterId: actorId },
         include: { attachments: true },
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
       });
       return rows.map((row) => this.mapTicket(row));
     }
-    return this.tickets.filter((item) => role === "LEARNER" ? item.reporterId === "usr-learner" : true).map((item) => ({ ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) }));
+    return this.tickets.filter((item) => canManage || item.reporterId === actorId).map((item) => ({ ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) }));
   }
 
   async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description" | "contextId">, reporterId = "usr-learner"): Promise<SupportTicket> {
@@ -2404,8 +2406,9 @@ export class LearningService {
     ticketId: string,
     upload: UploadedMaterialFile,
     role: string,
+    uploaderId = this.userIdForRole(role),
   ): Promise<SupportAttachment> {
-    const uploaderId = this.userIdForRole(role);
+    const canManage = this.canManageSupport(role);
     this.validateSupportUpload(upload);
     const attachmentId = id("support-attachment");
     const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^.a-z0-9]/g, "");
@@ -2414,7 +2417,7 @@ export class LearningService {
     const prisma = this.database();
     if (prisma) {
       const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
-      if (!ticket || role === "LEARNER" && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
+      if (!ticket || !canManage && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
       if (["RESOLVED", "CLOSED"].includes(ticket.status)) throw new BadRequestException("Ticket đã hoàn tất, không thể thêm bằng chứng.");
       await this.writeStoredFile(objectKey, upload.buffer);
       try {
@@ -2426,7 +2429,7 @@ export class LearningService {
       }
     }
     const ticket = this.tickets.find((item) => item.id === ticketId);
-    if (!ticket || role === "LEARNER" && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
+    if (!ticket || !canManage && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
     if (["RESOLVED", "CLOSED"].includes(ticket.status)) throw new BadRequestException("Ticket đã hoàn tất, không thể thêm bằng chứng.");
     await this.writeStoredFile(objectKey, upload.buffer);
     const attachment: SupportAttachment = { id: attachmentId, ticketId, name: upload.originalName, mimeType: upload.mimeType, sizeBytes: upload.size, checksum, createdAt: now() };
@@ -2474,35 +2477,36 @@ export class LearningService {
     return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
   }
 
-  async listTicketComments(ticketId: string, role: string): Promise<TicketComment[]> {
+  async listTicketComments(ticketId: string, role: string, actorId = this.userIdForRole(role)): Promise<TicketComment[]> {
+    const canManage = this.canManageSupport(role);
     const prisma = this.database();
     if (prisma) {
       const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
-      if (!ticket || role === "LEARNER" && ticket.reporterId !== "usr-learner") throw new NotFoundException("Không tìm thấy ticket được phép xem.");
+      if (!ticket || !canManage && ticket.reporterId !== actorId) throw new NotFoundException("Không tìm thấy ticket được phép xem.");
       const rows = await prisma.ticketComment.findMany({ where: { ticketId }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => ({ id: row.id, ticketId: row.ticketId, authorId: row.authorId, body: row.body, createdAt: row.createdAt.toISOString() }));
     }
     const ticket = this.tickets.find((item) => item.id === ticketId);
-    if (!ticket || role === "LEARNER" && ticket.reporterId !== "usr-learner") throw new NotFoundException("Không tìm thấy ticket được phép xem.");
+    if (!ticket || !canManage && ticket.reporterId !== actorId) throw new NotFoundException("Không tìm thấy ticket được phép xem.");
     return this.ticketComments.filter((item) => item.ticketId === ticketId).map((item) => ({ ...item }));
   }
 
-  async addTicketComment(ticketId: string, body: string, role: string): Promise<TicketComment> {
+  async addTicketComment(ticketId: string, body: string, role: string, authorId = this.userIdForRole(role)): Promise<TicketComment> {
     const normalized = this.validateSupportText(body, "Nội dung trao đổi");
-    const authorId = this.userIdForRole(role);
+    const canManage = this.canManageSupport(role);
     const prisma = this.database();
     if (prisma) {
       const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
-      if (!ticket || role === "LEARNER" && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
+      if (!ticket || !canManage && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
       if (ticket.status === "CLOSED") throw new BadRequestException("Ticket đã đóng, không thể thêm trao đổi.");
       const row = await prisma.ticketComment.create({ data: { id: id("ticket-comment"), ticketId, authorId, body: normalized } });
-      if (role !== "LEARNER" && ticket.status === "OPEN") await prisma.supportTicket.update({ where: { id: ticketId }, data: { status: "IN_PROGRESS", assigneeId: authorId } });
+      if (canManage && ticket.status === "OPEN") await prisma.supportTicket.update({ where: { id: ticketId }, data: { status: "IN_PROGRESS", assigneeId: authorId } });
       return { id: row.id, ticketId: row.ticketId, authorId: row.authorId, body: row.body, createdAt: row.createdAt.toISOString() };
     }
     const ticket = this.tickets.find((item) => item.id === ticketId);
-    if (!ticket || role === "LEARNER" && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
+    if (!ticket || !canManage && ticket.reporterId !== authorId) throw new NotFoundException("Không tìm thấy ticket được phép phản hồi.");
     if (ticket.status === "CLOSED") throw new BadRequestException("Ticket đã đóng, không thể thêm trao đổi.");
-    if (role !== "LEARNER" && ticket.status === "OPEN") Object.assign(ticket, { status: "IN_PROGRESS", assigneeId: authorId });
+    if (canManage && ticket.status === "OPEN") Object.assign(ticket, { status: "IN_PROGRESS", assigneeId: authorId });
     const comment: TicketComment = { id: id("ticket-comment"), ticketId, authorId, body: normalized, createdAt: now() };
     this.ticketComments.push(comment);
     return { ...comment };
@@ -3388,6 +3392,10 @@ export class LearningService {
     if (role === "CENTER_MANAGER") return "usr-manager";
     if (role === "INSTRUCTOR") return "usr-instructor";
     return "usr-learner";
+  }
+
+  private canManageSupport(role: string): boolean {
+    return role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER";
   }
 
   private canAccessMemoryMaterial(material: LearningMaterial, role: string): boolean {

@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@
 import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import { type PermissionCode, type RoleCode } from "./permissions.js";
-import { REQUIRED_PERMISSIONS_KEY } from "./require-permissions.decorator.js";
+import { AUTHENTICATION_REQUIRED_KEY, REQUIRED_PERMISSIONS_KEY } from "./require-permissions.decorator.js";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
 
 export interface RequestWithRole extends Request {
@@ -22,7 +22,11 @@ export class PermissionGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!permissions?.length) return true;
+    const authenticationRequired = this.reflector.getAllAndOverride<boolean>(AUTHENTICATION_REQUIRED_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!authenticationRequired && !permissions?.length) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithRole>();
     const session = await this.authService.resolve(
@@ -33,7 +37,7 @@ export class PermissionGuard implements CanActivate {
     request.roleCode = session.roleCode;
     const granted = session.permissions;
 
-    if (!permissions.every((permission) => granted.includes(permission))) {
+    if (permissions?.length && !permissions.every((permission) => granted.includes(permission))) {
       throw new ForbiddenException(`Vai trò ${session.roleCode} không có quyền: ${permissions.join(", ")}`);
     }
     return true;
