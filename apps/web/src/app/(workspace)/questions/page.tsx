@@ -233,7 +233,7 @@ export default function QuestionsPage() {
           </div>
         }
       />
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="mb-6 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-4">
         <div className="grid gap-3 md:grid-cols-5">
           <div className="relative md:col-span-2">
             <Search
@@ -306,7 +306,7 @@ export default function QuestionsPage() {
         <div className="space-y-3">
           {items.map((item, index) => (
             <article
-              className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-[auto_1fr_auto]"
+              className="grid gap-4 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 md:grid-cols-[auto_1fr_auto]"
               key={item.id}
             >
               <div className="grid size-10 place-items-center rounded-xl bg-violet-50 text-sm font-extrabold text-violet-700">

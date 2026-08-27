@@ -330,12 +330,13 @@ export default function ExamsPage() {
         </section>
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
           {items.map((item) => (
             <article
-              className="rounded-2xl border border-slate-200 bg-white p-5"
+              className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
               key={item.id}
             >
+              <div>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs font-extrabold text-sky-700">
@@ -379,9 +380,10 @@ export default function ExamsPage() {
                 {new Date(item.openAt).toLocaleString("vi-VN")} —{" "}
                 {new Date(item.closeAt).toLocaleString("vi-VN")}
               </p>
+              </div>
+              <div className="flex flex-wrap gap-2 lg:justify-end">
               {instructor && item.status === "DRAFT" ? (
                 <Button
-                  className="mt-4"
                   onClick={() => void publish(item)}
                   variant="secondary"
                 >
@@ -393,13 +395,14 @@ export default function ExamsPage() {
               ["AVAILABLE", "IN_PROGRESS"].includes(
                 item.availabilityStatus ?? "",
               ) ? (
-                <Button className="mt-4" onClick={() => void start(item)}>
+                <Button onClick={() => void start(item)}>
                   <Play size={15} />
                   {item.availabilityStatus === "IN_PROGRESS"
                     ? "Tiếp tục làm bài"
                     : "Bắt đầu làm bài"}
                 </Button>
               ) : null}
+              </div>
             </article>
           ))}
         </div>

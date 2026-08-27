@@ -135,7 +135,7 @@ export default function AttendancePage() {
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Attendance Governance" title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+      <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
             <select className={inputClass} value={selectedId} onChange={(event) => { setSelectedId(event.target.value); void loadReview(event.target.value); }}>
@@ -151,12 +151,12 @@ export default function AttendancePage() {
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[{ label: "Học viên", value: statistics.enrolled }, { label: "Có mặt / muộn", value: statistics.present }, { label: "Vắng", value: statistics.absent }, { label: "Yêu cầu chờ xử lý", value: statistics.openAppeals }].map((item) => (
-          <div className="rounded-xl border border-slate-200 bg-white p-4" key={item.label}><p className="text-2xl font-extrabold text-sky-700">{item.value}</p><p className="mt-1 text-xs font-bold text-slate-500">{item.label}</p></div>
+          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4" key={item.label}><p className="text-2xl font-extrabold text-sky-700">{item.value}</p><p className="mt-1 text-xs font-bold text-slate-500">{item.label}</p></div>
         ))}
       </div>
 
       <div className="mt-7 grid gap-7 xl:grid-cols-[.85fr_1.15fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3"><FileJson className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Nhập dữ liệu provider</h2></div>
           <p className="mt-2 text-xs leading-5 text-slate-500">JSON là mảng gồm `providerParticipantId`, `learnerId`, `joinedAt`, `leftAt`. Hệ thống tự loại người ngoài lớp, chặn bản ghi trùng và tính phút thực tế.</p>
           <form className="mt-5 space-y-4" onSubmit={(event) => void syncProvider(event)}>
@@ -167,7 +167,7 @@ export default function AttendancePage() {
           </form>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <section className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
           <div className="flex items-center gap-3 border-b border-slate-100 p-5"><UserCheck className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Kết quả điểm danh</h2></div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[620px] text-left text-sm">
@@ -182,7 +182,7 @@ export default function AttendancePage() {
         </section>
       </div>
 
-      <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6">
+      <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
         <div className="flex items-center gap-3"><CheckCircle2 className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Yêu cầu điều chỉnh</h2></div>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           {review?.appeals.length ? review.appeals.map((appeal) => (

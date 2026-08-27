@@ -117,7 +117,7 @@ export default function LearningHistoryPage() {
           const summary = summaries[item.id];
           return (
             <article
-              className="rounded-2xl border border-slate-200 bg-white p-5"
+              className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5"
               key={item.id}
             >
               <div className="flex flex-wrap items-start justify-between gap-4">

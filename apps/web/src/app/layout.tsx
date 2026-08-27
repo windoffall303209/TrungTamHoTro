@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
-import { Inter, Manrope } from "next/font/google";
+import { Be_Vietnam_Pro, Lora } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/providers/app-provider";
 
-const inter = Inter({
+const beVietnamPro = Be_Vietnam_Pro({
   variable: "--font-body",
   subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const manrope = Manrope({
+const lora = Lora({
   variable: "--font-heading",
   subsets: ["latin", "vietnamese"],
+  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -21,7 +23,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi">
-      <body className={`${inter.variable} ${manrope.variable}`}><AppProvider>{children}</AppProvider></body>
+      <body className={`${beVietnamPro.variable} ${lora.variable}`}>
+        {/*
+          THESIS: Wind EDU is a contemporary registrar's desk, not a generic dashboard-card mosaic.
+          OWN-WORLD: warm paper ground, blue-black ink, ledger rules, archival tabs and one vermilion action accent.
+          STORY: each role scans its current work, understands status and moves to the next teaching operation without leaving the shared workspace.
+          FIRST VIEWPORT: a slim role rail frames a large daily ledger and a contextual right column; actions sit directly beside the rows they change.
+          FORM: Sổ giáo vụ đương đại, grounded direction 7, seed 36e85a09.
+          FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+        */}
+        <AppProvider>{children}</AppProvider>
+      </body>
     </html>
   );
 }
