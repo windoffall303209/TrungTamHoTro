@@ -1,15 +1,43 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { Dashboard } from "./dashboard";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DashboardHome } from "./dashboard-home";
 
-describe("Dashboard", () => {
-  it("hiển thị đủ bốn phân hệ cốt lõi", () => {
-    render(<Dashboard />);
+const apiRequest = vi.fn();
+const useApp = vi.fn();
 
-    expect(screen.getAllByText("Kho dữ liệu").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Ngân hàng câu hỏi").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Diễn đàn").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Lớp học online").length).toBeGreaterThan(0);
+vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args) }));
+vi.mock("@/providers/app-provider", () => ({ useApp: () => useApp() }));
+
+describe("DashboardHome", () => {
+  beforeEach(() => { apiRequest.mockReset(); useApp.mockReset(); });
+
+  it("chỉ hiển thị phân hệ thuộc quyền học viên và lấy số liệu thật", async () => {
+    useApp.mockReturnValue({ session: { roleCode: "LEARNER", user: { roleName: "Học viên" } } });
+    apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/learner/classes"
+      ? [{ status: "ACTIVE" }, { status: "CLOSED" }]
+      : path === "/learner/exams"
+        ? [{ availabilityStatus: "AVAILABLE" }, { availabilityStatus: "CLOSED" }]
+        : [{ attempt: { id: "attempt-1" } }]));
+
+    render(<DashboardHome />);
+    await waitFor(() => expect(screen.getByText("bài có thể thực hiện")).toBeInTheDocument());
+    expect(screen.getByText("Kho học liệu")).toBeInTheDocument();
+    expect(screen.queryByText("Ngân hàng câu hỏi")).not.toBeInTheDocument();
+    expect(screen.getAllByText("1", { selector: "p" })).toHaveLength(3);
+    expect(apiRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("hiển thị trạng thái suy giảm thay vì số liệu dựng sẵn cho quản trị", async () => {
+    useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", user: { roleName: "Quản trị hệ thống" } } });
+    apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/admin/users"
+      ? [{ status: "ACTIVE" }, { status: "LOCKED" }]
+      : path === "/admin/roles"
+        ? [{ code: "SYSTEM_ADMIN" }, { code: "LEARNER" }]
+        : { status: "degraded", database: "disabled" }));
+
+    render(<DashboardHome />);
+    expect(await screen.findByText("Suy giảm")).toBeInTheDocument();
+    expect(screen.getByText("dịch vụ · CSDL disabled")).toBeInTheDocument();
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
   });
 });
-

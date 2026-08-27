@@ -38,6 +38,13 @@ export interface Exam {
   shuffleQuestions?: boolean; randomSeed?: string;
 }
 
+export interface LearnerExamSummary extends Exam {
+  questionCount: number;
+  availabilityStatus: "UPCOMING" | "AVAILABLE" | "IN_PROGRESS" | "ATTEMPT_LIMIT_REACHED" | "CLOSED";
+  remainingAttempts: number;
+  serverTime: string;
+}
+
 export interface ExamAttempt {
   id: string; examId: string; learnerId: string; answers: Record<string, string[]>;
   status: "IN_PROGRESS" | "SUBMITTED" | "GRADED"; startedAt: string; submittedAt?: string; score?: number; feedback?: string; gradePublishedAt?: string; serverTime?: string; lastSavedAt?: string; submissionReceipt?: string;
