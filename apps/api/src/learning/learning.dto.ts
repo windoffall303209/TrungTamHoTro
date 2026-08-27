@@ -189,6 +189,11 @@ export class UpdateAttendanceDto {
 }
 
 export class AttachRecordingDto { @IsUrl({ require_tld: false }) recordingUrl!: string; }
+export class CompleteRecordingDto {
+  @IsIn(["READY", "FAILED"]) status!: "READY" | "FAILED";
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(3650) retentionDays = 90;
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(500) errorMessage?: string;
+}
 export class CreateAttendanceAppealDto { @IsString() @MinLength(10) reason!: string; }
 
 export class ProviderAttendanceRowDto {

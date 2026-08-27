@@ -164,9 +164,12 @@ export default function LearningHistoryPage() {
                         <ExternalLink size={13} />
                       </button>
                     ) : (
-                      <p className="text-sm text-slate-400">
-                        Bản ghi chưa sẵn sàng
-                      </p>
+                      <div>
+                        <StatusBadge status={summary.session.recordingStatus ?? "NONE"} />
+                        <p className="mt-2 text-xs text-slate-500">
+                          {summary.session.recordingStatus === "PROCESSING" ? "Bản ghi đang được xử lý." : summary.session.recordingStatus === "FAILED" ? "Xử lý bản ghi thất bại, giảng viên sẽ thử lại." : summary.session.recordingStatus === "EXPIRED" ? "Bản ghi đã hết thời hạn lưu giữ." : "Bản ghi chưa sẵn sàng."}
+                        </p>
+                      </div>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 sm:col-span-3">
