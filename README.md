@@ -29,7 +29,7 @@ docs/         Kiến trúc và hướng dẫn phát triển
 
 ## Thiết lập lần đầu
 
-1. Mở file `.env` ở thư mục gốc và thay `CHANGE_ME` trong `DATABASE_URL` bằng mật khẩu MySQL cục bộ.
+1. Mở file `.env` ở thư mục gốc và cấu hình `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` theo MySQL cục bộ.
 2. Tạo database riêng cho dự án bằng MySQL Workbench hoặc MySQL Shell:
 
 ```sql
@@ -47,14 +47,15 @@ pnpm db:generate
 
 4. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
 
-5. Chỉ sau khi đã kiểm tra đúng `DATABASE_URL`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
+5. Chỉ sau khi đã kiểm tra đúng bộ biến `DB_*`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
 
 ```powershell
+pnpm db:doctor
 pnpm db:deploy
 pnpm db:seed
 ```
 
-`db:deploy` chỉ áp dụng các migration có sẵn trong repository; `db:migrate` dành cho lập trình viên khi chủ động thay đổi schema. Không chạy migration trên database đang chứa dữ liệu ngoài dự án. `.env` đã bị loại khỏi Git; chỉ `.env.example` được phép commit.
+`db:doctor` kiểm tra năm biến `DB_*`, độ dài mật khẩu seed, quyền đăng nhập, database và lịch sử migration mà không in mật khẩu. Thêm `--json` để nhận kết quả máy đọc được hoặc `--verbose` để xem lỗi kết nối đầy đủ. `db:deploy` chỉ áp dụng các migration có sẵn trong repository; `db:migrate` dành cho lập trình viên khi chủ động thay đổi schema. Không chạy migration trên database đang chứa dữ liệu ngoài dự án. `.env` đã bị loại khỏi Git; chỉ `.env.example` được phép commit.
 
 ## Chạy phát triển
 
@@ -87,4 +88,4 @@ Lệnh này chạy lần lượt lint, typecheck, test và build cho toàn bộ 
 
 - `.env`: giá trị thật trên máy của từng thành viên, tuyệt đối không commit.
 - `.env.example`: danh sách biến bắt buộc và giá trị mẫu không chứa bí mật.
-- Biến mới phải được khai báo đồng thời trong `.env.example` và bộ kiểm tra tại `apps/api/src/config/environment.ts`.
+- Biến mới phải được khai báo đồng thời trong `.env.example` và bộ kiểm tra tại `apps/api/src/config/environment.ts`. Kết nối database dùng trực tiếp bộ biến `DB_*`; không khai báo thêm `DATABASE_URL` để tránh hai nguồn cấu hình xung đột.

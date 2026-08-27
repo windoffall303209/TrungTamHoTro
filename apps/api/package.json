@@ -11,9 +11,10 @@
     "typecheck": "pnpm db:generate && tsc --noEmit",
     "test": "vitest run",
     "db:generate": "prisma generate",
+    "db:doctor": "tsx prisma/doctor.mjs",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "node prisma/seed.mjs",
+    "db:seed": "tsx prisma/seed.mjs",
     "db:studio": "prisma studio"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "compression": "1.8.1",
     "dotenv": "17.2.3",
     "helmet": "8.1.0",
+    "mariadb": "3.4.5",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "4.4.3"
@@ -44,6 +46,7 @@
     "eslint": "9.39.4",
     "globals": "17.4.0",
     "prisma": "7.9.1",
+    "tsx": "^4.23.12",
     "typescript": "5.9.3",
     "typescript-eslint": "8.57.1",
     "vitest": "4.1.11"
