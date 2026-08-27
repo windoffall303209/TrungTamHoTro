@@ -24,6 +24,28 @@ export interface SessionData {
   availableRoles: Array<{ code: RoleCode; name: string }>;
 }
 
+export interface AccountProfile {
+  id: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  timezone: string;
+  locale: string;
+  status: "ACTIVE" | "INACTIVE" | "LOCKED";
+  createdAt: string;
+}
+
+export interface AccountSession {
+  id: string;
+  current: boolean;
+  currentRoleCode: RoleCode;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
 export interface IdentityUser {
   id: string;
   displayName: string;

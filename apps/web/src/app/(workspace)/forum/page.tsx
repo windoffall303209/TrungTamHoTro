@@ -318,7 +318,7 @@ export default function ForumPage() {
           <div className="mt-2 flex flex-wrap gap-2">
             {notifications.map((item) => (
               <button
-                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-800"}`}
+                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-[#eee8dc] text-[#516274]" : "bg-[#f2d9cd] text-[#963f2a]"}`}
                 key={item.id}
                 onClick={() => void markNotificationRead(item)}
                 type="button"

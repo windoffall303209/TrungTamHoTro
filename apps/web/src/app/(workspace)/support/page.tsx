@@ -274,7 +274,7 @@ export default function SupportPage() {
         </form>
       </Modal>
       <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title="Trao đổi yêu cầu hỗ trợ" description={selected ? `${selected.category} · ${selected.severity} · SLA ${new Date(selected.dueAt).toLocaleString("vi-VN")}` : undefined}>
-        <div className="max-h-72 space-y-3 overflow-y-auto">{comments.length ? comments.map((comment) => <div className={`rounded-xl p-3 text-sm ${comment.authorId === "usr-learner" ? "bg-slate-100" : "bg-sky-50"}`} key={comment.id}><p>{comment.body}</p><p className="mt-1 text-[10px] font-bold text-slate-400">{comment.authorId} · {new Date(comment.createdAt).toLocaleString("vi-VN")}</p></div>) : <p className="text-sm text-slate-400">Chưa có trao đổi.</p>}</div>
+        <div className="max-h-72 space-y-3 overflow-y-auto">{comments.length ? comments.map((comment) => <div className={`rounded-xl p-3 text-sm ${comment.authorId === "usr-learner" ? "bg-[#eee8dc]" : "bg-[#f8ece6]"}`} key={comment.id}><p>{comment.body}</p><p className="mt-1 text-[10px] font-bold text-[#657789]">{comment.authorId} · {new Date(comment.createdAt).toLocaleString("vi-VN")}</p></div>) : <p className="text-sm text-[#657789]">Chưa có trao đổi.</p>}</div>
         {selected?.status !== "CLOSED" ? <form className="mt-4 flex gap-2" onSubmit={(event) => void addComment(event)}><input className={inputClass} minLength={2} required placeholder="Nhập nội dung phản hồi…" value={commentBody} onChange={(event) => setCommentBody(event.target.value)} /><Button aria-label="Gửi trao đổi" type="submit"><Send size={16} /></Button></form> : null}
       </Modal>
     </div>

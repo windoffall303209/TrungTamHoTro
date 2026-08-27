@@ -27,6 +27,9 @@ export async function apiRequest<T>(
   const payload = await response.json() as ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
   if (!response.ok) {
     const error = "error" in payload ? payload.error : undefined;
+    if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new Event("wind-edu:unauthorized"));
+    }
     throw new ApiError(error?.message ?? "Không thể xử lý yêu cầu.", response.status, error?.details);
   }
   return (payload as ApiEnvelope<T>).data;
