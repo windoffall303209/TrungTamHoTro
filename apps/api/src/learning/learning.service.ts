@@ -1224,7 +1224,8 @@ export class LearningService {
     if (this.attemptDeadline(new Date(item.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
     if (!exam.questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề.");
     item.answers[questionId] = [...answers];
-    return { ...item, answers: { ...item.answers } };
+    item.lastSavedAt = now();
+    return { ...item, answers: { ...item.answers }, serverTime: now() };
   }
 
   async submitAttempt(attemptId: string): Promise<ExamAttempt> {
@@ -1278,6 +1279,7 @@ export class LearningService {
     item.score = Math.round((correct / exam.questionIds.length) * exam.totalScore * 100) / 100;
     item.status = "GRADED";
     item.submittedAt = now();
+    item.submissionReceipt = this.submissionReceipt(item.id, item.submittedAt);
     item.gradePublishedAt = now();
     item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
     return { ...item, answers: { ...item.answers } };
@@ -2937,7 +2939,14 @@ export class LearningService {
       score: row.score === null ? undefined : Number(row.score),
       feedback: row.feedback ?? undefined,
       gradePublishedAt: row.gradePublishedAt?.toISOString(),
+      serverTime: now(),
+      lastSavedAt: row.answers.length ? new Date(Math.max(...row.answers.map((answer) => answer.updatedAt.getTime()))).toISOString() : undefined,
+      submissionReceipt: row.submittedAt ? this.submissionReceipt(row.id, row.submittedAt.toISOString()) : undefined,
     };
+  }
+
+  private submissionReceipt(attemptId: string, submittedAt: string): string {
+    return `SUB-${createHash("sha256").update(`${attemptId}.${submittedAt}`).digest("hex").slice(0, 16).toUpperCase()}`;
   }
 
   private mapRegradeRequest(row: Prisma.RegradeRequestGetPayload<Record<string, never>>): RegradeRequest {

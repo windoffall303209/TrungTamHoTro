@@ -283,9 +283,10 @@ export default function ExamsPage() {
                 <p className="mt-2 text-sm font-extrabold text-rose-700">
                   <Clock3 className="mr-1 inline" size={15} />
                   Còn {Math.floor(remainingSeconds / 60).toString().padStart(2, "0")}:
-                  {(remainingSeconds % 60).toString().padStart(2, "0")} · Autosave {autosaveStatus === "SAVING" ? "đang lưu" : autosaveStatus === "SAVED" ? "đã lưu" : autosaveStatus === "ERROR" ? "lỗi" : "sẵn sàng"}
+                  {(remainingSeconds % 60).toString().padStart(2, "0")} · Autosave {autosaveStatus === "SAVING" ? "đang lưu" : autosaveStatus === "SAVED" ? attempt.lastSavedAt || attempt.serverTime ? `đã lưu lúc ${new Date(attempt.lastSavedAt ?? attempt.serverTime!).toLocaleTimeString("vi-VN")}` : "đã lưu" : autosaveStatus === "ERROR" ? "lỗi — câu trả lời vẫn hiển thị để thử lại" : "sẵn sàng"}
                 </p>
               ) : null}
+              {attempt.submissionReceipt ? <p className="mt-2 text-xs font-bold text-emerald-700">Biên nhận nộp bài: {attempt.submissionReceipt}{attempt.submittedAt || attempt.serverTime ? ` · ${new Date(attempt.submittedAt ?? attempt.serverTime!).toLocaleString("vi-VN")}` : ""}</p> : null}
             </div>
             {attempt.status === "IN_PROGRESS" ? (
               <Button onClick={() => void submit()}>
