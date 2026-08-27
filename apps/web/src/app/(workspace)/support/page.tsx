@@ -215,7 +215,7 @@ export default function SupportPage() {
         title="Gửi yêu cầu hỗ trợ"
       >
         <form className="space-y-4" onSubmit={(e) => void create(e)}>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Nhóm vấn đề">
               <select
                 className={inputClass}

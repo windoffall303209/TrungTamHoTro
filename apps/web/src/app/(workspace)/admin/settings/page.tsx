@@ -283,9 +283,9 @@ export default function SettingsPage() {
         description="Chính sách dữ liệu, tích hợp, kiểm duyệt, sao lưu và tình trạng dịch vụ."
       />
       {health ? (
-        <section className="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="metric-ledger mb-7">
           <div
-            className={`rounded-xl border p-4 ${health.status === "healthy" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+            className={health.status === "healthy" ? "bg-emerald-50" : "bg-amber-50"}
           >
             <Activity
               className={
@@ -295,23 +295,23 @@ export default function SettingsPage() {
               }
               size={19}
             />
-            <p className="mt-3 font-extrabold">{health.status}</p>
+            <p className="mt-3 font-extrabold">{health.status === "healthy" ? "Hoạt động ổn định" : "Cần kiểm tra"}</p>
             <p className="text-xs text-slate-600">
-              Database: {health.database}
+              Cơ sở dữ liệu: {health.database === "connected" ? "đã kết nối" : health.database}
             </p>
           </div>
-          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
-            <p className="text-2xl font-extrabold">{health.apiLatencyMs} ms</p>
+          <div>
+            <p className="tabular text-2xl font-extrabold">{health.apiLatencyMs} ms</p>
             <p className="text-xs text-slate-500">Độ trễ API</p>
           </div>
-          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
-            <p className="text-2xl font-extrabold">
+          <div>
+            <p className="tabular text-2xl font-extrabold">
               {health.storageUsagePercent}%
             </p>
             <p className="text-xs text-slate-500">Dung lượng lưu trữ</p>
           </div>
-          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
-            <p className="text-2xl font-extrabold">{health.queueDepth}</p>
+          <div>
+            <p className="tabular text-2xl font-extrabold">{health.queueDepth}</p>
             <p className="text-xs text-slate-500">Tác vụ đang chờ</p>
           </div>
         </section>
@@ -335,7 +335,7 @@ export default function SettingsPage() {
                   }
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Múi giờ">
                   <input
                     className={inputClass}
@@ -355,7 +355,7 @@ export default function SettingsPage() {
                   />
                 </Field>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Lưu dữ liệu (ngày)">
                   <input
                     className={inputClass}
@@ -430,7 +430,7 @@ export default function SettingsPage() {
                   }
                 />
               </Field>
-              <label className="flex items-center justify-between rounded-xl bg-slate-50 p-4 text-sm font-bold">
+              <label className="flex min-h-11 items-center justify-between rounded-xl bg-slate-50 p-4 text-sm font-bold">
                 <span>Bật kiểm duyệt nội dung</span>
                 <input
                   checked={settings.moderationEnabled}
@@ -440,10 +440,11 @@ export default function SettingsPage() {
                       moderationEnabled: e.target.checked,
                     })
                   }
+                  className="size-5 accent-sky-600"
                   type="checkbox"
                 />
               </label>
-              <label className="flex items-center justify-between rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">
+              <label className="flex min-h-11 items-center justify-between rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">
                 <span>Chế độ bảo trì</span>
                 <input
                   checked={settings.maintenanceMode}
@@ -453,6 +454,7 @@ export default function SettingsPage() {
                       maintenanceMode: e.target.checked,
                     })
                   }
+                  className="size-5 accent-sky-600"
                   type="checkbox"
                 />
               </label>
@@ -484,14 +486,14 @@ export default function SettingsPage() {
             <div className="mt-6 h-80 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6 xl:col-span-2">
+        <section className="order-3 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6 xl:col-span-2">
           <h2 className="font-heading text-xl font-extrabold">
             Lịch sử cấu hình
           </h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {history.slice(0, 6).map((item) => (
+          <div className="mt-4 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+            {history.length ? history.slice(0, 6).map((item) => (
               <article
-                className="rounded-xl bg-slate-50 p-4"
+                className="py-4"
                 key={`${item.version}-${item.effectiveAt}`}
               >
                 <div className="flex items-center justify-between">
@@ -511,10 +513,10 @@ export default function SettingsPage() {
                   {item.storageQuotaMb} MB
                 </p>
               </article>
-            ))}
+            )) : <p className="empty-copy">Chưa có phiên bản cấu hình trước đó.</p>}
           </div>
         </section>
-        <div className="space-y-7">
+        <div className="order-2 space-y-7">
           <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
             <div className="flex items-center gap-3">
               <CloudCog className="text-sky-700" />
@@ -532,16 +534,17 @@ export default function SettingsPage() {
                         {item.isDefault ? "· Mặc định" : ""}
                       </p>
                       <p className="text-xs text-slate-400">
-                        {item.maskedCredential} · {item.healthStatus}
+                        {item.maskedCredential} · {item.healthStatus === "UNKNOWN" ? "Chưa kiểm tra" : item.healthStatus}
                       </p>
                     </div>
                     <button
+                      aria-pressed={item.enabled}
                       aria-label={`Bật tắt ${item.provider}`}
-                      className={`relative h-7 w-12 rounded-full transition ${item.enabled ? "bg-sky-600" : "bg-slate-200"}`}
+                      className={`relative h-11 w-14 rounded-full transition ${item.enabled ? "bg-sky-600" : "bg-slate-200"}`}
                       onClick={() => void toggle(item)}
                     >
                       <span
-                        className={`absolute top-1 size-5 rounded-full bg-white shadow transition ${item.enabled ? "left-6" : "left-1"}`}
+                        className={`absolute top-3 size-5 rounded-full bg-white shadow transition ${item.enabled ? "left-8" : "left-1"}`}
                       />
                     </button>
                   </div>
@@ -556,7 +559,7 @@ export default function SettingsPage() {
                       onClick={() => void testIntegration(item)}
                       variant="ghost"
                     >
-                      Health check
+                      Kiểm tra kết nối
                     </Button>
                     {item.enabled && !item.isDefault ? (
                       <Button
@@ -589,10 +592,10 @@ export default function SettingsPage() {
                 Chạy ngay
               </Button>
             </div>
-            <div className="mt-5 space-y-3">
+            <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
               {backups.slice(0, 4).map((item) => (
                 <div
-                  className="flex items-center justify-between rounded-xl bg-slate-50 p-3"
+                  className="flex items-center justify-between gap-3 py-4"
                   key={item.id}
                 >
                   <div>
@@ -636,10 +639,10 @@ export default function SettingsPage() {
               style={{ width: `${storage.usagePercent}%` }}
             />
           </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
             {storage.byClass.length ? (
               storage.byClass.map((item) => (
-                <div className="rounded-xl bg-slate-50 p-4" key={item.classId}>
+                <div className="py-4" key={item.classId}>
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-extrabold">
                       {item.classCode} · {item.className}

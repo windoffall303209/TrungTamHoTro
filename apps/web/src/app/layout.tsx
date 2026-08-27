@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="vi">
+    <html data-scroll-behavior="smooth" lang="vi">
       <body className={beVietnamPro.variable}>
         {/*
           THESIS: Wind EDU is a contemporary registrar's desk, not a generic dashboard-card mosaic.

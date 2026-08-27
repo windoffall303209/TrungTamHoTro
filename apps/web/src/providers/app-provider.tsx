@@ -50,9 +50,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={value}>
       {children}
       {toast ? (
-        <div aria-live="polite" className={`fixed bottom-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl ${
+        <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${
           toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"
-        }`} role="status">{toast.message}</div>
+        }`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div>
       ) : null}
     </AppContext.Provider>
   );

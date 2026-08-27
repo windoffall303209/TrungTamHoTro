@@ -390,7 +390,7 @@ export default function QuestionsPage() {
               ))}
             </select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Dạng câu hỏi">
               <select
                 className={inputClass}

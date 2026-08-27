@@ -149,15 +149,15 @@ export default function AttendancePage() {
         {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString("vi-VN")} bởi {review.session.attendanceLockedById}.</p> : null}
       </section>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="metric-ledger mt-6">
         {[{ label: "Học viên", value: statistics.enrolled }, { label: "Có mặt / muộn", value: statistics.present }, { label: "Vắng", value: statistics.absent }, { label: "Yêu cầu chờ xử lý", value: statistics.openAppeals }].map((item) => (
-          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4" key={item.label}><p className="text-2xl font-extrabold text-sky-700">{item.value}</p><p className="mt-1 text-xs font-bold text-slate-500">{item.label}</p></div>
+          <div key={item.label}><p className="tabular text-2xl font-extrabold text-sky-700">{item.value}</p><p className="mt-1 text-xs font-bold text-slate-500">{item.label}</p></div>
         ))}
       </div>
 
       <div className="mt-7 grid gap-7 xl:grid-cols-[.85fr_1.15fr]">
         <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
-          <div className="flex items-center gap-3"><FileJson className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Nhập dữ liệu provider</h2></div>
+          <div className="flex items-center gap-3"><FileJson className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Nhập dữ liệu nhà cung cấp</h2></div>
           <p className="mt-2 text-xs leading-5 text-slate-500">JSON là mảng gồm `providerParticipantId`, `learnerId`, `joinedAt`, `leftAt`. Hệ thống tự loại người ngoài lớp, chặn bản ghi trùng và tính phút thực tế.</p>
           <form className="mt-5 space-y-4" onSubmit={(event) => void syncProvider(event)}>
             <Field label="Dữ liệu JSON">
@@ -184,21 +184,21 @@ export default function AttendancePage() {
 
       <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
         <div className="flex items-center gap-3"><CheckCircle2 className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Yêu cầu điều chỉnh</h2></div>
-        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
           {review?.appeals.length ? review.appeals.map((appeal) => (
-            <article className="rounded-xl bg-slate-50 p-4" key={appeal.id}>
+            <article className="px-1 py-5 md:px-4" key={appeal.id}>
               <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{appeal.learnerId}</p><p className="mt-1 text-sm leading-6 text-slate-600">{appeal.reason}</p></div><StatusBadge status={appeal.status} /></div>
               {appeal.resolution ? <p className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-500">Kết luận: {appeal.resolution}</p> : null}
               {["OPEN", "IN_REVIEW"].includes(appeal.status) && !review.session.attendanceLockedAt ? <Button className="mt-4" onClick={() => openAppeal(appeal)} variant="secondary">Xử lý</Button> : null}
             </article>
-          )) : <p className="py-8 text-sm text-slate-400">Không có yêu cầu điều chỉnh.</p>}
+          )) : <p className="empty-copy">Không có yêu cầu điều chỉnh.</p>}
         </div>
       </section>
 
       <Modal open={Boolean(resolving)} onClose={() => setResolving(null)} title="Xử lý yêu cầu điểm danh" description={resolving?.reason}>
         <form className="space-y-4" onSubmit={(event) => void resolveAppeal(event)}>
           <Field label="Quyết định"><select className={inputClass} value={appealForm.decision} onChange={(event) => setAppealForm({ ...appealForm, decision: event.target.value as AppealDecision })}><option value="APPROVE">Chấp thuận</option><option value="REJECT">Từ chối</option></select></Field>
-          {appealForm.decision === "APPROVE" ? <div className="grid grid-cols-2 gap-3"><Field label="Trạng thái mới"><select className={inputClass} value={appealForm.status} onChange={(event) => setAppealForm({ ...appealForm, status: event.target.value })}><option value="PRESENT">Có mặt</option><option value="LATE">Đi muộn</option><option value="ABSENT">Vắng</option><option value="EXCUSED">Có phép</option></select></Field><Field label="Số phút"><input className={inputClass} min={0} required type="number" value={appealForm.attendedMinutes} onChange={(event) => setAppealForm({ ...appealForm, attendedMinutes: Number(event.target.value) })} /></Field></div> : null}
+          {appealForm.decision === "APPROVE" ? <div className="grid gap-3 sm:grid-cols-2"><Field label="Trạng thái mới"><select className={inputClass} value={appealForm.status} onChange={(event) => setAppealForm({ ...appealForm, status: event.target.value })}><option value="PRESENT">Có mặt</option><option value="LATE">Đi muộn</option><option value="ABSENT">Vắng</option><option value="EXCUSED">Có phép</option></select></Field><Field label="Số phút"><input className={inputClass} min={0} required type="number" value={appealForm.attendedMinutes} onChange={(event) => setAppealForm({ ...appealForm, attendedMinutes: Number(event.target.value) })} /></Field></div> : null}
           <Field label="Kết luận xử lý"><textarea className={inputClass} minLength={5} required rows={4} value={appealForm.resolution} onChange={(event) => setAppealForm({ ...appealForm, resolution: event.target.value })} /></Field>
           <Button type="submit" variant={appealForm.decision === "REJECT" ? "danger" : "primary"}>{appealForm.decision === "APPROVE" ? "Chấp thuận điều chỉnh" : "Từ chối yêu cầu"}</Button>
         </form>

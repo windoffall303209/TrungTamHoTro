@@ -498,7 +498,7 @@ export default function OperationsPage() {
               Khôi phục & xuất dữ liệu
             </h2>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <Button onClick={() => void restore()} variant="secondary">
               Phục hồi thử bản mới nhất
             </Button>
@@ -603,7 +603,7 @@ export default function OperationsPage() {
                   }
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Số bài/phút">
                   <input
                     className={inputClass}
@@ -724,7 +724,7 @@ export default function OperationsPage() {
             </Button>
           </div>
           {retentionPreview ? (
-            <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-4 text-center">
+            <div className="mt-4 grid grid-cols-3 divide-x divide-[#d5dfe2] border-y border-[#d5dfe2] py-4 text-center">
               <div>
                 <strong>{retentionPreview.estimatedRows}</strong>
                 <p className="text-xs text-slate-500">Đủ điều kiện</p>
@@ -739,10 +739,10 @@ export default function OperationsPage() {
               </div>
             </div>
           ) : null}
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
             {retentionPolicies.slice(0, 4).map((item) => (
               <div
-                className="flex items-center justify-between rounded-xl border border-slate-100 p-3"
+                className="flex items-center justify-between gap-3 py-4"
                 key={item.id}
               >
                 <div>
@@ -838,7 +838,7 @@ export default function OperationsPage() {
         title="Phát hành mẫu thông báo"
       >
         <form className="space-y-4" onSubmit={(e) => void saveTemplate(e)}>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Mã sự kiện">
               <input
                 className={inputClass}
