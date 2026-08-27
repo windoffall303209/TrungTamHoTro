@@ -100,6 +100,18 @@ export default function SupportPage() {
       );
     }
   };
+  const closeResolved = async (item: Ticket) => {
+    try {
+      await apiRequest(`/support/tickets/${item.id}/close`, {
+        method: "POST",
+        roleCode: session.roleCode,
+      });
+      notify("Đã xác nhận kết quả và đóng yêu cầu.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không đóng được yêu cầu.", "error");
+    }
+  };
   const openConversation = async (item: Ticket) => {
     try {
       setSelected(item);
@@ -186,6 +198,11 @@ export default function SupportPage() {
                 <Button onClick={() => void resolve(item)} variant="secondary">
                   <CheckCheck size={16} />
                   Hoàn tất
+                </Button>
+              ) : null}{!admin && item.status === "RESOLVED" ? (
+                <Button onClick={() => void closeResolved(item)} variant="secondary">
+                  <CheckCheck size={16} />
+                  Xác nhận đóng
                 </Button>
               ) : null}</div>
             </article>

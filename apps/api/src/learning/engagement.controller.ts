@@ -167,6 +167,9 @@ export class EngagementController {
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
   updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input); }
 
+  @Post("support/tickets/:ticketId/close") @RequirePermissions("support:create")
+  closeTicket(@Param("ticketId") ticketId: string): Promise<SupportTicket> { return this.learning.closeTicketByReporter(ticketId); }
+
   @Get("support/tickets/:ticketId/comments")
   listTicketComments(@Param("ticketId") ticketId: string, @Headers("x-role-code") role = "LEARNER"): Promise<TicketComment[]> {
     return this.learning.listTicketComments(ticketId, role);

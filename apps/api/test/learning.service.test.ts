@@ -613,6 +613,15 @@ describe("LearningService", () => {
     expect(alerts.every((item) => item.type === "SUPPORT_P0")).toBe(true);
   });
 
+  it("chỉ cho người báo đóng ticket sau khi đã có kết quả xử lý", async () => {
+    const service = new LearningService();
+    const ticket = await service.createTicket({ category: "TECHNICAL", severity: "P2", description: "Không thể mở nội dung bài giảng đã phát hành" });
+    await expect(service.closeTicketByReporter(ticket.id)).rejects.toThrow(ConflictException);
+    await service.updateTicket(ticket.id, { status: "RESOLVED", assigneeId: "usr-admin", resolution: "Đã cấp lại quyền truy cập học liệu." });
+    expect(await service.closeTicketByReporter(ticket.id)).toMatchObject({ status: "CLOSED", resolution: "Đã cấp lại quyền truy cập học liệu." });
+    await expect(service.closeTicketByReporter(ticket.id, "usr-khac")).rejects.toThrow(NotFoundException);
+  });
+
   it("cấp bản ghi có chữ ký và quản lý appeal điểm danh", async () => {
     vi.useFakeTimers();
     try {
