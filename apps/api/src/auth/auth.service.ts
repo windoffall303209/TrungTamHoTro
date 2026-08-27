@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { PermissionCode, RoleCode } from "./permissions.js";
@@ -16,13 +16,17 @@ export interface AuthenticatedSession {
   availableRoles: Array<{ code: RoleCode; name: string }>;
 }
 
+export interface SessionContext { ipAddress?: string; userAgent?: string }
+export interface AccountProfile { id: string; displayName: string; email: string; phone: string; timezone: string; locale: string; status: string; createdAt: string }
+export interface AccountSession { id: string; current: boolean; currentRoleCode: string; ipAddress: string; userAgent: string; createdAt: string; lastSeenAt: string; expiresAt: string }
+
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
   cookieName(): string { return SESSION_COOKIE; }
 
-  async login(email: string, password: string, rememberMe = false): Promise<{ token: string; maxAgeMs: number; session: AuthenticatedSession }> {
+  async login(email: string, password: string, rememberMe = false, context: SessionContext = {}): Promise<{ token: string; maxAgeMs: number; session: AuthenticatedSession }> {
     this.assertDatabase();
     const user = await this.prisma.user.findUnique({
       where: { email: email.trim().toLowerCase() },
@@ -38,11 +42,12 @@ export class AuthService {
     const row = await this.prisma.authSession.create({ data: {
       tokenHash: this.hashToken(token), userId: user.id, currentRoleCode: selectedRole.code,
       expiresAt: new Date(Date.now() + maxAgeMs),
+      ipAddress: context.ipAddress?.slice(0, 45), userAgent: context.userAgent?.slice(0, 500),
     } });
     return { token, maxAgeMs, session: this.mapSession(row.id, user, selectedRole.code as RoleCode) };
   }
 
-  async register(displayName: string, email: string, password: string): Promise<{ token: string; maxAgeMs: number; session: AuthenticatedSession }> {
+  async register(displayName: string, email: string, password: string, context: SessionContext = {}): Promise<{ token: string; maxAgeMs: number; session: AuthenticatedSession }> {
     this.assertDatabase();
     const normalizedEmail = email.trim().toLowerCase();
     const learnerRole = await this.prisma.role.findUnique({ where: { code: "LEARNER" } });
@@ -58,7 +63,46 @@ export class AuthService {
       }
       throw error;
     }
-    return this.login(normalizedEmail, password, false);
+    return this.login(normalizedEmail, password, false, context);
+  }
+
+  async getProfile(userId: string): Promise<AccountProfile> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    return { id: user.id, displayName: user.displayName, email: user.email, phone: user.phone ?? "", timezone: user.timezone, locale: user.locale, status: user.status, createdAt: user.createdAt.toISOString() };
+  }
+
+  async updateProfile(userId: string, input: { displayName: string; phone?: string; timezone: string; locale: string }): Promise<AccountProfile> {
+    await this.prisma.user.update({ where: { id: userId }, data: { displayName: input.displayName.trim(), phone: input.phone?.trim() || null, timezone: input.timezone, locale: input.locale } });
+    return this.getProfile(userId);
+  }
+
+  async changePassword(userId: string, currentSessionId: string, currentPassword: string, newPassword: string): Promise<{ revokedSessions: number }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) throw new UnauthorizedException("Mật khẩu hiện tại không chính xác.");
+    if (await verifyPassword(newPassword, user.passwordHash)) throw new BadRequestException("Mật khẩu mới phải khác mật khẩu hiện tại.");
+    const now = new Date();
+    const [, revoked] = await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } }),
+      this.prisma.authSession.updateMany({ where: { userId, id: { not: currentSessionId }, revokedAt: null }, data: { revokedAt: now } }),
+    ]);
+    return { revokedSessions: revoked.count };
+  }
+
+  async listSessions(userId: string, currentSessionId: string): Promise<AccountSession[]> {
+    const rows = await this.prisma.authSession.findMany({ where: { userId, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: "desc" } });
+    return rows.map((row) => ({ id: row.id, current: row.id === currentSessionId, currentRoleCode: row.currentRoleCode, ipAddress: row.ipAddress ?? "Không xác định", userAgent: row.userAgent ?? "Thiết bị không xác định", createdAt: row.createdAt.toISOString(), lastSeenAt: row.lastSeenAt.toISOString(), expiresAt: row.expiresAt.toISOString() }));
+  }
+
+  async revokeSession(userId: string, currentSessionId: string, sessionId: string): Promise<void> {
+    if (sessionId === currentSessionId) throw new BadRequestException("Hãy dùng chức năng đăng xuất để đóng phiên hiện tại.");
+    const result = await this.prisma.authSession.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    if (!result.count) throw new NotFoundException("Phiên đăng nhập không còn tồn tại.");
+  }
+
+  async revokeOtherSessions(userId: string, currentSessionId: string): Promise<{ revokedSessions: number }> {
+    const result = await this.prisma.authSession.updateMany({ where: { userId, id: { not: currentSessionId }, revokedAt: null }, data: { revokedAt: new Date() } });
+    return { revokedSessions: result.count };
   }
 
   async resolve(token: string | undefined, requestedRole?: string): Promise<AuthenticatedSession> {

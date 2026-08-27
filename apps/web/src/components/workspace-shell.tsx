@@ -3,7 +3,7 @@
 import {
   Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, CheckCheck, Database, FileQuestion,
   GraduationCap, Headphones, History, LayoutDashboard, ListChecks, LoaderCircle, Menu, MessageSquareText, Presentation, Settings,
-  ShieldCheck, ShieldEllipsis, UserCheck, Users, X, LogOut,
+  ShieldCheck, ShieldEllipsis, UserCheck, Users, X, LogOut, UserRoundCog,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -35,6 +35,7 @@ const navItems = [
   { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, roles: ["INSTRUCTOR"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, roles: roleOptions.map((role) => role.code) },
+  { href: "/account", label: "Tài khoản", icon: UserRoundCog, roles: roleOptions.map((role) => role.code) },
   { href: "/admin/users", label: "Người dùng", icon: Users, roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/settings", label: "Cấu hình", icon: Settings, roles: ["SYSTEM_ADMIN"] },
@@ -66,10 +67,10 @@ function Sidebar({ close }: { close?: () => void }) {
         </div>
       </nav>
       <div className="border-t border-white/15 p-4">
-        <div className="flex items-center gap-3">
+        <Link className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-white/8" href="/account" onClick={close}>
           <div className="grid size-9 place-items-center rounded-full bg-[#d8e3e8] text-sm font-extrabold text-[#102a43]">{session.user.name.split(" ").slice(-2).map((part) => part[0]).join("")}</div>
-          <div className="min-w-0"><p className="truncate text-sm font-bold">{session.user.name}</p><p className="truncate text-xs text-[#bfd0d8]">{session.user.roleName}</p></div>
-        </div>
+          <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{session.user.name}</p><p className="truncate text-xs text-[#bfd0d8]">{session.user.roleName}</p></div><UserRoundCog className="shrink-0 text-[#9fb5c2]" size={17} />
+        </Link>
       </div>
     </div>
   );

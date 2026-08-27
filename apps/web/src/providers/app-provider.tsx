@@ -37,6 +37,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
+  useEffect(() => {
+    const clearExpiredSession = () => setSession(emptySession);
+    window.addEventListener("wind-edu:unauthorized", clearExpiredSession);
+    return () => window.removeEventListener("wind-edu:unauthorized", clearExpiredSession);
+  }, []);
 
   const login = useCallback(async (input: LoginInput) => {
     setSession(await apiRequest<SessionData>("/auth/login", { method: "POST", body: JSON.stringify(input) }));
