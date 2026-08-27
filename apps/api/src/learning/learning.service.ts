@@ -2453,6 +2453,25 @@ export class LearningService {
     return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
   }
 
+  async closeTicketByReporter(ticketId: string, reporterId = "usr-learner"): Promise<SupportTicket> {
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const item = await transaction.supportTicket.findFirst({ where: { id: ticketId, reporterId }, include: { attachments: true } });
+        if (!item) throw new NotFoundException("Không tìm thấy ticket được phép đóng.");
+        if (item.status !== "RESOLVED" || !item.resolution?.trim()) throw new ConflictException("Chỉ được đóng ticket đã có kết quả xử lý.");
+        const updated = await transaction.supportTicket.update({ where: { id: ticketId }, data: { status: "CLOSED" }, include: { attachments: true } });
+        await transaction.auditLog.create({ data: { actorId: reporterId, action: "SUPPORT_TICKET_CLOSED_BY_REPORTER", entityType: "support_ticket", entityId: ticketId, context: { resolution: item.resolution } } });
+        return this.mapTicket(updated);
+      });
+    }
+    const item = this.tickets.find((ticket) => ticket.id === ticketId && ticket.reporterId === reporterId);
+    if (!item) throw new NotFoundException("Không tìm thấy ticket được phép đóng.");
+    if (item.status !== "RESOLVED" || !item.resolution?.trim()) throw new ConflictException("Chỉ được đóng ticket đã có kết quả xử lý.");
+    item.status = "CLOSED";
+    return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
+  }
+
   async listTicketComments(ticketId: string, role: string): Promise<TicketComment[]> {
     const prisma = this.database();
     if (prisma) {
