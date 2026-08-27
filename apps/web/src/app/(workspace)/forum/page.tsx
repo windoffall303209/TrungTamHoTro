@@ -388,7 +388,7 @@ export default function ForumPage() {
               </button>
             ))}
           </div>
-          <section className="min-h-80 rounded-2xl border border-slate-200 bg-white p-5">
+          <section className="min-h-80 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5">
             {selected ? (
               <>
                 <h2 className="font-heading text-xl font-extrabold">
@@ -406,7 +406,7 @@ export default function ForumPage() {
                 <div className="space-y-3">
                   {posts.length ? (
                     posts.map((item) => (
-                      <div className={`rounded-xl bg-slate-50 p-4 ${item.parentId ? "ml-6 border-l-2 border-sky-200" : ""}`} key={item.id}>
+                      <div className={`rounded-xl bg-slate-50 p-4 ${item.parentId ? "ml-6 border-t border-sky-200" : ""}`} key={item.id}>
                         <p className="text-sm leading-6">{item.body}</p>
                         {item.mentionedUserIds.length ? (
                           <p className="mt-2 text-xs font-bold text-violet-700">

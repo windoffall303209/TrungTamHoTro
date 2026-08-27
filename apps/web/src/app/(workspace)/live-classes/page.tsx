@@ -150,7 +150,7 @@ export default function LiveClassesPage() {
         <div className="space-y-4">
           {items.map((item) => (
             <article
-              className="grid gap-5 rounded-2xl border border-slate-200 bg-white p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+              className="grid gap-5 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
               key={item.id}
             >
               <div

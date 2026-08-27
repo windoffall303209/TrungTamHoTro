@@ -148,7 +148,7 @@ export default function TeachingOperationsPage() {
         description="Chấm bài, điều chỉnh điểm danh và phát hành bản ghi sau buổi học."
       />
       <div className="grid gap-7 xl:grid-cols-[1.1fr_.9fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <ClipboardCheck className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -195,7 +195,7 @@ export default function TeachingOperationsPage() {
           </div>
         </section>
         <div className="space-y-7">
-          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
             <div className="flex items-center gap-3">
               <UserCheck className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">
@@ -285,7 +285,7 @@ export default function TeachingOperationsPage() {
               </Button>
             </form>
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
             <div className="flex items-center gap-3">
               <Link2 className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">

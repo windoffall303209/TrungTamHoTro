@@ -192,35 +192,37 @@ export default function MaterialsPage() {
         {learner ? <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setPage(1); }} /> : null}
       </div>
       <SectionState loading={loading} empty={items.length === 0}>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
           {items.map((item) => (
-            <article className="rounded-2xl border border-slate-200 bg-white p-5" key={item.id}>
-              <div className="flex items-start justify-between">
-                <div className="grid size-10 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
-                <StatusBadge status={item.visibility} />
+            <article className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
+              <div className="flex min-w-0 gap-4">
+                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-heading text-lg font-extrabold">{item.name}</h2>
+                    <StatusBadge status={item.visibility} />
+                  </div>
+                  {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
+                    <span className="flex items-center gap-1.5"><FolderOpen size={14} />{item.folder}</span>
+                    <span>Phiên bản {item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
+                    {item.tags.map((tag) => <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600" key={tag}>#{tag}</span>)}
+                  </div>
+                </div>
               </div>
-              <h2 className="mt-4 font-heading text-lg font-extrabold">{item.name}</h2>
-              {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
-              <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500"><FolderOpen size={14} />{item.folder}</p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {item.tags.map((tag) => <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600" key={tag}>#{tag}</span>)}
-              </div>
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
-                <span>v{item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
-                <div className="flex items-center gap-1">
+              <div className="flex flex-wrap gap-1 lg:justify-end">
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
                   <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
                   {instructor ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
                   {instructor ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
                   {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "HIDE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
-                </div>
               </div>
             </article>
           ))}
         </div>
       </SectionState>
-      {learner && total > 0 ? <div className="mt-6 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"><p className="text-sm text-slate-600">{total} học liệu · Trang {page}/{totalPages}</p><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} variant="secondary">Trang trước</Button><Button disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} variant="secondary">Trang sau</Button></div></div> : null}
+      {learner && total > 0 ? <div className="mt-6 flex items-center justify-between rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 py-3"><p className="text-sm text-slate-600">{total} học liệu · Trang {page}/{totalPages}</p><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} variant="secondary">Trang trước</Button><Button disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} variant="secondary">Trang sau</Button></div></div> : null}
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Lớp học">

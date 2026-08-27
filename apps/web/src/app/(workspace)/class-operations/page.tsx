@@ -138,7 +138,7 @@ export default function ClassOperationsPage() {
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <section className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
         <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-white p-6">
         <div className="flex items-center gap-3">
           <UsersRound className="text-sky-700" />
@@ -161,7 +161,7 @@ export default function ClassOperationsPage() {
       </section>
 
       <div className="mt-7 grid gap-7 xl:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <h2 className="font-heading text-xl font-extrabold">Học liệu chờ duyệt</h2>
           <div className="mt-4 space-y-3">
             {materials.some((item) => item.visibility === "DRAFT") ? materials.filter((item) => item.visibility === "DRAFT").map((item) => (
@@ -173,7 +173,7 @@ export default function ClassOperationsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <h2 className="font-heading text-xl font-extrabold">Đề thi chờ phê duyệt</h2>
           <div className="mt-4 space-y-3">
             {pendingExams.length ? pendingExams.map((item) => (

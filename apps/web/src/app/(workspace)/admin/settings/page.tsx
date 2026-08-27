@@ -300,24 +300,24 @@ export default function SettingsPage() {
               Database: {health.database}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
             <p className="text-2xl font-extrabold">{health.apiLatencyMs} ms</p>
             <p className="text-xs text-slate-500">Độ trễ API</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
             <p className="text-2xl font-extrabold">
               {health.storageUsagePercent}%
             </p>
             <p className="text-xs text-slate-500">Dung lượng lưu trữ</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-4">
             <p className="text-2xl font-extrabold">{health.queueDepth}</p>
             <p className="text-xs text-slate-500">Tác vụ đang chờ</p>
           </div>
         </section>
       ) : null}
       <div className="grid gap-7 xl:grid-cols-[1.1fr_.9fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <ShieldCheck className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -484,7 +484,7 @@ export default function SettingsPage() {
             <div className="mt-6 h-80 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 xl:col-span-2">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6 xl:col-span-2">
           <h2 className="font-heading text-xl font-extrabold">
             Lịch sử cấu hình
           </h2>
@@ -515,7 +515,7 @@ export default function SettingsPage() {
           </div>
         </section>
         <div className="space-y-7">
-          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
             <div className="flex items-center gap-3">
               <CloudCog className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">
@@ -579,7 +579,7 @@ export default function SettingsPage() {
               ))}
             </div>
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <DatabaseBackup className="text-sky-700" />
@@ -612,7 +612,7 @@ export default function SettingsPage() {
         </div>
       </div>
       {storage ? (
-        <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <HardDrive className="text-sky-700" />

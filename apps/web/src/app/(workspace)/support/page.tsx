@@ -148,7 +148,7 @@ export default function SupportPage() {
         }
       />
       {admin && alerts.some((item) => !item.readAt) ? (
-        <div className="mb-6 border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+        <div className="mb-6 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
           {alerts.filter((item) => !item.readAt).length} cảnh báo P0 chưa đọc · {alerts.find((item) => !item.readAt)?.title}
         </div>
       ) : null}
@@ -156,7 +156,7 @@ export default function SupportPage() {
         <div className="space-y-3">
           {items.map((item) => (
             <article
-              className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-[auto_1fr_auto] md:items-center"
+              className="grid gap-4 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 md:grid-cols-[auto_1fr_auto] md:items-center"
               key={item.id}
             >
               <div

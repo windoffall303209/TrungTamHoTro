@@ -402,7 +402,7 @@ export default function OperationsPage() {
         description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
       />
       <div className="grid gap-7 xl:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <FileClock className="text-sky-700" />
@@ -491,7 +491,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -534,7 +534,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BellRing className="text-sky-700" />
@@ -578,7 +578,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -648,7 +648,7 @@ export default function OperationsPage() {
             <div className="mt-5 h-52 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -769,7 +769,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-rose-600" />
             <h2 className="font-heading text-xl font-extrabold">
