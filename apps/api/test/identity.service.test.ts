@@ -5,9 +5,10 @@ import { IdentityService } from "../src/identity/identity.service.js";
 describe("IdentityService", () => {
   it("tạo tài khoản và chặn email trùng không phân biệt hoa thường", async () => {
     const service = new IdentityService();
-    const created = await service.createUser({ displayName: "Người dùng mới", email: "new@wind.edu.vn", roleCode: "LEARNER" });
+    const created = await service.createUser({ displayName: "Người dùng mới", email: "new@wind.edu.vn", roleCode: "LEARNER" }, "admin-real");
     expect(created.status).toBe("ACTIVE");
     await expect(service.createUser({ displayName: "Trùng", email: "NEW@wind.edu.vn", roleCode: "LEARNER" })).rejects.toThrow(ConflictException);
+    expect((await service.listAuditEvents())[0]).toMatchObject({ actorId: "admin-real", action: "USER_CREATED", targetId: created.id });
   });
 
   it("không cho khóa quản trị viên cuối cùng", async () => {

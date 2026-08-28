@@ -86,7 +86,7 @@ export class LearningService {
   private readonly materialReviews: FileReviewRecord[] = [];
   private readonly progressInterventions: ProgressIntervention[] = [];
   private readonly reportRuns: ReportRun[] = [];
-  private readonly reportExports: Array<ReportExport & { filePath?: string }> = [];
+  private readonly reportExports: Array<ReportExport & { filePath?: string; requestedById: string }> = [];
   private readonly instructorRoles = new Map<string, InstructorRole>([["class-web-01:usr-instructor", "PRIMARY"]]);
   private readonly classMemberHistory: ClassMemberHistory[] = [];
 
@@ -891,7 +891,7 @@ export class LearningService {
     return this.latestQuestionVersions(this.questions).filter(matches).map((item) => this.cloneQuestion(item));
   }
 
-  async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">): Promise<LearningQuestion> {
+  async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
     const normalized = this.validateQuestionInput(input);
     const contentHash = this.questionContentHash(normalized.content);
     const prisma = this.database();
@@ -903,7 +903,7 @@ export class LearningService {
       const questionId = id("question");
       return this.mapQuestion(await prisma.question.create({
         data: {
-          id: questionId, familyId: questionId, contentHash, courseId: normalized.courseId, authorId: "usr-instructor",
+          id: questionId, familyId: questionId, contentHash, courseId: normalized.courseId, authorId,
           type: normalized.type, content: normalized.content, options: normalized.options,
           correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags,
         },
@@ -916,7 +916,7 @@ export class LearningService {
     return this.cloneQuestion(item);
   }
 
-  async updateQuestion(questionId: string, input: Omit<LearningQuestion, "id" | "status" | "version">): Promise<LearningQuestion> {
+  async updateQuestion(questionId: string, input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
     const normalized = this.validateQuestionInput(input);
     const contentHash = this.questionContentHash(normalized.content);
     const prisma = this.database();
@@ -930,7 +930,7 @@ export class LearningService {
       if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể sửa phiên bản mới nhất của câu hỏi.");
       return this.mapQuestion(await prisma.question.create({ data: {
         id: id("question"), familyId, supersedesId: current.id, contentHash, courseId: normalized.courseId,
-        authorId: "usr-instructor", type: normalized.type, content: normalized.content, options: normalized.options,
+        authorId, type: normalized.type, content: normalized.content, options: normalized.options,
         correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags,
         status: "DRAFT", version: current.version + 1,
       } }));
@@ -966,11 +966,11 @@ export class LearningService {
     return this.cloneQuestion(current);
   }
 
-  async importQuestions(inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>): Promise<QuestionImportResult[]> {
+  async importQuestions(inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>, authorId = "usr-instructor"): Promise<QuestionImportResult[]> {
     const results: QuestionImportResult[] = [];
     for (const [index, input] of inputs.entries()) {
       try {
-        const question = await this.createQuestion(input);
+        const question = await this.createQuestion(input, authorId);
         results.push({ row: index + 1, status: "IMPORTED", questionId: question.id, message: "Đã nhập câu hỏi." });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Không thể nhập câu hỏi.";
@@ -980,16 +980,25 @@ export class LearningService {
     return results;
   }
 
-  async listExams(role: string): Promise<LearningExam[]> {
+  async listExams(role: string, actorId = this.userIdForRole(role)): Promise<LearningExam[]> {
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.exam.findMany({
-        where: role === "LEARNER" ? { status: "PUBLISHED" } : undefined,
+        where: role === "LEARNER"
+          ? { status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
+          : role === "INSTRUCTOR"
+            ? { class: { instructors: { some: { instructorId: actorId } } } }
+            : undefined,
         include: { questions: { orderBy: { position: "asc" } } }, orderBy: { openAt: "desc" },
       });
       return rows.map((row) => this.mapExam(row));
     }
-    return this.exams.filter((item) => role !== "LEARNER" || item.status === "PUBLISHED").map((item) => ({ ...item, questionIds: [...item.questionIds] }));
+    return this.exams.filter((item) => {
+      const classItem = this.classes.find((candidate) => candidate.id === item.classId);
+      if (role === "LEARNER") return item.status === "PUBLISHED" && classItem?.learnerIds.includes(actorId);
+      if (role === "INSTRUCTOR") return classItem?.instructorIds.includes(actorId);
+      return true;
+    }).map((item) => ({ ...item, questionIds: [...item.questionIds] }));
   }
 
   async listLearnerExamSummaries(classId?: string, learnerId = "usr-learner"): Promise<LearnerExamSummary[]> {
@@ -1074,15 +1083,15 @@ export class LearningService {
     });
   }
 
-  async createExam(input: Omit<LearningExam, "id" | "status" | "version">): Promise<LearningExam> {
+  async createExam(input: Omit<LearningExam, "id" | "status" | "version">, actorId = "usr-instructor"): Promise<LearningExam> {
     if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
     if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     const orderedQuestionIds = input.shuffleQuestions ? this.seededOrder(input.questionIds, input.randomSeed?.trim() || "wind-exam-default") : [...input.questionIds];
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
-        const classItem = await transaction.learningClass.findUnique({ where: { id: input.classId } });
-        if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+        const classItem = await transaction.learningClass.findFirst({ where: { id: input.classId, instructors: { some: { instructorId: actorId } } } });
+        if (!classItem) throw new NotFoundException("Không tìm thấy lớp học được phép tạo đề.");
         if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
         if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
         const questionCount = await transaction.question.count({ where: { id: { in: input.questionIds }, status: "PUBLISHED", courseId: classItem.courseId } });
@@ -1103,6 +1112,7 @@ export class LearningService {
       });
     }
     const classItem = this.findClass(input.classId);
+    if (!classItem.instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy lớp học được phép tạo đề.");
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
     if (input.questionIds.some((questionId) => !this.questions.some((question) => question.id === questionId && question.status === "PUBLISHED" && question.courseId === classItem.courseId))) throw new BadRequestException("Đề chỉ được dùng câu hỏi đã xuất bản thuộc khóa học của lớp.");
@@ -1111,9 +1121,11 @@ export class LearningService {
     return { ...item, questionIds: [...item.questionIds] };
   }
 
-  async submitExamForReview(examId: string): Promise<LearningExam> {
+  async submitExamForReview(examId: string, actorId = "usr-instructor"): Promise<LearningExam> {
     const prisma = this.database();
     if (prisma) {
+      const assignment = await prisma.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, select: { id: true } });
+      if (!assignment) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
       const exam = await this.getDatabaseExam(prisma, examId);
       if (!exam.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
       if (exam.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
@@ -1121,6 +1133,7 @@ export class LearningService {
       return this.getDatabaseExam(prisma, examId);
     }
     const item = this.findExam(examId);
+    if (!this.findClass(item.classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
     if (!item.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     if (item.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
     item.status = "PENDING_REVIEW";
@@ -1134,13 +1147,13 @@ export class LearningService {
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
-        const current = await transaction.exam.findUnique({ where: { id: examId } });
+        const current = await transaction.exam.findUnique({ where: { id: examId }, include: { class: { include: { instructors: true } } } });
         if (!current) throw new NotFoundException("Không tìm thấy đề.");
         if (current.status !== "PENDING_REVIEW") throw new ConflictException("Đề không ở trạng thái chờ phê duyệt.");
         const approvalId = id("exam-approval");
         await transaction.examApproval.create({ data: { id: approvalId, examId, reviewerId, examVersion: current.version, decision, reviewNote } });
         await transaction.auditLog.create({ data: { actorId: reviewerId, action: `EXAM_${decision}`, entityType: "exam", entityId: examId, context: { version: current.version, reviewNote: reviewNote ?? "Đạt yêu cầu" } } });
-        await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-instructor", type: "EXAM_REVIEWED", title: `Đề ${current.title}: ${decision}`, entityType: "EXAM", entityId: examId, dedupKey: `exam-review:${approvalId}:usr-instructor` } });
+        for (const { instructorId } of current.class.instructors) await transaction.notification.create({ data: { id: id("notification"), recipientId: instructorId, type: "EXAM_REVIEWED", title: `Đề ${current.title}: ${decision}`, entityType: "EXAM", entityId: examId, dedupKey: `exam-review:${approvalId}:${instructorId}` } });
         await transaction.exam.update({ where: { id: examId }, data: { status: nextStatus } });
         return this.getDatabaseExam(transaction, examId);
       });
@@ -1150,7 +1163,7 @@ export class LearningService {
     const approval: ExamApprovalRecord = { id: id("exam-approval"), examId, reviewerId, examVersion: item.version, decision, reviewNote, createdAt: now() };
     this.examApprovals.unshift(approval);
     item.status = nextStatus;
-    this.notifications.unshift({ id: id("notification"), recipientId: "usr-instructor", type: "EXAM_REVIEWED", title: `Đề ${item.title}: ${decision}`, entityType: "EXAM", entityId: examId, createdAt: now() });
+    for (const recipientId of this.findClass(item.classId).instructorIds) this.notifications.unshift({ id: id("notification"), recipientId, type: "EXAM_REVIEWED", title: `Đề ${item.title}: ${decision}`, entityType: "EXAM", entityId: examId, createdAt: now() });
     return { ...item, questionIds: [...item.questionIds] };
   }
 
@@ -1378,22 +1391,22 @@ export class LearningService {
     return { ...request };
   }
 
-  async listAttempts(examId?: string): Promise<ExamAttempt[]> {
+  async listAttempts(examId?: string, actorId = "usr-instructor"): Promise<ExamAttempt[]> {
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.examAttempt.findMany({
-        where: examId ? { examId } : undefined, include: { answers: true }, orderBy: { startedAt: "desc" },
+        where: { examId: examId || undefined, exam: { class: { instructors: { some: { instructorId: actorId } } } } }, include: { answers: true }, orderBy: { startedAt: "desc" },
       });
       return rows.map((row) => this.mapAttempt(row));
     }
-    return this.attempts.filter((item) => !examId || item.examId === examId).map((item) => ({ ...item, answers: { ...item.answers } }));
+    return this.attempts.filter((item) => (!examId || item.examId === examId) && this.findClass(this.findExam(item.examId).classId).instructorIds.includes(actorId)).map((item) => ({ ...item, answers: { ...item.answers } }));
   }
 
   async gradeAttempt(attemptId: string, score: number, feedback: string, correctionReason?: string, graderId = "usr-instructor"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
-      const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId }, include: { exam: true } });
-      if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+      const attempt = await prisma.examAttempt.findFirst({ where: { id: attemptId, exam: { class: { instructors: { some: { instructorId: graderId } } } } }, include: { exam: true } });
+      if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài được phép chấm.");
       if (score > Number(attempt.exam.totalScore)) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
       const reason = attempt.score === null ? "Chấm lần đầu" : correctionReason?.trim();
       if (attempt.score !== null && (!reason || reason.length < 5)) throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
@@ -1404,6 +1417,7 @@ export class LearningService {
     }
     const item = this.findAttempt(attemptId);
     const exam = this.findExam(item.examId);
+    if (!this.findClass(exam.classId).instructorIds.includes(graderId)) throw new NotFoundException("Không tìm thấy lượt làm bài được phép chấm.");
     if (score > exam.totalScore) throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
     const reason = item.score === undefined ? "Chấm lần đầu" : correctionReason?.trim();
     if (item.score !== undefined && (!reason || reason.length < 5)) throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
@@ -1415,12 +1429,16 @@ export class LearningService {
     return { ...item, answers: { ...item.answers } };
   }
 
-  async listGradeHistory(attemptId: string): Promise<GradeHistoryRecord[]> {
+  async listGradeHistory(attemptId: string, actorId = "usr-instructor"): Promise<GradeHistoryRecord[]> {
     const prisma = this.database();
     if (prisma) {
+      const allowed = await prisma.examAttempt.findFirst({ where: { id: attemptId, exam: { class: { instructors: { some: { instructorId: actorId } } } } }, select: { id: true } });
+      if (!allowed) throw new NotFoundException("Không tìm thấy lịch sử chấm được phép xem.");
       const rows = await prisma.gradeHistory.findMany({ where: { attemptId }, orderBy: { createdAt: "desc" } });
       return rows.map((row) => ({ id: row.id, attemptId: row.attemptId, graderId: row.graderId, previousScore: row.previousScore === null ? undefined : Number(row.previousScore), nextScore: Number(row.nextScore), reason: row.reason, createdAt: row.createdAt.toISOString() }));
     }
+    const attempt = this.findAttempt(attemptId);
+    if (!this.findClass(this.findExam(attempt.examId).classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy lịch sử chấm được phép xem.");
     return this.gradeHistory.filter((item) => item.attemptId === attemptId).map((item) => ({ ...item }));
   }
 
@@ -1812,7 +1830,8 @@ export class LearningService {
         if (action === "KEEP_CONTENT" && item.targetType === "TOPIC") await transaction.forumTopic.updateMany({ where: { id: item.targetId }, data: { status: "PUBLISHED", isLocked: false } });
         await transaction.moderationAction.create({ data: { id: id("mod-action"), reportId, actorId: moderatorId, action, reason: normalizedResolution, previousStatus: item.status, nextStatus } });
         await transaction.auditLog.create({ data: { actorId: moderatorId, action: `FORUM_REPORT_${action}`, entityType: "content_report", entityId: reportId, context: { targetType: item.targetType, targetId: item.targetId, previousStatus: item.status, nextStatus, resolution: normalizedResolution } } });
-        const recipients = [...new Set([item.reporterId, targetAuthorId, action === "ESCALATE_ADMIN" ? "usr-admin" : undefined].filter((value): value is string => Boolean(value)))];
+        const adminIds = action === "ESCALATE_ADMIN" ? await this.userIdsForRole(transaction, "SYSTEM_ADMIN") : [];
+        const recipients = [...new Set([item.reporterId, targetAuthorId, ...adminIds])];
         await transaction.notification.createMany({ data: recipients.map((recipientId) => ({ id: id("notification"), recipientId, type: "FORUM_MODERATION", title: action === "ESCALATE_ADMIN" ? "Báo cáo diễn đàn đã được chuyển cấp" : "Báo cáo diễn đàn đã có kết quả", entityType: "content_report", entityId: reportId, dedupKey: `forum-report:${reportId}:${action}:${recipientId}` })), skipDuplicates: true });
         return this.mapReport(await transaction.contentReport.update({ where: { id: reportId }, data: { status: nextStatus, assignedToId: moderatorId, escalationLevel: action === "ESCALATE_ADMIN" ? { increment: 1 } : item.escalationLevel, resolution: normalizedResolution, resolvedAt: action === "ESCALATE_ADMIN" ? null : new Date() }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
       });
@@ -1831,7 +1850,7 @@ export class LearningService {
     item.resolution = normalizedResolution;
     item.escalationLevel += action === "ESCALATE_ADMIN" ? 1 : 0;
     if (action !== "ESCALATE_ADMIN") item.resolvedAt = now();
-    for (const recipientId of new Set([item.reporterId, targetAuthorId, action === "ESCALATE_ADMIN" ? "usr-admin" : undefined])) if (recipientId) this.notifications.unshift({ id: id("notification"), recipientId, type: "FORUM_MODERATION", title: action === "ESCALATE_ADMIN" ? "Báo cáo diễn đàn đã được chuyển cấp" : "Báo cáo diễn đàn đã có kết quả", entityType: "content_report", entityId: reportId, createdAt: now() });
+    for (const recipientId of new Set([item.reporterId, targetAuthorId, ...(action === "ESCALATE_ADMIN" ? [this.userIdForRole("SYSTEM_ADMIN")] : [])])) this.notifications.unshift({ id: id("notification"), recipientId, type: "FORUM_MODERATION", title: action === "ESCALATE_ADMIN" ? "Báo cáo diễn đàn đã được chuyển cấp" : "Báo cáo diễn đàn đã có kết quả", entityType: "content_report", entityId: reportId, createdAt: now() });
     return { ...item, actions: item.actions.map((record) => ({ ...record })) };
   }
 
@@ -1847,7 +1866,8 @@ export class LearningService {
         if (item.appealedAt) throw new ConflictException("Báo cáo này đã được kháng nghị trước đó.");
         await transaction.moderationAction.create({ data: { id: id("mod-action"), reportId, actorId: learnerId, action: "APPEAL", reason: normalizedReason, previousStatus: item.status, nextStatus: "IN_REVIEW" } });
         await transaction.auditLog.create({ data: { actorId: learnerId, action: "FORUM_REPORT_APPEAL", entityType: "content_report", entityId: reportId, context: { reason: normalizedReason, previousStatus: item.status } } });
-        await transaction.notification.create({ data: { id: id("notification"), recipientId: "usr-manager", type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, dedupKey: `forum-report:${reportId}:appeal` } });
+        const managerIds = await this.userIdsForRole(transaction, "CENTER_MANAGER");
+        await transaction.notification.createMany({ data: managerIds.map((recipientId) => ({ id: id("notification"), recipientId, type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, dedupKey: `forum-report:${reportId}:appeal:${recipientId}` })), skipDuplicates: true });
         return this.mapReport(await transaction.contentReport.update({ where: { id: reportId }, data: { status: "IN_REVIEW", assignedToId: null, appealReason: normalizedReason, appealedAt: new Date(), resolvedAt: null }, include: { actions: { orderBy: { createdAt: "asc" } } } }));
       });
     }
@@ -1860,7 +1880,7 @@ export class LearningService {
     item.appealReason = normalizedReason;
     item.appealedAt = now();
     item.resolvedAt = undefined;
-    this.notifications.unshift({ id: id("notification"), recipientId: "usr-manager", type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, createdAt: now() });
+    this.notifications.unshift({ id: id("notification"), recipientId: this.userIdForRole("CENTER_MANAGER"), type: "FORUM_MODERATION_APPEAL", title: "Có kháng nghị kiểm duyệt mới", entityType: "content_report", entityId: reportId, createdAt: now() });
     return { ...item, actions: item.actions.map((record) => ({ ...record })) };
   }
 
@@ -2386,12 +2406,14 @@ export class LearningService {
           include: { attachments: true },
         });
         if (input.severity === "P0") {
-          await transaction.notification.create({
-            data: {
-              id: id("notification"), recipientId: "usr-admin", type: "SUPPORT_P0",
+          const adminIds = await this.userIdsForRole(transaction, "SYSTEM_ADMIN");
+          await transaction.notification.createMany({
+            data: adminIds.map((recipientId) => ({
+              id: id("notification"), recipientId, type: "SUPPORT_P0",
               title: `P0 mới: ${category}${contextId ? ` · ${contextId}` : ""}`,
-              entityType: "SUPPORT_TICKET", entityId: ticketId, dedupKey: `support-p0:${ticketId}:usr-admin`,
-            },
+              entityType: "SUPPORT_TICKET", entityId: ticketId, dedupKey: `support-p0:${ticketId}:${recipientId}`,
+            })),
+            skipDuplicates: true,
           });
         }
         return this.mapTicket(created);
@@ -2400,7 +2422,7 @@ export class LearningService {
     const duplicate = this.tickets.find((ticket) => ticket.reporterId === reporterId && ticket.category === category && ["OPEN", "IN_PROGRESS"].includes(ticket.status) && Date.now() - new Date(ticket.createdAt).getTime() <= 24 * 3_600_000 && (contextId ? ticket.contextId === contextId : ticket.description === description));
     const item: SupportTicket = { ...input, category, description, contextId, duplicateOfId: duplicate?.id, id: id("ticket"), reporterId, status: "OPEN", dueAt: new Date(Date.now() + slaHours[input.severity] * 3_600_000).toISOString(), attachments: [], createdAt: now() };
     this.tickets.unshift(item);
-    if (input.severity === "P0") this.notifications.unshift({ id: id("notification"), recipientId: "usr-admin", type: "SUPPORT_P0", title: `P0 mới: ${category}${contextId ? ` · ${contextId}` : ""}`, entityType: "SUPPORT_TICKET", entityId: item.id, createdAt: now() });
+    if (input.severity === "P0") this.notifications.unshift({ id: id("notification"), recipientId: this.userIdForRole("SYSTEM_ADMIN"), type: "SUPPORT_P0", title: `P0 mới: ${category}${contextId ? ` · ${contextId}` : ""}`, entityType: "SUPPORT_TICKET", entityId: item.id, createdAt: now() });
     return { ...item, attachments: [] };
   }
 
@@ -2447,7 +2469,7 @@ export class LearningService {
     return { ...attachment };
   }
 
-  async updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>): Promise<SupportTicket> {
+  async updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>, actorId = "usr-admin"): Promise<SupportTicket> {
     if ((input.status === "RESOLVED" || input.status === "CLOSED") && !input.resolution) throw new BadRequestException("Cần ghi nội dung xử lý trước khi đóng.");
     const prisma = this.database();
     if (prisma) {
@@ -2457,10 +2479,14 @@ export class LearningService {
         const assignee = await prisma.user.findUnique({ where: { id: input.assigneeId } });
         if (!assignee || assignee.status !== "ACTIVE") throw new BadRequestException("Người xử lý không hợp lệ.");
       }
-      return this.mapTicket(await prisma.supportTicket.update({
-        where: { id: ticketId },
-        data: { status: input.status, assigneeId: input.assigneeId, resolution: input.resolution?.trim() },
-      }));
+      return prisma.$transaction(async (transaction) => {
+        const updated = await transaction.supportTicket.update({
+          where: { id: ticketId },
+          data: { status: input.status, assigneeId: input.assigneeId, resolution: input.resolution?.trim() },
+        });
+        await transaction.auditLog.create({ data: { actorId, action: "SUPPORT_TICKET_UPDATED", entityType: "support_ticket", entityId: ticketId, context: { previousStatus: item.status, nextStatus: input.status, assigneeId: input.assigneeId } } });
+        return this.mapTicket(updated);
+      });
     }
     const item = this.tickets.find((ticket) => ticket.id === ticketId);
     if (!item) throw new NotFoundException("Không tìm thấy ticket.");
@@ -2640,7 +2666,7 @@ export class LearningService {
         await prisma.auditLog.create({ data: { actorId: requestedById, action: "OPERATIONAL_REPORT_EXPORTED", entityType: "report_export", entityId: exportId, context: { reportRunId, format, sizeBytes, expiresAt: expiresAt.toISOString() } } });
         return this.mapReportExport(row);
       }
-      const item: ReportExport & { filePath: string } = { id: exportId, reportRunId, format, status: "COMPLETED", fileName, filePath, sizeBytes, expiresAt: expiresAt.toISOString(), createdAt: now() };
+      const item: ReportExport & { filePath: string; requestedById: string } = { id: exportId, reportRunId, format, status: "COMPLETED", fileName, filePath, requestedById, sizeBytes, expiresAt: expiresAt.toISOString(), createdAt: now() };
       this.reportExports.unshift(item);
       return { ...item, filePath: undefined } as ReportExport;
     } catch (error) {
@@ -2656,7 +2682,7 @@ export class LearningService {
       const rows = await prisma.reportExport.findMany({ where: { requestedById }, orderBy: { createdAt: "desc" }, take: 50 });
       return rows.map((row) => this.mapReportExport(row));
     }
-    return this.reportExports.filter((item) => item.status !== "EXPIRED").map((item) => ({ id: item.id, reportRunId: item.reportRunId, format: item.format, status: item.status, fileName: item.fileName, sizeBytes: item.sizeBytes, errorMessage: item.errorMessage, expiresAt: item.expiresAt, createdAt: item.createdAt }));
+    return this.reportExports.filter((item) => item.requestedById === requestedById && item.status !== "EXPIRED").map((item) => ({ id: item.id, reportRunId: item.reportRunId, format: item.format, status: item.status, fileName: item.fileName, sizeBytes: item.sizeBytes, errorMessage: item.errorMessage, expiresAt: item.expiresAt, createdAt: item.createdAt }));
   }
 
   async downloadReportExport(exportId: string, requestedById = "usr-manager"): Promise<MaterialDownload> {
@@ -2668,7 +2694,7 @@ export class LearningService {
       if (row.status !== "COMPLETED" || !row.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
       return { fileName: row.fileName, mimeType: "text/csv; charset=utf-8", buffer: await readFile(row.filePath) };
     }
-    const item = this.reportExports.find((candidate) => candidate.id === exportId);
+    const item = this.reportExports.find((candidate) => candidate.id === exportId && candidate.requestedById === requestedById);
     if (!item) throw new NotFoundException("Không tìm thấy tệp xuất báo cáo.");
     if (new Date(item.expiresAt) <= new Date()) { item.status = "EXPIRED"; throw new BadRequestException("Tệp xuất báo cáo đã hết hạn."); }
     if (item.status !== "COMPLETED" || !item.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
@@ -2837,13 +2863,13 @@ export class LearningService {
     };
   }
 
-  async getExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }): Promise<ExamAnalytics> {
+  async getExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }, actorId = "usr-instructor"): Promise<ExamAnalytics> {
     const { from, to } = this.reportingPeriod(input.from, input.to);
     const metricDefinitions = { averagePercentage: "Trung bình điểm đã chấm chia tổng điểm đề, quy đổi phần trăm.", passRate: "Tỷ lệ bài đạt từ 50% tổng điểm trong các bài đã chấm.", correctRate: "Tỷ lệ lượt trả lời khớp toàn bộ đáp án chuẩn của câu hỏi sau khi đề đóng." };
     const prisma = this.database();
     if (prisma) {
       const rows = await prisma.exam.findMany({
-        where: { id: input.examId || undefined, classId: input.classId || undefined, openAt: { lte: to }, closeAt: { gte: from }, class: { instructors: { some: { instructorId: "usr-instructor" } } } },
+        where: { id: input.examId || undefined, classId: input.classId || undefined, openAt: { lte: to }, closeAt: { gte: from }, class: { instructors: { some: { instructorId: actorId } } } },
         include: { questions: { include: { question: true }, orderBy: { position: "asc" } }, attempts: { where: { submittedAt: { gte: from, lte: to }, status: { in: ["SUBMITTED", "GRADED"] } }, include: { answers: true } } },
         orderBy: { openAt: "desc" },
       });
@@ -2860,7 +2886,7 @@ export class LearningService {
         return { examId: exam.id, classId: exam.classId, title: exam.title, sampleSize: graded.length, smallSampleWarning: graded.length < 5, averagePercentage: percentages.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length * 100) / 100 : 0, passRate: percentages.length ? Math.round(percentages.filter((value) => value >= 50).length / percentages.length * 10_000) / 100 : 0, questionStatsAvailable, questionStats };
       }) };
     }
-    const exams = this.exams.filter((exam) => (!input.examId || exam.id === input.examId) && (!input.classId || exam.classId === input.classId) && this.findClass(exam.classId).instructorIds.includes("usr-instructor") && new Date(exam.openAt) <= to && new Date(exam.closeAt) >= from).map((exam) => {
+    const exams = this.exams.filter((exam) => (!input.examId || exam.id === input.examId) && (!input.classId || exam.classId === input.classId) && this.findClass(exam.classId).instructorIds.includes(actorId) && new Date(exam.openAt) <= to && new Date(exam.closeAt) >= from).map((exam) => {
       const attempts = this.attempts.filter((attempt) => attempt.examId === exam.id && attempt.submittedAt && new Date(attempt.submittedAt) >= from && new Date(attempt.submittedAt) <= to && ["SUBMITTED", "GRADED"].includes(attempt.status));
       const graded = attempts.filter((attempt) => attempt.score !== undefined);
       const percentages = graded.map((attempt) => (attempt.score ?? 0) / exam.totalScore * 100);
@@ -2877,8 +2903,8 @@ export class LearningService {
     return { generatedAt: now(), filters: input, metricDefinitions, exams };
   }
 
-  async exportExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }): Promise<Buffer> {
-    const report = await this.getExamAnalytics(input);
+  async exportExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }, actorId = "usr-instructor"): Promise<Buffer> {
+    const report = await this.getExamAnalytics(input, actorId);
     const escape = (value: string | number | boolean): string => `"${String(value).replaceAll('"', '""')}"`;
     const rows = [["examId", "classId", "title", "sampleSize", "smallSampleWarning", "averagePercentage", "passRate"], ...report.exams.map((exam) => [exam.examId, exam.classId, exam.title, exam.sampleSize, exam.smallSampleWarning, exam.averagePercentage, exam.passRate])];
     return Buffer.from(`\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`, "utf8");
@@ -3138,6 +3164,14 @@ export class LearningService {
       }
     }
     throw new ServiceUnavailableException(`Không thể tạo phòng học sau ${attempts} lần thử. Vui lòng kiểm tra cấu hình provider hoặc thử lại sau.`);
+  }
+
+  private async userIdsForRole(database: PrismaService | Prisma.TransactionClient, roleCode: string): Promise<string[]> {
+    const rows = await database.user.findMany({
+      where: { status: "ACTIVE", roles: { some: { role: { code: roleCode } } } },
+      select: { id: true },
+    });
+    return rows.map(({ id: userId }) => userId);
   }
 
   private async notifyClassMembers(database: PrismaService | Prisma.TransactionClient, classId: string, type: string, title: string, entityId: string): Promise<void> {
