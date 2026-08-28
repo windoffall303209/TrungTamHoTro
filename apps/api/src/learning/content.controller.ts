@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
@@ -123,19 +123,19 @@ export class ContentController {
   listQuestions(@Query("query") query?: string, @Query("courseId") courseId?: string, @Query("type") type?: string, @Query("difficulty") difficulty?: string, @Query("tag") tag?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions({ query, courseId, type, difficulty: difficulty ? Number(difficulty) : undefined, tag }); }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
-  createQuestion(@Body() input: CreateQuestionDto): Promise<LearningQuestion> { return this.learning.createQuestion(input); }
+  createQuestion(@Body() input: CreateQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.createQuestion(input, session.user.id); }
 
   @Patch("instructor/question-bank/questions/:questionId") @RequirePermissions("question:manage")
-  updateQuestion(@Param("questionId") questionId: string, @Body() input: UpdateQuestionDto): Promise<LearningQuestion> { return this.learning.updateQuestion(questionId, input); }
+  updateQuestion(@Param("questionId") questionId: string, @Body() input: UpdateQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.updateQuestion(questionId, input, session.user.id); }
 
   @Post("instructor/question-bank/questions/:questionId/publish") @RequirePermissions("question:manage")
   publishQuestion(@Param("questionId") questionId: string): Promise<LearningQuestion> { return this.learning.publishQuestion(questionId); }
 
   @Post("instructor/question-bank/questions/import") @RequirePermissions("question:manage")
-  importQuestions(@Body() input: ImportQuestionsDto): Promise<QuestionImportResult[]> { return this.learning.importQuestions(input.questions); }
+  importQuestions(@Body() input: ImportQuestionsDto, @CurrentSession() session: AuthenticatedSession): Promise<QuestionImportResult[]> { return this.learning.importQuestions(input.questions, session.user.id); }
 
   @Get("exams") @RequirePermissions("exam:view")
-  listExams(@Headers("x-role-code") role = "LEARNER"): Promise<LearningExam[]> { return this.learning.listExams(role); }
+  listExams(@CurrentSession() session: AuthenticatedSession): Promise<LearningExam[]> { return this.learning.listExams(session.roleCode, session.user.id); }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
   listLearnerExams(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearnerExamSummary[]> { return this.learning.listLearnerExamSummaries(classId, session.user.id); }
@@ -147,13 +147,13 @@ export class ContentController {
   getLearnerExamQuestions(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId, session.user.id); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
-  createExam(@Body() input: CreateExamDto): Promise<LearningExam> { return this.learning.createExam(input); }
+  createExam(@Body() input: CreateExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.createExam(input, session.user.id); }
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
-  publishExam(@Param("examId") examId: string): Promise<LearningExam> { return this.learning.submitExamForReview(examId); }
+  publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.submitExamForReview(examId, session.user.id); }
 
   @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
-  approveExam(@Param("examId") examId: string, @Body() input: ReviewExamDto): Promise<LearningExam> { return this.learning.reviewExam(examId, input.decision, input.reviewNote); }
+  approveExam(@Param("examId") examId: string, @Body() input: ReviewExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.reviewExam(examId, input.decision, input.reviewNote, session.user.id); }
 
   @Get("manager/exams/:examId/approvals") @RequirePermissions("class:manage")
   listExamApprovals(@Param("examId") examId: string): Promise<ExamApprovalRecord[]> { return this.learning.listExamApprovals(examId); }
@@ -179,11 +179,11 @@ export class ContentController {
   }
 
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")
-  listAttempts(@Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId); }
+  listAttempts(@CurrentSession() session: AuthenticatedSession, @Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId, session.user.id); }
 
   @Patch("instructor/exam-attempts/:attemptId/grade") @RequirePermissions("exam:manage")
-  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason); }
+  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id); }
 
   @Get("instructor/exam-attempts/:attemptId/grade-history") @RequirePermissions("exam:manage")
-  listGradeHistory(@Param("attemptId") attemptId: string): Promise<GradeHistoryRecord[]> { return this.learning.listGradeHistory(attemptId); }
+  listGradeHistory(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<GradeHistoryRecord[]> { return this.learning.listGradeHistory(attemptId, session.user.id); }
 }

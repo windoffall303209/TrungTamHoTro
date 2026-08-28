@@ -56,7 +56,7 @@ export class IdentityService {
       .map((user) => ({ ...user }));
   }
 
-  async createUser(input: CreateUserDto): Promise<IdentityUser> {
+  async createUser(input: CreateUserDto, actorId = "usr-admin"): Promise<IdentityUser> {
     const normalizedEmail = input.email.trim().toLowerCase();
     const prisma = this.database();
     if (prisma) {
@@ -74,7 +74,7 @@ export class IdentityService {
             },
             include: { roles: { include: { role: true }, take: 1 } },
           });
-          await this.writeDatabaseAudit(transaction, "USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
+          await this.writeDatabaseAudit(transaction, actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
           return user;
         });
         return this.mapUser(row);
@@ -98,11 +98,11 @@ export class IdentityService {
       updatedAt: timestamp,
     };
     this.users.unshift(user);
-    this.audit("USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
+    this.audit(actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
     return { ...user };
   }
 
-  async updateUser(userId: string, input: UpdateUserDto): Promise<IdentityUser> {
+  async updateUser(userId: string, input: UpdateUserDto, actorId = "usr-admin"): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
@@ -140,6 +140,7 @@ export class IdentityService {
         });
         await this.writeDatabaseAudit(
           transaction,
+          actorId,
           "USER_UPDATED",
           userId,
           `${currentRole}/${current.status} → ${this.getRoleCode(updated)}/${updated.status}`,
@@ -163,7 +164,7 @@ export class IdentityService {
     if (input.roleCode) user.roleCode = input.roleCode;
     if (input.status) user.status = input.status;
     user.updatedAt = now();
-    this.audit("USER_UPDATED", user.id, `${before} → ${user.roleCode}/${user.status}`);
+    this.audit(actorId, "USER_UPDATED", user.id, `${before} → ${user.roleCode}/${user.status}`);
     return { ...user };
   }
 
@@ -179,7 +180,7 @@ export class IdentityService {
     return this.roles.map((role) => ({ ...role, permissions: [...role.permissions] }));
   }
 
-  async updateRolePermissions(input: UpdateRolePermissionsDto): Promise<IdentityRole> {
+  async updateRolePermissions(input: UpdateRolePermissionsDto, actorId = "usr-admin"): Promise<IdentityRole> {
     if (input.roleCode === "SYSTEM_ADMIN" && !input.permissions.includes("role:update")) {
       throw new BadRequestException("Vai trò quản trị phải giữ quyền role:update.");
     }
@@ -205,6 +206,7 @@ export class IdentityService {
         await transaction.role.update({ where: { id: role.id }, data: { version: { increment: 1 } } });
         await this.writeDatabaseAudit(
           transaction,
+          actorId,
           "ROLE_PERMISSIONS_UPDATED",
           role.code,
           `Cập nhật ${permissionRows.length} quyền, phiên bản ${role.version + 1}`,
@@ -221,7 +223,7 @@ export class IdentityService {
     if (!role) throw new NotFoundException("Không tìm thấy vai trò.");
     role.permissions = [...new Set(input.permissions)];
     role.version += 1;
-    this.audit("ROLE_PERMISSIONS_UPDATED", role.code, `Cập nhật ${role.permissions.length} quyền, phiên bản ${role.version}`);
+    this.audit(actorId, "ROLE_PERMISSIONS_UPDATED", role.code, `Cập nhật ${role.permissions.length} quyền, phiên bản ${role.version}`);
     return { ...role, permissions: [...role.permissions] };
   }
 
@@ -237,6 +239,7 @@ export class IdentityService {
         const context = this.asRecord(row.context);
         return {
           id: row.id.toString(),
+          actorId: row.actorId ?? "system",
           action: row.action,
           targetId: row.entityId ?? "unknown",
           summary: typeof context.summary === "string" ? context.summary : row.action,
@@ -292,12 +295,13 @@ export class IdentityService {
 
   private async writeDatabaseAudit(
     transaction: Prisma.TransactionClient,
+    actorId: string,
     action: string,
     targetId: string,
     summary: string,
   ): Promise<void> {
     await transaction.auditLog.create({
-      data: { action, entityType: "identity", entityId: targetId, context: { summary } },
+      data: { actorId, action, entityType: "identity", entityId: targetId, context: { summary } },
     });
   }
 
@@ -307,7 +311,7 @@ export class IdentityService {
       : {};
   }
 
-  private audit(action: string, targetId: string, summary: string): void {
-    this.auditEvents.unshift({ id: randomUUID(), action, targetId, summary, createdAt: now() });
+  private audit(actorId: string, action: string, targetId: string, summary: string): void {
+    this.auditEvents.unshift({ id: randomUUID(), actorId, action, targetId, summary, createdAt: now() });
   }
 }

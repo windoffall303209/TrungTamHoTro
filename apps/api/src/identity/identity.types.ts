@@ -22,9 +22,9 @@ export interface IdentityRole {
 
 export interface IdentityAuditEvent {
   id: string;
+  actorId: string;
   action: string;
   targetId: string;
   summary: string;
   createdAt: string;
 }
-

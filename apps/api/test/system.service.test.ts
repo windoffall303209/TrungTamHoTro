@@ -66,8 +66,8 @@ describe("SystemService", () => {
 
   it("lọc audit, xuất audit có hạn và che thông tin nhạy cảm khỏi log", async () => {
     const service = new SystemService();
-    await service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom-secret", webhookUrl: "https://hooks.wind.edu.vn/zoom" });
-    const events = await service.listAudit({ action: "INTEGRATION_CONFIGURED", actor: "usr-admin" });
+    await service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom-secret", webhookUrl: "https://hooks.wind.edu.vn/zoom" }, "admin-real");
+    const events = await service.listAudit({ action: "INTEGRATION_CONFIGURED", actor: "admin-real" });
     expect(events).toHaveLength(1);
     expect(JSON.stringify(events)).not.toContain("vault://zoom-secret");
     expect((await service.runExport("AUDIT", "CSV")).expiresAt).toBeTruthy();

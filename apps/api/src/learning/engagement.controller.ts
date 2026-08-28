@@ -167,7 +167,7 @@ export class EngagementController {
   }
 
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
-  updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input); }
+  updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input, session.user.id); }
 
   @Post("support/tickets/:ticketId/close") @RequirePermissions("support:create")
   closeTicket(@Param("ticketId") ticketId: string, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.closeTicketByReporter(ticketId, session.user.id); }
@@ -189,11 +189,11 @@ export class EngagementController {
   getClassReports(): Promise<object[]> { return this.learning.getClassReports(); }
 
   @Get("instructor/analytics/exams") @RequirePermissions("report:view")
-  getExamAnalytics(@Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<ExamAnalytics> { return this.learning.getExamAnalytics({ classId, examId, from, to }); }
+  getExamAnalytics(@CurrentSession() session: AuthenticatedSession, @Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<ExamAnalytics> { return this.learning.getExamAnalytics({ classId, examId, from, to }, session.user.id); }
 
   @Get("instructor/analytics/exams/export") @RequirePermissions("report:view")
-  async exportExamAnalytics(@Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<StreamableFile> {
-    const buffer = await this.learning.exportExamAnalytics({ classId, examId, from, to });
+  async exportExamAnalytics(@CurrentSession() session: AuthenticatedSession, @Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<StreamableFile> {
+    const buffer = await this.learning.exportExamAnalytics({ classId, examId, from, to }, session.user.id);
     return new StreamableFile(buffer, { type: "text/csv; charset=utf-8", disposition: `attachment; filename="exam-analytics-${Date.now()}.csv"`, length: buffer.length });
   }
 
@@ -201,23 +201,23 @@ export class EngagementController {
   getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input); }
 
   @Post("manager/classes/:classId/progress/interventions") @RequirePermissions("report:view")
-  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input); }
+  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input, session.user.id); }
 
   @Patch("manager/progress/interventions/:interventionId") @RequirePermissions("report:view")
-  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input.status); }
+  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input.status, session.user.id); }
 
   @Post("manager/reports/run") @RequirePermissions("report:view")
-  runOperationalReport(@Body() input: RunOperationalReportDto): Promise<ReportRun> { return this.learning.runOperationalReport(input.from, input.to); }
+  runOperationalReport(@Body() input: RunOperationalReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ReportRun> { return this.learning.runOperationalReport(input.from, input.to, session.user.id); }
 
   @Get("manager/reports/exports") @RequirePermissions("report:view")
-  listReportExports(): Promise<ReportExport[]> { return this.learning.listReportExports(); }
+  listReportExports(@CurrentSession() session: AuthenticatedSession): Promise<ReportExport[]> { return this.learning.listReportExports(session.user.id); }
 
   @Post("manager/reports/exports") @RequirePermissions("report:view")
-  createReportExport(@Body() input: CreateReportExportDto): Promise<ReportExport> { return this.learning.createReportExport(input.reportRunId, input.format); }
+  createReportExport(@Body() input: CreateReportExportDto, @CurrentSession() session: AuthenticatedSession): Promise<ReportExport> { return this.learning.createReportExport(input.reportRunId, input.format, session.user.id); }
 
   @Get("manager/reports/exports/:exportId/download") @RequirePermissions("report:view")
-  async downloadReportExport(@Param("exportId") exportId: string): Promise<StreamableFile> {
-    const download = await this.learning.downloadReportExport(exportId);
+  async downloadReportExport(@Param("exportId") exportId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
+    const download = await this.learning.downloadReportExport(exportId, session.user.id);
     return new StreamableFile(download.buffer, { type: download.mimeType, disposition: `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`, length: download.buffer.length });
   }
 }

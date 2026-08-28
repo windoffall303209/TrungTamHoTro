@@ -103,7 +103,7 @@ export class SystemService {
         const version = (latest?.version ?? current.version) + 1;
         const revision = await transaction.systemSettingRevision.create({ data: { id: `setting-revision-${randomUUID()}`, key: "platform", value: next, version, effectiveAt, updatedBy: actorId } });
         if (effectiveAt <= new Date()) await transaction.systemSetting.upsert({ where: { key: "platform" }, update: { value: next, version, effectiveAt, updatedBy: actorId }, create: { key: "platform", value: next, version, effectiveAt, updatedBy: actorId } });
-        await this.logDatabase(transaction, "SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${version}; hiệu lực ${effectiveAt.toISOString()}.`);
+        await this.logDatabase(transaction, actorId, "SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${version}; hiệu lực ${effectiveAt.toISOString()}.`);
         return this.mapSettings(revision.value, revision.createdAt, revision.version, revision.effectiveAt, revision.updatedBy);
       });
     }
@@ -111,7 +111,7 @@ export class SystemService {
     const revision: SystemSettingRevision = { id: `setting-revision-${randomUUID()}`, key: "platform", ...this.settings, ...settingValues, version: latestVersion + 1, effectiveAt: effectiveAt.toISOString(), updatedBy: actorId, updatedAt: new Date().toISOString() };
     this.settingRevisions.unshift(revision);
     if (effectiveAt <= new Date()) this.settings = { ...revision };
-    this.log("SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${revision.version}; hiệu lực ${revision.effectiveAt}.`);
+    this.log(actorId, "SETTINGS_VERSION_PUBLISHED", "system-settings", `Phiên bản ${revision.version}; hiệu lực ${revision.effectiveAt}.`);
     return structuredClone(revision);
   }
 
@@ -124,7 +124,7 @@ export class SystemService {
     return structuredClone(this.integrations);
   }
 
-  async updateIntegration(integrationId: string, enabled: boolean): Promise<IntegrationConfig> {
+  async updateIntegration(integrationId: string, enabled: boolean, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
@@ -132,7 +132,7 @@ export class SystemService {
       if (enabled && current.healthStatus !== "HEALTHY") throw new BadRequestException("Cần health check thành công trước khi bật tích hợp.");
       return prisma.$transaction(async (transaction) => {
         const row = await transaction.integrationProvider.update({ where: { id: integrationId }, data: { enabled, isDefault: enabled ? current.isDefault : false } });
-        await this.logDatabase(transaction, "INTEGRATION_UPDATED", row.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
+        await this.logDatabase(transaction, actorId, "INTEGRATION_UPDATED", row.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
         return this.mapIntegration(row);
       });
     }
@@ -142,11 +142,11 @@ export class SystemService {
     item.enabled = enabled;
     if (!enabled) item.isDefault = false;
     item.updatedAt = new Date().toISOString();
-    this.log("INTEGRATION_UPDATED", item.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
+    this.log(actorId, "INTEGRATION_UPDATED", item.provider, enabled ? "Đã bật tích hợp." : "Đã tắt tích hợp.");
     return structuredClone(item);
   }
 
-  async configureIntegration(input: { provider: IntegrationConfig["provider"]; credentialReference?: string; webhookUrl?: string }): Promise<IntegrationConfig> {
+  async configureIntegration(input: { provider: IntegrationConfig["provider"]; credentialReference?: string; webhookUrl?: string }, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const credentialReference = input.credentialReference?.trim();
     if (input.provider !== "JITSI" && !credentialReference) throw new BadRequestException("Provider này cần tham chiếu credential trong kho bí mật.");
     if (input.webhookUrl && !/^https:\/\//i.test(input.webhookUrl)) throw new BadRequestException("Webhook phải sử dụng HTTPS.");
@@ -158,7 +158,7 @@ export class SystemService {
           update: { credentialRef: credentialReference, webhookUrl: input.webhookUrl?.trim() || null, isDefault: false, healthStatus: "UNKNOWN", enabled: false },
           create: { id: `integration-${randomUUID()}`, provider: input.provider, credentialRef: credentialReference, webhookUrl: input.webhookUrl?.trim() || null },
         });
-        await this.logDatabase(transaction, "INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
+        await this.logDatabase(transaction, actorId, "INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
         return this.mapIntegration(row);
       });
     }
@@ -168,17 +168,18 @@ export class SystemService {
       this.integrations.push(item);
     }
     Object.assign(item, { enabled: false, isDefault: false, healthStatus: "UNKNOWN", maskedCredential: input.provider === "JITSI" ? "Không yêu cầu" : "••••••••", webhookConfigured: Boolean(input.webhookUrl), lastCheckedAt: undefined, updatedAt: new Date().toISOString() });
-    this.log("INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
+    this.log(actorId, "INTEGRATION_CONFIGURED", input.provider, "Đã lưu tham chiếu credential; secret không được ghi log.");
     return structuredClone(item);
   }
 
-  async testIntegration(integrationId: string): Promise<IntegrationConfig> {
+  async testIntegration(integrationId: string, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
       if (!current) throw new NotFoundException("Không tìm thấy tích hợp.");
       const healthy = current.provider === "JITSI" || Boolean(current.credentialRef);
       const row = await prisma.integrationProvider.update({ where: { id: integrationId }, data: { healthStatus: healthy ? "HEALTHY" : "ERROR", lastCheckedAt: new Date() } });
+      await this.logDatabase(prisma, actorId, "INTEGRATION_HEALTH_CHECKED", current.provider, healthy ? "HEALTHY" : "ERROR");
       if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
       return this.mapIntegration(row);
     }
@@ -188,31 +189,38 @@ export class SystemService {
     item.healthStatus = healthy ? "HEALTHY" : "ERROR";
     item.lastCheckedAt = new Date().toISOString();
     item.updatedAt = item.lastCheckedAt;
+    this.log(actorId, "INTEGRATION_HEALTH_CHECKED", item.provider, healthy ? "HEALTHY" : "ERROR");
     if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
     return structuredClone(item);
   }
 
-  async setDefaultIntegration(integrationId: string): Promise<IntegrationConfig> {
+  async setDefaultIntegration(integrationId: string, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
       if (!current || !current.enabled || current.healthStatus !== "HEALTHY") throw new BadRequestException("Chỉ provider đang bật và khỏe mạnh mới được đặt mặc định.");
       return prisma.$transaction(async (transaction) => {
         await transaction.integrationProvider.updateMany({ data: { isDefault: false } });
-        return this.mapIntegration(await transaction.integrationProvider.update({ where: { id: integrationId }, data: { isDefault: true } }));
+        const updated = await transaction.integrationProvider.update({ where: { id: integrationId }, data: { isDefault: true } });
+        await this.logDatabase(transaction, actorId, "INTEGRATION_DEFAULT_CHANGED", updated.provider, "Đặt làm nhà cung cấp mặc định.");
+        return this.mapIntegration(updated);
       });
     }
     const item = this.integrations.find((entry) => entry.id === integrationId);
     if (!item || !item.enabled || item.healthStatus !== "HEALTHY") throw new BadRequestException("Chỉ provider đang bật và khỏe mạnh mới được đặt mặc định.");
     for (const integration of this.integrations) integration.isDefault = integration.id === integrationId;
+    this.log(actorId, "INTEGRATION_DEFAULT_CHANGED", item.provider, "Đặt làm nhà cung cấp mặc định.");
     return structuredClone(item);
   }
 
-  async createTestMeeting(integrationId: string): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
+  async createTestMeeting(integrationId: string, actorId = "usr-admin"): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
     const integrations = await this.listIntegrations();
     const item = integrations.find((entry) => entry.id === integrationId);
     if (!item || !item.enabled || !item.isDefault || item.healthStatus !== "HEALTHY") throw new BadRequestException("Provider mặc định chưa sẵn sàng để tạo phòng thử.");
     const roomId = `wind-test-${randomUUID()}`;
+    const prisma = this.database();
+    if (prisma) await this.logDatabase(prisma, actorId, "INTEGRATION_TEST_MEETING_CREATED", item.provider, `Phòng thử ${roomId}.`);
+    else this.log(actorId, "INTEGRATION_TEST_MEETING_CREATED", item.provider, `Phòng thử ${roomId}.`);
     return { provider: item.provider, attendeeUrl: item.provider === "JITSI" ? `https://meet.jit.si/${roomId}` : `https://meeting.local/${item.provider.toLowerCase()}/${roomId}`, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
   }
 
@@ -225,7 +233,7 @@ export class SystemService {
     return structuredClone(this.backups);
   }
 
-  async runBackup(type: BackupRun["type"]): Promise<BackupRun> {
+  async runBackup(type: BackupRun["type"], actorId = "usr-admin"): Promise<BackupRun> {
     const prisma = this.database();
     if (prisma) {
       const timestamp = new Date();
@@ -237,17 +245,17 @@ export class SystemService {
             sizeBytes: BigInt(type === "FULL" ? 19_100_000 : 2_600_000), completedAt: timestamp,
           },
         });
-        await this.logDatabase(transaction, "BACKUP_COMPLETED", row.id, `${type} · ${checksum}`);
+        await this.logDatabase(transaction, actorId, "BACKUP_COMPLETED", row.id, `${type} · ${checksum}`);
         return this.mapBackup(row);
       });
     }
     const item: BackupRun = { id: `backup-${randomUUID()}`, type, status: "COMPLETED", createdAt: new Date().toISOString(), checksum: `sha256:${randomUUID().slice(0, 8)}`, sizeMb: type === "FULL" ? 19.1 : 2.6 };
     this.backups.unshift(item);
-    this.log("BACKUP_COMPLETED", item.id, `${type} · ${item.checksum}`);
+    this.log(actorId, "BACKUP_COMPLETED", item.id, `${type} · ${item.checksum}`);
     return structuredClone(item);
   }
 
-  async restoreBackup(backupId: string, approvedBy: string): Promise<RestoreRun> {
+  async restoreBackup(backupId: string, approvedBy: string, actorId = "usr-admin"): Promise<RestoreRun> {
     if (approvedBy.trim().length < 3) throw new BadRequestException("Cần người phê duyệt khôi phục.");
     const prisma = this.database();
     if (prisma) {
@@ -261,7 +269,7 @@ export class SystemService {
             status: "COMPLETED", verification, completedAt: new Date(),
           },
         });
-        await this.logDatabase(transaction, "RESTORE_VERIFIED", backupId, verification);
+        await this.logDatabase(transaction, actorId, "RESTORE_VERIFIED", backupId, verification);
         return this.mapRestore(row);
       });
     }
@@ -269,7 +277,7 @@ export class SystemService {
     if (!backup) throw new NotFoundException("Không tìm thấy điểm sao lưu.");
     const item: RestoreRun = { id: `restore-${randomUUID()}`, backupId, approvedBy: approvedBy.trim(), status: "COMPLETED", createdAt: new Date().toISOString(), verification: `Checksum ${backup.checksum} hợp lệ; phục hồi thử nghiệm thành công.` };
     this.restores.unshift(item);
-    this.log("RESTORE_VERIFIED", backupId, item.verification);
+    this.log(actorId, "RESTORE_VERIFIED", backupId, item.verification);
     return structuredClone(item);
   }
 
@@ -303,7 +311,7 @@ export class SystemService {
     return structuredClone([...this.retentionPolicies].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
   }
 
-  async createRetentionPolicy(input: { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt?: string }): Promise<RetentionPolicyView> {
+  async createRetentionPolicy(input: { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt?: string }, actorId = "usr-admin"): Promise<RetentionPolicyView> {
     const category = input.category.trim().toUpperCase(); const approvedBy = input.approvedBy.trim();
     if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
     if (input.retentionDays < 30 || input.retentionDays > 3650) throw new BadRequestException("Thời hạn lưu phải từ 30 đến 3650 ngày.");
@@ -314,20 +322,27 @@ export class SystemService {
       const latest = await prisma.retentionPolicy.findFirst({ where: { category }, orderBy: { version: "desc" } });
       const row = await prisma.$transaction(async (transaction) => {
         const created = await transaction.retentionPolicy.create({ data: { id: `retention-policy-${randomUUID()}`, category, version: (latest?.version ?? 0) + 1, retentionDays: input.retentionDays, action: input.action, approvedBy, effectiveAt } });
-        await this.logDatabase(transaction, "RETENTION_POLICY_PUBLISHED", created.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return created;
+        await this.logDatabase(transaction, actorId, "RETENTION_POLICY_PUBLISHED", created.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return created;
       });
       return this.mapRetentionPolicy(row);
     }
     const version = Math.max(0, ...this.retentionPolicies.filter((item) => item.category === category).map((item) => item.version)) + 1;
     const item: RetentionPolicyView = { id: `retention-policy-${randomUUID()}`, category, version, retentionDays: input.retentionDays, action: input.action, approvedBy, effectiveAt: effectiveAt.toISOString(), createdAt: new Date().toISOString() };
-    this.retentionPolicies.unshift(item); this.log("RETENTION_POLICY_PUBLISHED", item.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return structuredClone(item);
+    this.retentionPolicies.unshift(item); this.log(actorId, "RETENTION_POLICY_PUBLISHED", item.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return structuredClone(item);
   }
 
   async createLegalHold(categoryInput: string, reasonInput: string, actorId = "usr-admin"): Promise<object> {
     const category = categoryInput.trim().toUpperCase(); const reason = reasonInput.trim(); if (!category || reason.length < 5) throw new BadRequestException("Loại dữ liệu và lý do legal hold là bắt buộc.");
     const prisma = this.database();
-    if (prisma) return prisma.legalHold.create({ data: { id: `legal-hold-${randomUUID()}`, category, reason, createdBy: actorId } });
-    const item = { id: `legal-hold-${randomUUID()}`, category, reason, active: true, createdBy: actorId, createdAt: new Date().toISOString() }; this.legalHolds.unshift(item); return structuredClone(item);
+    if (prisma) {
+      const item = await prisma.legalHold.create({ data: { id: `legal-hold-${randomUUID()}`, category, reason, createdBy: actorId } });
+      await this.logDatabase(prisma, actorId, "LEGAL_HOLD_CREATED", item.id, `${category} · ${reason}`);
+      return item;
+    }
+    const item = { id: `legal-hold-${randomUUID()}`, category, reason, active: true, createdBy: actorId, createdAt: new Date().toISOString() };
+    this.legalHolds.unshift(item);
+    this.log(actorId, "LEGAL_HOLD_CREATED", item.id, `${category} · ${reason}`);
+    return structuredClone(item);
   }
 
   async runRetention(policyId: string, requestedBy: string, approvedBy: string): Promise<RetentionJobView> {
@@ -339,19 +354,19 @@ export class SystemService {
       const preview = await this.previewRetention(policy.category); const completedAt = new Date();
       const row = await prisma.$transaction(async (transaction) => {
         const created = await transaction.retentionJob.create({ data: { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, completedAt } });
-        await this.logDatabase(transaction, "RETENTION_JOB_COMPLETED", created.id, `${preview.deletableRows} bản ghi xử lý; ${preview.legalHoldRows} bản ghi được giữ.`); return created;
+        await this.logDatabase(transaction, requestedBy, "RETENTION_JOB_COMPLETED", created.id, `${preview.deletableRows} bản ghi xử lý; ${preview.legalHoldRows} bản ghi được giữ.`); return created;
       }); return this.mapRetentionJob(row);
     }
     const policy = this.retentionPolicies.find((item) => item.id === policyId); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention."); const preview = await this.previewRetention(policy.category);
     const item: RetentionJobView = { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, createdAt: new Date().toISOString(), completedAt: new Date().toISOString() };
-    this.retentionJobs.unshift(item); this.log("RETENTION_JOB_COMPLETED", item.id, `${item.affectedRows} bản ghi xử lý; ${item.skippedRows} bản ghi được giữ.`); return structuredClone(item);
+    this.retentionJobs.unshift(item); this.log(requestedBy, "RETENTION_JOB_COMPLETED", item.id, `${item.affectedRows} bản ghi xử lý; ${item.skippedRows} bản ghi được giữ.`); return structuredClone(item);
   }
 
   async listRetentionJobs(): Promise<RetentionJobView[]> {
     const prisma = this.database(); if (prisma) return (await prisma.retentionJob.findMany({ orderBy: { createdAt: "desc" } })).map((row) => this.mapRetentionJob(row)); return structuredClone(this.retentionJobs);
   }
 
-  async runExport(category: string, format: DataExport["format"]): Promise<DataExport> {
+  async runExport(category: string, format: DataExport["format"], actorId = "usr-admin"): Promise<DataExport> {
     const prisma = this.database();
     if (prisma) {
       const rowCount = await this.countExportRows(prisma, category);
@@ -364,13 +379,13 @@ export class SystemService {
             objectKey: `exports/${category.toLowerCase()}/${createdAt.getTime()}.${format.toLowerCase()}`, expiresAt,
           },
         });
-        await this.logDatabase(transaction, "DATA_EXPORTED", row.id, `${category} · ${format} · ${rowCount} dòng`);
+        await this.logDatabase(transaction, actorId, "DATA_EXPORTED", row.id, `${category} · ${format} · ${rowCount} dòng`);
         return this.mapExport(row);
       });
     }
     const item: DataExport = { id: `export-${randomUUID()}`, category, format, status: "COMPLETED", rowCount: category === "AUDIT" ? this.audit.length : 48, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
     this.exports.unshift(item);
-    this.log("DATA_EXPORTED", item.id, `${category} · ${format} · ${item.rowCount} dòng`);
+    this.log(actorId, "DATA_EXPORTED", item.id, `${category} · ${format} · ${item.rowCount} dòng`);
     return structuredClone(item);
   }
 
@@ -402,7 +417,7 @@ export class SystemService {
     return structuredClone([...latest.values()]);
   }
 
-  async saveTemplate(input: Omit<NotificationTemplate, "id" | "version" | "status" | "updatedAt">): Promise<NotificationTemplate> {
+  async saveTemplate(input: Omit<NotificationTemplate, "id" | "version" | "status" | "updatedAt">, actorId = "usr-admin"): Promise<NotificationTemplate> {
     if (/<script|javascript:/i.test(`${input.subject} ${input.body}`)) throw new BadRequestException("Mẫu thông báo chứa nội dung không an toàn.");
     const eventCode = input.eventCode.trim().toUpperCase();
     const allowedVariables = templateVariables[eventCode];
@@ -420,14 +435,14 @@ export class SystemService {
         const row = await transaction.notificationTemplate.create({
           data: { id: `tpl-${randomUUID()}`, ...normalized, version: (current?.version ?? 0) + 1, status: "PUBLISHED" },
         });
-        await this.logDatabase(transaction, "TEMPLATE_PUBLISHED", row.eventCode, `${row.locale} · v${row.version}`);
+        await this.logDatabase(transaction, actorId, "TEMPLATE_PUBLISHED", row.eventCode, `${row.locale} · v${row.version}`);
         return this.mapTemplate(row);
       });
     }
     const current = this.templates.find((item) => item.eventCode === eventCode && item.locale === normalized.locale);
     const item: NotificationTemplate = { ...normalized, id: `tpl-${randomUUID()}`, version: (current?.version ?? 0) + 1, status: "PUBLISHED", updatedAt: new Date().toISOString() };
     this.templates.unshift(item);
-    this.log("TEMPLATE_PUBLISHED", item.eventCode, `${item.locale} · v${item.version}`);
+    this.log(actorId, "TEMPLATE_PUBLISHED", item.eventCode, `${item.locale} · v${item.version}`);
     return structuredClone(item);
   }
 
@@ -445,14 +460,14 @@ export class SystemService {
     return { subject, body, unresolvedVariables: [...new Set([...subject.matchAll(/\[([^\]]+)\]/g), ...body.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]))] };
   }
 
-  async sendTemplateTest(templateId: string, recipient: string, variables: Record<string, string>): Promise<TemplateTestDelivery> {
+  async sendTemplateTest(templateId: string, recipient: string, variables: Record<string, string>, actorId = "usr-admin"): Promise<TemplateTestDelivery> {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new BadRequestException("Email nhận bản thử không hợp lệ.");
     const preview = await this.previewTemplate(templateId, variables) as { subject: string; body: string; unresolvedVariables: string[] };
     if (preview.unresolvedVariables.length) throw new BadRequestException(`Chưa cung cấp biến: ${preview.unresolvedVariables.join(", ")}.`);
     const delivery: TemplateTestDelivery = { recipient, subject: preview.subject, body: preview.body, status: "DELIVERED", sentAt: new Date().toISOString() };
     const prisma = this.database();
-    if (prisma) await this.logDatabase(prisma, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
-    else this.log("TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
+    if (prisma) await this.logDatabase(prisma, actorId, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
+    else this.log(actorId, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
     return delivery;
   }
 
@@ -465,7 +480,7 @@ export class SystemService {
     return structuredClone(this.moderation);
   }
 
-  async updateModerationPolicy(input: Omit<ModerationPolicy, "version" | "updatedAt">): Promise<ModerationPolicy> {
+  async updateModerationPolicy(input: Omit<ModerationPolicy, "version" | "updatedAt">, actorId = "usr-admin"): Promise<ModerationPolicy> {
     const prohibitedTerms = [...new Set(input.prohibitedTerms.map((term) => term.trim().toLowerCase()).filter(Boolean))];
     const prisma = this.database();
     if (prisma) {
@@ -474,15 +489,15 @@ export class SystemService {
         const row = await transaction.moderationPolicy.create({
           data: {
             id: `policy-${randomUUID()}`, version: (current?.version ?? 0) + 1, prohibitedTerms,
-            maxPostsPerMinute: input.maxPostsPerMinute, action: input.action, publishedBy: "usr-admin",
+            maxPostsPerMinute: input.maxPostsPerMinute, action: input.action, publishedBy: actorId,
           },
         });
-        await this.logDatabase(transaction, "MODERATION_POLICY_PUBLISHED", `v${row.version}`, `${prohibitedTerms.length} từ khóa`);
+        await this.logDatabase(transaction, actorId, "MODERATION_POLICY_PUBLISHED", `v${row.version}`, `${prohibitedTerms.length} từ khóa`);
         return this.mapModeration(row);
       });
     }
     this.moderation = { ...input, prohibitedTerms, version: this.moderation.version + 1, updatedAt: new Date().toISOString() };
-    this.log("MODERATION_POLICY_PUBLISHED", `v${this.moderation.version}`, `${this.moderation.prohibitedTerms.length} từ khóa`);
+    this.log(actorId, "MODERATION_POLICY_PUBLISHED", `v${this.moderation.version}`, `${this.moderation.prohibitedTerms.length} từ khóa`);
     return structuredClone(this.moderation);
   }
 
@@ -526,8 +541,8 @@ export class SystemService {
   async updateAlert(alertId: string, action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE", actorId = "usr-admin", muteMinutes = 60): Promise<SystemAlertView> {
     const prisma = this.database();
     const data = action === "ACKNOWLEDGE" ? { status: "ACKNOWLEDGED", acknowledgedBy: actorId } : action === "MUTE" ? { status: "MUTED", acknowledgedBy: actorId, mutedUntil: new Date(Date.now() + Math.min(1440, Math.max(5, muteMinutes)) * 60_000) } : { status: "RESOLVED", recoveredAt: new Date(), acknowledgedBy: actorId };
-    if (prisma) { const current = await prisma.systemAlert.findUnique({ where: { id: alertId } }); if (!current) throw new NotFoundException("Không tìm thấy cảnh báo."); const row = await prisma.systemAlert.update({ where: { id: alertId }, data }); await this.logDatabase(prisma, `ALERT_${action}`, alertId, row.summary); return this.mapAlert(row); }
-    const item = this.alerts.find((row) => row.id === alertId); if (!item) throw new NotFoundException("Không tìm thấy cảnh báo."); Object.assign(item, { ...data, mutedUntil: data.mutedUntil?.toISOString(), recoveredAt: data.recoveredAt?.toISOString(), updatedAt: new Date().toISOString() }); this.log(`ALERT_${action}`, alertId, item.summary); return structuredClone(item);
+    if (prisma) { const current = await prisma.systemAlert.findUnique({ where: { id: alertId } }); if (!current) throw new NotFoundException("Không tìm thấy cảnh báo."); const row = await prisma.systemAlert.update({ where: { id: alertId }, data }); await this.logDatabase(prisma, actorId, `ALERT_${action}`, alertId, row.summary); return this.mapAlert(row); }
+    const item = this.alerts.find((row) => row.id === alertId); if (!item) throw new NotFoundException("Không tìm thấy cảnh báo."); Object.assign(item, { ...data, mutedUntil: data.mutedUntil?.toISOString(), recoveredAt: data.recoveredAt?.toISOString(), updatedAt: new Date().toISOString() }); this.log(actorId, `ALERT_${action}`, alertId, item.summary); return structuredClone(item);
   }
 
   async getStorageOverview(): Promise<StorageOverview> {
@@ -668,8 +683,8 @@ export class SystemService {
     return prisma.user.count();
   }
 
-  private async logDatabase(database: PrismaService | Prisma.TransactionClient, action: string, target: string, detail: string): Promise<void> {
-    await database.auditLog.create({ data: { actorId: "usr-admin", action, entityType: "system", entityId: target, context: { detail } } });
+  private async logDatabase(database: PrismaService | Prisma.TransactionClient, actorId: string, action: string, target: string, detail: string): Promise<void> {
+    await database.auditLog.create({ data: { actorId, action, entityType: "system", entityId: target, context: { detail } } });
   }
 
   private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
@@ -683,5 +698,5 @@ export class SystemService {
   private extractTemplateVariables(value: string): string[] { return [...new Set([...value.matchAll(/{{([a-zA-Z0-9_]+)}}/g)].map((match) => match[1] ?? "").filter(Boolean))]; }
   private redactSensitive(value: string): string { return value.replace(/(password|token|secret|credential|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]"); }
   private isProvider(value: string): value is IntegrationConfig["provider"] { return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI"; }
-  private log(action: string, target: string, detail: string): void { this.audit.unshift({ id: `audit-${randomUUID()}`, actor: "usr-admin", action, target, detail, createdAt: new Date().toISOString() }); }
+  private log(actorId: string, action: string, target: string, detail: string): void { this.audit.unshift({ id: `audit-${randomUUID()}`, actor: actorId, action, target, detail, createdAt: new Date().toISOString() }); }
 }

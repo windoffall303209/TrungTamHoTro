@@ -224,17 +224,19 @@ describe("LearningService", () => {
     try {
       const config = { get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT" ? storageRoot : undefined } as unknown as ConfigService<Environment, true>;
       const service = new LearningService(undefined, config);
-      const run = await service.runOperationalReport("2026-01-01T00:00:00.000Z", "2026-12-31T23:59:59.000Z");
+      const run = await service.runOperationalReport("2026-01-01T00:00:00.000Z", "2026-12-31T23:59:59.000Z", "manager-real");
       expect(run.result.definitionVersion).toBe("1.0.0");
       expect(run.result.metricDefinitions.classes).toContain("kỳ báo cáo");
-      const created = await service.createReportExport(run.id, "CSV");
+      const created = await service.createReportExport(run.id, "CSV", "manager-real");
       expect(created).toMatchObject({ status: "COMPLETED", format: "CSV" });
-      expect(await service.listReportExports()).toHaveLength(1);
-      const download = await service.downloadReportExport(created.id);
+      expect(await service.listReportExports("manager-real")).toHaveLength(1);
+      expect(await service.listReportExports("manager-outside")).toHaveLength(0);
+      const download = await service.downloadReportExport(created.id, "manager-real");
       expect(download.fileName).toMatch(/bao-cao-van-hanh.*\.csv$/);
       expect(download.buffer.toString("utf8")).toContain("Phiên bản định nghĩa");
+      await expect(service.downloadReportExport(created.id, "manager-outside")).rejects.toThrow(NotFoundException);
       await expect(service.runOperationalReport("2026-12-31T00:00:00.000Z", "2026-01-01T00:00:00.000Z")).rejects.toThrow(BadRequestException);
-      await expect(service.createReportExport("run-khong-ton-tai", "CSV")).rejects.toThrow(NotFoundException);
+      await expect(service.createReportExport("run-khong-ton-tai", "CSV", "manager-real")).rejects.toThrow(NotFoundException);
     } finally {
       await rm(storageRoot, { recursive: true, force: true });
     }
@@ -483,6 +485,30 @@ describe("LearningService", () => {
     expect(history.map((item) => item.decision)).toEqual(["APPROVE", "RETURN"]);
     expect(history.every((item) => item.examVersion === exam.version)).toBe(true);
     expect((await service.listNotifications("usr-instructor")).filter((item) => item.type === "EXAM_REVIEWED")).toHaveLength(2);
+  });
+
+  it("cô lập đề, lượt làm và quyền chấm theo giảng viên được phân công", async () => {
+    const service = new LearningService();
+    const classItem = await service.createClass({ courseId: "course-web", code: "IDENTITY-EXAM", name: "Lớp kiểm thử quyền đề", term: "2026-HK3", startAt: "2026-08-01T00:00:00.000Z", endAt: "2026-12-15T00:00:00.000Z", capacity: 20 }, "manager-real");
+    await service.assignInstructor(classItem.id, "instructor-real", "PRIMARY", "manager-real");
+    await service.enrollLearner(classItem.id, "learner-real", "manager-real");
+    const examInput = { classId: classItem.id, title: "Đề kiểm thử phân quyền", questionIds: ["q-rest-01"], durationMinutes: 30, totalScore: 10, openAt: "2026-08-01T00:00:00.000Z", closeAt: "2026-12-01T00:00:00.000Z", attemptLimit: 1 };
+
+    await expect(service.createExam(examInput, "instructor-outside")).rejects.toThrow(NotFoundException);
+    const exam = await service.createExam(examInput, "instructor-real");
+    expect((await service.listExams("INSTRUCTOR", "instructor-real")).map((item) => item.id)).toContain(exam.id);
+    expect((await service.listExams("INSTRUCTOR", "instructor-outside")).map((item) => item.id)).not.toContain(exam.id);
+    await expect(service.submitExamForReview(exam.id, "instructor-outside")).rejects.toThrow(NotFoundException);
+    await service.submitExamForReview(exam.id, "instructor-real");
+    await service.reviewExam(exam.id, "APPROVE", undefined, "manager-real");
+    const attempt = await service.startAttempt(exam.id, "learner-real");
+    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"], "learner-real");
+    await service.submitAttempt(attempt.id, "learner-real");
+
+    expect(await service.listAttempts(exam.id, "instructor-outside")).toHaveLength(0);
+    await expect(service.gradeAttempt(attempt.id, 9, "Chấm bài", undefined, "instructor-outside")).rejects.toThrow(NotFoundException);
+    expect(await service.gradeAttempt(attempt.id, 9, "Chấm bài", "Điều chỉnh theo đáp án", "instructor-real")).toMatchObject({ status: "GRADED", score: 9 });
+    await expect(service.listGradeHistory(attempt.id, "instructor-outside")).rejects.toThrow(NotFoundException);
   });
 
   it("xáo câu hỏi tái lập theo seed và lưu lịch sử mỗi lần sửa điểm", async () => {
