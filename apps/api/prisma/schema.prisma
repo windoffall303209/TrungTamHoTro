@@ -148,6 +148,17 @@ enum AccountTokenType {
   MFA_LOGIN
 }
 
+enum AssignmentStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum AssignmentSubmissionStatus {
+  SUBMITTED
+  GRADED
+}
+
 model User {
   id                       String              @id @default(cuid())
   email                    String              @unique @db.VarChar(191)
@@ -190,6 +201,9 @@ model User {
   authSessions             AuthSession[]
   accountTokens            AccountToken[]
   mfaRecoveryCodes         MfaRecoveryCode[]
+  createdAssignments       Assignment[]        @relation("AssignmentCreator")
+  assignmentSubmissions    AssignmentSubmission[] @relation("AssignmentLearner")
+  classAnnouncements       ClassAnnouncement[] @relation("AnnouncementAuthor")
 
   @@map("users")
 }
@@ -343,6 +357,8 @@ model LearningClass {
   exams         Exam[]
   forumTopics   ForumTopic[]
   sessions      LiveSession[]
+  assignments   Assignment[]
+  announcements ClassAnnouncement[]
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
@@ -350,6 +366,64 @@ model LearningClass {
     @@index([term])
     @@unique([code, term])
   @@map("learning_classes")
+}
+
+model Assignment {
+  id          String           @id @default(cuid())
+  classId     String           @map("class_id")
+  createdById String           @map("created_by_id")
+  title       String           @db.VarChar(255)
+  description String           @db.Text
+  instructions String          @db.Text
+  dueAt       DateTime         @map("due_at")
+  maxScore    Decimal          @map("max_score") @db.Decimal(8, 2)
+  rubric      Json
+  status      AssignmentStatus @default(DRAFT)
+  class       LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdBy   User             @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  submissions AssignmentSubmission[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([classId, status, dueAt])
+  @@index([createdById])
+  @@map("assignments")
+}
+
+model AssignmentSubmission {
+  id           String                     @id @default(cuid())
+  assignmentId String                     @map("assignment_id")
+  learnerId    String                     @map("learner_id")
+  content      String                     @db.Text
+  status       AssignmentSubmissionStatus @default(SUBMITTED)
+  submittedAt  DateTime                   @default(now()) @map("submitted_at")
+  score        Decimal?                   @db.Decimal(8, 2)
+  rubricScores Json?                      @map("rubric_scores")
+  feedback     String?                    @db.Text
+  gradedBy     String?                    @map("graded_by") @db.VarChar(191)
+  gradedAt     DateTime?                  @map("graded_at")
+  assignment   Assignment                 @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  learner      User                       @relation("AssignmentLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  updatedAt    DateTime                   @updatedAt @map("updated_at")
+
+  @@unique([assignmentId, learnerId])
+  @@index([learnerId, status])
+  @@map("assignment_submissions")
+}
+
+model ClassAnnouncement {
+  id          String        @id @default(cuid())
+  classId     String        @map("class_id")
+  authorId    String        @map("author_id")
+  title       String        @db.VarChar(255)
+  body        String        @db.Text
+  publishedAt DateTime      @default(now()) @map("published_at")
+  class       LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author      User          @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([classId, publishedAt])
+  @@index([authorId])
+  @@map("class_announcements")
 }
 
 model ClassInstructor {

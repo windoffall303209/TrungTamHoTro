@@ -15,8 +15,9 @@ export interface ClassClosureReadiness { eligible: boolean; blockers: string[]; 
 export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
 export interface ClassInstructorAssignment { instructorId: string; role: InstructorRole; assignedAt: string }
 export interface ClassMemberHistory { id: string; memberId: string; memberType: "INSTRUCTOR" | "LEARNER"; action: string; role?: InstructorRole; source?: string; reason?: string; actorId: string; createdAt: string }
-export interface ClassRoster { classId: string; instructors: ClassInstructorAssignment[]; enrollments: Array<{ learnerId: string; status: "ACTIVE" | "CANCELLED"; source: string; joinedAt: string; removalReason?: string; removedAt?: string }>; history: ClassMemberHistory[] }
+export interface ClassRoster { classId: string; instructors: Array<ClassInstructorAssignment & { displayName?: string; email?: string }>; enrollments: Array<{ learnerId: string; displayName?: string; email?: string; status: "ACTIVE" | "CANCELLED"; source: string; joinedAt: string; removalReason?: string; removedAt?: string }>; history: ClassMemberHistory[] }
 export interface EnrollmentImportResult { userId: string; status: "ENROLLED" | "SKIPPED" | "FAILED"; message: string }
+export interface DirectoryUser { id: string; displayName: string; email: string; roleCode: "INSTRUCTOR" | "LEARNER" }
 
 export interface LearningMaterial {
   id: string; classId: string; ownerId: string; name: string; mimeType: string; sizeBytes: number;

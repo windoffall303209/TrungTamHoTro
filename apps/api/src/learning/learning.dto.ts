@@ -34,6 +34,12 @@ export class CreateClassDto {
 
 export class AssignUserDto { @IsString() @IsNotEmpty() userId!: string; }
 
+export class DirectoryQueryDto {
+  @IsIn(["INSTRUCTOR", "LEARNER"]) role!: "INSTRUCTOR" | "LEARNER";
+  @IsOptional() @IsString() @MaxLength(100) q = "";
+  @IsOptional() @IsString() @MaxLength(191) classId?: string;
+}
+
 export class AssignInstructorDto extends AssignUserDto {
   @IsIn(["PRIMARY", "CO_INSTRUCTOR"]) role!: "PRIMARY" | "CO_INSTRUCTOR";
 }

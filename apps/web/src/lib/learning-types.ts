@@ -15,8 +15,15 @@ export interface ClassClosureReadiness { eligible: boolean; blockers: string[]; 
 export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
 export interface ClassInstructorAssignment { instructorId: string; role: InstructorRole; assignedAt: string }
 export interface ClassMemberHistory { id: string; memberId: string; memberType: "INSTRUCTOR" | "LEARNER"; action: string; role?: InstructorRole; source?: string; reason?: string; actorId: string; createdAt: string }
-export interface ClassRoster { classId: string; instructors: ClassInstructorAssignment[]; enrollments: Array<{ learnerId: string; status: "ACTIVE" | "CANCELLED"; source: string; joinedAt: string; removalReason?: string; removedAt?: string }>; history: ClassMemberHistory[] }
+export interface ClassRoster { classId: string; instructors: Array<ClassInstructorAssignment & { displayName?: string; email?: string }>; enrollments: Array<{ learnerId: string; displayName?: string; email?: string; status: "ACTIVE" | "CANCELLED"; source: string; joinedAt: string; removalReason?: string; removedAt?: string }>; history: ClassMemberHistory[] }
 export interface EnrollmentImportResult { userId: string; status: "ENROLLED" | "SKIPPED" | "FAILED"; message: string }
+export interface DirectoryUser { id: string; displayName: string; email: string; roleCode: "INSTRUCTOR" | "LEARNER" }
+export interface RubricCriterion { id: string; title: string; description: string; maxPoints: number }
+export interface AssignmentSubmission { id: string; assignmentId: string; learnerId: string; learnerName: string; learnerEmail: string; content: string; status: "SUBMITTED" | "GRADED"; submittedAt: string; score?: number; rubricScores: Array<{ criterionId: string; score: number }>; feedback?: string; gradedAt?: string }
+export interface Assignment { id: string; classId: string; classCode: string; title: string; description: string; instructions: string; dueAt: string; maxScore: number; rubric: RubricCriterion[]; status: "DRAFT" | "PUBLISHED" | "CLOSED"; createdById: string; submission?: AssignmentSubmission; createdAt: string }
+export interface AcademicCalendarEvent { id: string; classId: string; classCode: string; type: "CLASS" | "LIVE_SESSION" | "EXAM" | "ASSIGNMENT"; title: string; startAt: string; endAt?: string; href: string }
+export interface ClassAnnouncement { id: string; classId: string; classCode: string; title: string; body: string; authorName: string; publishedAt: string }
+export interface GradebookRow { learnerId: string; learnerName: string; learnerEmail: string; examEarned: number; examPossible: number; assignmentEarned: number; assignmentPossible: number; totalPercent: number }
 
 export interface Material {
   id: string; classId: string; name: string; mimeType: string; sizeBytes: number;

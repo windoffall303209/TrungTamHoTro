@@ -8,7 +8,7 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
 import type {
-  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
+  AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
   ProviderAttendanceInput, RegradeRequest, SupportAttachment, SupportTicket, TicketComment,
 } from "./learning.types.js";
@@ -357,11 +357,17 @@ export class LearningService {
   async importEnrollments(classId: string, userIds: string[], actorId = "usr-manager"): Promise<EnrollmentImportResult[]> {
     const normalized = userIds.map((value) => value.trim()).filter(Boolean);
     const seen = new Set<string>(); const results: EnrollmentImportResult[] = [];
-    for (const userId of normalized) {
-      if (seen.has(userId)) { results.push({ userId, status: "SKIPPED", message: "Trùng trong danh sách nhập." }); continue; }
-      seen.add(userId);
-      try { await this.enrollLearner(classId, userId, actorId); results.push({ userId, status: "ENROLLED", message: "Ghi danh thành công." }); }
-      catch (error) { results.push({ userId, status: error instanceof ConflictException ? "SKIPPED" : "FAILED", message: error instanceof Error ? error.message : "Không thể ghi danh." }); }
+    for (const identifier of normalized) {
+      const key = identifier.toLowerCase();
+      if (seen.has(key)) { results.push({ userId: identifier, status: "SKIPPED", message: "Trùng trong danh sách nhập." }); continue; }
+      seen.add(key);
+      try {
+        const prisma = this.database();
+        const user = prisma ? await prisma.user.findFirst({ where: { status: "ACTIVE", OR: [{ id: identifier }, { email: key }], roles: { some: { role: { code: "LEARNER" } } } }, select: { id: true } }) : null;
+        const userId = user?.id ?? identifier;
+        await this.enrollLearner(classId, userId, actorId);
+        results.push({ userId, status: "ENROLLED", message: "Ghi danh thành công." });
+      } catch (error) { results.push({ userId: identifier, status: error instanceof ConflictException ? "SKIPPED" : "FAILED", message: error instanceof Error ? error.message : "Không thể ghi danh." }); }
     }
     return results;
   }
@@ -387,9 +393,9 @@ export class LearningService {
   async getClassRoster(classId: string): Promise<ClassRoster> {
     const prisma = this.database();
     if (prisma) {
-      const item = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: { orderBy: { assignedAt: "asc" } }, enrollments: { orderBy: { joinedAt: "asc" } }, instructorHistory: { orderBy: { createdAt: "desc" } }, enrollmentHistory: { orderBy: { createdAt: "desc" } } } });
+      const item = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: { orderBy: { assignedAt: "asc" }, include: { instructor: { select: { displayName: true, email: true } } } }, enrollments: { orderBy: { joinedAt: "asc" }, include: { learner: { select: { displayName: true, email: true } } } }, instructorHistory: { orderBy: { createdAt: "desc" } }, enrollmentHistory: { orderBy: { createdAt: "desc" } } } });
       if (!item) throw new NotFoundException("Không tìm thấy lớp học.");
-      return { classId, instructors: item.instructors.map((row) => ({ instructorId: row.instructorId, role: row.role, assignedAt: row.assignedAt.toISOString() })), enrollments: item.enrollments.map((row) => ({ learnerId: row.learnerId, status: row.status === "ACTIVE" ? "ACTIVE" : "CANCELLED", source: row.source, joinedAt: row.joinedAt.toISOString(), removalReason: row.removalReason ?? undefined, removedAt: row.removedAt?.toISOString() })), history: [...item.instructorHistory.map((row) => ({ id: row.id, memberId: row.instructorId, memberType: "INSTRUCTOR" as const, action: row.action, role: row.role, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() })), ...item.enrollmentHistory.map((row) => ({ id: row.id, memberId: row.learnerId, memberType: "LEARNER" as const, action: row.action, source: row.source, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() }))].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) };
+      return { classId, instructors: item.instructors.map((row) => ({ instructorId: row.instructorId, displayName: row.instructor.displayName, email: row.instructor.email, role: row.role, assignedAt: row.assignedAt.toISOString() })), enrollments: item.enrollments.map((row) => ({ learnerId: row.learnerId, displayName: row.learner.displayName, email: row.learner.email, status: row.status === "ACTIVE" ? "ACTIVE" : "CANCELLED", source: row.source, joinedAt: row.joinedAt.toISOString(), removalReason: row.removalReason ?? undefined, removedAt: row.removedAt?.toISOString() })), history: [...item.instructorHistory.map((row) => ({ id: row.id, memberId: row.instructorId, memberType: "INSTRUCTOR" as const, action: row.action, role: row.role, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() })), ...item.enrollmentHistory.map((row) => ({ id: row.id, memberId: row.learnerId, memberType: "LEARNER" as const, action: row.action, source: row.source, reason: row.reason ?? undefined, actorId: row.actorId, createdAt: row.createdAt.toISOString() }))].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) };
     }
     const item = this.findClass(classId);
     return { classId, instructors: item.instructorIds.map((instructorId) => ({ instructorId, role: this.instructorRoles.get(`${classId}:${instructorId}`) ?? "CO_INSTRUCTOR", assignedAt: now() })), enrollments: item.learnerIds.map((learnerId) => ({ learnerId, status: "ACTIVE", source: "MANUAL", joinedAt: now() })), history: this.classMemberHistory.filter((row) => row.id.startsWith(`${classId}:`)).map((row) => ({ ...row })) };
@@ -731,6 +737,25 @@ export class LearningService {
     const stored = this.materialFiles.get(materialId);
     this.materialVersions.unshift({ ...item, id: id("material-version"), materialId, createdBy: actorId, objectKey: stored?.objectKey, checksum: stored?.checksum, tags: [...item.tags] });
     return { ...item, tags: [...item.tags] };
+  }
+
+  async searchDirectory(roleCode: "INSTRUCTOR" | "LEARNER", query = "", classId?: string): Promise<DirectoryUser[]> {
+    const prisma = this.database();
+    if (!prisma) return [];
+    const text = query.trim();
+    const assignedIds = classId ? roleCode === "INSTRUCTOR"
+      ? (await prisma.classInstructor.findMany({ where: { classId }, select: { instructorId: true } })).map((row) => row.instructorId)
+      : (await prisma.classEnrollment.findMany({ where: { classId, status: "ACTIVE" }, select: { learnerId: true } })).map((row) => row.learnerId)
+      : [];
+    const users = await prisma.user.findMany({
+      where: {
+        status: "ACTIVE", id: assignedIds.length ? { notIn: assignedIds } : undefined,
+        roles: { some: { role: { code: roleCode } } },
+        ...(text ? { OR: [{ displayName: { contains: text } }, { email: { contains: text } }] } : {}),
+      },
+      select: { id: true, displayName: true, email: true }, orderBy: { displayName: "asc" }, take: 20,
+    });
+    return users.map((user) => ({ ...user, roleCode }));
   }
 
   async listMaterialVersions(materialId: string, role: string, actorId = this.userIdForRole(role)): Promise<MaterialVersionSnapshot[]> {

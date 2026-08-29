@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, RemoveMemberDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
+import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ClassRoster, CourseVersionSnapshot, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
+import type { ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
 
 @ApiTags("Course & Class")
 @Controller()
@@ -59,6 +59,9 @@ export class CourseController {
 
   @Get("manager/classes/:classId/roster") @RequirePermissions("class:manage")
   getClassRoster(@Param("classId") classId: string): Promise<ClassRoster> { return this.learning.getClassRoster(classId); }
+
+  @Get("manager/directory/users") @RequirePermissions("class:manage")
+  searchDirectory(@Query() query: DirectoryQueryDto): Promise<DirectoryUser[]> { return this.learning.searchDirectory(query.role, query.q, query.classId); }
 
   @Post("manager/classes/:classId/activate") @RequirePermissions("class:manage")
   activateClass(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.activateClass(classId, session.user.id); }
