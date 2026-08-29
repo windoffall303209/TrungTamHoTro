@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { Environment } from "../config/environment.js";
 import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
@@ -16,24 +16,25 @@ const PASSWORD_TOKEN_MS = 30 * 60 * 1000;
 const MFA_CHALLENGE_MS = 5 * 60 * 1000;
 
 type UserWithRoles = {
-  id: string; email: string; passwordHash: string; displayName: string; status: string;
+  id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string; displayName: string; status: string;
   mfaSecretEncrypted: string | null; mfaEnabledAt: Date | null;
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
 export interface AuthenticatedSession {
   sessionId: string;
-  user: { id: string; name: string; email: string; roleName: string };
+  user: { id: string; username: string; name: string; email: string; roleName: string };
   roleCode: RoleCode;
   permissions: PermissionCode[];
   availableRoles: Array<{ code: RoleCode; name: string }>;
 }
 
 export interface SessionContext { ipAddress?: string; userAgent?: string }
-export interface AccountProfile { id: string; displayName: string; email: string; phone: string; timezone: string; locale: string; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; createdAt: string }
+export interface AccountProfile { id: string; username: string; displayName: string; email: string; phone: string; timezone: string; locale: string; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; createdAt: string }
 export interface AccountSession { id: string; current: boolean; currentRoleCode: string; ipAddress: string; userAgent: string; createdAt: string; lastSeenAt: string; expiresAt: string }
 export interface SessionIssue { token: string; csrfToken: string; maxAgeMs: number; session: AuthenticatedSession }
 export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: string };
+export interface RegistrationResult { verificationRequired: true; verificationId: string; email: string; verificationEmailSent: boolean }
 
 @Injectable()
 export class AuthService {
@@ -54,10 +55,21 @@ export class AuthService {
 
   cookieName(): string { return SESSION_COOKIE; }
 
-  async login(email: string, password: string, rememberMe = false, context: SessionContext = {}): Promise<LoginResult> {
+  async login(username: string, password: string, rememberMe = false, context: SessionContext = {}): Promise<LoginResult> {
     this.assertDatabase();
-    const user = await this.loadUserByEmail(email);
-    if (!user || !(await verifyPassword(password, user.passwordHash))) throw new UnauthorizedException("Email hoặc mật khẩu không chính xác.");
+    const user = await this.loadUserByUsername(username);
+    if (!user || !(await verifyPassword(password, user.passwordHash))) throw new UnauthorizedException("Tài khoản hoặc mật khẩu không chính xác.");
+    if (user.status === "PENDING_VERIFICATION" || !user.emailVerifiedAt) {
+      const verificationId = await this.pendingVerificationId(user.id) ?? (await this.sendVerificationEmail(user.id, user.email)).verificationId;
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: "EMAIL_VERIFICATION_REQUIRED",
+        message: "Tài khoản chưa hoàn tất xác minh email. Hãy nhập mã 6 số hoặc mở liên kết đã gửi tới email của bạn.",
+        verificationRequired: true,
+        verificationId,
+        email: user.email,
+      });
+    }
     this.assertActive(user);
     if (user.mfaEnabledAt && user.mfaSecretEncrypted) {
       return { requiresMfa: true, challengeToken: await this.issueAccountToken(user.id, "MFA_LOGIN", MFA_CHALLENGE_MS) };
@@ -83,26 +95,41 @@ export class AuthService {
     return this.createSession(user, rememberMe, context);
   }
 
-  async register(displayName: string, email: string, password: string, context: SessionContext = {}): Promise<SessionIssue & { verificationEmailSent: boolean }> {
+  async register(username: string, displayName: string, email: string, password: string): Promise<RegistrationResult> {
     this.assertDatabase();
+    const normalizedUsername = username.trim().toLowerCase();
     const normalizedEmail = email.trim().toLowerCase();
     const learnerRole = await this.prisma.role.findUnique({ where: { code: "LEARNER" } });
     if (!learnerRole) throw new ServiceUnavailableException("Vai trò học viên chưa được khởi tạo.");
+    const [usernameOwner, emailOwner] = await Promise.all([
+      this.prisma.user.findUnique({ where: { username: normalizedUsername } }),
+      this.prisma.user.findUnique({ where: { email: normalizedEmail } }),
+    ]);
+    if (usernameOwner) throw new ConflictException("Tên tài khoản đã được sử dụng. Hãy chọn tên khác.");
+    if (emailOwner) {
+      if (emailOwner.status === "PENDING_VERIFICATION" && !emailOwner.emailVerifiedAt) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: "EMAIL_PENDING_VERIFICATION",
+          message: "Email này đang liên kết với một tài khoản chưa hoàn tất xác minh. Bạn có thể tiếp tục xác minh tài khoản hiện có hoặc dùng email khác để tạo tài khoản mới.",
+          canContinueVerification: true,
+        });
+      }
+      throw new ConflictException("Email đã được liên kết với một tài khoản khác.");
+    }
     let userId: string;
     try {
       const created = await this.prisma.user.create({ data: {
-        email: normalizedEmail, displayName: displayName.trim(), passwordHash: await hashPassword(password),
+        username: normalizedUsername, email: normalizedEmail, displayName: displayName.trim(), passwordHash: await hashPassword(password), status: "PENDING_VERIFICATION",
         roles: { create: { roleId: learnerRole.id } },
       } });
       userId = created.id;
     } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") throw new ConflictException("Email đã được sử dụng.");
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") throw new ConflictException("Tên tài khoản hoặc email vừa được sử dụng. Hãy kiểm tra lại.");
       throw error;
     }
-    const verificationEmailSent = await this.sendVerificationEmail(userId, normalizedEmail);
-    const user = await this.loadUser(userId);
-    if (!user) throw new ServiceUnavailableException("Không thể khởi tạo phiên tài khoản.");
-    return { ...(await this.createSession(user, false, context)), verificationEmailSent };
+    const verification = await this.sendVerificationEmail(userId, normalizedEmail);
+    return { verificationRequired: true, verificationId: verification.verificationId, email: normalizedEmail, verificationEmailSent: verification.sent };
   }
 
   async requestPasswordReset(email: string): Promise<{ accepted: true }> {
@@ -137,29 +164,75 @@ export class AuthService {
     return { reset: true };
   }
 
-  async verifyEmail(token: string): Promise<{ verified: true }> {
+  async verifyEmail(token: string): Promise<{ verified: true; verificationId: string }> {
     const row = await this.validAccountToken(token, "EMAIL_VERIFICATION");
     const now = new Date();
-    await this.prisma.$transaction([
-      this.prisma.accountToken.update({ where: { id: row.id }, data: { consumedAt: now } }),
-      this.prisma.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: now } }),
-      this.prisma.accountToken.updateMany({ where: { userId: row.userId, type: "EMAIL_VERIFICATION", consumedAt: null }, data: { consumedAt: now } }),
-    ]);
-    return { verified: true };
+    await this.prisma.$transaction(async (transaction) => {
+      const consumed = await transaction.accountToken.updateMany({ where: { id: row.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+      if (consumed.count !== 1) throw new BadRequestException("Liên kết xác minh email đã được sử dụng hoặc đã hết hạn.");
+      await transaction.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: now } });
+      await transaction.user.updateMany({ where: { id: row.userId, status: "PENDING_VERIFICATION" }, data: { status: "ACTIVE" } });
+      await transaction.accountToken.updateMany({ where: { userId: row.userId, type: "EMAIL_VERIFICATION", consumedAt: null }, data: { consumedAt: now } });
+    });
+    return { verified: true, verificationId: row.id };
+  }
+
+  async verifyEmailCode(verificationId: string, code: string): Promise<{ verified: true; verificationId: string }> {
+    const row = await this.prisma.accountToken.findUnique({ where: { id: verificationId } });
+    if (!row || row.type !== "EMAIL_VERIFICATION" || row.consumedAt || row.expiresAt <= new Date() || !row.codeHash) {
+      throw new BadRequestException("Phiên xác minh email không hợp lệ hoặc đã hết hạn.");
+    }
+    if (row.failedAttempts >= 5) throw new UnauthorizedException("Bạn đã nhập sai quá nhiều lần. Hãy yêu cầu gửi mã mới.");
+    const expected = Buffer.from(row.codeHash, "hex");
+    const actual = Buffer.from(this.hashVerificationCode(verificationId, code), "hex");
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      await this.prisma.accountToken.update({ where: { id: row.id }, data: { failedAttempts: { increment: 1 } } });
+      throw new UnauthorizedException("Mã xác minh không chính xác.");
+    }
+    const now = new Date();
+    await this.prisma.$transaction(async (transaction) => {
+      const consumed = await transaction.accountToken.updateMany({ where: { id: row.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+      if (consumed.count !== 1) throw new BadRequestException("Mã xác minh đã được sử dụng hoặc đã hết hạn.");
+      await transaction.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: now } });
+      await transaction.user.updateMany({ where: { id: row.userId, status: "PENDING_VERIFICATION" }, data: { status: "ACTIVE" } });
+      await transaction.accountToken.updateMany({ where: { userId: row.userId, type: "EMAIL_VERIFICATION", consumedAt: null }, data: { consumedAt: now } });
+    });
+    return { verified: true, verificationId };
+  }
+
+  async verificationStatus(verificationId: string): Promise<{ verified: boolean; expired: boolean }> {
+    const row = await this.prisma.accountToken.findUnique({ where: { id: verificationId }, include: { user: { select: { emailVerifiedAt: true } } } });
+    if (!row || row.type !== "EMAIL_VERIFICATION") throw new NotFoundException("Không tìm thấy phiên xác minh email.");
+    return { verified: Boolean(row.user.emailVerifiedAt), expired: !row.user.emailVerifiedAt && row.expiresAt <= new Date() };
+  }
+
+  async resendPublicVerification(identifier: string, verificationId?: string): Promise<{ accepted: true; verificationId?: string }> {
+    const normalized = identifier.trim().toLowerCase();
+    const user = normalized.includes("@") ? await this.loadUserByEmail(normalized) : await this.loadUserByUsername(normalized);
+    if (!user || user.emailVerifiedAt || user.status !== "PENDING_VERIFICATION") return { accepted: true };
+    const current = verificationId ? await this.prisma.accountToken.findUnique({ where: { id: verificationId } }) : null;
+    const canReturnId = Boolean(current && current.userId === user.id && current.type === "EMAIL_VERIFICATION");
+    const recent = await this.prisma.accountToken.findFirst({
+      where: { userId: user.id, type: "EMAIL_VERIFICATION", consumedAt: null, createdAt: { gt: new Date(Date.now() - 60_000) } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recent) return canReturnId ? { accepted: true, verificationId: recent.id } : { accepted: true };
+    const result = await this.sendVerificationEmail(user.id, user.email);
+    return canReturnId ? { accepted: true, verificationId: result.verificationId } : { accepted: true };
   }
 
   async resendVerification(userId: string): Promise<{ sent: boolean }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
     if (user.emailVerifiedAt) return { sent: false };
-    return { sent: await this.sendVerificationEmail(user.id, user.email) };
+    return { sent: (await this.sendVerificationEmail(user.id, user.email)).sent };
   }
 
   async getProfile(userId: string): Promise<AccountProfile> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
     return {
-      id: user.id, displayName: user.displayName, email: user.email, phone: user.phone ?? "", timezone: user.timezone,
+      id: user.id, username: user.username, displayName: user.displayName, email: user.email, phone: user.phone ?? "", timezone: user.timezone,
       locale: user.locale, status: user.status, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
       mfaEnabled: Boolean(user.mfaEnabledAt), createdAt: user.createdAt.toISOString(),
     };
@@ -188,7 +261,7 @@ export class AuthService {
     if (user.mfaEnabledAt) throw new ConflictException("MFA đã được bật cho tài khoản.");
     const secret = createMfaSecret();
     await this.prisma.user.update({ where: { id: userId }, data: { mfaSecretEncrypted: encryptMfaSecret(secret, this.encryptionSecret) } });
-    return { secret, otpauthUri: createTotpUri(secret, user.email, this.issuer) };
+    return { secret, otpauthUri: createTotpUri(secret, user.username, this.issuer) };
   }
 
   async confirmMfa(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
@@ -204,14 +277,23 @@ export class AuthService {
     return { recoveryCodes };
   }
 
-  async disableMfa(userId: string, password: string, code: string): Promise<{ disabled: true }> {
+  async startDisableMfa(userId: string, password: string): Promise<{ challengeToken: string; expiresInSeconds: number }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted || !user.mfaEnabledAt) throw new BadRequestException("MFA chưa được bật.");
     if (!(await verifyPassword(password, user.passwordHash))) throw new UnauthorizedException("Mật khẩu hiện tại không chính xác.");
+    return { challengeToken: await this.issueAccountToken(userId, "MFA_DISABLE", MFA_CHALLENGE_MS), expiresInSeconds: MFA_CHALLENGE_MS / 1000 };
+  }
+
+  async disableMfa(userId: string, challengeToken: string, code: string): Promise<{ disabled: true }> {
+    const challenge = await this.validAccountToken(challengeToken, "MFA_DISABLE");
+    if (challenge.userId !== userId) throw new UnauthorizedException("Phiên tắt xác thực hai bước không hợp lệ.");
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.mfaSecretEncrypted || !user.mfaEnabledAt) throw new BadRequestException("MFA chưa được bật.");
     if (!verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new UnauthorizedException("Mã xác thực không chính xác.");
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: null, mfaSecretEncrypted: null } }),
       this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
+      this.prisma.accountToken.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } }),
     ]);
     return { disabled: true };
   }
@@ -290,31 +372,54 @@ export class AuthService {
     return this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
   }
 
+  private loadUserByUsername(username: string): Promise<UserWithRoles | null> {
+    return this.prisma.user.findUnique({ where: { username: username.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+  }
+
   private loadUser(userId: string): Promise<UserWithRoles | null> {
     return this.prisma.user.findUnique({ where: { id: userId }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
   }
 
-  private assertActive(user: { status: string }): void {
+  private assertActive(user: { status: string; emailVerifiedAt?: Date | null }): void {
+    if (user.status === "PENDING_VERIFICATION" || !user.emailVerifiedAt) {
+      throw new ForbiddenException({ statusCode: 403, code: "EMAIL_VERIFICATION_REQUIRED", message: "Tài khoản chưa hoàn tất xác minh email. Hãy nhập mã 6 số hoặc mở liên kết đã gửi tới email của bạn.", verificationRequired: true });
+    }
     if (user.status !== "ACTIVE") throw new ForbiddenException("Tài khoản đang bị khóa hoặc chưa được kích hoạt.");
   }
 
-  private async sendVerificationEmail(userId: string, email: string): Promise<boolean> {
-    const token = await this.issueAccountToken(userId, "EMAIL_VERIFICATION", EMAIL_TOKEN_MS);
+  private async sendVerificationEmail(userId: string, email: string): Promise<{ sent: boolean; verificationId: string }> {
+    const verificationId = randomBytes(18).toString("hex");
+    const token = randomBytes(48).toString("base64url");
+    const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.accountToken.updateMany({ where: { userId, type: "EMAIL_VERIFICATION", consumedAt: null }, data: { consumedAt: now } }),
+      this.prisma.accountToken.create({ data: { id: verificationId, tokenHash: this.hashToken(token), codeHash: this.hashVerificationCode(verificationId, code), type: "EMAIL_VERIFICATION", userId, expiresAt: new Date(now.getTime() + EMAIL_TOKEN_MS) } }),
+    ]);
     const link = `${this.webOrigin}/verify-email?token=${encodeURIComponent(token)}`;
     try {
       await this.email.send({
         to: email, subject: "Xác minh email Wind EDU",
-        text: `Xác minh địa chỉ email của bạn để bảo vệ tài khoản Wind EDU. Liên kết có hiệu lực trong 24 giờ:\n${link}`,
+        text: `Mã xác minh Wind EDU của bạn là: ${code}\n\nHoặc mở liên kết sau để xác minh ngay:\n${link}\n\nMã và liên kết có hiệu lực trong 24 giờ. Nếu bạn không tạo tài khoản này, hãy bỏ qua email.`,
         idempotencyKey: `email-verification/${this.hashToken(token)}`,
       });
-      return true;
+      return { sent: true, verificationId };
     } catch (error) {
       this.logger.error("Không gửi được email xác minh.", error instanceof Error ? error.stack : String(error));
-      return false;
+      return { sent: false, verificationId };
     }
   }
 
-  private async issueAccountToken(userId: string, type: "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_LOGIN", ttlMs: number): Promise<string> {
+  private async pendingVerificationId(userId: string): Promise<string | undefined> {
+    const row = await this.prisma.accountToken.findFirst({
+      where: { userId, type: "EMAIL_VERIFICATION", consumedAt: null, expiresAt: { gt: new Date() } },
+      select: { id: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return row?.id;
+  }
+
+  private async issueAccountToken(userId: string, type: "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE", ttlMs: number): Promise<string> {
     const token = randomBytes(48).toString("base64url");
     const now = new Date();
     await this.prisma.$transaction([
@@ -324,7 +429,7 @@ export class AuthService {
     return token;
   }
 
-  private async validAccountToken(token: string, type: "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_LOGIN"): Promise<{ id: string; userId: string }> {
+  private async validAccountToken(token: string, type: "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE"): Promise<{ id: string; userId: string }> {
     const row = await this.prisma.accountToken.findUnique({ where: { tokenHash: this.hashToken(token) } });
     if (!row || row.type !== type || row.consumedAt || row.expiresAt <= new Date()) throw new BadRequestException("Liên kết hoặc phiên xác thực không hợp lệ hay đã hết hạn.");
     return { id: row.id, userId: row.userId };
@@ -340,7 +445,7 @@ export class AuthService {
     if (!selected) throw new ForbiddenException("Vai trò của phiên không còn hợp lệ.");
     return {
       sessionId,
-      user: { id: user.id, name: user.displayName, email: user.email, roleName: selected.name },
+      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name },
       roleCode,
       permissions: selected.permissions.map(({ permission }) => permission.code as PermissionCode),
       availableRoles: user.roles.map(({ role }) => ({ code: role.code as RoleCode, name: role.name })),
@@ -348,6 +453,7 @@ export class AuthService {
   }
 
   private hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
+  private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
   private assertDatabase(): void {
     if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối MySQL. Hãy bật DATABASE_CONNECT_ON_START.");
   }

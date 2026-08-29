@@ -1,8 +1,9 @@
 import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length, Matches } from "class-validator";
 
 export class LoginDto {
-  @IsEmail({}, { message: "Email không đúng định dạng." })
-  email!: string;
+  @IsString()
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự, bắt đầu bằng chữ hoặc số." })
+  username!: string;
 
   @IsString()
   @Length(8, 128, { message: "Mật khẩu phải có từ 8 đến 128 ký tự." })
@@ -17,6 +18,10 @@ export class RegisterDto {
   @IsString()
   @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
   displayName!: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự, bắt đầu bằng chữ hoặc số; chỉ dùng dấu chấm, gạch dưới hoặc gạch ngang." })
+  username!: string;
 
   @IsEmail({}, { message: "Email không đúng định dạng." })
   email!: string;
@@ -84,6 +89,33 @@ export class VerifyEmailDto {
   token!: string;
 }
 
+export class VerifyEmailCodeDto {
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
+  verificationId!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác minh phải gồm 6 chữ số." })
+  code!: string;
+}
+
+export class ResendVerificationDto {
+  @IsString()
+  @Length(4, 191, { message: "Thông tin tài khoản không hợp lệ." })
+  identifier!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
+  verificationId?: string;
+}
+
+export class VerificationStatusDto {
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
+  verificationId!: string;
+}
+
 export class MfaCodeDto {
   @IsString()
   @Matches(/^\d{6}$/, { message: "Mã xác thực phải gồm 6 chữ số." })
@@ -100,10 +132,16 @@ export class MfaLoginDto extends MfaCodeDto {
   rememberMe?: boolean;
 }
 
-export class DisableMfaDto extends MfaCodeDto {
+export class DisableMfaPasswordDto {
   @IsString()
   @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
   password!: string;
+}
+
+export class DisableMfaDto extends MfaCodeDto {
+  @IsString()
+  @Length(32, 512, { message: "Phiên tắt xác thực hai bước không hợp lệ." })
+  challengeToken!: string;
 }
 
 export class RecoveryMfaLoginDto {

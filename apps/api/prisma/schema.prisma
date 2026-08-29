@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserStatus {
+  PENDING_VERIFICATION
   ACTIVE
   INACTIVE
   LOCKED
@@ -146,6 +147,7 @@ enum AccountTokenType {
   EMAIL_VERIFICATION
   PASSWORD_RESET
   MFA_LOGIN
+  MFA_DISABLE
 }
 
 enum AssignmentStatus {
@@ -161,6 +163,7 @@ enum AssignmentSubmissionStatus {
 
 model User {
   id                       String              @id @default(cuid())
+  username                 String              @unique @db.VarChar(32)
   email                    String              @unique @db.VarChar(191)
   passwordHash             String              @map("password_hash") @db.VarChar(255)
   displayName              String              @map("display_name") @db.VarChar(150)
@@ -230,6 +233,8 @@ model AuthSession {
 model AccountToken {
   id         String           @id @default(cuid())
   tokenHash  String           @unique @map("token_hash") @db.Char(64)
+  codeHash   String?          @map("code_hash") @db.Char(64)
+  failedAttempts Int          @default(0) @map("failed_attempts")
   type       AccountTokenType
   userId     String           @map("user_id")
   expiresAt  DateTime         @map("expires_at")
