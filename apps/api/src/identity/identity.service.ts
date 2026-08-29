@@ -19,10 +19,10 @@ type RoleWithPermissions = Prisma.RoleGetPayload<{
 @Injectable()
 export class IdentityService {
   private readonly users: IdentityUser[] = [
-    { id: "usr-admin", username: "admin", displayName: "Wind Of Fall", email: "admin@wind.edu.vn", roleCode: "SYSTEM_ADMIN", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-manager", username: "manager", displayName: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleCode: "CENTER_MANAGER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-instructor", username: "instructor", displayName: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleCode: "INSTRUCTOR", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-learner", username: "learner", displayName: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleCode: "LEARNER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-admin", username: "admin@wind.edu.vn", displayName: "Wind Of Fall", email: "admin@wind.edu.vn", roleCode: "SYSTEM_ADMIN", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-manager", username: "manager@wind.edu.vn", displayName: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleCode: "CENTER_MANAGER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-instructor", username: "instructor@wind.edu.vn", displayName: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleCode: "INSTRUCTOR", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-learner", username: "learner@wind.edu.vn", displayName: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleCode: "LEARNER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
   ];
 
   private readonly roles: IdentityRole[] = [

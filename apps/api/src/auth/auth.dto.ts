@@ -2,7 +2,7 @@ import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length, Matches } from 
 
 export class LoginDto {
   @IsString()
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự, bắt đầu bằng chữ hoặc số." })
+  @Length(4, 191, { message: "Tài khoản phải có từ 4 đến 191 ký tự." })
   username!: string;
 
   @IsString()
@@ -114,6 +114,20 @@ export class VerificationStatusDto {
   @IsString()
   @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
   verificationId!: string;
+}
+
+export class ChangeVerificationEmailDto {
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
+  verificationId!: string;
+
+  @IsEmail({}, { message: "Email mới không đúng định dạng." })
+  @Length(3, 191, { message: "Email mới không được vượt quá 191 ký tự." })
+  newEmail!: string;
+
+  @IsString()
+  @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
+  password!: string;
 }
 
 export class MfaCodeDto {

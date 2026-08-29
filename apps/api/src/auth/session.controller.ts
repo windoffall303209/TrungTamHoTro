@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Q
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { ChangePasswordDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { ChangePasswordDto, ChangeVerificationEmailDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -66,6 +66,12 @@ export class SessionController {
   @HttpCode(202)
   resendPublicVerification(@Body() input: ResendVerificationDto): Promise<{ accepted: true; verificationId?: string }> {
     return this.auth.resendPublicVerification(input.identifier, input.verificationId);
+  }
+
+  @Post("verification-email/change")
+  @HttpCode(200)
+  changeVerificationEmail(@Body() input: ChangeVerificationEmailDto): Promise<object> {
+    return this.auth.changePendingVerificationEmail(input.verificationId, input.password, input.newEmail);
   }
 
   @Get("verification-status")

@@ -163,7 +163,7 @@ enum AssignmentSubmissionStatus {
 
 model User {
   id                       String              @id @default(cuid())
-  username                 String              @unique @db.VarChar(32)
+  username                 String              @unique @db.VarChar(191)
   email                    String              @unique @db.VarChar(191)
   passwordHash             String              @map("password_hash") @db.VarChar(255)
   displayName              String              @map("display_name") @db.VarChar(150)
