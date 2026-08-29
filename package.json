@@ -17,6 +17,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "test:load": "node scripts/load-test.mjs",
+    "test:e2e": "pnpm --filter @wind-of-fall/web test:e2e",
     "db:generate": "pnpm --filter @wind-of-fall/api db:generate",
     "db:doctor": "pnpm --filter @wind-of-fall/api db:doctor",
     "db:migrate": "pnpm --filter @wind-of-fall/api db:migrate",

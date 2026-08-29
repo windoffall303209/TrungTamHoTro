@@ -1,5 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { SkipThrottle } from "@nestjs/throttler";
 import { HealthService, type HealthStatus } from "./health.service.js";
 
 @ApiTags("Health")
@@ -8,10 +9,10 @@ export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
   @Get()
+  @SkipThrottle()
   @ApiOperation({ summary: "Kiểm tra trạng thái API" })
   @ApiOkResponse({ description: "API đang hoạt động" })
   getHealth(): HealthStatus {
     return this.healthService.getStatus();
   }
 }
-
