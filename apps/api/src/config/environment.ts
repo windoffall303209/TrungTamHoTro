@@ -24,6 +24,10 @@ const environmentSchema = z.object({
   CLOUDINARY_API_KEY: z.string().trim().default(""),
   CLOUDINARY_API_SECRET: z.string().trim().default(""),
   CLOUDINARY_FOLDER: z.string().trim().regex(/^[a-zA-Z0-9/_-]+$/).default("wind-edu"),
+  ANTIVIRUS_PROVIDER: z.enum(["disabled", "clamav"]).default("disabled"),
+  CLAMAV_HOST: z.string().trim().min(1).default("127.0.0.1"),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65_535).default(3310),
+  CLAMAV_TIMEOUT_MS: z.coerce.number().int().min(500).max(120_000).default(15_000),
   RESEND_API_KEY: z.string().trim().default(""),
   RESEND_FROM: z.string().trim().default(""),
   AUTH_ENCRYPTION_SECRET: z.string().min(32).default("development-auth-encryption-key-change-me"),
@@ -60,6 +64,7 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
     if (!environment.RESEND_FROM) missing.push("RESEND_FROM");
     if (environment.STORAGE_SIGNING_SECRET === "development-storage-signing-key-change-me") missing.push("STORAGE_SIGNING_SECRET");
     if (environment.AUTH_ENCRYPTION_SECRET === "development-auth-encryption-key-change-me") missing.push("AUTH_ENCRYPTION_SECRET");
+    if (environment.ANTIVIRUS_PROVIDER !== "clamav") missing.push("ANTIVIRUS_PROVIDER=clamav");
     if (missing.length) throw new Error(`Thiếu cấu hình production bắt buộc: ${missing.join(", ")}`);
     if (/@resend\.dev[>\s]*$/i.test(environment.RESEND_FROM)) {
       throw new Error("RESEND_FROM production phải dùng domain đã xác minh, không dùng resend.dev.");

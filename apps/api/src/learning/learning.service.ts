@@ -7,6 +7,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
+import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
@@ -95,6 +96,7 @@ export class LearningService {
     @Optional() private readonly prisma?: PrismaService,
     @Optional() private readonly config?: ConfigService<Environment, true>,
     @Optional() private readonly objectStorage?: ObjectStorageService,
+    @Optional() private readonly antivirus?: AntivirusService,
   ) {}
 
   async listCourses(): Promise<LearningCourse[]> {
@@ -574,7 +576,7 @@ export class LearningService {
     const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
     if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
     if (!policy.allowedMimeTypes.includes(input.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
-    const quarantineReason = upload ? this.detectMaliciousUpload(upload) : undefined;
+    const quarantineReason = upload ? await this.scanUpload(upload) : undefined;
     if (prisma) {
       const classItem = await prisma.learningClass.findUnique({ where: { id: classId }, include: { instructors: true } });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
@@ -821,7 +823,7 @@ export class LearningService {
     const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
     if (upload.size > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
     if (!policy.allowedMimeTypes.includes(upload.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
-    const quarantineReason = this.detectMaliciousUpload(upload);
+    const quarantineReason = await this.scanUpload(upload);
     if (prisma) {
       const storedVersions = await prisma.materialVersion.findMany({ distinct: ["objectKey"], select: { sizeBytes: true } });
       if (storedVersions.reduce((sum, item) => sum + item.sizeBytes, 0n) + BigInt(upload.size) > BigInt(policy.storageQuotaMb) * 1_000_000n) throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
@@ -2469,6 +2471,8 @@ export class LearningService {
   ): Promise<SupportAttachment> {
     const canManage = this.canManageSupport(role);
     this.validateSupportUpload(upload);
+    const quarantineReason = await this.scanUpload(upload);
+    if (quarantineReason) throw new BadRequestException(`Tệp bằng chứng bị từ chối: ${quarantineReason}`);
     const attachmentId = id("support-attachment");
     const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^.a-z0-9]/g, "");
     const objectKey = `support/${ticketId}/${attachmentId}${safeExtension}`;
@@ -3556,6 +3560,14 @@ export class LearningService {
     if (/<script\b|javascript:/i.test(text)) return "Phát hiện nội dung script có khả năng thực thi.";
     if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName)) return "Phần mở rộng tệp có khả năng thực thi.";
     return undefined;
+  }
+
+  private async scanUpload(upload: UploadedMaterialFile): Promise<string | undefined> {
+    const signatureReason = this.detectMaliciousUpload(upload);
+    if (signatureReason) return signatureReason;
+    if (!this.antivirus) return undefined;
+    const result = await this.antivirus.scan(upload.buffer);
+    return result.clean ? undefined : `ClamAV phát hiện mã độc: ${result.signature ?? "không xác định"}.`;
   }
 
   private async enforceForumPolicy(database: PrismaService, authorId: string, content: string): Promise<void> {
