@@ -3,6 +3,7 @@ import { config } from "dotenv";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { readDatabaseConnection } from "../src/config/database-connection.js";
+import { seedDemoData } from "./demo-data.mjs";
 
 config({ path: new URL("../../../.env", import.meta.url) });
 
@@ -66,7 +67,11 @@ async function seed() {
   await prisma.notificationTemplate.upsert({ where: { eventCode_locale_version: { eventCode: "CLASS_REMINDER", locale: "vi-VN", version: 1 } }, update: {}, create: { id: "tpl-class-reminder", eventCode: "CLASS_REMINDER", locale: "vi-VN", subject: "Nhắc lịch học {{className}}", body: "Buổi học {{sessionTitle}} bắt đầu lúc {{startsAt}}.", version: 1, status: "PUBLISHED" } });
   await prisma.moderationPolicy.upsert({ where: { version: 1 }, update: {}, create: { id: "policy-initial", version: 1, prohibitedTerms: ["spam", "lừa đảo"], maxPostsPerMinute: 5, action: "FLAG", publishedBy: "usr-admin" } });
   await prisma.backupJob.upsert({ where: { id: "backup-seed" }, update: {}, create: { id: "backup-seed", type: "FULL", status: "COMPLETED", checksum: "sha256:9e151f", sizeBytes: 18400000n, completedAt: new Date() } });
-  await prisma.auditLog.create({ data: { actorId: "usr-admin", action: "DATABASE_SEEDED", entityType: "platform", entityId: "wind-edu", context: { courseCode: course.code, classCode: learningClass.code } } });
+  const baselineAudit = await prisma.auditLog.findFirst({ where: { action: "DATABASE_SEEDED", entityType: "platform", entityId: "wind-edu" } });
+  if (!baselineAudit) await prisma.auditLog.create({ data: { actorId: "usr-admin", action: "DATABASE_SEEDED", entityType: "platform", entityId: "wind-edu", context: { courseCode: course.code, classCode: learningClass.code } } });
+
+  const summary = await seedDemoData({ prisma, passwordHash, questionHash });
+  console.table(summary);
 }
 
 seed().then(() => console.log("Seed MySQL hoàn tất.")).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; }).finally(async () => prisma.$disconnect());

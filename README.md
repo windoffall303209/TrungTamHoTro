@@ -58,6 +58,8 @@ pnpm db:deploy
 pnpm db:seed
 ```
 
+Lệnh seed tạo bộ dữ liệu thử nghiệm lớn và có thể chạy lại an toàn: 60 học viên, 6 giảng viên, 8 khóa học, 12 lớp, hơn 300 lượt ghi danh cùng dữ liệu tài liệu, câu hỏi, đề thi, bài làm, diễn đàn, lớp trực tuyến, điểm danh, thông báo và yêu cầu hỗ trợ. Tất cả tài khoản mẫu dùng mật khẩu trong `SEED_DEFAULT_PASSWORD`. Nếu terminal chưa nhận `pnpm`, chạy tương đương bằng `npm --prefix apps/api run db:seed`.
+
 `db:doctor` kiểm tra năm biến `DB_*`, độ dài mật khẩu seed, quyền đăng nhập, database và lịch sử migration mà không in mật khẩu. Thêm `--json` để nhận kết quả máy đọc được hoặc `--verbose` để xem lỗi kết nối đầy đủ. `db:deploy` chỉ áp dụng các migration có sẵn trong repository; `db:migrate` dành cho lập trình viên khi chủ động thay đổi schema. Không chạy migration trên database đang chứa dữ liệu ngoài dự án. `.env` đã bị loại khỏi Git; chỉ `.env.example` được phép commit.
 
 ## Chạy phát triển
