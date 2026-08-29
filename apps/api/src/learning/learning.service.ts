@@ -6,6 +6,7 @@ import { dirname, extname, resolve, sep } from "node:path";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
@@ -93,6 +94,7 @@ export class LearningService {
   constructor(
     @Optional() private readonly prisma?: PrismaService,
     @Optional() private readonly config?: ConfigService<Environment, true>,
+    @Optional() private readonly objectStorage?: ObjectStorageService,
   ) {}
 
   async listCourses(): Promise<LearningCourse[]> {
@@ -630,7 +632,7 @@ export class LearningService {
         const assigned = await prisma.classInstructor.findUnique({ where: { classId_instructorId: { classId: material.classId, instructorId: actorId } } });
         if (!assigned) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
       }
-      if (!material.objectKey.startsWith("files/")) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
+      if (!this.isMaterialObjectKey(material.objectKey)) throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
     } else {
       const material = this.materials.find((item) => item.id === materialId);
       if (material?.quarantinedAt) throw new BadRequestException("Tệp đang bị cách ly và không thể truy cập.");
@@ -690,8 +692,8 @@ export class LearningService {
       objectKey = stored.objectKey;
       expectedChecksum = stored.checksum;
     }
-    if (!objectKey?.startsWith("files/")) throw new NotFoundException("Tệp học liệu không tồn tại trong kho bytes.");
-    const buffer = await readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp học liệu không còn tồn tại trên ổ đĩa."); });
+    if (!objectKey || !this.isMaterialObjectKey(objectKey)) throw new NotFoundException("Tệp học liệu không tồn tại trong kho bytes.");
+    const buffer = await this.readStoredFile(objectKey);
     if (expectedChecksum) {
       const actualChecksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
       if (actualChecksum !== expectedChecksum) throw new BadRequestException("Checksum học liệu không hợp lệ; tệp đã được cách ly.");
@@ -752,13 +754,13 @@ export class LearningService {
       const row = await prisma.materialVersion.findUnique({ where: { materialId_version: { materialId, version } }, include: { material: { include: { class: { include: { enrollments: true, instructors: true } } } } } });
       if (!row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
       this.assertMaterialClassAccess(row.material.class, role, actorId);
-      if (!row.objectKey.startsWith("files/")) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
+      if (!this.isMaterialObjectKey(row.objectKey)) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
     } else {
       const material = this.materials.find((item) => item.id === materialId);
       const row = this.materialVersions.find((item) => item.materialId === materialId && item.version === version);
       if (!material || !row || role === "LEARNER" && row.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
       this.assertMemoryMaterialClassAccess(material.classId, role, actorId);
-      if (!row.objectKey?.startsWith("files/")) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
+      if (!row.objectKey || !this.isMaterialObjectKey(row.objectKey)) throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
     }
     const expires = Math.floor(Date.now() / 1000) + 300;
     const signature = this.signMaterialAccess(`${materialId}:${version}`, expires, action);
@@ -781,8 +783,8 @@ export class LearningService {
       this.assertMemoryMaterialClassAccess(material.classId, role, actorId);
       fileName = row.name; mimeType = row.mimeType; objectKey = row.objectKey; checksum = row.checksum;
     }
-    if (!objectKey?.startsWith("files/")) throw new NotFoundException("Tệp phiên bản không tồn tại trong kho bytes.");
-    const buffer = await readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp phiên bản không còn tồn tại trên ổ đĩa."); });
+    if (!objectKey || !this.isMaterialObjectKey(objectKey)) throw new NotFoundException("Tệp phiên bản không tồn tại trong kho bytes.");
+    const buffer = await this.readStoredFile(objectKey);
     if (checksum && `sha256:${createHash("sha256").update(buffer).digest("hex")}` !== checksum) throw new BadRequestException("Checksum phiên bản học liệu không hợp lệ.");
     if (prisma) await prisma.materialAccessLog.create({ data: { id: id("material-access"), materialId, userId: actorId, action: `${action}_V${version}` } });
     else this.materialAccessLogs.unshift({ materialId, userId: actorId, action, createdAt: now() });
@@ -2451,12 +2453,12 @@ export class LearningService {
       const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
       if (!ticket || !canManage && ticket.reporterId !== uploaderId) throw new NotFoundException("Không tìm thấy ticket được phép đính kèm.");
       if (["RESOLVED", "CLOSED"].includes(ticket.status)) throw new BadRequestException("Ticket đã hoàn tất, không thể thêm bằng chứng.");
-      await this.writeStoredFile(objectKey, upload.buffer);
+      const stored = await this.writeStoredFile(objectKey, upload.buffer);
       try {
-        const row = await prisma.supportAttachment.create({ data: { id: attachmentId, ticketId, uploaderId, name: upload.originalName, objectKey, mimeType: upload.mimeType, sizeBytes: upload.size, checksum } });
+        const row = await prisma.supportAttachment.create({ data: { id: attachmentId, ticketId, uploaderId, name: upload.originalName, objectKey: stored.objectKey, mimeType: upload.mimeType, sizeBytes: upload.size, checksum: stored.checksum } });
         return { id: row.id, ticketId: row.ticketId, name: row.name, mimeType: row.mimeType, sizeBytes: Number(row.sizeBytes), checksum: row.checksum, createdAt: row.createdAt.toISOString() };
       } catch (error) {
-        await this.removeStoredFile(objectKey);
+        await this.removeStoredFile(stored.objectKey);
         throw error;
       }
     }
@@ -2652,21 +2654,20 @@ export class LearningService {
     const exportId = id("report-export");
     const fileName = `bao-cao-van-hanh-${new Date().toISOString().slice(0, 10)}-${exportId.slice(-8)}.csv`;
     const objectKey = `report-exports/${exportId}.csv`;
-    const filePath = this.resolveObjectPath(objectKey);
     const expiresAt = new Date(Date.now() + 24 * 3_600_000);
     const result = ("result" in run ? run.result : {}) as unknown as OperationalReport;
     const csv = this.operationalReportCsv(result);
     if (prisma) await prisma.reportExport.create({ data: { id: exportId, reportRunId, format, fileName, expiresAt, requestedById } });
     try {
-      await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, `\uFEFF${csv}`, { flag: "wx" });
-      const sizeBytes = Buffer.byteLength(`\uFEFF${csv}`);
+      const exportBuffer = Buffer.from(`\uFEFF${csv}`, "utf8");
+      const stored = await this.writeStoredFile(objectKey, exportBuffer);
+      const sizeBytes = exportBuffer.length;
       if (prisma) {
-        const row = await prisma.reportExport.update({ where: { id: exportId }, data: { status: "COMPLETED", filePath, sizeBytes } });
+        const row = await prisma.reportExport.update({ where: { id: exportId }, data: { status: "COMPLETED", filePath: stored.objectKey, sizeBytes } });
         await prisma.auditLog.create({ data: { actorId: requestedById, action: "OPERATIONAL_REPORT_EXPORTED", entityType: "report_export", entityId: exportId, context: { reportRunId, format, sizeBytes, expiresAt: expiresAt.toISOString() } } });
         return this.mapReportExport(row);
       }
-      const item: ReportExport & { filePath: string; requestedById: string } = { id: exportId, reportRunId, format, status: "COMPLETED", fileName, filePath, requestedById, sizeBytes, expiresAt: expiresAt.toISOString(), createdAt: now() };
+      const item: ReportExport & { filePath: string; requestedById: string } = { id: exportId, reportRunId, format, status: "COMPLETED", fileName, filePath: stored.objectKey, requestedById, sizeBytes, expiresAt: expiresAt.toISOString(), createdAt: now() };
       this.reportExports.unshift(item);
       return { ...item, filePath: undefined } as ReportExport;
     } catch (error) {
@@ -2692,13 +2693,13 @@ export class LearningService {
       if (!row) throw new NotFoundException("Không tìm thấy tệp xuất báo cáo.");
       if (row.expiresAt <= new Date()) { await prisma.reportExport.update({ where: { id: exportId }, data: { status: "EXPIRED" } }); throw new BadRequestException("Tệp xuất báo cáo đã hết hạn."); }
       if (row.status !== "COMPLETED" || !row.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
-      return { fileName: row.fileName, mimeType: "text/csv; charset=utf-8", buffer: await readFile(row.filePath) };
+      return { fileName: row.fileName, mimeType: "text/csv; charset=utf-8", buffer: await this.readStoredFile(row.filePath) };
     }
     const item = this.reportExports.find((candidate) => candidate.id === exportId && candidate.requestedById === requestedById);
     if (!item) throw new NotFoundException("Không tìm thấy tệp xuất báo cáo.");
     if (new Date(item.expiresAt) <= new Date()) { item.status = "EXPIRED"; throw new BadRequestException("Tệp xuất báo cáo đã hết hạn."); }
     if (item.status !== "COMPLETED" || !item.filePath) throw new ConflictException("Tệp xuất báo cáo chưa sẵn sàng.");
-    return { fileName: item.fileName, mimeType: "text/csv; charset=utf-8", buffer: await readFile(item.filePath) };
+    return { fileName: item.fileName, mimeType: "text/csv; charset=utf-8", buffer: await this.readStoredFile(item.filePath) };
   }
 
   async getOperationalReport(fromInput?: string, toInput?: string): Promise<OperationalReport> {
@@ -3376,6 +3377,7 @@ export class LearningService {
     if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp tải lên không khớp nội dung nhận được.");
     const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "").slice(0, 12);
     const objectKey = `${quarantined ? "quarantine" : "files"}/${classId}/${materialId}${safeExtension}`;
+    if (this.objectStorage) return this.objectStorage.put(objectKey, upload.buffer);
     const target = this.resolveObjectPath(objectKey);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, upload.buffer, { flag: "wx" }).catch((error: unknown) => {
@@ -3385,16 +3387,19 @@ export class LearningService {
     return { objectKey, checksum: `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}` };
   }
 
-  private async writeStoredFile(objectKey: string, buffer: Buffer): Promise<void> {
+  private async writeStoredFile(objectKey: string, buffer: Buffer): Promise<StoredObject> {
+    if (this.objectStorage) return this.objectStorage.put(objectKey, buffer);
     const target = this.resolveObjectPath(objectKey);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, buffer, { flag: "wx" }).catch((error: unknown) => {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") throw new ConflictException("Tệp bằng chứng đã tồn tại trong kho lưu trữ.");
       throw error;
     });
+    return { objectKey, checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}` };
   }
 
   private async removeStoredFile(objectKey: string): Promise<void> {
+    if (this.objectStorage) { await this.objectStorage.remove(objectKey); return; }
     await unlink(this.resolveObjectPath(objectKey)).catch((error: unknown) => {
       if (!(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error;
     });
@@ -3438,6 +3443,15 @@ export class LearningService {
     if (role === "CENTER_MANAGER") return "usr-manager";
     if (role === "INSTRUCTOR") return "usr-instructor";
     return "usr-learner";
+  }
+
+  private readStoredFile(objectKey: string): Promise<Buffer> {
+    if (this.objectStorage) return this.objectStorage.get(objectKey);
+    return readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
+  }
+
+  private isMaterialObjectKey(objectKey: string): boolean {
+    return objectKey.startsWith("files/") || objectKey.startsWith("cloudinary:");
   }
 
   private canManageSupport(role: string): boolean {

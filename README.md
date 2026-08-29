@@ -30,7 +30,9 @@ docs/         Kiến trúc và hướng dẫn phát triển
 ## Thiết lập lần đầu
 
 1. Mở file `.env` ở thư mục gốc và cấu hình `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` theo MySQL cục bộ.
-2. Tạo database riêng cho dự án bằng MySQL Workbench hoặc MySQL Shell:
+2. Cấu hình Resend bằng đúng hai biến `RESEND_API_KEY` và `RESEND_FROM`. Production phải dùng domain đã xác minh, ví dụ `RESEND_FROM=WIND OF FALL <noreply@windoffall3k32k9.online>`.
+3. Cấu hình Cloudinary: đặt `STORAGE_PROVIDER=cloudinary`, sau đó điền `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. `CLOUDINARY_FOLDER=wind-edu` là thư mục gốc; tệp được upload dạng `authenticated` và chỉ được backend tải sau khi kiểm tra quyền.
+4. Tạo database riêng cho dự án bằng MySQL Workbench hoặc MySQL Shell:
 
 ```sql
 CREATE DATABASE trung_tam_giang_day
@@ -38,16 +40,16 @@ CREATE DATABASE trung_tam_giang_day
   COLLATE utf8mb4_unicode_ci;
 ```
 
-3. Cài dependency và sinh Prisma Client:
+5. Cài dependency và sinh Prisma Client:
 
 ```powershell
 pnpm install
 pnpm db:generate
 ```
 
-4. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
+6. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
 
-5. Chỉ sau khi đã kiểm tra đúng bộ biến `DB_*`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
+7. Chỉ sau khi đã kiểm tra đúng bộ biến `DB_*`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
 
 ```powershell
 pnpm db:doctor

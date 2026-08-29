@@ -364,7 +364,7 @@ export default function OperationsPage() {
           body: JSON.stringify({ recipient: session.user.email, variables }),
         },
       );
-      notify(`Gửi thử ${result.status.toLowerCase()}: ${result.subject}`);
+      notify(`Resend đã nhận email thử: ${result.subject}`);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không gửi thử được mẫu.",
