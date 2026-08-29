@@ -3,6 +3,7 @@ packages:
   - packages/*
 
 overrides:
+  deepmerge-ts: 8.0.2
   mariadb: 3.5.3
 
 allowBuilds:

@@ -38,6 +38,7 @@ describe("validateEnvironment", () => {
       DB_NAME: "trung_tam_giang_day",
       STORAGE_PROVIDER: "cloudinary",
       STORAGE_SIGNING_SECRET: "production-signing-secret-at-least-32-characters",
+      AUTH_ENCRYPTION_SECRET: "production-auth-encryption-secret-at-least-32-characters",
     };
     expect(() => validateEnvironment(base)).toThrow("CLOUDINARY_CLOUD_NAME");
     expect(() => validateEnvironment({

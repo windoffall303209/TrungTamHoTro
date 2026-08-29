@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, R
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { ChangePasswordDto, LoginDto, RegisterDto, UpdateProfileDto } from "./auth.dto.js";
+import { ChangePasswordDto, DisableMfaDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResetPasswordDto, UpdateProfileDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -14,8 +14,9 @@ export class SessionController {
   @ApiOperation({ summary: "Đăng nhập bằng email và mật khẩu" })
   async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
     const result = await this.auth.login(input.email, input.password, input.rememberMe, this.context(request));
+    if ("requiresMfa" in result) return result;
     this.setSessionCookie(response, result.token, result.maxAgeMs);
-    return result.session;
+    return { ...result.session, csrfToken: result.csrfToken };
   }
 
   @Post("register")
@@ -23,13 +24,46 @@ export class SessionController {
   async register(@Body() input: RegisterDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
     const result = await this.auth.register(input.displayName, input.email, input.password, this.context(request));
     this.setSessionCookie(response, result.token, result.maxAgeMs);
-    return result.session;
+    return { ...result.session, csrfToken: result.csrfToken, verificationEmailSent: result.verificationEmailSent };
+  }
+
+  @Post("mfa/verify")
+  @HttpCode(200)
+  async verifyMfa(@Body() input: MfaLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.completeMfaLogin(input.challengeToken, input.code, input.rememberMe, this.context(request));
+    this.setSessionCookie(response, result.token, result.maxAgeMs);
+    return { ...result.session, csrfToken: result.csrfToken };
+  }
+
+  @Post("mfa/recovery")
+  @HttpCode(200)
+  async recoverMfa(@Body() input: RecoveryMfaLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.completeMfaLogin(input.challengeToken, "000000", input.rememberMe, this.context(request), input.recoveryCode);
+    this.setSessionCookie(response, result.token, result.maxAgeMs);
+    return { ...result.session, csrfToken: result.csrfToken };
+  }
+
+  @Post("forgot-password")
+  @HttpCode(202)
+  requestPasswordReset(@Body() input: ForgotPasswordDto): Promise<{ accepted: true }> {
+    return this.auth.requestPasswordReset(input.email);
+  }
+
+  @Post("reset-password")
+  resetPassword(@Body() input: ResetPasswordDto): Promise<{ reset: true }> {
+    return this.auth.resetPassword(input.token, input.newPassword);
+  }
+
+  @Post("verify-email")
+  verifyEmail(@Body() input: VerifyEmailDto): Promise<{ verified: true }> {
+    return this.auth.verifyEmail(input.token);
   }
 
   @Get("session")
   @ApiOperation({ summary: "Lấy phiên đăng nhập hiện tại" })
-  getSession(@Headers("cookie") cookies?: string, @Headers("x-role-code") roleCode?: string): Promise<object> {
-    return this.auth.resolve(this.auth.readToken(cookies), roleCode);
+  async getSession(@Headers("cookie") cookies?: string, @Headers("x-role-code") roleCode?: string): Promise<object> {
+    const session = await this.auth.resolve(this.auth.readToken(cookies), roleCode);
+    return { ...session, csrfToken: await this.auth.issueCsrf(session.sessionId) };
   }
 
   @Post("logout")
@@ -95,6 +129,29 @@ export class AccountController {
   async revokeOthers(@Headers("cookie") cookies?: string): Promise<object> {
     const session = await this.session(cookies);
     return this.auth.revokeOtherSessions(session.user.id, session.sessionId);
+  }
+
+  @Post("verification-email")
+  resendVerification(@Headers("cookie") cookies?: string): Promise<{ sent: boolean }> {
+    return this.session(cookies).then((session) => this.auth.resendVerification(session.user.id));
+  }
+
+  @Post("mfa/setup")
+  async setupMfa(@Headers("cookie") cookies?: string): Promise<{ secret: string; otpauthUri: string }> {
+    const session = await this.session(cookies);
+    return this.auth.startMfaSetup(session.user.id);
+  }
+
+  @Post("mfa/confirm")
+  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ recoveryCodes: string[] }> {
+    const session = await this.session(cookies);
+    return this.auth.confirmMfa(session.user.id, input.code);
+  }
+
+  @Delete("mfa")
+  async disableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaDto): Promise<{ disabled: true }> {
+    const session = await this.session(cookies);
+    return this.auth.disableMfa(session.user.id, input.password, input.code);
   }
 
   private session(cookies?: string): Promise<AuthenticatedSession> { return this.auth.resolve(this.auth.readToken(cookies)); }

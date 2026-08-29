@@ -26,6 +26,8 @@ const environmentSchema = z.object({
   CLOUDINARY_FOLDER: z.string().trim().regex(/^[a-zA-Z0-9/_-]+$/).default("wind-edu"),
   RESEND_API_KEY: z.string().trim().default(""),
   RESEND_FROM: z.string().trim().default(""),
+  AUTH_ENCRYPTION_SECRET: z.string().min(32).default("development-auth-encryption-key-change-me"),
+  MFA_ISSUER: z.string().trim().min(2).max(80).default("Wind EDU"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -57,6 +59,7 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
     if (!environment.RESEND_API_KEY) missing.push("RESEND_API_KEY");
     if (!environment.RESEND_FROM) missing.push("RESEND_FROM");
     if (environment.STORAGE_SIGNING_SECRET === "development-storage-signing-key-change-me") missing.push("STORAGE_SIGNING_SECRET");
+    if (environment.AUTH_ENCRYPTION_SECRET === "development-auth-encryption-key-change-me") missing.push("AUTH_ENCRYPTION_SECRET");
     if (missing.length) throw new Error(`Thiếu cấu hình production bắt buộc: ${missing.join(", ")}`);
     if (/@resend\.dev[>\s]*$/i.test(environment.RESEND_FROM)) {
       throw new Error("RESEND_FROM production phải dùng domain đã xác minh, không dùng resend.dev.");

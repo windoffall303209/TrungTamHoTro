@@ -22,6 +22,7 @@ export interface SessionData {
   roleCode: RoleCode;
   permissions: PermissionCode[];
   availableRoles: Array<{ code: RoleCode; name: string }>;
+  csrfToken?: string;
 }
 
 export interface AccountProfile {
@@ -32,6 +33,8 @@ export interface AccountProfile {
   timezone: string;
   locale: string;
   status: "ACTIVE" | "INACTIVE" | "LOCKED";
+  emailVerifiedAt: string | null;
+  mfaEnabled: boolean;
   createdAt: string;
 }
 
