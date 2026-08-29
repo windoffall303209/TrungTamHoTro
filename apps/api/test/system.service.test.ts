@@ -4,12 +4,11 @@ import type { EmailDeliveryService } from "../src/infrastructure/email-delivery.
 import { SystemService } from "../src/system/system.service.js";
 
 describe("SystemService", () => {
-  it("tạo backup có checksum và chỉ phục hồi khi có người phê duyệt", async () => {
+  it("không giả lập backup khi hạ tầng thật chưa hoạt động", async () => {
     const service = new SystemService();
-    const backup = await service.runBackup("FULL");
-    expect(backup.checksum).toMatch(/^sha256:/);
-    await expect(service.restoreBackup(backup.id, "")).rejects.toThrow(BadRequestException);
-    expect((await service.restoreBackup(backup.id, "Wind Of Fall")).verification).toContain("hợp lệ");
+    await expect(service.runBackup("FULL")).rejects.toThrow("yêu cầu kết nối database");
+    await expect(service.runBackup("INCREMENTAL")).rejects.toThrow("binary log");
+    await expect(service.restoreBackup("backup-unknown", "")).rejects.toThrow(BadRequestException);
   });
 
   it("chặn mã script trong mẫu thông báo", async () => {

@@ -1084,6 +1084,8 @@ model BackupJob {
   status      JobStatus    @default(PENDING)
   checksum    String?      @db.VarChar(128)
   sizeBytes   BigInt?      @map("size_bytes")
+  objectKey   String?      @map("object_key") @db.VarChar(500)
+  errorMessage String?     @map("error_message") @db.VarChar(500)
   createdAt   DateTime     @default(now()) @map("created_at")
   completedAt DateTime?    @map("completed_at")
   restores    RestoreJob[]
