@@ -31,8 +31,9 @@ docs/         Kiến trúc và hướng dẫn phát triển
 
 1. Mở file `.env` ở thư mục gốc và cấu hình `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` theo MySQL cục bộ.
 2. Cấu hình Resend bằng đúng hai biến `RESEND_API_KEY` và `RESEND_FROM`. Production phải dùng domain đã xác minh, ví dụ `RESEND_FROM=WIND OF FALL <noreply@windoffall3k32k9.online>`.
-3. Cấu hình Cloudinary: đặt `STORAGE_PROVIDER=cloudinary`, sau đó điền `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. `CLOUDINARY_FOLDER=wind-edu` là thư mục gốc; tệp được upload dạng `authenticated` và chỉ được backend tải sau khi kiểm tra quyền.
-4. Tạo database riêng cho dự án bằng MySQL Workbench hoặc MySQL Shell:
+3. Cấu hình Google OAuth bằng `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` và `GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback`. Trong Google Cloud Console, thêm chính xác URL callback này vào **Authorized redirect URIs** và thêm `http://localhost:3000` vào **Authorized JavaScript origins**.
+4. Cấu hình Cloudinary: đặt `STORAGE_PROVIDER=cloudinary`, sau đó điền `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. `CLOUDINARY_FOLDER=wind-edu` là thư mục gốc; tệp được upload dạng `authenticated` và chỉ được backend tải sau khi kiểm tra quyền.
+5. Tạo database riêng cho dự án bằng MySQL Workbench hoặc MySQL Shell:
 
 ```sql
 CREATE DATABASE trung_tam_giang_day
@@ -40,16 +41,16 @@ CREATE DATABASE trung_tam_giang_day
   COLLATE utf8mb4_unicode_ci;
 ```
 
-5. Cài dependency và sinh Prisma Client:
+6. Cài dependency và sinh Prisma Client:
 
 ```powershell
 pnpm install
 pnpm db:generate
 ```
 
-6. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
+7. Đặt `SEED_DEFAULT_PASSWORD` bằng mật khẩu khởi tạo dài ít nhất 12 ký tự. Biến này chỉ dùng để tạo tài khoản mẫu và không được commit.
 
-7. Chỉ sau khi đã kiểm tra đúng bộ biến `DB_*`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
+8. Chỉ sau khi đã kiểm tra đúng bộ biến `DB_*`, triển khai migration đã được kiểm thử và nạp dữ liệu nền:
 
 ```powershell
 pnpm db:doctor
@@ -72,11 +73,13 @@ pnpm dev
 ## Tài khoản và xác minh
 
 - Người dùng đăng nhập bằng trường `Tài khoản` (`username`). Migration `20260830160000_legacy_username_email_and_pending_email_change` đặt username của toàn bộ tài khoản đã tồn tại bằng email chuẩn hóa; tài khoản đăng ký mới vẫn chọn username riêng.
+- Nút `Tiếp tục với Google` dùng Authorization Code + PKCE. Email do Google xác nhận được coi là đã xác minh; tài khoản Google mới có `username=email`, trạng thái `ACTIVE` và chưa có mật khẩu. Nếu email đã thuộc tài khoản nội bộ đang hoạt động hoặc chờ xác minh, hệ thống liên kết an toàn theo email và giữ nguyên các vai trò đã cấp.
 - Đăng ký học viên tạo tài khoản ở trạng thái `PENDING_VERIFICATION`. Hệ thống gửi đồng thời mã 6 số và liên kết dùng một lần qua Resend; chỉ sau khi xác minh, trạng thái mới chuyển sang `ACTIVE`.
 - Khi email đang chờ xác minh bị nhập sai, người dùng có thể đổi ngay trên trang nhập mã sau khi xác nhận mật khẩu hiện tại. Mã/link cũ bị thu hồi và một bộ xác minh mới được gửi tới email mới; tài khoản cũ có username=email tiếp tục được đồng bộ theo email mới.
 - Trang xác minh kiểm tra trạng thái mỗi 3 giây và đồng bộ giữa hai tab bằng `BroadcastChannel` cùng sự kiện `storage`. Vì vậy, mở liên kết trong tab mới sẽ tự hoàn tất trang đang chờ.
 - Xác thực hai bước dùng TOTP tương thích Google Authenticator, Microsoft Authenticator, 1Password, Authy và Bitwarden. Giao diện cung cấp QR, khóa nhập tay và mã khôi phục một lần.
-- Tắt xác thực hai bước bắt buộc hai bước độc lập: xác nhận mật khẩu, sau đó nhập TOTP trong phiên thử thách có hạn 5 phút.
+- Với tài khoản liên kết Google, đặt/đổi mật khẩu, bắt đầu bật 2FA và bắt đầu tắt 2FA dùng mã 6 số gửi qua email thay cho mật khẩu hiện tại. Mã có hạn 10 phút, chỉ dùng một lần, bị khóa sau 5 lần sai và không thể dùng chéo mục đích.
+- Tắt xác thực hai bước bắt buộc hai bước độc lập: tài khoản cục bộ xác nhận mật khẩu, tài khoản Google xác nhận OTP email; sau đó cả hai đều phải nhập TOTP trong phiên thử thách có hạn 5 phút.
 - Tài khoản seed đăng nhập bằng `admin@wind.edu.vn`, `manager@wind.edu.vn`, `instructor@wind.edu.vn`, `learner@wind.edu.vn`; mật khẩu lấy từ `SEED_DEFAULT_PASSWORD`.
 
 Mặc định `DATABASE_CONNECT_ON_START=false`, vì vậy API có thể khởi động trước khi điền mật khẩu. Chuyển thành `true` sau khi `db:deploy` và `db:seed` thành công.

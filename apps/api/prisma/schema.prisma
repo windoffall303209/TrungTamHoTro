@@ -148,6 +148,9 @@ enum AccountTokenType {
   PASSWORD_RESET
   MFA_LOGIN
   MFA_DISABLE
+  PASSWORD_CHANGE_OTP
+  MFA_SETUP_OTP
+  MFA_DISABLE_OTP
 }
 
 enum AssignmentStatus {
@@ -165,7 +168,8 @@ model User {
   id                       String              @id @default(cuid())
   username                 String              @unique @db.VarChar(191)
   email                    String              @unique @db.VarChar(191)
-  passwordHash             String              @map("password_hash") @db.VarChar(255)
+  passwordHash             String?             @map("password_hash") @db.VarChar(255)
+  googleSubject            String?             @unique @map("google_subject") @db.VarChar(255)
   displayName              String              @map("display_name") @db.VarChar(150)
   phone                    String?             @db.VarChar(30)
   timezone                 String              @default("Asia/Bangkok") @db.VarChar(80)

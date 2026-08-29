@@ -4,14 +4,18 @@ import { ArrowLeft, ArrowRight, BookOpenCheck, Check, Eye, EyeOff, GraduationCap
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
 const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 text-sm text-[#102a43] outline-none transition placeholder:text-[#80909b] focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15";
 
+function GoogleMark() {
+  return <svg aria-hidden="true" height="18" viewBox="0 0 18 18" width="18"><path d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.715v2.259h2.909c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4" /><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.909-2.259c-.806.54-1.835.859-3.047.859-2.344 0-4.328-1.585-5.036-3.714H.956v2.332A9 9 0 0 0 9 18Z" fill="#34A853" /><path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.167.282-1.706V4.962H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.038l3.008-2.332Z" fill="#FBBC05" /><path d="M9 3.58c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.463.892 11.426 0 9 0A9 9 0 0 0 .956 4.962l3.008 2.332C4.672 5.165 6.656 3.58 9 3.58Z" fill="#EA4335" /></svg>;
+}
+
 export function AuthScreen({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
-  const { authenticated, authLoading, completeMfa, login, register } = useApp();
+  const { authenticated, authLoading, completeGoogleMfa, completeMfa, login, register } = useApp();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,10 +29,28 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
   const [mfaValue, setMfaValue] = useState("");
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [pendingEmailConflict, setPendingEmailConflict] = useState(false);
+  const [googleMfa, setGoogleMfa] = useState(false);
 
   useEffect(() => {
     if (!authLoading && authenticated) router.replace("/dashboard");
   }, [authenticated, authLoading, router]);
+  useEffect(() => {
+    if (mode !== "login") return;
+    const params = new URLSearchParams(window.location.search);
+    const googleError = params.get("googleError");
+    const messages: Record<string, string> = {
+      cancelled: "Bạn đã hủy đăng nhập Google.",
+      invalid_callback: "Google trả về yêu cầu đăng nhập không hợp lệ. Hãy thử lại.",
+      account_conflict: "Email Google đang liên kết với một tài khoản khác. Hãy liên hệ quản trị viên.",
+      account_blocked: "Tài khoản liên kết với Google đang bị khóa hoặc chưa được kích hoạt.",
+      expired: "Phiên đăng nhập Google đã hết hạn. Hãy thử lại.",
+      provider_failed: "Không thể kết nối Google lúc này. Hãy thử lại sau.",
+    };
+    window.queueMicrotask(() => {
+      if (googleError) setError(messages[googleError] ?? messages.provider_failed!);
+      if (params.get("googleMfa") === "1") { setGoogleMfa(true); setChallengeToken("google-cookie"); }
+    });
+  }, [mode]);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -38,7 +60,8 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
     setSubmitting(true);
     try {
       if (challengeToken) {
-        await completeMfa(challengeToken, mfaValue, rememberMe, useRecoveryCode);
+        if (googleMfa) await completeGoogleMfa(mfaValue, useRecoveryCode);
+        else await completeMfa(challengeToken, mfaValue, rememberMe, useRecoveryCode);
       } else if (mode === "login") {
         const result = await login({ username, password, rememberMe });
         if (result.requiresMfa && result.challengeToken) { setChallengeToken(result.challengeToken); return; }
@@ -89,7 +112,8 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
           </>}
           {error ? <div className="border-y border-[#a84343]/35 bg-[#f4dddd]/45 px-4 py-3 text-sm font-semibold leading-6 text-[#873737]" role="alert"><p>{error}</p>{pendingEmailConflict ? <div className="mt-3 flex flex-wrap gap-3"><Link className="rounded-lg bg-[#102a43] px-3 py-2 text-xs font-bold text-white" href="/login">Tiếp tục xác minh tài khoản hiện có</Link><button className="rounded-lg border border-[#a84343]/35 px-3 py-2 text-xs font-bold" onClick={() => { setEmail(""); setError(""); setPendingEmailConflict(false); }} type="button">Dùng email khác</button></div> : null}</div> : null}
           <button className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#102a43] px-5 text-sm font-bold text-white transition hover:bg-[#21384e] disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting} type="submit">{submitting ? <><LoaderCircle className="animate-spin" size={18} />Đang xử lý…</> : <>{challengeToken ? "Xác nhận" : registering ? "Tạo tài khoản" : "Đăng nhập"}<ArrowRight size={17} /></>}</button>
-          {challengeToken ? <button className="mx-auto flex items-center gap-2 text-sm font-bold text-[#516274]" onClick={() => { setChallengeToken(""); setMfaValue(""); }} type="button"><ArrowLeft size={15} />Quay lại đăng nhập</button> : null}
+          {!challengeToken ? <><div className="flex items-center gap-4" aria-hidden="true"><span className="h-px flex-1 bg-[#d5dfe2]" /><span className="text-xs font-semibold text-[#657789]">hoặc</span><span className="h-px flex-1 bg-[#d5dfe2]" /></div><a className="flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-5 text-sm font-bold text-[#102a43] transition hover:border-[#728894] hover:bg-[#f7f4ed] focus:outline-none focus:ring-3 focus:ring-[#c75b39]/20" href={publicApiUrl(`/auth/google/start?rememberMe=${rememberMe ? "true" : "false"}`)}><GoogleMark />Tiếp tục với Google</a><p className="text-center text-xs leading-5 text-[#657789]">Google xác nhận email tự động; tài khoản mới không cần tạo mật khẩu.</p></> : null}
+          {challengeToken ? <button className="mx-auto flex items-center gap-2 text-sm font-bold text-[#516274]" onClick={() => { setChallengeToken(""); setGoogleMfa(false); setMfaValue(""); }} type="button"><ArrowLeft size={15} />Quay lại đăng nhập</button> : null}
         </form>
         {!challengeToken ? <><p className="mt-7 text-center text-sm text-[#516274]">{registering ? "Đã có tài khoản?" : "Bạn là học viên mới?"} <Link className="text-link ml-1" href={registering ? "/login" : "/register"}>{registering ? "Đăng nhập" : "Tạo tài khoản"}</Link></p>{!registering ? <p className="mt-4 text-center text-xs leading-5 text-[#657789]">Tài khoản quản trị, quản lý trung tâm và giảng viên do quản trị viên cấp.</p> : null}</> : null}
       </div>
