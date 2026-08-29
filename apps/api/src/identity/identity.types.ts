@@ -1,9 +1,10 @@
 import type { PermissionCode, RoleCode } from "../auth/permissions.js";
 
-export type AccountStatus = "ACTIVE" | "INACTIVE" | "LOCKED";
+export type AccountStatus = "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
 
 export interface IdentityUser {
   id: string;
+  username: string;
   displayName: string;
   email: string;
   roleCode: RoleCode;

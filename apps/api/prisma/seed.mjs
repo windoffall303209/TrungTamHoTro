@@ -34,13 +34,13 @@ async function seed() {
     await prisma.rolePermission.createMany({ data: permissionRows.map(({ id }) => ({ roleId: role.id, permissionId: id })) });
   }
   const users = [
-    { id: "usr-admin", email: "admin@wind.edu.vn", displayName: "Wind Of Fall", role: "SYSTEM_ADMIN" },
-    { id: "usr-manager", email: "manager@wind.edu.vn", displayName: "Nguyễn Minh Anh", role: "CENTER_MANAGER" },
-    { id: "usr-instructor", email: "instructor@wind.edu.vn", displayName: "Trần Thu Hà", role: "INSTRUCTOR" },
-    { id: "usr-learner", email: "learner@wind.edu.vn", displayName: "Lê Hoàng Nam", role: "LEARNER" },
+    { id: "usr-admin", username: "admin", email: "admin@wind.edu.vn", displayName: "Wind Of Fall", role: "SYSTEM_ADMIN" },
+    { id: "usr-manager", username: "manager", email: "manager@wind.edu.vn", displayName: "Nguyễn Minh Anh", role: "CENTER_MANAGER" },
+    { id: "usr-instructor", username: "instructor", email: "instructor@wind.edu.vn", displayName: "Trần Thu Hà", role: "INSTRUCTOR" },
+    { id: "usr-learner", username: "learner", email: "learner@wind.edu.vn", displayName: "Lê Hoàng Nam", role: "LEARNER" },
   ];
   for (const input of users) {
-    const user = await prisma.user.upsert({ where: { email: input.email }, update: { displayName: input.displayName, status: "ACTIVE", passwordHash }, create: { id: input.id, email: input.email, displayName: input.displayName, passwordHash } });
+    const user = await prisma.user.upsert({ where: { email: input.email }, update: { username: input.username, displayName: input.displayName, status: "ACTIVE", emailVerifiedAt: new Date(), passwordHash }, create: { id: input.id, username: input.username, email: input.email, displayName: input.displayName, emailVerifiedAt: new Date(), passwordHash } });
     const role = await prisma.role.findUniqueOrThrow({ where: { code: input.role } });
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   }

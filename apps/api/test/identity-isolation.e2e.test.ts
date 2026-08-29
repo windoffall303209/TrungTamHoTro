@@ -40,6 +40,14 @@ const userIds = [ids.admin, ids.manager, ids.instructorA, ids.instructorB, ids.l
 const classIds = [ids.classA, ids.classB];
 const courseIds = [ids.courseA, ids.courseB];
 const ticketIds = [ids.ticketA, ids.ticketB];
+const usernames = {
+  admin: `adm-${fixtureSuffix}`,
+  manager: `mgr-${fixtureSuffix}`,
+  instructorA: `ina-${fixtureSuffix}`,
+  instructorB: `inb-${fixtureSuffix}`,
+  learnerA: `lra-${fixtureSuffix}`,
+  learnerB: `lrb-${fixtureSuffix}`,
+};
 
 interface ApiEnvelope<T> { data: T }
 interface ApiError { error: { code: string; message: string } }
@@ -68,7 +76,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     await createFixture(prisma);
 
     for (const account of ["admin", "manager", "instructorA", "instructorB", "learnerA", "learnerB"] as const) {
-      const session = await login(`${account.toLowerCase()}-${fixtureSuffix}@e2e.wind.local`);
+      const session = await login(usernames[account]);
       cookies.set(account, session.cookie);
       csrfTokens.set(session.cookie, session.csrfToken);
     }
@@ -153,11 +161,11 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     expect(adminTickets).toEqual(expect.arrayContaining(ticketIds));
   });
 
-  async function login(email: string): Promise<{ cookie: string; csrfToken: string }> {
+  async function login(username: string): Promise<{ cookie: string; csrfToken: string }> {
     const response = await fetch(`${baseUrl}/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password, rememberMe: false }),
+      body: JSON.stringify({ username, password, rememberMe: false }),
     });
     expect(response.status).toBe(200);
     const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
@@ -213,20 +221,22 @@ async function createFixture(prisma: PrismaService): Promise<void> {
 
   const passwordHash = await hashPassword(password);
   const accounts = [
-    { id: ids.admin, email: `admin-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Admin", roleCode: "SYSTEM_ADMIN" },
-    { id: ids.manager, email: `manager-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Manager", roleCode: "CENTER_MANAGER" },
-    { id: ids.instructorA, email: `instructora-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Instructor A", roleCode: "INSTRUCTOR" },
-    { id: ids.instructorB, email: `instructorb-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Instructor B", roleCode: "INSTRUCTOR" },
-    { id: ids.learnerA, email: `learnera-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Learner A", roleCode: "LEARNER" },
-    { id: ids.learnerB, email: `learnerb-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Learner B", roleCode: "LEARNER" },
+    { id: ids.admin, username: usernames.admin, email: `admin-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Admin", roleCode: "SYSTEM_ADMIN" },
+    { id: ids.manager, username: usernames.manager, email: `manager-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Manager", roleCode: "CENTER_MANAGER" },
+    { id: ids.instructorA, username: usernames.instructorA, email: `instructora-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Instructor A", roleCode: "INSTRUCTOR" },
+    { id: ids.instructorB, username: usernames.instructorB, email: `instructorb-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Instructor B", roleCode: "INSTRUCTOR" },
+    { id: ids.learnerA, username: usernames.learnerA, email: `learnera-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Learner A", roleCode: "LEARNER" },
+    { id: ids.learnerB, username: usernames.learnerB, email: `learnerb-${fixtureSuffix}@e2e.wind.local`, displayName: "E2E Learner B", roleCode: "LEARNER" },
   ];
 
   await prisma.$transaction(accounts.map((account) => prisma.user.create({
     data: {
       id: account.id,
+      username: account.username,
       email: account.email,
       displayName: account.displayName,
       passwordHash,
+      emailVerifiedAt: new Date(),
       roles: { create: { roleId: roles.get(account.roleCode) as string } },
     },
   })));

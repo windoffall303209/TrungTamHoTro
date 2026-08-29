@@ -6,8 +6,8 @@ import { PrismaService } from "../src/database/prisma.service.js";
 import { AcademicService } from "../src/learning/academic.service.js";
 
 const suffix = `${process.pid}-${Date.now().toString(36)}`;
-const instructor: AuthenticatedSession = { sessionId: "test-instructor", user: { id: "usr-instructor", name: "Trần Giảng Viên", email: "instructor@wind.edu.vn", roleName: "Giảng viên" }, roleCode: "INSTRUCTOR", permissions: ["exam:manage", "report:view"], availableRoles: [{ code: "INSTRUCTOR", name: "Giảng viên" }] };
-const learner: AuthenticatedSession = { sessionId: "test-learner", user: { id: "usr-learner", name: "Lê Học Viên", email: "learner@wind.edu.vn", roleName: "Học viên" }, roleCode: "LEARNER", permissions: ["exam:view"], availableRoles: [{ code: "LEARNER", name: "Học viên" }] };
+const instructor: AuthenticatedSession = { sessionId: "test-instructor", user: { id: "usr-instructor", username: "instructor", name: "Trần Giảng Viên", email: "instructor@wind.edu.vn", roleName: "Giảng viên" }, roleCode: "INSTRUCTOR", permissions: ["exam:manage", "report:view"], availableRoles: [{ code: "INSTRUCTOR", name: "Giảng viên" }] };
+const learner: AuthenticatedSession = { sessionId: "test-learner", user: { id: "usr-learner", username: "learner", name: "Lê Học Viên", email: "learner@wind.edu.vn", roleName: "Học viên" }, roleCode: "LEARNER", permissions: ["exam:view"], availableRoles: [{ code: "LEARNER", name: "Học viên" }] };
 
 describe("AcademicService", () => {
   let service: AcademicService;

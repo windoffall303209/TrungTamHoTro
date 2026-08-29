@@ -19,10 +19,10 @@ type RoleWithPermissions = Prisma.RoleGetPayload<{
 @Injectable()
 export class IdentityService {
   private readonly users: IdentityUser[] = [
-    { id: "usr-admin", displayName: "Wind Of Fall", email: "admin@wind.edu.vn", roleCode: "SYSTEM_ADMIN", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-manager", displayName: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleCode: "CENTER_MANAGER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-instructor", displayName: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleCode: "INSTRUCTOR", status: "ACTIVE", createdAt: now(), updatedAt: now() },
-    { id: "usr-learner", displayName: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleCode: "LEARNER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-admin", username: "admin", displayName: "Wind Of Fall", email: "admin@wind.edu.vn", roleCode: "SYSTEM_ADMIN", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-manager", username: "manager", displayName: "Nguyễn Minh Anh", email: "manager@wind.edu.vn", roleCode: "CENTER_MANAGER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-instructor", username: "instructor", displayName: "Trần Thu Hà", email: "instructor@wind.edu.vn", roleCode: "INSTRUCTOR", status: "ACTIVE", createdAt: now(), updatedAt: now() },
+    { id: "usr-learner", username: "learner", displayName: "Lê Hoàng Nam", email: "learner@wind.edu.vn", roleCode: "LEARNER", status: "ACTIVE", createdAt: now(), updatedAt: now() },
   ];
 
   private readonly roles: IdentityRole[] = [
@@ -42,7 +42,7 @@ export class IdentityService {
     if (prisma) {
       const rows = await prisma.user.findMany({
         where: normalized
-          ? { OR: [{ displayName: { contains: normalized } }, { email: { contains: normalized } }] }
+          ? { OR: [{ username: { contains: normalized } }, { displayName: { contains: normalized } }, { email: { contains: normalized } }] }
           : undefined,
         include: { roles: { include: { role: true }, take: 1 } },
         orderBy: { createdAt: "desc" },
@@ -52,12 +52,13 @@ export class IdentityService {
 
     const memoryQuery = normalized.toLocaleLowerCase("vi");
     return this.users
-      .filter((user) => !memoryQuery || `${user.displayName} ${user.email}`.toLocaleLowerCase("vi").includes(memoryQuery))
+      .filter((user) => !memoryQuery || `${user.username} ${user.displayName} ${user.email}`.toLocaleLowerCase("vi").includes(memoryQuery))
       .map((user) => ({ ...user }));
   }
 
   async createUser(input: CreateUserDto, actorId = "usr-admin"): Promise<IdentityUser> {
     const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedUsername = input.username.trim().toLowerCase();
     const prisma = this.database();
     if (prisma) {
       try {
@@ -67,8 +68,10 @@ export class IdentityService {
           const user = await transaction.user.create({
             data: {
               id: `usr-${randomUUID()}`,
+              username: normalizedUsername,
               displayName: input.displayName.trim(),
               email: normalizedEmail,
+              emailVerifiedAt: new Date(),
               passwordHash: input.initialPassword ? await hashPassword(input.initialPassword) : this.createDisabledPasswordHash(),
               roles: { create: { roleId: role.id } },
             },
@@ -79,17 +82,18 @@ export class IdentityService {
         });
         return this.mapUser(row);
       } catch (error) {
-        if (isUniqueConstraintError(error)) throw new ConflictException("Email đã tồn tại trong hệ thống.");
+        if (isUniqueConstraintError(error)) throw new ConflictException("Tài khoản hoặc email đã tồn tại trong hệ thống.");
         throw error;
       }
     }
 
-    if (this.users.some((user) => user.email.toLowerCase() === normalizedEmail)) {
-      throw new ConflictException("Email đã tồn tại trong hệ thống.");
+    if (this.users.some((user) => user.email.toLowerCase() === normalizedEmail || user.username === normalizedUsername)) {
+      throw new ConflictException("Tài khoản hoặc email đã tồn tại trong hệ thống.");
     }
     const timestamp = now();
     const user: IdentityUser = {
       id: `usr-${randomUUID()}`,
+      username: normalizedUsername,
       displayName: input.displayName.trim(),
       email: normalizedEmail,
       roleCode: input.roleCode,
@@ -257,6 +261,7 @@ export class IdentityService {
   private mapUser(row: UserWithRoles): IdentityUser {
     return {
       id: row.id,
+      username: row.username,
       displayName: row.displayName,
       email: row.email,
       roleCode: this.getRoleCode(row),

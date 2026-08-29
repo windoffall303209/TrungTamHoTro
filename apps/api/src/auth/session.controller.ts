@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Query, Req, Res } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { ChangePasswordDto, DisableMfaDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResetPasswordDto, UpdateProfileDto, VerifyEmailDto } from "./auth.dto.js";
+import { ChangePasswordDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -11,9 +11,9 @@ export class SessionController {
 
   @Post("login")
   @HttpCode(200)
-  @ApiOperation({ summary: "Đăng nhập bằng email và mật khẩu" })
+  @ApiOperation({ summary: "Đăng nhập bằng tên tài khoản và mật khẩu" })
   async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.login(input.email, input.password, input.rememberMe, this.context(request));
+    const result = await this.auth.login(input.username, input.password, input.rememberMe, this.context(request));
     if ("requiresMfa" in result) return result;
     this.setSessionCookie(response, result.token, result.maxAgeMs);
     return { ...result.session, csrfToken: result.csrfToken };
@@ -21,10 +21,8 @@ export class SessionController {
 
   @Post("register")
   @ApiOperation({ summary: "Đăng ký tài khoản học viên" })
-  async register(@Body() input: RegisterDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.register(input.displayName, input.email, input.password, this.context(request));
-    this.setSessionCookie(response, result.token, result.maxAgeMs);
-    return { ...result.session, csrfToken: result.csrfToken, verificationEmailSent: result.verificationEmailSent };
+  register(@Body() input: RegisterDto): Promise<object> {
+    return this.auth.register(input.username, input.displayName, input.email, input.password);
   }
 
   @Post("mfa/verify")
@@ -55,8 +53,24 @@ export class SessionController {
   }
 
   @Post("verify-email")
-  verifyEmail(@Body() input: VerifyEmailDto): Promise<{ verified: true }> {
+  verifyEmail(@Body() input: VerifyEmailDto): Promise<{ verified: true; verificationId: string }> {
     return this.auth.verifyEmail(input.token);
+  }
+
+  @Post("verify-email/code")
+  verifyEmailCode(@Body() input: VerifyEmailCodeDto): Promise<{ verified: true; verificationId: string }> {
+    return this.auth.verifyEmailCode(input.verificationId, input.code);
+  }
+
+  @Post("verification-email/resend")
+  @HttpCode(202)
+  resendPublicVerification(@Body() input: ResendVerificationDto): Promise<{ accepted: true; verificationId?: string }> {
+    return this.auth.resendPublicVerification(input.identifier, input.verificationId);
+  }
+
+  @Get("verification-status")
+  verificationStatus(@Query() input: VerificationStatusDto): Promise<{ verified: boolean; expired: boolean }> {
+    return this.auth.verificationStatus(input.verificationId);
   }
 
   @Get("session")
@@ -148,10 +162,16 @@ export class AccountController {
     return this.auth.confirmMfa(session.user.id, input.code);
   }
 
+  @Post("mfa/disable-challenge")
+  async startDisableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaPasswordDto): Promise<{ challengeToken: string; expiresInSeconds: number }> {
+    const session = await this.session(cookies);
+    return this.auth.startDisableMfa(session.user.id, input.password);
+  }
+
   @Delete("mfa")
   async disableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaDto): Promise<{ disabled: true }> {
     const session = await this.session(cookies);
-    return this.auth.disableMfa(session.user.id, input.password, input.code);
+    return this.auth.disableMfa(session.user.id, input.challengeToken, input.code);
   }
 
   private session(cookies?: string): Promise<AuthenticatedSession> { return this.auth.resolve(this.auth.readToken(cookies)); }

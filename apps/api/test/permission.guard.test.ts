@@ -7,7 +7,7 @@ import { AUTHENTICATION_REQUIRED_KEY, REQUIRED_PERMISSIONS_KEY } from "../src/au
 
 const session: AuthenticatedSession = {
   sessionId: "session-test",
-  user: { id: "user-test", name: "Người dùng kiểm thử", email: "test@example.com", roleName: "Học viên" },
+  user: { id: "user-test", username: "test.user", name: "Người dùng kiểm thử", email: "test@example.com", roleName: "Học viên" },
   roleCode: "LEARNER",
   permissions: ["exam:view"],
   availableRoles: [{ code: "LEARNER", name: "Học viên" }],
