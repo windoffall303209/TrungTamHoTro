@@ -6,6 +6,7 @@ interface ApiEnvelope<T> {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+let csrfToken = "";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly details?: unknown) {
@@ -22,6 +23,7 @@ export async function apiRequest<T>(
   headers.set("accept", "application/json");
   if (options.roleCode) headers.set("x-role-code", options.roleCode);
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (options.method && !["GET", "HEAD", "OPTIONS"].includes(options.method.toUpperCase()) && csrfToken) headers.set("x-csrf-token", csrfToken);
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, cache: "no-store", credentials: "include" });
   const payload = await response.json() as ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
@@ -32,7 +34,9 @@ export async function apiRequest<T>(
     }
     throw new ApiError(error?.message ?? "Không thể xử lý yêu cầu.", response.status, error?.details);
   }
-  return (payload as ApiEnvelope<T>).data;
+  const data = (payload as ApiEnvelope<T>).data;
+  if (data && typeof data === "object" && "csrfToken" in data && typeof data.csrfToken === "string") csrfToken = data.csrfToken;
+  return data;
 }
 
 export async function downloadApiFile(path: string, roleCode: RoleCode): Promise<void> {

@@ -15,8 +15,9 @@ interface AppContextValue {
   session: SessionData;
   authenticated: boolean;
   authLoading: boolean;
-  login: (input: LoginInput) => Promise<void>;
+  login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
   register: (input: RegisterInput) => Promise<void>;
+  completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
   refreshSession: () => Promise<boolean>;
@@ -44,10 +45,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (input: LoginInput) => {
-    setSession(await apiRequest<SessionData>("/auth/login", { method: "POST", body: JSON.stringify(input) }));
+    const result = await apiRequest<SessionData | { requiresMfa: true; challengeToken: string }>("/auth/login", { method: "POST", body: JSON.stringify(input) });
+    if ("requiresMfa" in result) return { requiresMfa: true, challengeToken: result.challengeToken };
+    setSession(result);
+    return { requiresMfa: false };
   }, []);
   const register = useCallback(async (input: RegisterInput) => {
     setSession(await apiRequest<SessionData>("/auth/register", { method: "POST", body: JSON.stringify(input) }));
+  }, []);
+  const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, recovery = false) => {
+    const path = recovery ? "/auth/mfa/recovery" : "/auth/mfa/verify";
+    const body = recovery ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
+    setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, []);
   const logout = useCallback(async () => {
     try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
@@ -61,7 +70,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
   }, []);
 
-  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, logout, setRole, refreshSession, notify }), [authLoading, login, logout, notify, refreshSession, register, session, setRole]);
+  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, completeMfa, logout, setRole, refreshSession, notify }), [authLoading, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
   return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 

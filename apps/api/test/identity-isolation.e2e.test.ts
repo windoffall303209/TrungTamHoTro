@@ -50,6 +50,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
   let prisma: PrismaService;
   let baseUrl: string;
   const cookies = new Map<string, string>();
+  const csrfTokens = new Map<string, string>();
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -67,7 +68,9 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     await createFixture(prisma);
 
     for (const account of ["admin", "manager", "instructorA", "instructorB", "learnerA", "learnerB"] as const) {
-      cookies.set(account, await login(`${account.toLowerCase()}-${fixtureSuffix}@e2e.wind.local`));
+      const session = await login(`${account.toLowerCase()}-${fixtureSuffix}@e2e.wind.local`);
+      cookies.set(account, session.cookie);
+      csrfTokens.set(session.cookie, session.csrfToken);
     }
   }, 30_000);
 
@@ -150,7 +153,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     expect(adminTickets).toEqual(expect.arrayContaining(ticketIds));
   });
 
-  async function login(email: string): Promise<string> {
+  async function login(email: string): Promise<{ cookie: string; csrfToken: string }> {
     const response = await fetch(`${baseUrl}/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -159,7 +162,9 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     expect(response.status).toBe(200);
     const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
     expect(cookie).toBeTruthy();
-    return cookie ?? "";
+    const body = await response.json() as ApiEnvelope<{ csrfToken: string }>;
+    expect(body.data.csrfToken).toBeTruthy();
+    return { cookie: cookie ?? "", csrfToken: body.data.csrfToken };
   }
 
   async function request(cookie: string, path: string, options: { method?: string; body?: object } = {}): Promise<{ status: number; body: unknown }> {
@@ -167,11 +172,17 @@ describe("Cô lập danh tính qua API và MySQL", () => {
       method: options.method ?? "GET",
       headers: {
         ...(cookie ? { cookie } : {}),
+        ...(cookie && options.method && options.method !== "GET" ? { "x-csrf-token": csrfTokens.get(cookie) ?? "" } : {}),
         ...(options.body ? { "content-type": "application/json" } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
-    return { status: response.status, body: await response.json() as unknown };
+    const body = await response.json() as unknown;
+    if (cookie && typeof body === "object" && body !== null && "data" in body) {
+      const data = (body as ApiEnvelope<{ csrfToken?: string }>).data;
+      if (data?.csrfToken) csrfTokens.set(cookie, data.csrfToken);
+    }
+    return { status: response.status, body };
   }
 
   async function idsFrom(path: string, cookie: string): Promise<string[]> {

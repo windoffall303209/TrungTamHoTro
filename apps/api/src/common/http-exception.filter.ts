@@ -29,7 +29,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error: {
         code: `HTTP_${status}`,
         message,
-        ...(typeof raw === "object" && raw !== null ? { details: raw } : {}),
+        ...(status < 500 && typeof raw === "object" && raw !== null ? { details: raw } : {}),
       },
       meta: {
         requestId: request.requestId,
@@ -44,7 +44,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
       const message = (raw as { message: unknown }).message;
       return Array.isArray(message) ? message.join("; ") : String(message);
     }
-    return exception instanceof Error ? exception.message : "Lỗi hệ thống không xác định";
+    return exception instanceof HttpException ? exception.message : "Hệ thống đang gặp sự cố. Vui lòng thử lại sau.";
   }
 }
-
