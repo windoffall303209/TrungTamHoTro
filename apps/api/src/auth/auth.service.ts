@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
@@ -204,6 +204,72 @@ export class AuthService {
     const row = await this.prisma.accountToken.findUnique({ where: { id: verificationId }, include: { user: { select: { emailVerifiedAt: true } } } });
     if (!row || row.type !== "EMAIL_VERIFICATION") throw new NotFoundException("Không tìm thấy phiên xác minh email.");
     return { verified: Boolean(row.user.emailVerifiedAt), expired: !row.user.emailVerifiedAt && row.expiresAt <= new Date() };
+  }
+
+  async changePendingVerificationEmail(verificationId: string, password: string, newEmail: string): Promise<RegistrationResult> {
+    this.assertDatabase();
+    const now = new Date();
+    const token = await this.prisma.accountToken.findUnique({ where: { id: verificationId }, include: { user: true } });
+    if (!token || token.type !== "EMAIL_VERIFICATION" || token.consumedAt || token.expiresAt <= now
+      || token.user.status !== "PENDING_VERIFICATION" || token.user.emailVerifiedAt) {
+      throw new BadRequestException("Phiên xác minh email không hợp lệ hoặc đã hết hạn.");
+    }
+    if (!(await verifyPassword(password, token.user.passwordHash))) {
+      throw new UnauthorizedException("Mật khẩu hiện tại không chính xác.");
+    }
+
+    const normalizedEmail = newEmail.trim().toLowerCase();
+    if (normalizedEmail === token.user.email.toLowerCase()) {
+      throw new BadRequestException("Email mới phải khác email đang chờ xác minh.");
+    }
+    const emailOwner = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
+    if (emailOwner && emailOwner.id !== token.userId) {
+      throw new ConflictException("Email này đã được liên kết với một tài khoản khác.");
+    }
+
+    const recentDeliveries = await this.prisma.accountToken.count({
+      where: { userId: token.userId, type: "EMAIL_VERIFICATION", createdAt: { gt: new Date(now.getTime() - 60 * 60 * 1000) } },
+    });
+    if (recentDeliveries >= 5) {
+      throw new HttpException("Bạn đã yêu cầu gửi email quá nhiều lần. Hãy thử lại sau một giờ.", HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    const usernameFollowsEmail = token.user.username.toLowerCase() === token.user.email.toLowerCase();
+    try {
+      await this.prisma.$transaction(async (transaction) => {
+        const claimed = await transaction.accountToken.updateMany({
+          where: { id: verificationId, consumedAt: null, expiresAt: { gt: now } },
+          data: { consumedAt: now },
+        });
+        if (claimed.count !== 1) throw new BadRequestException("Phiên xác minh email đã được sử dụng hoặc đã hết hạn.");
+        await transaction.user.update({
+          where: { id: token.userId },
+          data: { email: normalizedEmail, ...(usernameFollowsEmail ? { username: normalizedEmail } : {}) },
+        });
+        await transaction.auditLog.create({
+          data: {
+            actorId: token.userId,
+            action: "PENDING_VERIFICATION_EMAIL_CHANGED",
+            entityType: "user",
+            entityId: token.userId,
+            context: { previousEmail: token.user.email, newEmail: normalizedEmail, usernameUpdated: usernameFollowsEmail },
+          },
+        });
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        throw new ConflictException("Email này đã được liên kết với một tài khoản khác.");
+      }
+      throw error;
+    }
+
+    const verification = await this.sendVerificationEmail(token.userId, normalizedEmail);
+    return {
+      verificationRequired: true,
+      verificationId: verification.verificationId,
+      email: normalizedEmail,
+      verificationEmailSent: verification.sent,
+    };
   }
 
   async resendPublicVerification(identifier: string, verificationId?: string): Promise<{ accepted: true; verificationId?: string }> {

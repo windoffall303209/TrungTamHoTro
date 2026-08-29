@@ -11,6 +11,9 @@ import { EmailDeliveryService, type SendEmailInput } from "../src/infrastructure
 const suffix = `${process.pid}-${Date.now().toString(36)}`;
 const username = `verify-${suffix}`.slice(0, 32);
 const email = `verify-${suffix}@e2e.wind.local`;
+const correctedEmail = `verified-${suffix}@e2e.wind.local`;
+const legacyOldEmail = `legacy-old-${suffix}@e2e.wind.local`;
+const legacyNewEmail = `legacy-new-${suffix}@e2e.wind.local`;
 const password = "Verify-E2E-2026!";
 
 interface Envelope<T> { data: T }
@@ -46,7 +49,7 @@ describe("Đăng ký và xác minh email qua API", () => {
   }, 30_000);
 
   afterAll(async () => {
-    if (prisma) await prisma.user.deleteMany({ where: { email } });
+    if (prisma) await prisma.user.deleteMany({ where: { email: { in: [email, correctedEmail, legacyOldEmail, legacyNewEmail] } } });
     if (app) await app.close();
   }, 30_000);
 
@@ -67,17 +70,46 @@ describe("Đăng ký và xác minh email qua API", () => {
     expect(duplicate.status).toBe(409);
     expect((duplicate.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_PENDING_VERIFICATION");
 
+    const rejectedChange = await post("/auth/verification-email/change", {
+      verificationId: registrationBody.data.verificationId,
+      newEmail: correctedEmail,
+      password: "Wrong-E2E-2026!",
+    });
+    expect(rejectedChange.status).toBe(401);
+
+    const changedEmail = await post("/auth/verification-email/change", {
+      verificationId: registrationBody.data.verificationId,
+      newEmail: correctedEmail,
+      password,
+    });
+    expect(changedEmail.status).toBe(200);
+    const changedEmailBody = changedEmail.body as Envelope<{ verificationId: string; email: string; verificationEmailSent: boolean }>;
+    expect(changedEmailBody.data.email).toBe(correctedEmail);
+    expect(changedEmailBody.data.verificationId).not.toBe(registrationBody.data.verificationId);
+    expect(changedEmailBody.data.verificationEmailSent).toBe(true);
+    expect(sentEmails).toHaveLength(2);
+
+    const changedUser = await prisma.user.findUniqueOrThrow({ where: { username } });
+    expect(changedUser.email).toBe(correctedEmail);
+    expect(changedUser.username).toBe(username);
+
     const pendingLogin = await post("/auth/login", { username, password, rememberMe: false });
     expect(pendingLogin.status).toBe(403);
     expect((pendingLogin.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
-    expect((pendingLogin.body as ErrorEnvelope).error.details?.verificationId).toBe(registrationBody.data.verificationId);
+    expect((pendingLogin.body as ErrorEnvelope).error.details?.verificationId).toBe(changedEmailBody.data.verificationId);
+    expect((pendingLogin.body as ErrorEnvelope).error.details?.email).toBe(correctedEmail);
 
-    const code = sentEmails[0]?.text.match(/là:\s*(\d{6})/)?.[1];
+    const oldCode = sentEmails[0]?.text.match(/là:\s*(\d{6})/)?.[1];
+    expect(oldCode).toMatch(/^\d{6}$/);
+    const obsoleteVerification = await post("/auth/verify-email/code", { verificationId: registrationBody.data.verificationId, code: oldCode });
+    expect(obsoleteVerification.status).toBe(400);
+
+    const code = sentEmails[1]?.text.match(/là:\s*(\d{6})/)?.[1];
     expect(code).toMatch(/^\d{6}$/);
-    const wrongCode = await post("/auth/verify-email/code", { verificationId: registrationBody.data.verificationId, code: code === "999999" ? "000000" : "999999" });
+    const wrongCode = await post("/auth/verify-email/code", { verificationId: changedEmailBody.data.verificationId, code: code === "999999" ? "000000" : "999999" });
     expect(wrongCode.status).toBe(401);
 
-    const verification = await post("/auth/verify-email/code", { verificationId: registrationBody.data.verificationId, code });
+    const verification = await post("/auth/verify-email/code", { verificationId: changedEmailBody.data.verificationId, code });
     expect(verification.status).toBe(201);
     const activeUser = await prisma.user.findUniqueOrThrow({ where: { username } });
     expect(activeUser.status).toBe("ACTIVE");
@@ -105,6 +137,30 @@ describe("Đăng ký và xác minh email qua API", () => {
     const disabled = await authenticatedRequest("DELETE", "/account/mfa", cookie, loginData.csrfToken, { challengeToken, code: generateTotp(secret) });
     expect(disabled.status).toBe(200);
     expect((await prisma.user.findUniqueOrThrow({ where: { username } })).mfaEnabledAt).toBeNull();
+  }, 30_000);
+
+  it("giữ username của tài khoản cũ đồng bộ với email đang chờ xác minh", async () => {
+    const initialUsername = `legacy-${suffix}`.slice(0, 32);
+    const emailCountBefore = sentEmails.length;
+    const registration = await post("/auth/register", {
+      username: initialUsername,
+      displayName: "Tài khoản cũ E2E",
+      email: legacyOldEmail,
+      password,
+    });
+    expect(registration.status).toBe(201);
+    const verificationId = (registration.body as Envelope<{ verificationId: string }>).data.verificationId;
+    await prisma.user.update({ where: { email: legacyOldEmail }, data: { username: legacyOldEmail } });
+
+    const changed = await post("/auth/verification-email/change", { verificationId, newEmail: legacyNewEmail, password });
+    expect(changed.status).toBe(200);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: legacyNewEmail } });
+    expect(user.username).toBe(legacyNewEmail);
+    expect(sentEmails).toHaveLength(emailCountBefore + 2);
+
+    const loginByEmail = await post("/auth/login", { username: legacyNewEmail, password, rememberMe: false });
+    expect(loginByEmail.status).toBe(403);
+    expect((loginByEmail.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
   }, 30_000);
 
   async function post(path: string, body: object): Promise<{ status: number; headers: Headers; body: unknown }> {
