@@ -39,6 +39,7 @@ describe("validateEnvironment", () => {
       STORAGE_PROVIDER: "cloudinary",
       STORAGE_SIGNING_SECRET: "production-signing-secret-at-least-32-characters",
       AUTH_ENCRYPTION_SECRET: "production-auth-encryption-secret-at-least-32-characters",
+      ANTIVIRUS_PROVIDER: "clamav",
     };
     expect(() => validateEnvironment(base)).toThrow("CLOUDINARY_CLOUD_NAME");
     expect(() => validateEnvironment({

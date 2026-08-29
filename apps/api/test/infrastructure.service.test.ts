@@ -1,11 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import type { ConfigService } from "@nestjs/config";
 import { describe, expect, it } from "vitest";
 import type { Environment } from "../src/config/environment.js";
 import { EmailDeliveryService, normalizeResendSender } from "../src/infrastructure/email-delivery.service.js";
 import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
+import { AntivirusService } from "../src/infrastructure/antivirus.service.js";
 
 function config(values: Partial<Environment>): ConfigService<Environment, true> {
   return { get: (key: keyof Environment) => values[key] ?? "" } as unknown as ConfigService<Environment, true>;
@@ -49,5 +51,21 @@ describe("Infrastructure services", () => {
     const email = new EmailDeliveryService(config({ RESEND_API_KEY: "", RESEND_FROM: "" }));
     await expect(storage.put("files/class-01/material.pdf", Buffer.from("pdf"))).rejects.toThrow("Cloudinary chưa được cấu hình");
     await expect(email.send({ to: "admin@wind.edu.vn", subject: "Test", text: "Test", idempotencyKey: "test/01" })).rejects.toThrow("Resend chưa được cấu hình");
+  });
+
+  it("gửi nội dung tới ClamAV và nhận diện chữ ký mã độc", async () => {
+    const server = createServer((socket) => {
+      socket.on("data", () => undefined);
+      socket.on("end", () => socket.end("stream: Win.Test.EICAR_HDB-1 FOUND\0"));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Không lấy được cổng kiểm thử ClamAV.");
+      const antivirus = new AntivirusService(config({ ANTIVIRUS_PROVIDER: "clamav", CLAMAV_HOST: "127.0.0.1", CLAMAV_PORT: address.port, CLAMAV_TIMEOUT_MS: 2_000 }));
+      await expect(antivirus.scan(Buffer.from("sample"))).resolves.toEqual({ clean: false, engine: "clamav", signature: "Win.Test.EICAR_HDB-1" });
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 });
