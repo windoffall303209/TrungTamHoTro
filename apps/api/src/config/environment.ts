@@ -19,6 +19,13 @@ const environmentSchema = z.object({
   DATABASE_CONNECT_ON_START: booleanFromString.default(false),
   STORAGE_ROOT: z.string().trim().min(1).default("../TestDoAn-data"),
   STORAGE_SIGNING_SECRET: z.string().min(32).default("development-storage-signing-key-change-me"),
+  STORAGE_PROVIDER: z.enum(["local", "cloudinary"]).default("local"),
+  CLOUDINARY_CLOUD_NAME: z.string().trim().default(""),
+  CLOUDINARY_API_KEY: z.string().trim().default(""),
+  CLOUDINARY_API_SECRET: z.string().trim().default(""),
+  CLOUDINARY_FOLDER: z.string().trim().regex(/^[a-zA-Z0-9/_-]+$/).default("wind-edu"),
+  RESEND_API_KEY: z.string().trim().default(""),
+  RESEND_FROM: z.string().trim().default(""),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -39,5 +46,22 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
     throw new Error(`Cấu hình môi trường không hợp lệ: ${details}`);
   }
 
-  return result.data;
+  const environment = result.data;
+  if (environment.NODE_ENV === "production") {
+    const missing: string[] = [];
+    if (environment.STORAGE_PROVIDER === "cloudinary") {
+      if (!environment.CLOUDINARY_CLOUD_NAME) missing.push("CLOUDINARY_CLOUD_NAME");
+      if (!environment.CLOUDINARY_API_KEY) missing.push("CLOUDINARY_API_KEY");
+      if (!environment.CLOUDINARY_API_SECRET) missing.push("CLOUDINARY_API_SECRET");
+    }
+    if (!environment.RESEND_API_KEY) missing.push("RESEND_API_KEY");
+    if (!environment.RESEND_FROM) missing.push("RESEND_FROM");
+    if (environment.STORAGE_SIGNING_SECRET === "development-storage-signing-key-change-me") missing.push("STORAGE_SIGNING_SECRET");
+    if (missing.length) throw new Error(`Thiếu cấu hình production bắt buộc: ${missing.join(", ")}`);
+    if (/@resend\.dev[>\s]*$/i.test(environment.RESEND_FROM)) {
+      throw new Error("RESEND_FROM production phải dùng domain đã xác minh, không dùng resend.dev.");
+    }
+  }
+
+  return environment;
 }

@@ -1,5 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { EmailDeliveryService } from "../src/infrastructure/email-delivery.service.js";
 import { SystemService } from "../src/system/system.service.js";
 
 describe("SystemService", () => {
@@ -17,15 +18,21 @@ describe("SystemService", () => {
   });
 
   it("kiểm soát biến, giữ phiên bản và gửi thử mẫu thông báo", async () => {
-    const service = new SystemService();
+    const send = vi.fn().mockResolvedValue({ provider: "resend", providerMessageId: "email-test-01", acceptedAt: "2026-08-29T00:00:00.000Z" });
+    const emailDelivery = {
+      send,
+    } as unknown as EmailDeliveryService;
+    const service = new SystemService(undefined, emailDelivery);
     await expect(service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề {{unknown}}", body: "Mở lúc {{openAt}}" })).rejects.toThrow("không được phép");
     const first = await service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề {{examTitle}}", body: "Lớp {{className}} mở lúc {{openAt}} và đóng lúc {{closeAt}}" });
     const second = await service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề mới {{examTitle}}", body: "Lớp {{className}} mở {{openAt}}, đóng {{closeAt}}" });
     expect(second.version).toBe(first.version + 1);
     expect((await service.listTemplates()).find((item) => item.eventCode === "EXAM_PUBLISHED")?.id).toBe(second.id);
     const delivery = await service.sendTemplateTest(second.id, "admin@wind.edu.vn", { examTitle: "Giữa kỳ", className: "WEB-K01", openAt: "08:00", closeAt: "09:00" });
-    expect(delivery.status).toBe("DELIVERED");
+    expect(delivery.status).toBe("SENT");
+    expect(delivery.providerMessageId).toBe("email-test-01");
     expect(delivery.subject).toContain("Giữa kỳ");
+    expect(send).toHaveBeenCalledOnce();
     await expect(service.sendTemplateTest(second.id, "admin@wind.edu.vn", {})).rejects.toThrow("Chưa cung cấp biến");
   });
 

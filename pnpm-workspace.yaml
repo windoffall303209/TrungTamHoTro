@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  mariadb: 3.5.3
+
 allowBuilds:
   '@prisma/engines': true
   '@scarf/scarf': false

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, Optional } from "@n
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
 
 export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; version: number; effectiveAt: string; updatedBy: string; updatedAt: string }
 export interface SystemSettingRevision extends SystemSettings { id: string; key: string }
@@ -14,7 +15,7 @@ export interface RestoreRun { id: string; backupId: string; status: "PENDING" | 
 export interface DataExport { id: string; category: string; format: "CSV" | "JSON"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; rowCount: number; expiresAt: string; createdAt: string }
 export interface NotificationTemplate { id: string; eventCode: string; locale: string; subject: string; body: string; version: number; status: "DRAFT" | "PUBLISHED"; updatedAt: string }
 export interface ModerationPolicy { version: number; prohibitedTerms: string[]; maxPostsPerMinute: number; action: "FLAG" | "HIDE_PENDING_REVIEW"; updatedAt: string }
-export interface TemplateTestDelivery { recipient: string; subject: string; body: string; status: "DELIVERED"; sentAt: string }
+export interface TemplateTestDelivery { recipient: string; subject: string; body: string; status: "SENT"; provider: "resend"; providerMessageId: string; sentAt: string }
 export interface RetentionPreview { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; estimatedRows: number; legalHoldRows: number; deletableRows: number; cutoffAt: string }
 export interface RetentionPolicyView { id: string; category: string; version: number; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt: string; createdAt: string }
 export interface RetentionJobView { id: string; policyId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; affectedRows: number; skippedRows: number; requestedBy: string; approvedBy: string; evidence: Record<string, unknown>; createdAt: string; completedAt?: string }
@@ -61,7 +62,10 @@ export class SystemService {
   private legalHolds: Array<{ id: string; category: string; reason: string; active: boolean; createdBy: string; createdAt: string }> = [];
   private alerts: SystemAlertView[] = [];
 
-  constructor(@Optional() private readonly prisma?: PrismaService) {}
+  constructor(
+    @Optional() private readonly prisma?: PrismaService,
+    @Optional() private readonly emailDelivery?: EmailDeliveryService,
+  ) {}
 
   async getSettings(): Promise<SystemSettings> {
     const prisma = this.database();
@@ -464,9 +468,24 @@ export class SystemService {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new BadRequestException("Email nhận bản thử không hợp lệ.");
     const preview = await this.previewTemplate(templateId, variables) as { subject: string; body: string; unresolvedVariables: string[] };
     if (preview.unresolvedVariables.length) throw new BadRequestException(`Chưa cung cấp biến: ${preview.unresolvedVariables.join(", ")}.`);
-    const delivery: TemplateTestDelivery = { recipient, subject: preview.subject, body: preview.body, status: "DELIVERED", sentAt: new Date().toISOString() };
+    if (!this.emailDelivery) throw new BadRequestException("Dịch vụ email Resend chưa được khởi tạo.");
+    const accepted = await this.emailDelivery.send({
+      to: recipient,
+      subject: preview.subject,
+      text: preview.body,
+      idempotencyKey: `template-test/${templateId}/${randomUUID()}`,
+    });
+    const delivery: TemplateTestDelivery = {
+      recipient,
+      subject: preview.subject,
+      body: preview.body,
+      status: "SENT",
+      provider: accepted.provider,
+      providerMessageId: accepted.providerMessageId,
+      sentAt: accepted.acceptedAt,
+    };
     const prisma = this.database();
-    if (prisma) await this.logDatabase(prisma, actorId, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
+    if (prisma) await this.logDatabase(prisma, actorId, "TEMPLATE_TEST_SENT", templateId, `Resend ${accepted.providerMessageId} đã chấp nhận email tới ${recipient}.`);
     else this.log(actorId, "TEMPLATE_TEST_SENT", templateId, `Gửi thử tới ${recipient}.`);
     return delivery;
   }

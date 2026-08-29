@@ -10,6 +10,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { IdentityModule } from "./identity/identity.module.js";
 import { LearningModule } from "./learning/learning.module.js";
 import { SystemModule } from "./system/system.module.js";
+import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SystemModule } from "./system/system.module.js";
       }),
     }),
     DatabaseModule,
+    InfrastructureModule,
     AuthModule,
     IdentityModule,
     LearningModule,

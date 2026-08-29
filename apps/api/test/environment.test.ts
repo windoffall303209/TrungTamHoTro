@@ -29,6 +29,27 @@ describe("validateEnvironment", () => {
     );
   });
 
+  it("bắt buộc credential dịch vụ ngoài và domain Resend đã xác minh ở production", () => {
+    const base = {
+      NODE_ENV: "production",
+      DB_HOST: "localhost",
+      DB_USER: "root",
+      DB_PASSWORD: "secret",
+      DB_NAME: "trung_tam_giang_day",
+      STORAGE_PROVIDER: "cloudinary",
+      STORAGE_SIGNING_SECRET: "production-signing-secret-at-least-32-characters",
+    };
+    expect(() => validateEnvironment(base)).toThrow("CLOUDINARY_CLOUD_NAME");
+    expect(() => validateEnvironment({
+      ...base,
+      CLOUDINARY_CLOUD_NAME: "wind-edu",
+      CLOUDINARY_API_KEY: "cloudinary-key",
+      CLOUDINARY_API_SECRET: "cloudinary-secret",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM: "Wind EDU <onboarding@resend.dev>",
+    })).toThrow("domain đã xác minh");
+  });
+
   it("tạo URL Prisma an toàn từ bộ biến DB_*", () => {
     const source = {
       DB_HOST: "localhost",
