@@ -17,6 +17,7 @@ const environmentSchema = z.object({
   DB_NAME: z.string().regex(/^[a-zA-Z0-9_]+$/),
   DB_PORT: z.coerce.number().int().min(1).max(65_535).default(3306),
   DATABASE_CONNECT_ON_START: booleanFromString.default(false),
+  DB_BACKUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
   STORAGE_ROOT: z.string().trim().min(1).default("../TestDoAn-data"),
   STORAGE_SIGNING_SECRET: z.string().min(32).default("development-storage-signing-key-change-me"),
   STORAGE_PROVIDER: z.enum(["local", "cloudinary"]).default("local"),
