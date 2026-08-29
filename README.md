@@ -69,6 +69,15 @@ pnpm dev
 - API: `http://localhost:4000/api/v1/health`
 - Swagger: `http://localhost:4000/api/docs`
 
+## Tài khoản và xác minh
+
+- Người dùng đăng nhập bằng trường `Tài khoản` (`username`), không đăng nhập bằng email.
+- Đăng ký học viên tạo tài khoản ở trạng thái `PENDING_VERIFICATION`. Hệ thống gửi đồng thời mã 6 số và liên kết dùng một lần qua Resend; chỉ sau khi xác minh, trạng thái mới chuyển sang `ACTIVE`.
+- Trang xác minh kiểm tra trạng thái mỗi 3 giây và đồng bộ giữa hai tab bằng `BroadcastChannel` cùng sự kiện `storage`. Vì vậy, mở liên kết trong tab mới sẽ tự hoàn tất trang đang chờ.
+- Xác thực hai bước dùng TOTP tương thích Google Authenticator, Microsoft Authenticator, 1Password, Authy và Bitwarden. Giao diện cung cấp QR, khóa nhập tay và mã khôi phục một lần.
+- Tắt xác thực hai bước bắt buộc hai bước độc lập: xác nhận mật khẩu, sau đó nhập TOTP trong phiên thử thách có hạn 5 phút.
+- Tài khoản seed dùng các username `admin`, `manager`, `instructor`, `learner`; mật khẩu lấy từ `SEED_DEFAULT_PASSWORD`.
+
 Mặc định `DATABASE_CONNECT_ON_START=false`, vì vậy API có thể khởi động trước khi điền mật khẩu. Chuyển thành `true` sau khi `db:deploy` và `db:seed` thành công.
 
 ## Chế độ lưu dữ liệu
