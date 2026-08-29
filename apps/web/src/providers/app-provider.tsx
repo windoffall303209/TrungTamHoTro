@@ -5,18 +5,19 @@ import { apiRequest } from "@/lib/api-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 
 const emptySession: SessionData = {
-  sessionId: "", user: { id: "", name: "", email: "", roleName: "" }, roleCode: "LEARNER", permissions: [], availableRoles: [],
+  sessionId: "", user: { id: "", username: "", name: "", email: "", roleName: "" }, roleCode: "LEARNER", permissions: [], availableRoles: [],
 };
 
 interface ToastState { id: number; message: string; tone: "success" | "error" | "info" }
-interface LoginInput { email: string; password: string; rememberMe: boolean }
-interface RegisterInput { displayName: string; email: string; password: string }
+interface LoginInput { username: string; password: string; rememberMe: boolean }
+interface RegisterInput { username: string; displayName: string; email: string; password: string }
+export interface RegistrationResult { verificationRequired: true; verificationId: string; email: string; verificationEmailSent: boolean }
 interface AppContextValue {
   session: SessionData;
   authenticated: boolean;
   authLoading: boolean;
   login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
-  register: (input: RegisterInput) => Promise<void>;
+  register: (input: RegisterInput) => Promise<RegistrationResult>;
   completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
@@ -51,7 +52,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { requiresMfa: false };
   }, []);
   const register = useCallback(async (input: RegisterInput) => {
-    setSession(await apiRequest<SessionData>("/auth/register", { method: "POST", body: JSON.stringify(input) }));
+    return apiRequest<RegistrationResult>("/auth/register", { method: "POST", body: JSON.stringify(input) });
   }, []);
   const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, recovery = false) => {
     const path = recovery ? "/auth/mfa/recovery" : "/auth/mfa/verify";
