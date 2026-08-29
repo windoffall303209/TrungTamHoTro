@@ -86,6 +86,9 @@ button, input, textarea, select { font: inherit; }
 .metric-ledger > *:nth-child(odd) { border-right: 1px solid var(--rule); }
 .content-panel { border-block: 1px solid var(--rule-strong); background: rgb(255 253 250 / 65%); }
 .empty-copy { padding: 2.5rem 1.25rem; text-align: center; color: var(--ink-soft); font-size: 0.875rem; }
+/* Giữ chữ phụ đạt WCAG AA trên cả nền giấy và nền panel bán trong suốt. */
+.text-\[\#516274\] { color: #40566a; }
+.text-\[\#657789\] { color: #42586b; }
 @media (min-width: 640px) {
   .metric-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-ledger > * { border-right: 1px solid var(--rule); }

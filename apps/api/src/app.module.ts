@@ -11,6 +11,7 @@ import { IdentityModule } from "./identity/identity.module.js";
 import { LearningModule } from "./learning/learning.module.js";
 import { SystemModule } from "./system/system.module.js";
 import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
+import { ObservabilityModule } from "./observability/observability.module.js";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { InfrastructureModule } from "./infrastructure/infrastructure.module.js"
     }),
     DatabaseModule,
     InfrastructureModule,
+    ObservabilityModule,
     AuthModule,
     IdentityModule,
     LearningModule,
