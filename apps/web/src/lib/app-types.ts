@@ -11,6 +11,7 @@ export type PermissionCode =
 
 export interface SessionUser {
   id: string;
+  username: string;
   name: string;
   email: string;
   roleName: string;
@@ -27,12 +28,13 @@ export interface SessionData {
 
 export interface AccountProfile {
   id: string;
+  username: string;
   displayName: string;
   email: string;
   phone: string;
   timezone: string;
   locale: string;
-  status: "ACTIVE" | "INACTIVE" | "LOCKED";
+  status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   emailVerifiedAt: string | null;
   mfaEnabled: boolean;
   createdAt: string;
@@ -51,10 +53,11 @@ export interface AccountSession {
 
 export interface IdentityUser {
   id: string;
+  username: string;
   displayName: string;
   email: string;
   roleCode: RoleCode;
-  status: "ACTIVE" | "INACTIVE" | "LOCKED";
+  status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   createdAt: string;
   updatedAt: string;
 }

@@ -63,9 +63,9 @@ export function StatusBadge({ status }: { status: string }) {
     ? "border-[#27685f]/25 bg-[#27685f]/10 text-[#1f574f]"
     : ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status)
       ? "border-[#a84343]/25 bg-[#a84343]/10 text-[#873737]"
-      : ["IN_REVIEW", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status)
+    : ["PENDING_VERIFICATION", "IN_REVIEW", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status)
         ? "border-[#a26920]/25 bg-[#a26920]/10 text-[#76501d]"
         : "border-[#a9bac1] bg-[#eee8dc] text-[#516274]";
-  const labels: Record<string, string> = { ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
+  const labels: Record<string, string> = { PENDING_VERIFICATION: "Chờ xác minh email", ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
   return <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-[0.02em] ${style}`} title={labels[status] ? `Mã trạng thái: ${status}` : undefined}>{labels[status] ?? status}</span>;
 }
