@@ -5,6 +5,8 @@ interface ApiEnvelope<T> {
   meta: { requestId: string; timestamp: string };
 }
 
+type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
 
@@ -30,14 +32,23 @@ export async function apiRequest<T>(
   if (options.method && !["GET", "HEAD", "OPTIONS"].includes(options.method.toUpperCase()) && csrfToken) headers.set("x-csrf-token", csrfToken);
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, cache: "no-store", credentials: "include" });
-  const payload = await response.json() as ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
+  const rawBody = await response.text();
+  let payload: ApiPayload<T> | undefined;
+  if (rawBody.trim()) {
+    try {
+      payload = JSON.parse(rawBody) as ApiPayload<T>;
+    } catch {
+      throw new ApiError("Phản hồi từ hệ thống không đúng định dạng.", response.status);
+    }
+  }
   if (!response.ok) {
-    const error = "error" in payload ? payload.error : undefined;
+    const error = payload && "error" in payload ? payload.error : undefined;
     if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("wind-edu:unauthorized"));
     }
     throw new ApiError(error?.message ?? "Không thể xử lý yêu cầu.", response.status, error?.details);
   }
+  if (!payload) return undefined as T;
   const data = (payload as ApiEnvelope<T>).data;
   if (data && typeof data === "object" && "csrfToken" in data && typeof data.csrfToken === "string") csrfToken = data.csrfToken;
   return data;
