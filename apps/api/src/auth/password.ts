@@ -10,7 +10,8 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt:${salt}:${derived.toString("hex")}`;
 }
 
-export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+export async function verifyPassword(password: string, storedHash: string | null | undefined): Promise<boolean> {
+  if (!storedHash) return false;
   const [algorithm, salt, encoded] = storedHash.split(":");
   if (algorithm !== "scrypt" || !salt || !encoded || encoded.length !== KEY_LENGTH * 2) return false;
   const expected = Buffer.from(encoded, "hex");

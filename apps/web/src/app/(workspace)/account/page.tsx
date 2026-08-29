@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
 
-const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: "", phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, createdAt: "" };
+const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: "", phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, googleConnected: false, createdAt: "" };
 const authenticatorApps = [
   { id: "google", name: "Google Authenticator", note: "Android và iOS" },
   { id: "microsoft", name: "Microsoft Authenticator", note: "Android và iOS" },
@@ -34,12 +34,18 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwordChallenge, setPasswordChallenge] = useState<{ id: string; email: string } | null>(null);
+  const [passwordEmailCode, setPasswordEmailCode] = useState("");
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
+  const [mfaSetupChallenge, setMfaSetupChallenge] = useState<{ id: string; email: string } | null>(null);
+  const [mfaSetupEmailCode, setMfaSetupEmailCode] = useState("");
   const [mfaQrCode, setMfaQrCode] = useState("");
   const [authenticatorApp, setAuthenticatorApp] = useState<(typeof authenticatorApps)[number]["id"]>("google");
   const [mfaCode, setMfaCode] = useState("");
-  const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "code">("idle");
+  const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "email" | "code">("idle");
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
+  const [mfaDisableEmailChallenge, setMfaDisableEmailChallenge] = useState<{ id: string; email: string } | null>(null);
+  const [mfaDisableEmailCode, setMfaDisableEmailCode] = useState("");
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
 
@@ -80,11 +86,27 @@ export default function AccountPage() {
     if (passwords.newPassword !== passwords.confirmPassword) { notify("Xác nhận mật khẩu mới chưa khớp.", "error"); return; }
     setPasswordSaving(true);
     try {
-      const result = await apiRequest<{ revokedSessions: number }>("/account/password", { method: "PATCH", body: JSON.stringify({ currentPassword: passwords.currentPassword, newPassword: passwords.newPassword }) });
+      const body = profile.googleConnected
+        ? { challengeId: passwordChallenge?.id, code: passwordEmailCode, newPassword: passwords.newPassword }
+        : { currentPassword: passwords.currentPassword, newPassword: passwords.newPassword };
+      const result = await apiRequest<{ revokedSessions: number }>("/account/password", { method: "PATCH", body: JSON.stringify(body) });
       setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      notify(`Đã đổi mật khẩu và đóng ${result.revokedSessions} phiên khác.`); await load();
+      setPasswordChallenge(null); setPasswordEmailCode("");
+      notify(`${profile.hasPassword ? "Đã đổi" : "Đã thiết lập"} mật khẩu và đóng ${result.revokedSessions} phiên khác.`); await load();
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể đổi mật khẩu.", "error"); }
     finally { setPasswordSaving(false); }
+  }
+
+  async function requestSecurityCode(purpose: "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE"): Promise<{ challengeId: string; email: string; sent: boolean }> {
+    return apiRequest("/account/security-email-challenges", { method: "POST", body: JSON.stringify({ purpose }) });
+  }
+
+  async function requestPasswordCode() {
+    try {
+      const result = await requestSecurityCode("PASSWORD_CHANGE");
+      setPasswordChallenge({ id: result.challengeId, email: result.email }); setPasswordEmailCode("");
+      notify(result.sent ? `Đã gửi mã 6 số tới ${result.email}.` : "Mã vừa gửi vẫn còn hiệu lực.", "info");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi mã bảo mật.", "error"); }
   }
 
   async function revoke(sessionId: string) {
@@ -103,8 +125,23 @@ export default function AccountPage() {
   }
 
   async function startMfa() {
-    try { setMfaSetup(await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST" })); setMfaCode(""); }
+    try {
+      if (profile.googleConnected) {
+        const result = await requestSecurityCode("MFA_SETUP");
+        setMfaSetupChallenge({ id: result.challengeId, email: result.email }); setMfaSetupEmailCode("");
+        notify(result.sent ? `Đã gửi mã 6 số tới ${result.email}.` : "Mã vừa gửi vẫn còn hiệu lực.", "info");
+      } else setMfaSetup(await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST", body: "{}" }));
+      setMfaCode("");
+    }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể khởi tạo MFA.", "error"); }
+  }
+
+  async function authorizeMfaSetup(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setMfaSetup(await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST", body: JSON.stringify({ challengeId: mfaSetupChallenge?.id, code: mfaSetupEmailCode }) }));
+      setMfaSetupChallenge(null); setMfaSetupEmailCode(""); setMfaCode("");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác thực mã email.", "error"); }
   }
 
   async function confirmMfa() {
@@ -115,9 +152,18 @@ export default function AccountPage() {
   async function startDisableMfa(event: FormEvent) {
     event.preventDefault();
     try {
-      const result = await apiRequest<{ challengeToken: string; expiresInSeconds: number }>("/account/mfa/disable-challenge", { method: "POST", body: JSON.stringify({ password: mfaDisablePassword }) });
-      setMfaDisableChallenge(result.challengeToken); setMfaDisablePassword(""); setMfaCode(""); setMfaDisableStep("code");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác minh mật khẩu.", "error"); }
+      const body = profile.googleConnected ? { challengeId: mfaDisableEmailChallenge?.id, code: mfaDisableEmailCode } : { password: mfaDisablePassword };
+      const result = await apiRequest<{ challengeToken: string; expiresInSeconds: number }>("/account/mfa/disable-challenge", { method: "POST", body: JSON.stringify(body) });
+      setMfaDisableChallenge(result.challengeToken); setMfaDisablePassword(""); setMfaDisableEmailCode(""); setMfaCode(""); setMfaDisableStep("code");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác minh danh tính.", "error"); }
+  }
+
+  async function beginDisableMfa() {
+    try {
+      const result = await requestSecurityCode("MFA_DISABLE");
+      setMfaDisableEmailChallenge({ id: result.challengeId, email: result.email }); setMfaDisableEmailCode(""); setMfaDisableStep("email");
+      notify(result.sent ? `Đã gửi mã 6 số tới ${result.email}.` : "Mã vừa gửi vẫn còn hiệu lực.", "info");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi mã bảo mật.", "error"); }
   }
 
   async function disableMfa(event: FormEvent) {
@@ -126,7 +172,7 @@ export default function AccountPage() {
     catch (error) { notify(error instanceof Error ? error.message : "Không thể tắt MFA.", "error"); }
   }
 
-  function cancelDisableMfa() { setMfaDisableStep("idle"); setMfaDisablePassword(""); setMfaDisableChallenge(""); setMfaCode(""); }
+  function cancelDisableMfa() { setMfaDisableStep("idle"); setMfaDisablePassword(""); setMfaDisableEmailChallenge(null); setMfaDisableEmailCode(""); setMfaDisableChallenge(""); setMfaCode(""); }
 
   const otherSessions = useMemo(() => sessions.filter((item) => !item.current), [sessions]);
 
@@ -140,6 +186,7 @@ export default function AccountPage() {
           <Field label="Họ và tên"><input className={inputClass} disabled={loading} maxLength={150} onChange={(event) => setProfile({ ...profile, displayName: event.target.value })} required value={profile.displayName} /></Field>
           <Field label="Tài khoản"><input className={inputClass} disabled readOnly value={profile.username} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[#657789]">Dùng để đăng nhập vào Wind EDU.</span></Field>
           <Field label="Email"><input className={inputClass} disabled readOnly value={profile.email} /><span className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-normal leading-5 text-[#657789]">{profile.emailVerifiedAt ? <><MailCheck size={14} className="text-[#27685f]" />Đã xác minh</> : <>Chưa xác minh <button className="text-link font-bold" onClick={() => void resendVerification()} type="button">Gửi lại email</button></>}</span></Field>
+          <Field label="Phương thức đăng nhập"><input className={inputClass} disabled readOnly value={profile.googleConnected ? profile.hasPassword ? "Google và mật khẩu" : "Google" : "Tài khoản và mật khẩu"} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[#657789]">{profile.googleConnected ? "Google đã xác minh quyền sở hữu email này." : "Tài khoản được bảo vệ bằng mật khẩu cục bộ."}</span></Field>
           <Field label="Số điện thoại"><input className={inputClass} disabled={loading} inputMode="tel" maxLength={30} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="Ví dụ: 0901 234 567" value={profile.phone} /></Field>
           <Field label="Múi giờ"><select className={inputClass} disabled={loading} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} value={profile.timezone}><option value="Asia/Bangkok">Bangkok (UTC+7)</option><option value="Asia/Ho_Chi_Minh">Hồ Chí Minh (UTC+7)</option><option value="UTC">UTC</option></select></Field>
           <Field label="Ngôn ngữ"><select className={inputClass} disabled={loading} onChange={(event) => setProfile({ ...profile, locale: event.target.value })} value={profile.locale}><option value="vi-VN">Tiếng Việt</option><option value="en-US">English</option></select></Field>
@@ -149,19 +196,25 @@ export default function AccountPage() {
       </form>
 
       <form className="content-panel p-5 md:p-7" onSubmit={changePassword}>
-        <div className="flex items-start gap-3"><KeyRound className="mt-0.5 text-[#c75b39]" size={22} /><div><h2 className="section-title">Đổi mật khẩu</h2><p className="mt-1 text-sm leading-6 text-[#516274]">Sau khi đổi, các phiên khác sẽ được đóng để bảo vệ tài khoản.</p></div></div>
-        <div className="mt-6 space-y-5">
-          <Field label="Mật khẩu hiện tại"><input autoComplete="current-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, currentPassword: event.target.value })} required type="password" value={passwords.currentPassword} /></Field>
+        <div className="flex items-start gap-3"><KeyRound className="mt-0.5 text-[#c75b39]" size={22} /><div><h2 className="section-title">{profile.googleConnected && !profile.hasPassword ? "Thiết lập mật khẩu" : "Đổi mật khẩu"}</h2><p className="mt-1 text-sm leading-6 text-[#516274]">{profile.googleConnected ? "Mã 6 số gửi tới email Google thay cho mật khẩu hiện tại. Các phiên khác sẽ được đóng sau khi hoàn tất." : "Sau khi đổi, các phiên khác sẽ được đóng để bảo vệ tài khoản."}</p></div></div>
+        {profile.googleConnected && !passwordChallenge ? <div className="mt-6 border-y border-[#d5dfe2] py-5"><p className="text-sm font-semibold leading-6 text-[#516274]">Gửi mã bảo mật tới email đã xác minh để tiếp tục.</p><Button className="mt-3" onClick={() => void requestPasswordCode()} type="button" variant="secondary"><MailCheck size={16} />Gửi mã 6 số</Button></div> : <div className="mt-6 space-y-5">
+          {profile.googleConnected ? <Field label="Mã xác thực email"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setPasswordEmailCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required value={passwordEmailCode} /><span className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-normal leading-5 text-[#657789]"><span>Đã gửi tới {passwordChallenge?.email}</span><button className="text-link font-bold" onClick={() => void requestPasswordCode()} type="button">Gửi mã mới</button></span></Field> : <Field label="Mật khẩu hiện tại"><input autoComplete="current-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, currentPassword: event.target.value })} required type="password" value={passwords.currentPassword} /></Field>}
           <Field label="Mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} required type="password" value={passwords.newPassword} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[#657789]">Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</span></Field>
           <Field label="Nhập lại mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, confirmPassword: event.target.value })} required type="password" value={passwords.confirmPassword} /></Field>
-        </div>
-        <div className="mt-7 flex justify-end"><Button loading={passwordSaving} type="submit"><ShieldCheck size={16} />Đổi mật khẩu</Button></div>
+        </div>}
+        {!profile.googleConnected || passwordChallenge ? <div className="mt-7 flex justify-end"><Button disabled={profile.googleConnected && !/^\d{6}$/.test(passwordEmailCode)} loading={passwordSaving} type="submit"><ShieldCheck size={16} />{profile.hasPassword ? "Đổi mật khẩu" : "Thiết lập mật khẩu"}</Button></div> : null}
       </form>
     </div>
 
     <section className="content-panel mt-7 p-5 md:p-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 text-[#c75b39]" size={22} /><div><h2 className="section-title">Xác thực hai bước</h2><p className="mt-1 text-sm leading-6 text-[#516274]">Bảo vệ tài khoản bằng mã 6 chữ số từ ứng dụng xác thực.</p></div></div>{profile.mfaEnabled && mfaDisableStep === "idle" ? <Button onClick={() => setMfaDisableStep("password")} variant="danger">Tắt xác thực hai bước</Button> : null}</div>
-      {!profile.mfaEnabled && !mfaSetup ? <div className="mt-6 flex flex-col items-start gap-2 border-y border-[#d5dfe2] py-5"><p className="text-sm font-semibold text-[#516274]">Mỗi lần đăng nhập, bạn sẽ cần thêm mã từ ứng dụng xác thực.</p><Button onClick={() => void startMfa()} variant="secondary"><KeyRound size={16} />Thiết lập xác thực hai bước</Button></div> : null}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 text-[#c75b39]" size={22} /><div><h2 className="section-title">Xác thực hai bước</h2><p className="mt-1 text-sm leading-6 text-[#516274]">Bảo vệ tài khoản bằng mã 6 chữ số từ ứng dụng xác thực.</p></div></div>{profile.mfaEnabled && mfaDisableStep === "idle" ? <Button onClick={() => profile.googleConnected ? void beginDisableMfa() : setMfaDisableStep("password")} variant="danger">Tắt xác thực hai bước</Button> : null}</div>
+      {!profile.mfaEnabled && !mfaSetup && !mfaSetupChallenge ? <div className="mt-6 flex flex-col items-start gap-2 border-y border-[#d5dfe2] py-5"><p className="text-sm font-semibold text-[#516274]">Mỗi lần đăng nhập, bạn sẽ cần thêm mã từ ứng dụng xác thực.</p><Button onClick={() => void startMfa()} variant="secondary"><KeyRound size={16} />Thiết lập xác thực hai bước</Button></div> : null}
+      {!profile.mfaEnabled && mfaSetupChallenge ? <form className="mt-6 max-w-xl border-y border-[#d5dfe2] py-5" onSubmit={authorizeMfaSetup}>
+        <h3 className="font-bold">Xác minh email trước</h3>
+        <p className="mt-1 text-sm leading-6 text-[#516274]">Mã bảo mật 6 số đã được gửi tới {mfaSetupChallenge.email}. Nhập mã để bắt đầu thiết lập ứng dụng xác thực.</p>
+        <div className="mt-4 max-w-sm"><Field label="Mã xác thực email"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaSetupEmailCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required value={mfaSetupEmailCode} /></Field></div>
+        <div className="mt-4 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaSetupEmailCode)} type="submit">Xác minh và tiếp tục</Button><Button onClick={() => void startMfa()} type="button" variant="secondary"><MailCheck size={15} />Gửi mã mới</Button><Button onClick={() => { setMfaSetupChallenge(null); setMfaSetupEmailCode(""); }} type="button" variant="ghost">Hủy</Button></div>
+      </form> : null}
       {mfaSetup ? <div className="mt-6 border-y border-[#d5dfe2] py-6">
         <div className="grid gap-7 lg:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)]">
           <div className="flex flex-col items-center border-b border-[#d5dfe2] pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-7">
@@ -174,12 +227,13 @@ export default function AccountPage() {
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{authenticatorApps.map((app) => <button aria-pressed={authenticatorApp === app.id} className={`min-h-16 rounded-xl border px-4 py-3 text-left transition ${authenticatorApp === app.id ? "border-[#102a43] bg-[#eee8dc]" : "border-[#d5dfe2] bg-[#fffdfa] hover:border-[#a9bac1]"}`} key={app.id} onClick={() => setAuthenticatorApp(app.id)} type="button"><span className="block text-sm font-bold">{app.name}</span><span className="mt-1 block text-xs leading-5 text-[#657789]">{app.note}</span></button>)}</div>
             <ol className="mt-4 space-y-2 text-sm leading-6 text-[#516274]"><li><strong className="text-[#102a43]">a.</strong> Mở {authenticatorApps.find((app) => app.id === authenticatorApp)?.name}.</li><li><strong className="text-[#102a43]">b.</strong> Chọn thêm tài khoản rồi quét mã QR bên trái.</li><li><strong className="text-[#102a43]">c.</strong> Nhập mã 6 số ứng dụng vừa tạo vào bước dưới.</li></ol>
             <details className="mt-4 border-t border-[#d5dfe2] pt-4"><summary className="cursor-pointer text-sm font-bold">Không quét được QR?</summary><div className="mt-3 flex items-center gap-2"><code className="min-w-0 break-all rounded-lg bg-[#eee8dc] px-3 py-2 text-sm font-bold tracking-[0.08em]">{mfaSetup.secret}</code><Button aria-label="Sao chép khóa thiết lập" onClick={() => void navigator.clipboard.writeText(mfaSetup.secret)} variant="ghost"><Copy size={15} /></Button></div></details>
-            <div className="mt-5 max-w-sm"><Field label="3. Mã xác thực 6 số"><input autoComplete="one-time-code" className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" value={mfaCode} /></Field><div className="mt-3 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} onClick={() => void confirmMfa()}>Xác nhận và bật</Button><Button onClick={() => { setMfaSetup(null); setMfaCode(""); }} variant="ghost">Hủy</Button></div></div>
+            <div className="mt-5 max-w-sm"><Field label="3. Mã xác thực 6 số"><input autoComplete="one-time-code" className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" value={mfaCode} /></Field><div className="mt-3 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} onClick={() => void confirmMfa()}>Xác nhận và bật</Button><Button onClick={() => { setMfaSetup(null); setMfaQrCode(""); setMfaCode(""); }} variant="ghost">Hủy</Button></div></div>
           </div>
         </div>
       </div> : null}
       {profile.mfaEnabled && mfaDisableStep === "password" ? <form className="mt-6 max-w-xl border-y border-[#d5dfe2] py-5" onSubmit={(event) => void startDisableMfa(event)}><h3 className="font-bold">Xác nhận mật khẩu trước</h3><p className="mt-1 text-sm leading-6 text-[#516274]">Đây là bước 1/2. Mã xác thực chỉ được yêu cầu sau khi mật khẩu đúng.</p><div className="mt-4 max-w-sm"><Field label="Mật khẩu hiện tại"><input autoComplete="current-password" autoFocus className={inputClass} minLength={8} onChange={(event) => setMfaDisablePassword(event.target.value)} required type="password" value={mfaDisablePassword} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!mfaDisablePassword} type="submit">Tiếp tục</Button><Button onClick={cancelDisableMfa} variant="ghost">Hủy</Button></div></form> : null}
-      {profile.mfaEnabled && mfaDisableStep === "code" ? <form className="mt-6 max-w-xl border-y border-[#d5dfe2] py-5" onSubmit={(event) => void disableMfa(event)}><button className="mb-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-[#516274]" onClick={() => { setMfaDisableStep("password"); setMfaCode(""); setMfaDisableChallenge(""); }} type="button"><ArrowLeft size={15} />Quay lại</button><h3 className="font-bold">Nhập mã xác thực</h3><p className="mt-1 text-sm leading-6 text-[#516274]">Bước 2/2. Mở ứng dụng xác thực và nhập mã 6 số hiện tại để tắt bảo vệ.</p><div className="mt-4 max-w-sm"><Field label="Mã xác thực 6 số"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} value={mfaCode} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} type="submit" variant="danger">Xác nhận tắt 2FA</Button><Button onClick={cancelDisableMfa} variant="ghost">Hủy</Button></div></form> : null}
+      {profile.mfaEnabled && mfaDisableStep === "email" ? <form className="mt-6 max-w-xl border-y border-[#d5dfe2] py-5" onSubmit={(event) => void startDisableMfa(event)}><h3 className="font-bold">Xác minh email trước</h3><p className="mt-1 text-sm leading-6 text-[#516274]">Bước 1/2. Nhập mã 6 số đã gửi tới {mfaDisableEmailChallenge?.email} để tiếp tục.</p><div className="mt-4 max-w-sm"><Field label="Mã xác thực email"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaDisableEmailCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required value={mfaDisableEmailCode} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaDisableEmailCode)} type="submit">Xác minh và tiếp tục</Button><Button onClick={() => void beginDisableMfa()} type="button" variant="secondary"><MailCheck size={15} />Gửi mã mới</Button><Button onClick={cancelDisableMfa} type="button" variant="ghost">Hủy</Button></div></form> : null}
+      {profile.mfaEnabled && mfaDisableStep === "code" ? <form className="mt-6 max-w-xl border-y border-[#d5dfe2] py-5" onSubmit={(event) => void disableMfa(event)}>{!profile.googleConnected ? <button className="mb-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-[#516274]" onClick={() => { setMfaDisableStep("password"); setMfaCode(""); setMfaDisableChallenge(""); }} type="button"><ArrowLeft size={15} />Quay lại</button> : null}<h3 className="font-bold">Nhập mã xác thực</h3><p className="mt-1 text-sm leading-6 text-[#516274]">Bước 2/2. Mở ứng dụng xác thực và nhập mã 6 số hiện tại để tắt bảo vệ.</p><div className="mt-4 max-w-sm"><Field label="Mã xác thực 6 số"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} value={mfaCode} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} type="submit" variant="danger">Xác nhận tắt 2FA</Button><Button onClick={cancelDisableMfa} variant="ghost">Hủy</Button></div></form> : null}
       {recoveryCodes.length ? <div className="mt-6 border-y border-[#d5dfe2] bg-[#eee8dc]/55 px-4 py-5"><h3 className="font-bold">Lưu mã khôi phục ngay</h3><p className="mt-1 text-xs leading-5 text-[#657789]">Mỗi mã chỉ dùng được một lần và sẽ không hiển thị lại.</p><div className="mt-4 grid grid-cols-2 gap-2 font-mono text-sm font-bold sm:grid-cols-4">{recoveryCodes.map((code) => <code key={code}>{code}</code>)}</div><Button className="mt-4" onClick={() => void navigator.clipboard.writeText(recoveryCodes.join("\n"))} variant="secondary"><Copy size={15} />Sao chép tất cả</Button></div> : null}
     </section>
 

@@ -8,6 +8,10 @@ interface ApiEnvelope<T> {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
 
+export function publicApiUrl(path: string): string {
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly details?: unknown) {
     super(message);

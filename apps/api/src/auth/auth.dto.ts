@@ -53,9 +53,20 @@ export class UpdateProfileDto {
 }
 
 export class ChangePasswordDto {
+  @IsOptional()
   @IsString()
   @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
-  currentPassword!: string;
+  currentPassword?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
+  challengeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
+  code?: string;
 
   @IsString()
   @Length(8, 128, { message: "Mật khẩu mới phải có từ 8 đến 128 ký tự." })
@@ -136,6 +147,23 @@ export class MfaCodeDto {
   code!: string;
 }
 
+export class SecurityEmailChallengeDto {
+  @IsIn(["PASSWORD_CHANGE", "MFA_SETUP", "MFA_DISABLE"], { message: "Mục đích xác thực email không hợp lệ." })
+  purpose!: "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE";
+}
+
+export class StartMfaSetupDto {
+  @IsOptional()
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
+  challengeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
+  code?: string;
+}
+
 export class MfaLoginDto extends MfaCodeDto {
   @IsString()
   @Length(32, 512, { message: "Phiên xác thực hai bước không hợp lệ." })
@@ -147,9 +175,20 @@ export class MfaLoginDto extends MfaCodeDto {
 }
 
 export class DisableMfaPasswordDto {
+  @IsOptional()
   @IsString()
   @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
-  password!: string;
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
+  challengeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
+  code?: string;
 }
 
 export class DisableMfaDto extends MfaCodeDto {
@@ -170,4 +209,10 @@ export class RecoveryMfaLoginDto {
   @IsOptional()
   @IsBoolean()
   rememberMe?: boolean;
+}
+
+export class GoogleMfaRecoveryDto {
+  @IsString()
+  @Matches(/^[A-F0-9]{5}-[A-F0-9]{5}$/i, { message: "Mã khôi phục không đúng định dạng." })
+  recoveryCode!: string;
 }

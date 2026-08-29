@@ -37,6 +37,8 @@ export interface AccountProfile {
   status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   emailVerifiedAt: string | null;
   mfaEnabled: boolean;
+  hasPassword: boolean;
+  googleConnected: boolean;
   createdAt: string;
 }
 

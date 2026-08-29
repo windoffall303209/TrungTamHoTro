@@ -19,6 +19,7 @@ interface AppContextValue {
   login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
   register: (input: RegisterInput) => Promise<RegistrationResult>;
   completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
+  completeGoogleMfa: (value: string, recovery?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
   refreshSession: () => Promise<boolean>;
@@ -59,6 +60,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const body = recovery ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
     setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, []);
+  const completeGoogleMfa = useCallback(async (value: string, recovery = false) => {
+    const path = recovery ? "/auth/google/mfa/recovery" : "/auth/google/mfa/verify";
+    const body = recovery ? { recoveryCode: value } : { code: value };
+    setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
+  }, []);
   const logout = useCallback(async () => {
     try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
   }, []);
@@ -71,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
   }, []);
 
-  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, completeMfa, logout, setRole, refreshSession, notify }), [authLoading, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
+  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, completeMfa, completeGoogleMfa, logout, setRole, refreshSession, notify }), [authLoading, completeGoogleMfa, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
   return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 
