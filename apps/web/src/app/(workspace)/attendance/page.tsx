@@ -15,7 +15,7 @@ type AppealDecision = "APPROVE" | "REJECT";
 
 export default function AttendancePage() {
   const { session, notify } = useApp();
-  const canManage = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [review, setReview] = useState<AttendanceSessionReview | null>(null);

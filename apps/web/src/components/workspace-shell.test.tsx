@@ -40,7 +40,7 @@ describe("WorkspaceShell", () => {
     await waitFor(() => expect(screen.getByText("Đã đọc tất cả")).toBeInTheDocument());
   });
 
-  it("chỉ hiển thị phân hệ vận hành hệ thống cho quản trị hệ thống", async () => {
+  it("giữ toàn bộ quyền giám sát chung cho quản trị hệ thống nhưng không trộn không gian cá nhân", async () => {
     useApp.mockReturnValue({
       session: {
         roleCode: "SYSTEM_ADMIN",
@@ -57,8 +57,13 @@ describe("WorkspaceShell", () => {
 
     expect(screen.getAllByRole("link", { name: /Người dùng/i })).not.toHaveLength(0);
     expect(screen.getAllByRole("link", { name: /Vai trò & quyền/i })).not.toHaveLength(0);
-    expect(screen.queryAllByRole("link", { name: /Khóa học & lớp/i })).toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Khóa học & lớp/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Kho học liệu/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Ngân hàng câu hỏi/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Điều hành lớp/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Báo cáo/i })).not.toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /Lịch & bài tập/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch sử học tập/i })).toHaveLength(0);
   });
 

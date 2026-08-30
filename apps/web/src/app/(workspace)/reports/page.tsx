@@ -17,7 +17,7 @@ const dateInput = (date: Date): string => `${date.getFullYear()}-${String(date.g
 
 export default function ReportsPage() {
   const { session, notify } = useApp();
-  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const instructor = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:manage");
   const allowed = (manager || instructor) && hasPermission(session, "report:view");
   const today = useMemo(() => new Date(), []);

@@ -13,7 +13,7 @@ import { useApp } from "@/providers/app-provider";
 
 export default function ClassLifecyclePage() {
   const { session, notify } = useApp();
-  const canManage = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(null);

@@ -22,10 +22,10 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function ForumPage() {
   const { session, notify } = useApp();
-  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
+  const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "forum:moderate");
+  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "forum:moderate");
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [reports, setReports] = useState<ContentReport[]>([]);

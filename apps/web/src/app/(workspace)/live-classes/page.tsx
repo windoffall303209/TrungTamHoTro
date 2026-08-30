@@ -14,10 +14,10 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
-  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
+  const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,11 +39,7 @@ export default function LiveClassesPage() {
     try {
       const [sessions, classData] = await Promise.all([
         apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode }),
-        session.roleCode === "SYSTEM_ADMIN"
-          ? Promise.resolve([])
-          : apiRequest<LearningClass[]>("/classes", {
-              roleCode: session.roleCode,
-            }),
+        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
       ]);
       setItems(sessions);
       setClasses(classData);
