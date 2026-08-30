@@ -59,8 +59,8 @@ const toPayload = (form: QuestionForm) => ({
 
 export default function QuestionsPage() {
   const { session, notify } = useApp();
-  const canView = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:view");
-  const canManage = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:manage");
+  const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
+  const canManage = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:manage");
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);

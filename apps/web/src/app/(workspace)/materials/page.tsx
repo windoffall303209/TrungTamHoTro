@@ -14,9 +14,9 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function MaterialsPage() {
   const { session, notify } = useApp();
-  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
+  const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const learner = session.roleCode === "LEARNER";
-  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const instructor = session.roleCode === "INSTRUCTOR" && hasPermission(session, "material:manage");
   const [items, setItems] = useState<Material[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);

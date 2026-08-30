@@ -42,7 +42,7 @@ interface LearnerExam extends Exam {
 }
 export default function ExamsPage() {
   const { session, notify } = useApp();
-  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
+  const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
   const [items, setItems] = useState<LearnerExam[]>([]);
