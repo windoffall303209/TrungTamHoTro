@@ -12,7 +12,7 @@ describe("DashboardHome", () => {
   beforeEach(() => { apiRequest.mockReset(); useApp.mockReset(); });
 
   it("chỉ hiển thị phân hệ thuộc quyền học viên và lấy số liệu thật", async () => {
-    useApp.mockReturnValue({ session: { roleCode: "LEARNER", user: { roleName: "Học viên" } } });
+    useApp.mockReturnValue({ session: { roleCode: "LEARNER", permissions: ["course:view", "class:view", "material:view", "exam:view", "forum:view", "forum:post", "session:view", "support:create"], user: { roleName: "Học viên" } } });
     apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/learner/classes"
       ? [{ status: "ACTIVE" }, { status: "CLOSED" }]
       : path === "/learner/exams"
@@ -28,7 +28,7 @@ describe("DashboardHome", () => {
   });
 
   it("hiển thị trạng thái suy giảm thay vì số liệu dựng sẵn cho quản trị", async () => {
-    useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", user: { roleName: "Quản trị hệ thống" } } });
+    useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", permissions: ["material:view", "question:view", "forum:view", "session:view"], user: { roleName: "Quản trị hệ thống" } } });
     apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/admin/users"
       ? [{ status: "ACTIVE" }, { status: "LOCKED" }]
       : path === "/admin/roles"

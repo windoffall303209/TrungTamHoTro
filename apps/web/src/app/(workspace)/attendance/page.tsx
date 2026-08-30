@@ -6,6 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import type { AttendanceAppeal, AttendanceSessionReview, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -13,6 +14,7 @@ type AppealDecision = "APPROVE" | "REJECT";
 
 export default function AttendancePage() {
   const { session, notify } = useApp();
+  const canManage = hasPermission(session, "class:manage");
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [review, setReview] = useState<AttendanceSessionReview | null>(null);
@@ -35,7 +37,7 @@ export default function AttendancePage() {
   }, [notify, session.roleCode]);
 
   const loadSessions = useCallback(async () => {
-    if (session.roleCode !== "CENTER_MANAGER") return;
+    if (!canManage) return;
     try {
       const data = (await apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode })).filter((item) => item.status === "COMPLETED");
       setSessions(data);
@@ -45,7 +47,7 @@ export default function AttendancePage() {
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được danh sách buổi học.", "error");
     }
-  }, [loadReview, notify, selectedId, session.roleCode]);
+  }, [canManage, loadReview, notify, selectedId, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadSessions(), 0);
@@ -129,7 +131,7 @@ export default function AttendancePage() {
     }
   };
 
-  if (session.roleCode !== "CENTER_MANAGER") return <AccessDenied />;
+  if (!canManage) return <AccessDenied />;
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">

@@ -8,12 +8,13 @@ import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { hasPermission } from "@/lib/access-control";
 
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
   const instructor = session.roleCode === "INSTRUCTOR";
-  const manager = session.roleCode === "CENTER_MANAGER";
   const learner = session.roleCode === "LEARNER";
+  const manager = !instructor && !learner && hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);

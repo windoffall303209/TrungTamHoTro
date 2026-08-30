@@ -10,43 +10,49 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
-import type { RoleCode } from "@/lib/app-types";
+import type { PermissionCode, RoleCode } from "@/lib/app-types";
+import { hasAnyPermission } from "@/lib/access-control";
 import type { LearningNotification } from "@/lib/learning-types";
 
-const roleOptions: Array<{ code: RoleCode; label: string }> = [
-  { code: "SYSTEM_ADMIN", label: "Quản trị hệ thống" },
-  { code: "CENTER_MANAGER", label: "Quản lý trung tâm" },
-  { code: "INSTRUCTOR", label: "Giảng viên" },
-  { code: "LEARNER", label: "Học viên" },
-];
+interface NavigationItem {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  permissions?: readonly PermissionCode[];
+  roles?: readonly RoleCode[];
+}
 
-const navItems = [
-  { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard, roles: roleOptions.map((role) => role.code) },
-  { href: "/courses", label: "Khóa học & lớp", icon: GraduationCap, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/materials", label: "Kho học liệu", icon: Database, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion, roles: ["INSTRUCTOR"] },
-  { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/academic", label: "Lịch & bài tập", icon: ClipboardCheck, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, roles: ["CENTER_MANAGER", "INSTRUCTOR"] },
-  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, roles: ["CENTER_MANAGER"] },
-  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, roles: ["CENTER_MANAGER"] },
-  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, roles: ["CENTER_MANAGER"] },
-  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, roles: ["INSTRUCTOR"] },
+const navItems: NavigationItem[] = [
+  { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
+  { href: "/courses", label: "Khóa học & lớp", icon: GraduationCap, permissions: ["course:view", "class:view"] },
+  { href: "/materials", label: "Kho học liệu", icon: Database, permissions: ["material:view"] },
+  { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion, permissions: ["question:view"] },
+  { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck, permissions: ["exam:view"] },
+  { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, permissions: ["forum:view"] },
+  { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, permissions: ["session:view"] },
+  { href: "/academic", label: "Lịch & bài tập", icon: ClipboardCheck, permissions: ["class:view", "exam:view"] },
+  { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, permissions: ["report:view"] },
+  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, permissions: ["class:manage"] },
+  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, permissions: ["class:manage"] },
+  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, permissions: ["class:manage"] },
+  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
-  { href: "/support", label: "Hỗ trợ", icon: Headphones, roles: roleOptions.map((role) => role.code) },
-  { href: "/account", label: "Tài khoản", icon: UserRoundCog, roles: roleOptions.map((role) => role.code) },
-  { href: "/admin/users", label: "Người dùng", icon: Users, roles: ["SYSTEM_ADMIN"] },
-  { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, roles: ["SYSTEM_ADMIN"] },
-  { href: "/admin/settings", label: "Cấu hình", icon: Settings, roles: ["SYSTEM_ADMIN"] },
-  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, roles: ["SYSTEM_ADMIN"] },
-] as const;
+  { href: "/support", label: "Hỗ trợ", icon: Headphones, permissions: ["support:create", "support:manage"] },
+  { href: "/account", label: "Tài khoản", icon: UserRoundCog },
+  { href: "/admin/users", label: "Người dùng", icon: Users, permissions: ["user:view"] },
+  { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, permissions: ["role:view"] },
+  { href: "/admin/settings", label: "Cấu hình", icon: Settings, permissions: ["system:configure"] },
+  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, permissions: ["system:configure"] },
+];
 
 function Sidebar({ close }: { close?: () => void }) {
   const pathname = usePathname();
   const { session } = useApp();
-  const available = navItems.filter((item) => (item.roles as readonly RoleCode[]).includes(session.roleCode));
+  const available = navItems.filter((item) => {
+    const roleAllowed = !item.roles || item.roles.includes(session.roleCode);
+    const permissionAllowed = !item.permissions || hasAnyPermission(session, item.permissions);
+    return roleAllowed && permissionAllowed;
+  });
 
   return (
     <div className="flex h-full flex-col bg-[#102a43] text-[#fffdfa]">

@@ -10,6 +10,7 @@ import { UserPicker } from "@/components/user-picker";
 import { apiRequest } from "@/lib/api-client";
 import type { Course, CourseVersionSnapshot, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { hasPermission } from "@/lib/access-control";
 
 const blankCourse = { code: "", name: "", description: "", outcomes: "" };
 const blankClass = { courseId: "", code: "", name: "", term: "2026-2027", startAt: "", endAt: "", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false };
@@ -23,7 +24,7 @@ export default function CoursesPage() {
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null); const [versionTarget, setVersionTarget] = useState<Course | null>(null); const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
   const [archiveTarget, setArchiveTarget] = useState<Course | null>(null); const [archiveReason, setArchiveReason] = useState("");
   const [managing, setManaging] = useState<LearningClass | null>(null); const [memberForm, setMemberForm] = useState({ instructorId: "", learnerId: "" });
-  const manager = session.roleCode === "CENTER_MANAGER";
+  const manager = hasPermission(session, "course:manage");
   const load = useCallback(async () => { setLoading(true); try { const [courseData, classData] = await Promise.all([manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]), apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode })]); setCourses(courseData); setClasses(classData); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error"); } finally { setLoading(false); } }, [manager, notify, session.roleCode]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   const createCourse = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const payload = { ...courseForm, outcomes: courseForm.outcomes.split("\n").map((item) => item.trim()).filter(Boolean) }; await apiRequest(editingCourseId ? `/manager/courses/${editingCourseId}` : "/manager/courses", { method: editingCourseId ? "PATCH" : "POST", roleCode: session.roleCode, body: JSON.stringify(editingCourseId ? { name: payload.name, description: payload.description, outcomes: payload.outcomes } : payload) }); notify(editingCourseId ? "Đã tạo bản nháp mới; phiên bản đang dùng của lớp không đổi." : "Đã tạo khóa học bản nháp."); setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được khóa học.", "error"); } finally { setSaving(false); } };

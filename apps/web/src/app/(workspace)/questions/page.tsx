@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import type {
   Course,
   Question,
@@ -57,6 +58,9 @@ const toPayload = (form: QuestionForm) => ({
 
 export default function QuestionsPage() {
   const { session, notify } = useApp();
+  const canView = hasPermission(session, "question:view");
+  const canManage = hasPermission(session, "question:manage");
+  const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [query, setQuery] = useState("");
@@ -78,7 +82,7 @@ export default function QuestionsPage() {
   );
 
   const load = useCallback(async () => {
-    if (session.roleCode !== "INSTRUCTOR") return;
+    if (!canView) return;
     setLoading(true);
     const params = new URLSearchParams();
     if (query.trim()) params.set("query", query.trim());
@@ -91,9 +95,9 @@ export default function QuestionsPage() {
           `/instructor/question-bank/questions?${params.toString()}`,
           { roleCode: session.roleCode },
         ),
-        apiRequest<Course[]>("/manager/courses", {
-          roleCode: "CENTER_MANAGER",
-        }),
+        canViewCourses
+          ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode })
+          : Promise.resolve([]),
       ]);
       setItems(questions);
       setCourses(courseData);
@@ -105,7 +109,7 @@ export default function QuestionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, notify, query, session.roleCode]);
+  }, [canView, canViewCourses, filters, notify, query, session.roleCode]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -212,7 +216,7 @@ export default function QuestionsPage() {
     }
   };
 
-  if (session.roleCode !== "INSTRUCTOR") return <AccessDenied />;
+  if (!canView) return <AccessDenied />;
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
@@ -220,7 +224,7 @@ export default function QuestionsPage() {
         eyebrow="Assessment Design"
         title="Ngân hàng câu hỏi"
         description="Tìm kiếm, phiên bản hóa và kiểm soát câu hỏi trước khi đưa vào đề."
-        actions={
+        actions={canManage ? (
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setImportOpen(true)} variant="secondary">
               <Upload size={17} />
@@ -231,7 +235,7 @@ export default function QuestionsPage() {
               Soạn câu hỏi
             </Button>
           </div>
-        }
+        ) : undefined}
       />
       <section className="mb-6 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-4">
         <div className="grid gap-3 md:grid-cols-5">
@@ -330,7 +334,7 @@ export default function QuestionsPage() {
                     : "Chưa gắn thẻ"}
                 </p>
               </div>
-              <div className="flex items-start gap-2">
+              {canManage ? <div className="flex items-start gap-2">
                 <Button
                   aria-label="Sửa thành phiên bản mới"
                   onClick={() => openEdit(item)}
@@ -353,7 +357,7 @@ export default function QuestionsPage() {
                     size={24}
                   />
                 )}
-              </div>
+              </div> : null}
             </article>
           ))}
         </div>

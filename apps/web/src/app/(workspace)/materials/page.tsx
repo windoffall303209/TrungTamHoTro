@@ -8,12 +8,13 @@ import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type { LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { hasPermission } from "@/lib/access-control";
 
 export default function MaterialsPage() {
   const { session, notify } = useApp();
-  const instructor = session.roleCode === "INSTRUCTOR";
-  const manager = session.roleCode === "CENTER_MANAGER";
   const learner = session.roleCode === "LEARNER";
+  const manager = !learner && hasPermission(session, "class:manage");
+  const instructor = !learner && !manager && hasPermission(session, "material:manage");
   const [items, setItems] = useState<Material[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [query, setQuery] = useState("");

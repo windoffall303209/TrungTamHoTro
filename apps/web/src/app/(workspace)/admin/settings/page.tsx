@@ -13,6 +13,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import { useApp } from "@/providers/app-provider";
 
 interface Settings {
@@ -75,6 +76,7 @@ interface StorageOverview {
 
 export default function SettingsPage() {
   const { session, notify } = useApp();
+  const canConfigure = hasPermission(session, "system:configure");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [history, setHistory] = useState<Settings[]>([]);
   const [effectiveAt, setEffectiveAt] = useState("");
@@ -89,7 +91,7 @@ export default function SettingsPage() {
     webhookUrl: "",
   });
   const load = useCallback(async () => {
-    if (session.roleCode !== "SYSTEM_ADMIN") return;
+    if (!canConfigure) return;
     try {
       const [a, b, c, d, e, f] = await Promise.all([
         apiRequest<Settings>("/system/settings", {
@@ -121,7 +123,7 @@ export default function SettingsPage() {
         "error",
       );
     }
-  }, [notify, session.roleCode]);
+  }, [canConfigure, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -274,7 +276,7 @@ export default function SettingsPage() {
       );
     }
   };
-  if (session.roleCode !== "SYSTEM_ADMIN") return <AccessDenied />;
+  if (!canConfigure) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader

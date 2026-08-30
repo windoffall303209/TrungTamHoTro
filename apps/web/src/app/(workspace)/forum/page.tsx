@@ -16,12 +16,13 @@ import type {
   ModerationContext,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { hasPermission } from "@/lib/access-control";
 
 export default function ForumPage() {
   const { session, notify } = useApp();
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = session.roleCode === "CENTER_MANAGER";
+  const manager = !instructor && !learner && hasPermission(session, "forum:moderate");
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [reports, setReports] = useState<ContentReport[]>([]);
