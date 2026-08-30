@@ -24,25 +24,25 @@ interface NavigationItem {
 
 const navItems: NavigationItem[] = [
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
-  { href: "/courses", label: "Khóa học & lớp", icon: GraduationCap, permissions: ["course:view", "class:view"] },
-  { href: "/materials", label: "Kho học liệu", icon: Database, permissions: ["material:view"] },
-  { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion, permissions: ["question:view"] },
-  { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck, permissions: ["exam:view"] },
-  { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, permissions: ["forum:view"] },
-  { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, permissions: ["session:view"] },
-  { href: "/academic", label: "Lịch & bài tập", icon: ClipboardCheck, permissions: ["class:view", "exam:view"] },
-  { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, permissions: ["report:view"] },
-  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, permissions: ["class:manage"] },
-  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, permissions: ["class:manage"] },
-  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, permissions: ["class:manage"] },
-  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"] },
+  { href: "/courses", label: "Khóa học & lớp", icon: GraduationCap, permissions: ["course:view", "class:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/materials", label: "Kho học liệu", icon: Database, permissions: ["material:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion, permissions: ["question:view"], roles: ["INSTRUCTOR"] },
+  { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck, permissions: ["exam:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, permissions: ["forum:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, permissions: ["session:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/academic", label: "Lịch & bài tập", icon: ClipboardCheck, permissions: ["class:view", "exam:view"], roles: ["INSTRUCTOR", "LEARNER"] },
+  { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, permissions: ["report:view"], roles: ["CENTER_MANAGER", "INSTRUCTOR"] },
+  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, permissions: ["class:manage"], roles: ["CENTER_MANAGER"] },
+  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, permissions: ["class:manage"], roles: ["CENTER_MANAGER"] },
+  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, permissions: ["class:manage"], roles: ["CENTER_MANAGER"] },
+  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"], roles: ["INSTRUCTOR"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, permissions: ["support:create", "support:manage"] },
   { href: "/account", label: "Tài khoản", icon: UserRoundCog },
-  { href: "/admin/users", label: "Người dùng", icon: Users, permissions: ["user:view"] },
-  { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, permissions: ["role:view"] },
-  { href: "/admin/settings", label: "Cấu hình", icon: Settings, permissions: ["system:configure"] },
-  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, permissions: ["system:configure"] },
+  { href: "/admin/users", label: "Người dùng", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, permissions: ["role:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/settings", label: "Cấu hình", icon: Settings, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
 ];
 
 function Sidebar({ close }: { close?: () => void }) {
@@ -65,9 +65,10 @@ function Sidebar({ close }: { close?: () => void }) {
         <div className="space-y-1">
           {available.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(`${href}/`);
+            const resolvedLabel = href === "/courses" ? session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : label : label;
             return (
               <Link aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-[#fffdfa] text-[#102a43]" : "text-[#bfd0d8] hover:bg-white/8 hover:text-[#fffdfa]"}`} href={href} key={href} onClick={close}>
-                <Icon className={active ? "text-[#c75b39]" : "text-[#9fb5c2] group-hover:text-[#fffdfa]"} size={18} />{label}
+                <Icon className={active ? "text-[#c75b39]" : "text-[#9fb5c2] group-hover:text-[#fffdfa]"} size={18} />{resolvedLabel}
               </Link>
             );
           })}

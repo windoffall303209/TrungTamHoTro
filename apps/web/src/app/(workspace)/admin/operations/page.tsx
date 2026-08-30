@@ -99,7 +99,7 @@ interface SystemAlert {
 
 export default function OperationsPage() {
   const { session, notify } = useApp();
-  const canConfigure = hasPermission(session, "system:configure");
+  const canConfigure = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
   const [audit, setAudit] = useState<Audit[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [exports, setExports] = useState<ExportJob[]>([]);

@@ -2,8 +2,10 @@
 
 import { CheckCircle2, Clock3, Play, Plus, RotateCcw, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type {
@@ -40,6 +42,7 @@ interface LearnerExam extends Exam {
 }
 export default function ExamsPage() {
   const { session, notify } = useApp();
+  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
   const [items, setItems] = useState<LearnerExam[]>([]);
@@ -61,6 +64,7 @@ export default function ExamsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(blank);
   const load = useCallback(async () => {
+    if (!allowed) return;
     setLoading(true);
     try {
       const [exams, classData, questionData, resultData] = await Promise.all([
@@ -89,7 +93,7 @@ export default function ExamsPage() {
     } finally {
       setLoading(false);
     }
-  }, [instructor, learner, notify, session.roleCode]);
+  }, [allowed, instructor, learner, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -252,6 +256,7 @@ export default function ExamsPage() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [activeExam, attempt, submit]);
+  if (!allowed) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
@@ -429,19 +434,7 @@ export default function ExamsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Tạo đề thi">
         <form className="space-y-4" onSubmit={(e) => void create(e)}>
           <Field label="Lớp học">
-            <select
-              className={inputClass}
-              required
-              value={form.classId}
-              onChange={(e) => setForm({ ...form, classId: e.target.value })}
-            >
-              <option value="">Chọn lớp</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn lớp ra đề" onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
           </Field>
           <Field label="Tên đề">
             <input
@@ -532,7 +525,7 @@ export default function ExamsPage() {
           <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700"><input checked={form.shuffleQuestions} className="size-5 accent-sky-600" onChange={(event) => setForm({ ...form, shuffleQuestions: event.target.checked })} type="checkbox" />Xáo thứ tự câu hỏi theo seed có thể tái lập</label>
           {form.shuffleQuestions ? <Field label="Random seed"><input className={inputClass} minLength={3} required value={form.randomSeed} onChange={(event) => setForm({ ...form, randomSeed: event.target.value })} /></Field> : null}
           <Button
-            disabled={form.questionIds.length === 0}
+            disabled={!form.classId || form.questionIds.length === 0}
             loading={saving}
             type="submit"
           >

@@ -2,8 +2,10 @@
 
 import { Bell, Eye, EyeOff, Flag, Lock, MessageCircle, Paperclip, Pencil, Pin, Plus, Send, ShieldCheck, Trash2, Unlock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type {
@@ -20,9 +22,10 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function ForumPage() {
   const { session, notify } = useApp();
+  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = !instructor && !learner && hasPermission(session, "forum:moderate");
+  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "forum:moderate");
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [reports, setReports] = useState<ContentReport[]>([]);
@@ -58,6 +61,7 @@ export default function ForumPage() {
     isPinned: false,
   });
   const load = useCallback(async () => {
+    if (!allowed) return;
     setLoading(true);
     setTopics([]);
     setSelected(null);
@@ -95,7 +99,7 @@ export default function ForumPage() {
     } finally {
       setLoading(false);
     }
-  }, [learner, manager, notify, session.roleCode]);
+  }, [allowed, learner, manager, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -296,6 +300,7 @@ export default function ForumPage() {
       setSubmitting(false);
     }
   };
+  if (!allowed) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
@@ -494,19 +499,7 @@ export default function ForumPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Mở chủ đề">
         <form className="space-y-4" onSubmit={(e) => void createTopic(e)}>
           <Field label="Lớp học">
-            <select
-              className={inputClass}
-              required
-              value={form.classId}
-              onChange={(e) => setForm({ ...form, classId: e.target.value })}
-            >
-              <option value="">Chọn lớp</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn lớp mở chủ đề" onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
           </Field>
           <Field label="Tiêu đề">
             <input
@@ -546,7 +539,7 @@ export default function ForumPage() {
               Ghim chủ đề
             </label>
           ) : null}
-          <Button type="submit">Tạo chủ đề</Button>
+          <Button disabled={!form.classId} type="submit">Tạo chủ đề</Button>
         </form>
       </Modal>
       <Modal open={Boolean(reportTarget)} onClose={() => setReportTarget(null)} title="Báo cáo nội dung" description="Quản lý sẽ nhận đúng chủ đề, lý do và mô tả; báo cáo trùng đang mở sẽ bị chặn.">

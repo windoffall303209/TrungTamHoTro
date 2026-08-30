@@ -4,22 +4,25 @@ import { CheckCircle2, ClipboardCheck, Link2, Save, UserCheck } from "lucide-rea
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasEveryPermission } from "@/lib/access-control";
-import type { ExamAttempt, LiveSession } from "@/lib/learning-types";
+import type { DirectoryUser, ExamAttempt, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 export default function TeachingOperationsPage() {
   const { session, notify } = useApp();
-  const canManageTeaching = hasEveryPermission(session, ["question:manage", "exam:manage", "session:manage"]);
+  const canManageTeaching = session.roleCode === "INSTRUCTOR" && hasEveryPermission(session, ["question:manage", "exam:manage", "session:manage"]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [learners, setLearners] = useState<DirectoryUser[]>([]);
+  const [learnersSessionId, setLearnersSessionId] = useState("");
   const [grading, setGrading] = useState<ExamAttempt | null>(null);
   const [grade, setGrade] = useState({ score: 0, feedback: "", correctionReason: "" });
   const [attendance, setAttendance] = useState({
     sessionId: "",
-    learnerId: "usr-learner",
+    learnerId: "",
     status: "PRESENT",
     attendedMinutes: 60,
     adjustmentReason: "Xác nhận theo nhật ký phòng học",
@@ -59,6 +62,29 @@ export default function TeachingOperationsPage() {
       );
     }
   }, [canManageTeaching, notify, session.roleCode]);
+
+  const selectAttendanceSession = useCallback(async (sessionId: string) => {
+    setAttendance((current) => ({ ...current, sessionId, learnerId: "" }));
+    const classId = sessions.find((item) => item.id === sessionId)?.classId;
+    if (!classId) {
+      setLearners([]);
+      setLearnersSessionId(sessionId);
+      return;
+    }
+    try {
+      setLearners(await apiRequest<DirectoryUser[]>(`/instructor/classes/${classId}/learners`, { roleCode: session.roleCode }));
+      setLearnersSessionId(sessionId);
+    } catch (error) {
+      setLearners([]);
+      setLearnersSessionId(sessionId);
+      notify(error instanceof Error ? error.message : "Không tải được học viên của lớp.", "error");
+    }
+  }, [notify, session.roleCode, sessions]);
+  useEffect(() => {
+    if (!attendance.sessionId || !sessions.length || learnersSessionId === attendance.sessionId) return;
+    const timer = window.setTimeout(() => void selectAttendanceSession(attendance.sessionId), 0);
+    return () => window.clearTimeout(timer);
+  }, [attendance.sessionId, learnersSessionId, selectAttendanceSession, sessions.length]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -209,34 +235,11 @@ export default function TeachingOperationsPage() {
               onSubmit={(e) => void saveAttendance(e)}
             >
               <Field label="Buổi học">
-                <select
-                  className={inputClass}
-                  required
-                  value={attendance.sessionId}
-                  onChange={(e) =>
-                    setAttendance({ ...attendance, sessionId: e.target.value })
-                  }
-                >
-                  {sessions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.title}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect aria-label="Tìm và chọn buổi học" onChange={(value) => void selectAttendanceSession(value)} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={attendance.sessionId} />
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Mã học viên">
-                  <input
-                    className={inputClass}
-                    required
-                    value={attendance.learnerId}
-                    onChange={(e) =>
-                      setAttendance({
-                        ...attendance,
-                        learnerId: e.target.value,
-                      })
-                    }
-                  />
+                <Field label="Học viên">
+                  <SearchableSelect aria-label="Tìm và chọn học viên" disabled={!attendance.sessionId} emptyMessage="Lớp chưa có học viên đang ghi danh." onChange={(value) => setAttendance({ ...attendance, learnerId: value })} options={learners.map((item) => ({ value: item.id, label: item.displayName, description: item.email, keywords: item.id }))} placeholder={attendance.sessionId ? "Gõ tên hoặc email học viên…" : "Chọn buổi học trước"} value={attendance.learnerId} />
                 </Field>
                 <Field label="Trạng thái">
                   <select
@@ -281,7 +284,7 @@ export default function TeachingOperationsPage() {
                   }
                 />
               </Field>
-              <Button type="submit">
+              <Button disabled={!attendance.sessionId || !attendance.learnerId} type="submit">
                 <Save size={16} />
                 Lưu điểm danh
               </Button>
@@ -299,23 +302,7 @@ export default function TeachingOperationsPage() {
               onSubmit={(e) => void attachRecording(e)}
             >
               <Field label="Buổi đã kết thúc">
-                <select
-                  className={inputClass}
-                  required
-                  value={recording.sessionId}
-                  onChange={(e) =>
-                    setRecording({ ...recording, sessionId: e.target.value })
-                  }
-                >
-                  <option value="">Chọn buổi học</option>
-                  {sessions
-                    .filter((item) => item.status === "COMPLETED")
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.title}
-                      </option>
-                    ))}
-                </select>
+                <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => setRecording({ ...recording, sessionId: value })} options={sessions.filter((item) => item.status === "COMPLETED").map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={recording.sessionId} />
               </Field>
               <Field label="URL bản ghi">
                 <input

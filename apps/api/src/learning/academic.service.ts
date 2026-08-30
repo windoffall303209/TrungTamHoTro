@@ -152,6 +152,7 @@ export class AcademicService {
   }
 
   private async requireTeachingAccess(classId: string, session: AuthenticatedSession): Promise<void> {
+    if (session.roleCode !== "INSTRUCTOR") throw new ForbiddenException("Nghiệp vụ học thuật chỉ dành cho giảng viên được phân công.");
     if (!session.permissions.includes("exam:manage") || !(await this.accessibleClassIds(session)).includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
   }
 

@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardHome } from "./dashboard-home";
 
 const apiRequest = vi.fn();
@@ -10,6 +10,7 @@ vi.mock("@/providers/app-provider", () => ({ useApp: () => useApp() }));
 
 describe("DashboardHome", () => {
   beforeEach(() => { apiRequest.mockReset(); useApp.mockReset(); });
+  afterEach(cleanup);
 
   it("chỉ hiển thị phân hệ thuộc quyền học viên và lấy số liệu thật", async () => {
     useApp.mockReturnValue({ session: { roleCode: "LEARNER", permissions: ["course:view", "class:view", "material:view", "exam:view", "forum:view", "forum:post", "session:view", "support:create"], user: { roleName: "Học viên" } } });
@@ -28,7 +29,7 @@ describe("DashboardHome", () => {
   });
 
   it("hiển thị trạng thái suy giảm thay vì số liệu dựng sẵn cho quản trị", async () => {
-    useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", permissions: ["material:view", "question:view", "forum:view", "session:view"], user: { roleName: "Quản trị hệ thống" } } });
+    useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", permissions: ["user:view", "role:view", "system:configure", "material:view", "question:view", "forum:view", "session:view"], user: { roleName: "Quản trị hệ thống" } } });
     apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/admin/users"
       ? [{ status: "ACTIVE" }, { status: "LOCKED" }]
       : path === "/admin/roles"
@@ -40,6 +41,9 @@ describe("DashboardHome", () => {
     render(<DashboardHome />);
     expect(await screen.findByText("Suy giảm")).toBeInTheDocument();
     expect(screen.getByText("dịch vụ · CSDL disabled")).toBeInTheDocument();
+    expect(screen.getByText("Người dùng")).toBeInTheDocument();
+    expect(screen.getByText("Vai trò & quyền")).toBeInTheDocument();
+    expect(screen.queryByText("Nghiệp vụ giảng dạy")).not.toBeInTheDocument();
     expect(screen.queryByText("100%")).not.toBeInTheDocument();
   });
 });

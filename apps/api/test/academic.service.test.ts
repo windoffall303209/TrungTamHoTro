@@ -42,8 +42,12 @@ describe("AcademicService", () => {
 
   it("đưa bài tập vào lịch tổng và phát thông báo lớp", async () => {
     expect((await service.calendar(learner)).some((event) => event.id === `assignment-${assignmentId}`)).toBe(true);
-    const announcement = await service.createAnnouncement("class-web-01", `Thông báo ${suffix}`, "Lớp kiểm tra lại lịch và bài tập mới.", administrator);
+    const announcement = await service.createAnnouncement("class-web-01", `Thông báo ${suffix}`, "Lớp kiểm tra lại lịch và bài tập mới.", instructor);
     announcementId = announcement.id;
     expect((await service.listAnnouncements(learner)).some((item) => item.id === announcement.id)).toBe(true);
+  });
+
+  it("không cho quản trị hệ thống thực hiện nghiệp vụ học thuật của giảng viên", async () => {
+    await expect(service.createAnnouncement("class-web-01", `Thông báo quản trị ${suffix}`, "Nội dung không được phép phát từ vai trò quản trị.", administrator)).rejects.toThrow("Nghiệp vụ học thuật chỉ dành cho giảng viên được phân công.");
   });
 });

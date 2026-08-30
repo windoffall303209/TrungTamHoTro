@@ -4,6 +4,7 @@ import { CheckCheck, History, RotateCcw, Trash2, Upload, UserPlus, UsersRound } 
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal } from "@/components/ui";
 import { UserPicker } from "@/components/user-picker";
 import { apiRequest } from "@/lib/api-client";
@@ -15,7 +16,7 @@ type ReviewDecision = "APPROVE" | "RETURN";
 
 export default function ClassOperationsPage() {
   const { session, notify } = useApp();
-  const canManage = hasPermission(session, "class:manage");
+  const canManage = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -150,9 +151,7 @@ export default function ClassOperationsPage() {
         <p className="mt-2 text-sm text-slate-500">Kiểm soát vai trò, tải giảng dạy, sĩ số và toàn bộ lịch sử thay đổi.</p>
         <div className="mt-5 max-w-xl">
           <Field label="Lớp học">
-            <select className={inputClass} value={member.classId} onChange={(event) => { setMember({ ...member, classId: event.target.value }); setImportResults([]); }}>
-              {classes.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn lớp học" onChange={(value) => { setMember({ ...member, classId: value }); setImportResults([]); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={member.classId} />
           </Field>
         </div>
         </div>

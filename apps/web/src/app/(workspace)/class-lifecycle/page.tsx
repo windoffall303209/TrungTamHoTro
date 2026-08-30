@@ -4,6 +4,7 @@ import { Archive, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
@@ -12,7 +13,7 @@ import { useApp } from "@/providers/app-provider";
 
 export default function ClassLifecyclePage() {
   const { session, notify } = useApp();
-  const canManage = hasPermission(session, "class:manage");
+  const canManage = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(null);
@@ -105,10 +106,7 @@ export default function ClassLifecyclePage() {
 
       <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
         <Field label="Lớp cần quản lý">
-          <select className={inputClass} value={selectedId} onChange={(event) => { setSelectedId(event.target.value); void loadReadiness(event.target.value); }}>
-            <option value="">Chọn lớp</option>
-            {classes.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name} · {item.status}</option>)}
-          </select>
+          <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); void loadReadiness(value); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
         </Field>
         {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d5dfe2] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString("vi-VN")} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
       </section>

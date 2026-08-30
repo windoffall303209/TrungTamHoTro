@@ -741,6 +741,21 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
+  async listInstructorClassLearners(classId: string, instructorId: string): Promise<DirectoryUser[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const classItem = await prisma.learningClass.findFirst({
+        where: { id: classId, instructors: { some: { instructorId } } },
+        include: { enrollments: { where: { status: "ACTIVE" }, include: { learner: { select: { id: true, displayName: true, email: true } } }, orderBy: { learner: { displayName: "asc" } } } },
+      });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp được phân công.");
+      return classItem.enrollments.map(({ learner }) => ({ id: learner.id, displayName: learner.displayName, email: learner.email, roleCode: "LEARNER" }));
+    }
+    const classItem = this.findClass(classId);
+    if (!classItem.instructorIds.includes(instructorId)) throw new NotFoundException("Không tìm thấy lớp được phân công.");
+    return classItem.learnerIds.map((learnerId) => ({ id: learnerId, displayName: learnerId, email: "", roleCode: "LEARNER" }));
+  }
+
   async searchDirectory(roleCode: "INSTRUCTOR" | "LEARNER", query = "", classId?: string): Promise<DirectoryUser[]> {
     const prisma = this.database();
     if (!prisma) return [];

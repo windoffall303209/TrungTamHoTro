@@ -2,8 +2,10 @@
 
 import { Download, Eye, FileText, FolderOpen, History, Plus, Search, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type { LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
@@ -12,9 +14,10 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function MaterialsPage() {
   const { session, notify } = useApp();
+  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const learner = session.roleCode === "LEARNER";
-  const manager = !learner && hasPermission(session, "class:manage");
-  const instructor = !learner && !manager && hasPermission(session, "material:manage");
+  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
+  const instructor = session.roleCode === "INSTRUCTOR" && hasPermission(session, "material:manage");
   const [items, setItems] = useState<Material[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [query, setQuery] = useState("");
@@ -38,6 +41,7 @@ export default function MaterialsPage() {
   const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
 
   const load = useCallback(async () => {
+    if (!allowed) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -68,7 +72,7 @@ export default function MaterialsPage() {
     } finally {
       setLoading(false);
     }
-  }, [classFilter, learner, mimeFilter, notify, page, query, session.roleCode, tagFilter]);
+  }, [allowed, classFilter, learner, mimeFilter, notify, page, query, session.roleCode, tagFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
@@ -175,6 +179,7 @@ export default function MaterialsPage() {
     }
   };
 
+  if (!allowed) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
@@ -188,7 +193,7 @@ export default function MaterialsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
           <input className={`${inputClass} pl-10`} placeholder="Tìm tên, thư mục…" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
         </div>
-        {learner ? <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); setPage(1); }}><option value="">Tất cả lớp đã ghi danh</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}</select> : null}
+        {learner ? <div className="min-w-64"><SearchableSelect aria-label="Tìm và lọc theo lớp" onChange={(value) => { setClassFilter(value); setPage(1); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Tất cả lớp đã ghi danh" value={classFilter} /></div> : null}
         {learner ? <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select> : null}
         {learner ? <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setPage(1); }} /> : null}
       </div>
@@ -227,10 +232,7 @@ export default function MaterialsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Lớp học">
-            <select className={inputClass} required value={form.classId} onChange={(event) => setForm({ ...form, classId: event.target.value })}>
-              <option value="">Chọn lớp</option>
-              {classes.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn lớp học" onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
           </Field>
           <Field label="Tệp học liệu">
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-sm font-bold text-sky-800">
@@ -242,7 +244,7 @@ export default function MaterialsPage() {
           <Field label="Thư mục"><input className={inputClass} required value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })} /></Field>
           <Field label="Thẻ — ngăn cách bằng dấu phẩy"><input className={inputClass} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field>
           {file ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{file.type || "MIME không xác định"} · {(file.size / 1_000_000).toFixed(2)} MB</p> : null}
-          <Button disabled={!file} loading={saving} type="submit">Tải lên và kiểm tra</Button>
+          <Button disabled={!file || !form.classId} loading={saving} type="submit">Tải lên và kiểm tra</Button>
         </form>
       </Modal>
       <Modal open={Boolean(reviewTarget)} onClose={() => setReviewTarget(null)} title="Kiểm duyệt học liệu" description={reviewTarget?.name}>

@@ -36,6 +36,9 @@ export class CourseController {
   @Get("instructor/classes") @RequirePermissions("class:view")
   listInstructorClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses("INSTRUCTOR", session.user.id); }
 
+  @Get("instructor/classes/:classId/learners") @RequirePermissions("session:manage")
+  listInstructorClassLearners(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<DirectoryUser[]> { return this.learning.listInstructorClassLearners(classId, session.user.id); }
+
   @Get("learner/classes") @RequirePermissions("class:view")
   listLearnerClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses("LEARNER", session.user.id); }
 
