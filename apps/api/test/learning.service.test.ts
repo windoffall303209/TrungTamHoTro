@@ -47,7 +47,7 @@ describe("LearningService", () => {
     expect((await service.activateClass(first.id)).status).toBe("ACTIVE");
   });
 
-  it("lưu đáp án, nộp một lần và chấm tự động", async () => {
+  it("lưu đáp án, nộp lặp an toàn và chấm tự động", async () => {
     const service = new LearningService();
     const attempt = await service.startAttempt("exam-mid-web");
     const saved = await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
@@ -57,7 +57,20 @@ describe("LearningService", () => {
     const result = await service.submitAttempt(attempt.id);
     expect(result.score).toBe(10);
     expect(result.submissionReceipt).toMatch(/^SUB-[A-F0-9]{16}$/);
-    await expect(service.submitAttempt(attempt.id)).rejects.toThrow(ConflictException);
+    expect((await service.submitAttempt(attempt.id)).submissionReceipt).toBe(result.submissionReceipt);
+  });
+
+  it("tự động nộp lượt làm bài khi bộ đếm phía máy chủ hết giờ", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-30T08:00:00.000Z"));
+      const service = new LearningService();
+      const attempt = await service.startAttempt("exam-mid-web");
+      vi.setSystemTime(new Date("2026-08-30T08:46:00.000Z"));
+      expect(await service.reconcileExpiredAttempts()).toBe(1);
+      expect((await service.getAttempt(attempt.id)).status).toBe("GRADED");
+      expect(await service.reconcileExpiredAttempts()).toBe(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("cô lập lượt làm bài theo đúng tài khoản học viên", async () => {

@@ -17,7 +17,7 @@ export class CreateAssignmentDto {
   rubric!: RubricCriterionDto[];
 }
 
-export class SubmitAssignmentDto { @IsString() @MinLength(3) @MaxLength(20_000) content!: string; }
+export class SubmitAssignmentDto { @IsOptional() @IsString() @MaxLength(20_000) content?: string; }
 
 export class RubricScoreDto {
   @IsString() criterionId!: string;

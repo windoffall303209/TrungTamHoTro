@@ -413,11 +413,27 @@ model AssignmentSubmission {
   gradedAt     DateTime?                  @map("graded_at")
   assignment   Assignment                 @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   learner      User                       @relation("AssignmentLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  attachments  AssignmentSubmissionAttachment[]
   updatedAt    DateTime                   @updatedAt @map("updated_at")
 
   @@unique([assignmentId, learnerId])
   @@index([learnerId, status])
   @@map("assignment_submissions")
+}
+
+model AssignmentSubmissionAttachment {
+  id           String               @id @default(cuid())
+  submissionId String               @map("submission_id")
+  objectKey    String               @unique @map("object_key") @db.VarChar(500)
+  originalName String               @map("original_name") @db.VarChar(255)
+  mimeType     String               @map("mime_type") @db.VarChar(150)
+  sizeBytes    BigInt               @map("size_bytes")
+  checksum     String               @db.VarChar(128)
+  submission   AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime             @default(now()) @map("created_at")
+
+  @@index([submissionId, createdAt])
+  @@map("assignment_submission_attachments")
 }
 
 model ClassAnnouncement {
