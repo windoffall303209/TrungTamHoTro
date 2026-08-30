@@ -40,7 +40,7 @@ describe("WorkspaceShell", () => {
     await waitFor(() => expect(screen.getByText("Đã đọc tất cả")).toBeInTheDocument());
   });
 
-  it("mở đầy đủ phân hệ quản trị theo ma trận quyền nhưng không lộ thao tác cá nhân của học viên", async () => {
+  it("chỉ hiển thị phân hệ vận hành hệ thống cho quản trị hệ thống", async () => {
     useApp.mockReturnValue({
       session: {
         roleCode: "SYSTEM_ADMIN",
@@ -55,10 +55,35 @@ describe("WorkspaceShell", () => {
 
     render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
 
-    expect(screen.getAllByRole("link", { name: /Khóa học & lớp/i })).not.toHaveLength(0);
-    expect(screen.getAllByRole("link", { name: /Ngân hàng câu hỏi/i })).not.toHaveLength(0);
-    expect(screen.getAllByRole("link", { name: /Điều hành lớp/i })).not.toHaveLength(0);
-    expect(screen.getAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Người dùng/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Vai trò & quyền/i })).not.toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /Khóa học & lớp/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch sử học tập/i })).toHaveLength(0);
+  });
+
+  it("không hiển thị nghiệp vụ giảng dạy cho quản lý trung tâm", () => {
+    useApp.mockReturnValue({
+      session: { roleCode: "CENTER_MANAGER", permissions: ["class:view", "class:manage", "question:view", "exam:manage", "session:manage"], availableRoles: [{ code: "CENTER_MANAGER", name: "Quản lý trung tâm" }], user: { id: "usr-manager", name: "Quản lý", roleName: "Quản lý trung tâm" } },
+      setRole: vi.fn(), logout: vi.fn(), notify,
+    });
+
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+
+    expect(screen.getAllByRole("link", { name: /Điều hành lớp/i })).not.toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("link", { name: /Ngân hàng câu hỏi/i })).toHaveLength(0);
+  });
+
+  it("hiển thị nghiệp vụ giảng dạy cho giảng viên đủ quyền", () => {
+    useApp.mockReturnValue({
+      session: { roleCode: "INSTRUCTOR", permissions: ["question:view", "question:manage", "exam:manage", "session:manage"], availableRoles: [{ code: "INSTRUCTOR", name: "Giảng viên" }], user: { id: "usr-instructor", name: "Giảng viên", roleName: "Giảng viên" } },
+      setRole: vi.fn(), logout: vi.fn(), notify,
+    });
+
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+
+    expect(screen.getAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Ngân hàng câu hỏi/i })).not.toHaveLength(0);
   });
 });

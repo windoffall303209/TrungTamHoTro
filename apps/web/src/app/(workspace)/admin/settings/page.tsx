@@ -76,7 +76,7 @@ interface StorageOverview {
 
 export default function SettingsPage() {
   const { session, notify } = useApp();
-  const canConfigure = hasPermission(session, "system:configure");
+  const canConfigure = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [history, setHistory] = useState<Settings[]>([]);
   const [effectiveAt, setEffectiveAt] = useState("");

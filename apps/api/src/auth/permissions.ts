@@ -36,8 +36,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   SYSTEM_ADMIN: [...PERMISSIONS],
   CENTER_MANAGER: [
     "user:view", "course:view", "course:manage", "class:view", "class:manage",
-    "material:view", "material:manage", "question:view", "exam:view", "exam:manage",
-    "forum:view", "forum:moderate", "session:view", "session:manage", "report:view", "support:manage",
+    "material:view", "exam:view", "forum:view", "forum:moderate", "session:view",
+    "report:view", "support:manage",
   ],
   INSTRUCTOR: [
     "course:view", "class:view", "material:view", "material:manage", "question:view",
@@ -49,4 +49,3 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "forum:post", "session:view", "support:create",
   ],
 };
-

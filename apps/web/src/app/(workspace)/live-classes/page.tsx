@@ -2,8 +2,10 @@
 
 import { CalendarPlus, ExternalLink, Pencil, Radio, Trash2, Video } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
@@ -12,9 +14,10 @@ import { hasPermission } from "@/lib/access-control";
 
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
+  const allowed = ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = !instructor && !learner && hasPermission(session, "class:manage");
+  const manager = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +34,7 @@ export default function LiveClassesPage() {
     reason: "",
   });
   const load = useCallback(async () => {
+    if (!allowed) return;
     setLoading(true);
     try {
       const [sessions, classData] = await Promise.all([
@@ -51,7 +55,7 @@ export default function LiveClassesPage() {
     } finally {
       setLoading(false);
     }
-  }, [notify, session.roleCode]);
+  }, [allowed, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -132,6 +136,7 @@ export default function LiveClassesPage() {
       notify(error instanceof Error ? error.message : "Không kết thúc được phiên tham gia.", "error");
     }
   };
+  if (!allowed) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
@@ -228,19 +233,7 @@ export default function LiveClassesPage() {
       >
         <form className="space-y-4" onSubmit={(e) => void (editing ? update(e) : create(e))}>
           <Field label="Lớp học">
-            <select disabled={Boolean(editing)}
-              className={inputClass}
-              required
-              value={form.classId}
-              onChange={(e) => setForm({ ...form, classId: e.target.value })}
-            >
-              <option value="">Chọn lớp</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} — {c.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn lớp học" disabled={Boolean(editing)} onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
           </Field>
           <Field label="Tên buổi học">
             <input
@@ -282,7 +275,7 @@ export default function LiveClassesPage() {
             </select>
           </Field>
           {editing ? <Field label="Lý do đổi lịch"><textarea className={inputClass} minLength={5} required rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field> : null}
-          <Button type="submit">Xác nhận lịch</Button>
+          <Button disabled={!editing && !form.classId} type="submit">Xác nhận lịch</Button>
         </form>
       </Modal>
     </div>

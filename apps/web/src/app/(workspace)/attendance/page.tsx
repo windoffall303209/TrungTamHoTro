@@ -4,6 +4,7 @@ import { CheckCircle2, FileJson, LockKeyhole, RefreshCw, UserCheck } from "lucid
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
@@ -14,7 +15,7 @@ type AppealDecision = "APPROVE" | "REJECT";
 
 export default function AttendancePage() {
   const { session, notify } = useApp();
-  const canManage = hasPermission(session, "class:manage");
+  const canManage = session.roleCode === "CENTER_MANAGER" && hasPermission(session, "class:manage");
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [review, setReview] = useState<AttendanceSessionReview | null>(null);
@@ -140,10 +141,7 @@ export default function AttendancePage() {
       <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
-            <select className={inputClass} value={selectedId} onChange={(event) => { setSelectedId(event.target.value); void loadReview(event.target.value); }}>
-              <option value="">Chọn buổi học</option>
-              {sessions.map((item) => <option key={item.id} value={item.id}>{item.title} · {new Date(item.startsAt).toLocaleDateString("vi-VN")}</option>)}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
           </Field>
           <Button disabled={!selectedId} onClick={() => void loadReview(selectedId)} variant="secondary"><RefreshCw size={16} />Làm mới</Button>
           <Button disabled={!review || Boolean(review.session.attendanceLockedAt) || statistics.openAppeals > 0} onClick={() => void lockAttendance()} variant="danger"><LockKeyhole size={16} />Khóa điểm danh</Button>

@@ -24,7 +24,7 @@ const emptyForm: UserForm = { username: "", displayName: "", email: "", roleCode
 
 export default function UsersPage() {
   const { session, notify } = useApp();
-  const canView = hasPermission(session, "user:view");
+  const canView = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "user:view");
   const canCreate = hasPermission(session, "user:create");
   const canUpdate = hasPermission(session, "user:update");
   const canSuspend = hasEveryPermission(session, ["user:update", "user:suspend"]);

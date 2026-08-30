@@ -8,6 +8,15 @@ import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
 
 describe("LearningService", () => {
+  it("chỉ trả học viên đang ghi danh trong lớp được phân công cho giảng viên", async () => {
+    const service = new LearningService();
+
+    expect(await service.listInstructorClassLearners("class-web-01", "usr-instructor")).toEqual([
+      expect.objectContaining({ id: "usr-learner", roleCode: "LEARNER" }),
+    ]);
+    await expect(service.listInstructorClassLearners("class-web-01", "usr-outside")).rejects.toThrow(NotFoundException);
+  });
+
   it("phiên bản hóa khóa học mà không làm đổi snapshot của lớp cũ", async () => {
     const service = new LearningService();
     await expect(service.createCourse({ code: "WEB-FULLSTACK", name: "Trùng mã", description: "Mô tả đủ độ dài cho khóa học", outcomes: ["Kết quả"] })).rejects.toThrow(ConflictException);

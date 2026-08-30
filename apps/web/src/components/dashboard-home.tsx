@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, CalendarDays, Database, FileQuestion, MessageSquareText, RefreshCw } from "lucide-react";
+import { ArrowUpRight, BookOpenCheck, CalendarDays, Database, FileQuestion, GraduationCap, ListChecks, MessageSquareText, Presentation, RefreshCw, Settings, ShieldCheck, ShieldEllipsis, UserCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
@@ -21,11 +21,23 @@ const roleContent: Record<RoleCode, { title: string; description: string }> = {
 };
 
 const modules = [
-  { href: "/materials", name: "Kho học liệu", detail: "Tệp, phiên bản và quyền truy cập", icon: Database, permissions: ["material:view"] },
-  { href: "/questions", name: "Ngân hàng câu hỏi", detail: "Câu hỏi, đề thi và chấm điểm", icon: FileQuestion, permissions: ["question:view"] },
-  { href: "/forum", name: "Diễn đàn", detail: "Chủ đề, bình luận và kiểm duyệt", icon: MessageSquareText, permissions: ["forum:view"] },
-  { href: "/live-classes", name: "Lớp học online", detail: "Lịch, điểm danh và bản ghi", icon: CalendarDays, permissions: ["session:view"] },
-] satisfies Array<{ href: string; name: string; detail: string; icon: typeof Database; permissions: PermissionCode[] }>;
+  { href: "/admin/users", name: "Người dùng", detail: "Tài khoản, trạng thái và phạm vi truy cập", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/roles", name: "Vai trò & quyền", detail: "Ma trận quyền và lịch sử thay đổi", icon: ShieldCheck, permissions: ["role:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/settings", name: "Cấu hình hệ thống", detail: "Tích hợp, email và thiết lập dùng chung", icon: Settings, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/operations", name: "Vận hành & tuân thủ", detail: "Sao lưu, nhật ký và sức khỏe dịch vụ", icon: ShieldEllipsis, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/courses", name: "Khóa học & lớp", detail: "Danh mục đào tạo và các lớp đang vận hành", icon: GraduationCap, permissions: ["course:view", "class:view"], roles: ["CENTER_MANAGER"] },
+  { href: "/class-operations", name: "Điều hành lớp", detail: "Phân công giảng viên và ghi danh học viên", icon: ListChecks, permissions: ["class:manage"], roles: ["CENTER_MANAGER"] },
+  { href: "/attendance", name: "Giám sát điểm danh", detail: "Đối soát buổi học và xử lý khiếu nại", icon: UserCheck, permissions: ["class:manage"], roles: ["CENTER_MANAGER"] },
+  { href: "/reports", name: "Báo cáo vận hành", detail: "Tiến độ lớp và học viên cần hỗ trợ", icon: Database, permissions: ["report:view"], roles: ["CENTER_MANAGER"] },
+  { href: "/materials", name: "Kho học liệu", detail: "Tệp, phiên bản và quyền truy cập", icon: Database, permissions: ["material:view"], roles: ["INSTRUCTOR", "LEARNER"] },
+  { href: "/questions", name: "Ngân hàng câu hỏi", detail: "Câu hỏi, đề thi và chấm điểm", icon: FileQuestion, permissions: ["question:view"], roles: ["INSTRUCTOR"] },
+  { href: "/teaching-operations", name: "Nghiệp vụ giảng dạy", detail: "Chấm bài, điểm danh và bản ghi buổi học", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"], roles: ["INSTRUCTOR"] },
+  { href: "/reports", name: "Phân tích giảng dạy", detail: "Kết quả đánh giá theo lớp được phân công", icon: Database, permissions: ["report:view"], roles: ["INSTRUCTOR"] },
+  { href: "/courses", name: "Lớp của tôi", detail: "Các lớp đang học và trạng thái ghi danh", icon: GraduationCap, permissions: ["class:view"], roles: ["LEARNER"] },
+  { href: "/exams", name: "Đề & kết quả", detail: "Bài cần làm và kết quả đã công bố", icon: BookOpenCheck, permissions: ["exam:view"], roles: ["LEARNER"] },
+  { href: "/forum", name: "Diễn đàn", detail: "Chủ đề và trao đổi trong lớp", icon: MessageSquareText, permissions: ["forum:view"], roles: ["LEARNER"] },
+  { href: "/live-classes", name: "Lớp học online", detail: "Lịch học, phòng trực tuyến và bản ghi", icon: CalendarDays, permissions: ["session:view"], roles: ["LEARNER"] },
+] satisfies Array<{ href: string; name: string; detail: string; icon: typeof Database; permissions: PermissionCode[]; roles: RoleCode[] }>;
 
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
@@ -83,7 +95,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
 export function DashboardHome() {
   const { session } = useApp();
   const content = roleContent[session.roleCode];
-  const visibleModules = useMemo(() => modules.filter((item) => hasAnyPermission(session, item.permissions)), [session]);
+  const visibleModules = useMemo(() => modules.filter((item) => (item.roles as RoleCode[]).includes(session.roleCode) && hasAnyPermission(session, item.permissions)), [session]);
   const [metrics, setMetrics] = useState<DashboardMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

@@ -19,7 +19,7 @@ const permissionGroups: Array<{ name: string; permissions: Array<{ code: Permiss
 
 export default function RolesPage() {
   const { session, notify } = useApp();
-  const canView = hasPermission(session, "role:view");
+  const canView = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "role:view");
   const canUpdate = hasPermission(session, "role:update");
   const [roles, setRoles] = useState<IdentityRole[]>([]);
   const [selectedCode, setSelectedCode] = useState<RoleCode>("CENTER_MANAGER");

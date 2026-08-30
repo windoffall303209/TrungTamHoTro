@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
@@ -58,8 +59,8 @@ const toPayload = (form: QuestionForm) => ({
 
 export default function QuestionsPage() {
   const { session, notify } = useApp();
-  const canView = hasPermission(session, "question:view");
-  const canManage = hasPermission(session, "question:manage");
+  const canView = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:view");
+  const canManage = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:manage");
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -251,21 +252,7 @@ export default function QuestionsPage() {
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          <select
-            aria-label="Lọc khóa học"
-            className={inputClass}
-            value={filters.courseId}
-            onChange={(event) =>
-              setFilters({ ...filters, courseId: event.target.value })
-            }
-          >
-            <option value="">Mọi khóa học</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.code}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect aria-label="Tìm và lọc khóa học" onChange={(value) => setFilters({ ...filters, courseId: value })} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Mọi khóa học" value={filters.courseId} />
           <select
             aria-label="Lọc dạng câu hỏi"
             className={inputClass}
@@ -378,21 +365,7 @@ export default function QuestionsPage() {
           onSubmit={(event) => void saveQuestion(event)}
         >
           <Field label="Khóa học">
-            <select
-              className={inputClass}
-              required
-              value={form.courseId}
-              onChange={(event) =>
-                setForm({ ...form, courseId: event.target.value })
-              }
-            >
-              <option value="">Chọn khóa học</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.code} — {course.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect aria-label="Tìm và chọn khóa học" onChange={(value) => setForm({ ...form, courseId: value })} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Gõ mã hoặc tên khóa học để lọc…" value={form.courseId} />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Dạng câu hỏi">
@@ -478,7 +451,7 @@ export default function QuestionsPage() {
               }
             />
           </Field>
-          <Button loading={saving} type="submit">
+          <Button disabled={!form.courseId} loading={saving} type="submit">
             {editingId ? "Lưu phiên bản nháp" : "Lưu câu hỏi"}
           </Button>
         </form>
