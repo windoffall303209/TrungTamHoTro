@@ -4,10 +4,11 @@ import { ArrowUpRight, CalendarDays, Database, FileQuestion, MessageSquareText, 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
-import type { IdentityRole, IdentityUser, RoleCode } from "@/lib/app-types";
+import type { IdentityRole, IdentityUser, PermissionCode, RoleCode } from "@/lib/app-types";
 import type { ExamAttempt, LearnerExamSummary, LearnerResult, LearningClass, LiveSession, OperationalReport } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { PageHeader } from "./page-header";
+import { hasAnyPermission } from "@/lib/access-control";
 
 interface DashboardMetric { value: string; label: string }
 interface HealthOverview { status: "healthy" | "warning" | "degraded"; database: string }
@@ -20,11 +21,11 @@ const roleContent: Record<RoleCode, { title: string; description: string }> = {
 };
 
 const modules = [
-  { href: "/materials", name: "Kho học liệu", detail: "Tệp, phiên bản và quyền truy cập", icon: Database, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/questions", name: "Ngân hàng câu hỏi", detail: "Câu hỏi, đề thi và chấm điểm", icon: FileQuestion, roles: ["INSTRUCTOR"] },
-  { href: "/forum", name: "Diễn đàn", detail: "Chủ đề, bình luận và kiểm duyệt", icon: MessageSquareText, roles: ["CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-  { href: "/live-classes", name: "Lớp học online", detail: "Lịch, điểm danh và bản ghi", icon: CalendarDays, roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
-] satisfies Array<{ href: string; name: string; detail: string; icon: typeof Database; roles: RoleCode[] }>;
+  { href: "/materials", name: "Kho học liệu", detail: "Tệp, phiên bản và quyền truy cập", icon: Database, permissions: ["material:view"] },
+  { href: "/questions", name: "Ngân hàng câu hỏi", detail: "Câu hỏi, đề thi và chấm điểm", icon: FileQuestion, permissions: ["question:view"] },
+  { href: "/forum", name: "Diễn đàn", detail: "Chủ đề, bình luận và kiểm duyệt", icon: MessageSquareText, permissions: ["forum:view"] },
+  { href: "/live-classes", name: "Lớp học online", detail: "Lịch, điểm danh và bản ghi", icon: CalendarDays, permissions: ["session:view"] },
+] satisfies Array<{ href: string; name: string; detail: string; icon: typeof Database; permissions: PermissionCode[] }>;
 
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
@@ -82,7 +83,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
 export function DashboardHome() {
   const { session } = useApp();
   const content = roleContent[session.roleCode];
-  const visibleModules = useMemo(() => modules.filter((item) => item.roles.includes(session.roleCode)), [session.roleCode]);
+  const visibleModules = useMemo(() => modules.filter((item) => hasAnyPermission(session, item.permissions)), [session]);
   const [metrics, setMetrics] = useState<DashboardMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

@@ -8,6 +8,7 @@ import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import type { ClassProgressReport, ExamAnalytics, OperationalReport, ReportExport, ReportRun } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { hasPermission } from "@/lib/access-control";
 
 interface ClassReport { classId: string; classCode: string; className: string; learners: number; instructors: number; publishedMaterials: number; exams: number; submittedAttempts: number; averageScore: number; sessions: number; attendanceRate: number; status: string }
 
@@ -15,9 +16,9 @@ const dateInput = (date: Date): string => `${date.getFullYear()}-${String(date.g
 
 export default function ReportsPage() {
   const { session, notify } = useApp();
-  const manager = session.roleCode === "CENTER_MANAGER";
-  const instructor = session.roleCode === "INSTRUCTOR";
-  const allowed = manager || session.roleCode === "INSTRUCTOR";
+  const manager = hasPermission(session, "class:manage");
+  const instructor = hasPermission(session, "question:manage");
+  const allowed = hasPermission(session, "report:view");
   const today = useMemo(() => new Date(), []);
   const [report, setReport] = useState<OperationalReport | null>(null);
   const [classReports, setClassReports] = useState<ClassReport[]>([]);

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { AccessDenied } from "@/components/access-denied";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { ApiError, apiRequest } from "@/lib/api-client";
+import { hasEveryPermission, hasPermission } from "@/lib/access-control";
 import type { IdentityUser, RoleCode } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -23,6 +24,10 @@ const emptyForm: UserForm = { username: "", displayName: "", email: "", roleCode
 
 export default function UsersPage() {
   const { session, notify } = useApp();
+  const canView = hasPermission(session, "user:view");
+  const canCreate = hasPermission(session, "user:create");
+  const canUpdate = hasPermission(session, "user:update");
+  const canSuspend = hasEveryPermission(session, ["user:update", "user:suspend"]);
   const [users, setUsers] = useState<IdentityUser[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -83,16 +88,16 @@ export default function UsersPage() {
     <div className="flex justify-end gap-2 border-t border-slate-100 pt-5"><Button onClick={() => includeEmail ? setCreateOpen(false) : setEditing(null)} type="button" variant="secondary">Hủy</Button><Button loading={saving} type="submit">{includeEmail ? "Tạo tài khoản" : "Lưu thay đổi"}</Button></div>
   </form>;
 
-  if (session.roleCode !== "SYSTEM_ADMIN") return <AccessDenied />;
+  if (!canView) return <AccessDenied />;
 
   return <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
-    <PageHeader actions={<Button onClick={openCreate}><Plus size={17} />Tạo tài khoản</Button>} description="Tạo, cập nhật, khóa và khôi phục tài khoản. Mọi thay đổi đều được ghi lại để truy vết." eyebrow="Identity & Access · FUNC-ADM-001" title="Quản lý người dùng" />
+    <PageHeader actions={canCreate ? <Button onClick={openCreate}><Plus size={17} />Tạo tài khoản</Button> : undefined} description="Tạo, cập nhật, khóa và khôi phục tài khoản. Mọi thay đổi đều được ghi lại để truy vết." eyebrow="Identity & Access · FUNC-ADM-001" title="Quản lý người dùng" />
     <section className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 md:max-w-md"><div className="py-5 pr-6"><p className="text-2xl font-extrabold">{totals.active}</p><p className="text-xs font-semibold text-slate-500">Đang hoạt động</p></div><div className="py-5 pl-6"><p className="text-2xl font-extrabold">{totals.locked}</p><p className="text-xs font-semibold text-slate-500">Đã khóa</p></div></section>
     <div className="mt-7 flex items-center gap-3"><div className="relative max-w-md flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Tìm kiếm người dùng" className={`${inputClass} pl-10`} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tài khoản, tên hoặc email…" value={query} /></div></div>
     <div className="mt-5 overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wider text-[#516274]"><tr><th className="px-5 py-3.5">Người dùng</th><th className="px-5 py-3.5">Vai trò</th><th className="px-5 py-3.5">Trạng thái</th><th className="px-5 py-3.5 text-right">Thao tác</th></tr></thead><tbody className="divide-y divide-slate-100">
-      {loading ? <tr><td className="px-5 py-10 text-center text-sm text-[#516274]" colSpan={4}>Đang tải danh sách…</td></tr> : users.length === 0 ? <tr><td className="px-5 py-10 text-center text-sm text-[#516274]" colSpan={4}>Không tìm thấy tài khoản phù hợp.</td></tr> : users.map((user) => <tr className="hover:bg-slate-50/70" key={user.id}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-full bg-sky-50 text-xs font-extrabold text-sky-700">{user.displayName.split(" ").slice(-2).map((part) => part[0]).join("")}</div><div><p className="text-sm font-bold">{user.displayName}</p><p className="mt-0.5 text-xs font-semibold text-[#32506a]">@{user.username}</p><p className="mt-0.5 text-xs text-[#657789]">{user.email}</p></div></div></td><td className="px-5 py-4 text-sm font-medium text-[#516274]">{roleLabel[user.roleCode]}</td><td className="px-5 py-4"><StatusBadge status={user.status} /></td><td className="px-5 py-4"><div className="flex justify-end gap-1"><Button aria-label={`Sửa ${user.displayName}`} onClick={() => openEdit(user)} variant="ghost"><UserRoundCog size={16} />Sửa</Button><Button aria-label={`${user.status === "LOCKED" ? "Mở khóa" : "Khóa"} ${user.displayName}`} onClick={() => void toggleLock(user)} variant="ghost">{user.status === "LOCKED" ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}{user.status === "LOCKED" ? "Mở khóa" : "Khóa"}</Button></div></td></tr>)}
+      {loading ? <tr><td className="px-5 py-10 text-center text-sm text-[#516274]" colSpan={4}>Đang tải danh sách…</td></tr> : users.length === 0 ? <tr><td className="px-5 py-10 text-center text-sm text-[#516274]" colSpan={4}>Không tìm thấy tài khoản phù hợp.</td></tr> : users.map((user) => <tr className="hover:bg-slate-50/70" key={user.id}><td className="px-5 py-4"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-full bg-sky-50 text-xs font-extrabold text-sky-700">{user.displayName.split(" ").slice(-2).map((part) => part[0]).join("")}</div><div><p className="text-sm font-bold">{user.displayName}</p><p className="mt-0.5 text-xs font-semibold text-[#32506a]">@{user.username}</p><p className="mt-0.5 text-xs text-[#657789]">{user.email}</p></div></div></td><td className="px-5 py-4 text-sm font-medium text-[#516274]">{roleLabel[user.roleCode]}</td><td className="px-5 py-4"><StatusBadge status={user.status} /></td><td className="px-5 py-4"><div className="flex justify-end gap-1">{canUpdate ? <Button aria-label={`Sửa ${user.displayName}`} onClick={() => openEdit(user)} variant="ghost"><UserRoundCog size={16} />Sửa</Button> : null}{canSuspend ? <Button aria-label={`${user.status === "LOCKED" ? "Mở khóa" : "Khóa"} ${user.displayName}`} onClick={() => void toggleLock(user)} variant="ghost">{user.status === "LOCKED" ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}{user.status === "LOCKED" ? "Mở khóa" : "Khóa"}</Button> : null}{!canUpdate && !canSuspend ? <span className="text-xs font-semibold text-[#657789]">Chỉ xem</span> : null}</div></td></tr>)}
     </tbody></table></div></div>
-    <Modal description="Tài khoản được kích hoạt ngay với vai trò và mật khẩu ban đầu do quản trị viên cấp." onClose={() => setCreateOpen(false)} open={createOpen} title="Tạo tài khoản">{formContent(createUser, true)}</Modal>
-    <Modal description="Thay đổi vai trò có hiệu lực với phiên làm việc kế tiếp và được lưu trong audit log." onClose={() => setEditing(null)} open={Boolean(editing)} title="Cập nhật tài khoản">{formContent(updateUser, false)}</Modal>
+    <Modal description="Tài khoản được kích hoạt ngay với vai trò và mật khẩu ban đầu do quản trị viên cấp." onClose={() => setCreateOpen(false)} open={canCreate && createOpen} title="Tạo tài khoản">{formContent(createUser, true)}</Modal>
+    <Modal description="Thay đổi vai trò có hiệu lực với phiên làm việc kế tiếp và được lưu trong audit log." onClose={() => setEditing(null)} open={canUpdate && Boolean(editing)} title="Cập nhật tài khoản">{formContent(updateUser, false)}</Modal>
   </div>;
 }

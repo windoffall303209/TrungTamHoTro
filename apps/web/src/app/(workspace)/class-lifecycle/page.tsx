@@ -6,11 +6,13 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import type { ClassClosureReadiness, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 export default function ClassLifecyclePage() {
   const { session, notify } = useApp();
+  const canManage = hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(null);
@@ -30,7 +32,7 @@ export default function ClassLifecyclePage() {
   }, [notify, session.roleCode]);
 
   const load = useCallback(async () => {
-    if (session.roleCode !== "CENTER_MANAGER") return;
+    if (!canManage) return;
     try {
       const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
       setClasses(data);
@@ -40,7 +42,7 @@ export default function ClassLifecyclePage() {
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
     }
-  }, [loadReadiness, notify, selectedId, session.roleCode]);
+  }, [canManage, loadReadiness, notify, selectedId, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -87,7 +89,7 @@ export default function ClassLifecyclePage() {
     }
   };
 
-  if (session.roleCode !== "CENTER_MANAGER") return <AccessDenied />;
+  if (!canManage) return <AccessDenied />;
 
   const metrics = readiness ? [
     ["Kỳ thi mở", readiness.openExams],

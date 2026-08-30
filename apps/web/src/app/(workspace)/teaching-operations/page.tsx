@@ -6,11 +6,13 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasEveryPermission } from "@/lib/access-control";
 import type { ExamAttempt, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
 export default function TeachingOperationsPage() {
   const { session, notify } = useApp();
+  const canManageTeaching = hasEveryPermission(session, ["question:manage", "exam:manage", "session:manage"]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [grading, setGrading] = useState<ExamAttempt | null>(null);
@@ -27,7 +29,7 @@ export default function TeachingOperationsPage() {
     recordingUrl: "",
   });
   const load = useCallback(async () => {
-    if (session.roleCode !== "INSTRUCTOR") return;
+    if (!canManageTeaching) return;
     try {
       const [attemptData, sessionData] = await Promise.all([
         apiRequest<ExamAttempt[]>("/instructor/exam-attempts", {
@@ -56,7 +58,7 @@ export default function TeachingOperationsPage() {
         "error",
       );
     }
-  }, [notify, session.roleCode]);
+  }, [canManageTeaching, notify, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -139,7 +141,7 @@ export default function TeachingOperationsPage() {
       notify(error instanceof Error ? error.message : "Không phát hành được bản ghi.", "error");
     }
   };
-  if (session.roleCode !== "INSTRUCTOR") return <AccessDenied />;
+  if (!canManageTeaching) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader

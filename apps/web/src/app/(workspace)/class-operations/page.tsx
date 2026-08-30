@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal } from "@/components/ui";
 import { UserPicker } from "@/components/user-picker";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import type { ClassRoster, EnrollmentImportResult, Exam, InstructorRole, LearningClass, Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
@@ -14,6 +15,7 @@ type ReviewDecision = "APPROVE" | "RETURN";
 
 export default function ClassOperationsPage() {
   const { session, notify } = useApp();
+  const canManage = hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -27,7 +29,7 @@ export default function ClassOperationsPage() {
   const [reviewing, setReviewing] = useState(false);
 
   const load = useCallback(async () => {
-    if (session.roleCode !== "CENTER_MANAGER") return;
+    if (!canManage) return;
     try {
       const [classData, materialData, examData] = await Promise.all([
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
@@ -41,13 +43,13 @@ export default function ClassOperationsPage() {
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được dữ liệu điều hành.", "error");
     }
-  }, [notify, session.roleCode]);
+  }, [canManage, notify, session.roleCode]);
 
   const loadRoster = useCallback(async (classId: string) => {
-    if (!classId || session.roleCode !== "CENTER_MANAGER") return;
+    if (!classId || !canManage) return;
     try { setRoster(await apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, { roleCode: session.roleCode })); }
     catch (error) { notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error"); }
-  }, [notify, session.roleCode]);
+  }, [canManage, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -132,7 +134,7 @@ export default function ClassOperationsPage() {
     }
   };
 
-  if (session.roleCode !== "CENTER_MANAGER") return <AccessDenied />;
+  if (!canManage) return <AccessDenied />;
   const pendingExams = exams.filter((item) => item.status === "PENDING_REVIEW");
 
   return (

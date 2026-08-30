@@ -13,6 +13,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
 import { useApp } from "@/providers/app-provider";
 
 interface Audit {
@@ -98,6 +99,7 @@ interface SystemAlert {
 
 export default function OperationsPage() {
   const { session, notify } = useApp();
+  const canConfigure = hasPermission(session, "system:configure");
   const [audit, setAudit] = useState<Audit[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [exports, setExports] = useState<ExportJob[]>([]);
@@ -132,7 +134,7 @@ export default function OperationsPage() {
     body: "",
   });
   const load = useCallback(async () => {
-    if (session.roleCode !== "SYSTEM_ADMIN") return;
+    if (!canConfigure) return;
     try {
       const params = new URLSearchParams({ query, ...auditFilter });
       if (auditFilter.from)
@@ -191,7 +193,7 @@ export default function OperationsPage() {
         "error",
       );
     }
-  }, [auditFilter, notify, query, session.roleCode]);
+  }, [auditFilter, canConfigure, notify, query, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
@@ -393,7 +395,7 @@ export default function OperationsPage() {
       );
     }
   };
-  if (session.roleCode !== "SYSTEM_ADMIN") return <AccessDenied />;
+  if (!canConfigure) return <AccessDenied />;
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader

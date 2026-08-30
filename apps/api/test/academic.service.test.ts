@@ -8,6 +8,7 @@ import { AcademicService } from "../src/learning/academic.service.js";
 const suffix = `${process.pid}-${Date.now().toString(36)}`;
 const instructor: AuthenticatedSession = { sessionId: "test-instructor", user: { id: "usr-instructor", username: "instructor", name: "Trần Giảng Viên", email: "instructor@wind.edu.vn", roleName: "Giảng viên" }, roleCode: "INSTRUCTOR", permissions: ["exam:manage", "report:view"], availableRoles: [{ code: "INSTRUCTOR", name: "Giảng viên" }] };
 const learner: AuthenticatedSession = { sessionId: "test-learner", user: { id: "usr-learner", username: "learner", name: "Lê Học Viên", email: "learner@wind.edu.vn", roleName: "Học viên" }, roleCode: "LEARNER", permissions: ["exam:view"], availableRoles: [{ code: "LEARNER", name: "Học viên" }] };
+const administrator: AuthenticatedSession = { sessionId: "test-admin", user: { id: "usr-admin", username: "admin", name: "Quản trị hệ thống", email: "admin@wind.edu.vn", roleName: "Quản trị hệ thống" }, roleCode: "SYSTEM_ADMIN", permissions: ["exam:manage", "report:view"], availableRoles: [{ code: "SYSTEM_ADMIN", name: "Quản trị hệ thống" }] };
 
 describe("AcademicService", () => {
   let service: AcademicService;
@@ -41,7 +42,7 @@ describe("AcademicService", () => {
 
   it("đưa bài tập vào lịch tổng và phát thông báo lớp", async () => {
     expect((await service.calendar(learner)).some((event) => event.id === `assignment-${assignmentId}`)).toBe(true);
-    const announcement = await service.createAnnouncement("class-web-01", `Thông báo ${suffix}`, "Lớp kiểm tra lại lịch và bài tập mới.", instructor);
+    const announcement = await service.createAnnouncement("class-web-01", `Thông báo ${suffix}`, "Lớp kiểm tra lại lịch và bài tập mới.", administrator);
     announcementId = announcement.id;
     expect((await service.listAnnouncements(learner)).some((item) => item.id === announcement.id)).toBe(true);
   });

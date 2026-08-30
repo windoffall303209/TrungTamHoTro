@@ -152,7 +152,7 @@ export class AcademicService {
   }
 
   private async requireTeachingAccess(classId: string, session: AuthenticatedSession): Promise<void> {
-    if (!["INSTRUCTOR", "CENTER_MANAGER"].includes(session.roleCode) || !(await this.accessibleClassIds(session)).includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
+    if (!session.permissions.includes("exam:manage") || !(await this.accessibleClassIds(session)).includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
   }
 
   private mapAssignment(row: Prisma.AssignmentGetPayload<{ include: { class: { select: { code: true } }; submissions: { include: { learner: { select: { displayName: true; email: true } } } } } }>, submission?: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } } } }>): AssignmentView {
