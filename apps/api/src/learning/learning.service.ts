@@ -1223,6 +1223,8 @@ export class LearningService {
   async startAttempt(examId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
+      const active = await prisma.examAttempt.findFirst({ where: { examId, learnerId, status: "IN_PROGRESS" }, include: { exam: true } });
+      if (active && this.attemptDeadline(active.startedAt, active.exam.durationMinutes, active.exam.closeAt) <= new Date()) await this.submitAttempt(active.id, learnerId);
       return prisma.$transaction(async (transaction) => {
         const exam = await transaction.exam.findUnique({
           where: { id: examId },
@@ -1238,7 +1240,6 @@ export class LearningService {
         });
         const existing = attempts.find((item) => item.status === "IN_PROGRESS");
         if (existing) {
-          if (this.attemptDeadline(existing.startedAt, exam.durationMinutes, exam.closeAt) <= timestamp) throw new BadRequestException("Lượt làm bài trước đã hết thời gian; cần nộp bài để hoàn tất.");
           return this.mapAttempt(existing);
         }
         if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
@@ -1257,7 +1258,10 @@ export class LearningService {
     if (!classItem.learnerIds.includes(learnerId)) throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
     const attempts = this.attempts.filter((item) => item.examId === examId && item.learnerId === learnerId);
     const existing = attempts.find((item) => item.status === "IN_PROGRESS");
-    if (existing) return { ...existing, answers: { ...existing.answers } };
+    if (existing) {
+      if (this.attemptDeadline(new Date(existing.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= timestamp) await this.submitAttempt(existing.id, learnerId);
+      else return { ...existing, answers: { ...existing.answers } };
+    }
     if (attempts.length >= exam.attemptLimit) throw new BadRequestException("Đã hết số lần làm bài.");
     const item: ExamAttempt = { id: id("attempt"), examId, learnerId, answers: {}, status: "IN_PROGRESS", startedAt: now() };
     this.attempts.push(item);
@@ -1299,7 +1303,10 @@ export class LearningService {
           include: { answers: true, exam: { include: { questions: { include: { question: true } } } } },
         });
         if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
-        if (attempt.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó.");
+        if (attempt.status !== "IN_PROGRESS") return this.mapAttempt(attempt);
+        const submittedAt = new Date();
+        const claimed = await transaction.examAttempt.updateMany({ where: { id: attemptId, learnerId, status: "IN_PROGRESS" }, data: { status: "SUBMITTED", submittedAt } });
+        if (!claimed.count) return this.getDatabaseAttempt(transaction, attemptId);
         let score = 0;
         let requiresManualGrade = false;
         for (const examQuestion of attempt.exam.questions) {
@@ -1321,8 +1328,8 @@ export class LearningService {
         const updated = await transaction.examAttempt.update({
           where: { id: attemptId },
           data: {
-            score, submittedAt: new Date(), status: requiresManualGrade ? "SUBMITTED" : "GRADED",
-            gradePublishedAt: requiresManualGrade ? null : new Date(),
+            score, submittedAt, status: requiresManualGrade ? "SUBMITTED" : "GRADED",
+            gradePublishedAt: requiresManualGrade ? null : submittedAt,
             feedback: requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.",
           },
           include: { answers: true },
@@ -1332,7 +1339,7 @@ export class LearningService {
     }
     const item = this.attempts.find((attempt) => attempt.id === attemptId && attempt.learnerId === learnerId);
     if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
-    if (item.status !== "IN_PROGRESS") throw new ConflictException("Bài đã được nộp trước đó.");
+    if (item.status !== "IN_PROGRESS") return { ...item, answers: { ...item.answers } };
     const exam = this.findExam(item.examId);
     let correct = 0;
     exam.questionIds.forEach((questionId) => {
@@ -1346,6 +1353,25 @@ export class LearningService {
     item.gradePublishedAt = now();
     item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
     return { ...item, answers: { ...item.answers } };
+  }
+
+  async reconcileExpiredAttempts(limit = 100): Promise<number> {
+    const boundedLimit = Math.max(1, Math.min(limit, 500));
+    const prisma = this.database();
+    if (prisma) {
+      const candidates = await prisma.examAttempt.findMany({ where: { status: "IN_PROGRESS" }, include: { exam: true }, orderBy: { startedAt: "asc" }, take: 500 });
+      const timestamp = new Date();
+      const expired = candidates.filter((attempt) => this.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= timestamp).slice(0, boundedLimit);
+      const results = await Promise.allSettled(expired.map((attempt) => this.submitAttempt(attempt.id, attempt.learnerId)));
+      return results.filter((result) => result.status === "fulfilled").length;
+    }
+    const timestamp = new Date();
+    const expired = this.attempts.filter((attempt) => {
+      const exam = this.findExam(attempt.examId);
+      return attempt.status === "IN_PROGRESS" && this.attemptDeadline(new Date(attempt.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= timestamp;
+    }).slice(0, boundedLimit);
+    for (const attempt of expired) await this.submitAttempt(attempt.id, attempt.learnerId);
+    return expired.length;
   }
 
   async getAttempt(attemptId: string): Promise<ExamAttempt> {

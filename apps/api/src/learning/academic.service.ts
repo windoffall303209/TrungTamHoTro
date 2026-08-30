@@ -3,24 +3,32 @@ import { randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { AntivirusService } from "../infrastructure/antivirus.service.js";
+import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
 
 export interface RubricCriterion { id: string; title: string; description: string; maxPoints: number }
+export interface UploadedAssignmentFile { originalName: string; mimeType: string; size: number; buffer: Buffer }
+export interface AssignmentAttachmentView { id: string; originalName: string; mimeType: string; sizeBytes: number; createdAt: string; canPreview: boolean }
 export interface AssignmentView { id: string; classId: string; classCode: string; title: string; description: string; instructions: string; dueAt: string; maxScore: number; rubric: RubricCriterion[]; status: "DRAFT" | "PUBLISHED" | "CLOSED"; createdById: string; submission?: AssignmentSubmissionView; createdAt: string }
-export interface AssignmentSubmissionView { id: string; assignmentId: string; learnerId: string; learnerName: string; learnerEmail: string; content: string; status: "SUBMITTED" | "GRADED"; submittedAt: string; score?: number; rubricScores: Array<{ criterionId: string; score: number }>; feedback?: string; gradedAt?: string }
+export interface AssignmentSubmissionView { id: string; assignmentId: string; learnerId: string; learnerName: string; learnerEmail: string; content: string; attachments: AssignmentAttachmentView[]; status: "SUBMITTED" | "GRADED"; submittedAt: string; score?: number; rubricScores: Array<{ criterionId: string; score: number }>; feedback?: string; gradedAt?: string }
 export interface AcademicCalendarEvent { id: string; classId: string; classCode: string; type: "CLASS" | "LIVE_SESSION" | "EXAM" | "ASSIGNMENT"; title: string; startAt: string; endAt?: string; href: string }
 export interface ClassAnnouncementView { id: string; classId: string; classCode: string; title: string; body: string; authorName: string; publishedAt: string }
 export interface GradebookRow { learnerId: string; learnerName: string; learnerEmail: string; examEarned: number; examPossible: number; assignmentEarned: number; assignmentPossible: number; totalPercent: number }
 
 @Injectable()
 export class AcademicService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly objectStorage: ObjectStorageService,
+    private readonly antivirus: AntivirusService,
+  ) {}
 
   async listAssignments(session: AuthenticatedSession, classId?: string): Promise<AssignmentView[]> {
     const classIds = await this.accessibleClassIds(session);
     if (classId && !classIds.includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
     const rows = await this.prisma.assignment.findMany({
       where: { classId: classId ?? { in: classIds }, ...(session.roleCode === "LEARNER" ? { status: { in: ["PUBLISHED", "CLOSED"] } } : {}) },
-      include: { class: { select: { code: true } }, submissions: { where: { learnerId: session.user.id }, include: { learner: { select: { displayName: true, email: true } } } } },
+      include: { class: { select: { code: true } }, submissions: { where: { learnerId: session.user.id }, include: { learner: { select: { displayName: true, email: true } }, attachments: { orderBy: { createdAt: "asc" } } } } },
       orderBy: { dueAt: "asc" },
     });
     return rows.map((row) => this.mapAssignment(row, row.submissions[0]));
@@ -33,7 +41,7 @@ export class AcademicService {
     const total = input.rubric.reduce((sum, item) => sum + item.maxPoints, 0);
     if (Math.abs(total - input.maxScore) > 0.001) throw new BadRequestException("Tổng điểm rubric phải bằng điểm tối đa của bài tập.");
     const rubric: RubricCriterion[] = input.rubric.map((item) => ({ id: `criterion-${randomUUID()}`, title: item.title.trim(), description: item.description.trim(), maxPoints: item.maxPoints }));
-    const row = await this.prisma.assignment.create({ data: { id: `assignment-${randomUUID()}`, classId, createdById: session.user.id, title: input.title.trim(), description: input.description.trim(), instructions: input.instructions.trim(), dueAt, maxScore: input.maxScore, rubric: rubric as unknown as Prisma.InputJsonValue }, include: { class: { select: { code: true } }, submissions: { include: { learner: { select: { displayName: true, email: true } } } } } });
+    const row = await this.prisma.assignment.create({ data: { id: `assignment-${randomUUID()}`, classId, createdById: session.user.id, title: input.title.trim(), description: input.description.trim(), instructions: input.instructions.trim(), dueAt, maxScore: input.maxScore, rubric: rubric as unknown as Prisma.InputJsonValue }, include: { class: { select: { code: true } }, submissions: { include: { learner: { select: { displayName: true, email: true } }, attachments: true } } } });
     return this.mapAssignment(row);
   }
 
@@ -43,7 +51,7 @@ export class AcademicService {
     await this.requireTeachingAccess(current.classId, session);
     if (current.status !== "DRAFT") throw new ConflictException("Chỉ bài tập nháp mới có thể xuất bản.");
     const row = await this.prisma.$transaction(async (transaction) => {
-      const updated = await transaction.assignment.update({ where: { id: assignmentId }, data: { status: "PUBLISHED" }, include: { class: { select: { code: true } }, submissions: { include: { learner: { select: { displayName: true, email: true } } } } } });
+      const updated = await transaction.assignment.update({ where: { id: assignmentId }, data: { status: "PUBLISHED" }, include: { class: { select: { code: true } }, submissions: { include: { learner: { select: { displayName: true, email: true } }, attachments: true } } } });
       const learners = await transaction.classEnrollment.findMany({ where: { classId: current.classId, status: "ACTIVE" }, select: { learnerId: true } });
       if (learners.length) await transaction.notification.createMany({ data: learners.map(({ learnerId }) => ({ id: `notification-${randomUUID()}`, recipientId: learnerId, type: "ASSIGNMENT_PUBLISHED", title: `Bài tập mới: ${current.title}`, entityType: "ASSIGNMENT", entityId: assignmentId, dedupKey: `assignment-published:${assignmentId}:${learnerId}` })) });
       return updated;
@@ -51,27 +59,79 @@ export class AcademicService {
     return this.mapAssignment(row);
   }
 
-  async submitAssignment(assignmentId: string, content: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
+  async submitAssignment(assignmentId: string, content: string | undefined, session: AuthenticatedSession, files: UploadedAssignmentFile[] = []): Promise<AssignmentSubmissionView> {
     if (session.roleCode !== "LEARNER") throw new ForbiddenException("Chỉ học viên được nộp bài.");
+    this.validateAssignmentFiles(files);
     const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId }, include: { class: { include: { enrollments: { where: { learnerId: session.user.id, status: "ACTIVE" } } } } } });
     if (!assignment || !assignment.class.enrollments.length || assignment.status !== "PUBLISHED") throw new NotFoundException("Không tìm thấy bài tập đang mở trong lớp của bạn.");
     if (assignment.dueAt < new Date()) throw new ConflictException("Bài tập đã hết hạn nộp.");
-    const existing = await this.prisma.assignmentSubmission.findUnique({ where: { assignmentId_learnerId: { assignmentId, learnerId: session.user.id } } });
+    const existing = await this.prisma.assignmentSubmission.findUnique({ where: { assignmentId_learnerId: { assignmentId, learnerId: session.user.id } }, include: { attachments: true } });
     if (existing?.status === "GRADED") throw new ConflictException("Bài đã chấm không thể nộp lại.");
-    const row = await this.prisma.assignmentSubmission.upsert({
-      where: { assignmentId_learnerId: { assignmentId, learnerId: session.user.id } },
-      update: { content: content.trim(), submittedAt: new Date(), status: "SUBMITTED", score: null, feedback: null, rubricScores: undefined, gradedAt: null, gradedBy: null },
-      create: { id: `submission-${randomUUID()}`, assignmentId, learnerId: session.user.id, content: content.trim() },
-      include: { learner: { select: { displayName: true, email: true } } },
-    });
+    if ((existing?.attachments.length ?? 0) + files.length > 5) throw new BadRequestException("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
+    const normalizedContent = (content ?? existing?.content ?? "").trim();
+    if (!normalizedContent && !(existing?.attachments.length ?? 0) && !files.length) throw new BadRequestException("Cần nhập nội dung hoặc đính kèm ít nhất một tệp.");
+
+    const stored: Array<UploadedAssignmentFile & { objectKey: string; checksum: string }> = [];
+    try {
+      for (const file of files) {
+        const scan = await this.antivirus.scan(file.buffer);
+        if (!scan.clean) throw new BadRequestException(`Tệp ${file.originalName} không an toàn và đã bị từ chối.`);
+        const saved = await this.objectStorage.put(`assignment-submissions/${session.user.id}/${randomUUID()}`, file.buffer);
+        stored.push({ ...file, ...saved });
+      }
+      const row = await this.prisma.$transaction(async (transaction) => {
+        const submission = await transaction.assignmentSubmission.upsert({
+          where: { assignmentId_learnerId: { assignmentId, learnerId: session.user.id } },
+          update: { content: normalizedContent, submittedAt: new Date(), status: "SUBMITTED", score: null, feedback: null, rubricScores: undefined, gradedAt: null, gradedBy: null },
+          create: { id: `submission-${randomUUID()}`, assignmentId, learnerId: session.user.id, content: normalizedContent },
+        });
+        if (stored.length) await transaction.assignmentSubmissionAttachment.createMany({ data: stored.map((file) => ({ id: `submission-file-${randomUUID()}`, submissionId: submission.id, objectKey: file.objectKey, originalName: file.originalName, mimeType: file.mimeType, sizeBytes: file.size, checksum: file.checksum })) });
+        return transaction.assignmentSubmission.findUniqueOrThrow({ where: { id: submission.id }, include: { learner: { select: { displayName: true, email: true } }, attachments: { orderBy: { createdAt: "asc" } } } });
+      });
+      return this.mapSubmission(row);
+    } catch (error) {
+      await Promise.allSettled(stored.map((file) => this.objectStorage.remove(file.objectKey)));
+      throw error;
+    }
+  }
+
+  async addSubmissionAttachments(submissionId: string, files: UploadedAssignmentFile[], session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
+    if (!files.length) throw new BadRequestException("Cần chọn ít nhất một tệp.");
+    const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId } });
+    if (!submission || submission.learnerId !== session.user.id) throw new NotFoundException("Không tìm thấy bài nộp của bạn.");
+    return this.submitAssignment(submission.assignmentId, undefined, session, files);
+  }
+
+  async removeSubmissionAttachment(submissionId: string, attachmentId: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
+    if (session.roleCode !== "LEARNER") throw new ForbiddenException("Chỉ học viên được sửa tệp bài nộp.");
+    const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: true } });
+    if (!submission || submission.learnerId !== session.user.id) throw new NotFoundException("Không tìm thấy bài nộp của bạn.");
+    if (submission.status === "GRADED") throw new ConflictException("Bài đã chấm không thể sửa tệp.");
+    if (submission.assignment.dueAt < new Date()) throw new ConflictException("Bài tập đã hết hạn chỉnh sửa.");
+    const attachment = submission.attachments.find((item) => item.id === attachmentId);
+    if (!attachment) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+    if (!submission.content.trim() && submission.attachments.length === 1) throw new BadRequestException("Bài nộp phải còn nội dung hoặc ít nhất một tệp.");
+    await this.objectStorage.remove(attachment.objectKey);
+    const row = await this.prisma.assignmentSubmission.update({ where: { id: submissionId }, data: { attachments: { delete: { id: attachmentId } }, submittedAt: new Date() }, include: { learner: { select: { displayName: true, email: true } }, attachments: { orderBy: { createdAt: "asc" } } } });
     return this.mapSubmission(row);
+  }
+
+  async readSubmissionAttachment(submissionId: string, attachmentId: string, session: AuthenticatedSession): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const attachment = await this.prisma.assignmentSubmissionAttachment.findFirst({ where: { id: attachmentId, submissionId }, include: { submission: { include: { assignment: true } } } });
+    if (!attachment) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+    if (session.roleCode === "LEARNER") {
+      if (attachment.submission.learnerId !== session.user.id) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+    } else {
+      await this.requireTeachingAccess(attachment.submission.assignment.classId, session);
+    }
+    return { buffer: await this.objectStorage.get(attachment.objectKey), fileName: attachment.originalName, mimeType: attachment.mimeType };
   }
 
   async listSubmissions(assignmentId: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView[]> {
     const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
     if (!assignment) throw new NotFoundException("Không tìm thấy bài tập.");
     await this.requireTeachingAccess(assignment.classId, session);
-    const rows = await this.prisma.assignmentSubmission.findMany({ where: { assignmentId }, include: { learner: { select: { displayName: true, email: true } } }, orderBy: { submittedAt: "asc" } });
+    const rows = await this.prisma.assignmentSubmission.findMany({ where: { assignmentId }, include: { learner: { select: { displayName: true, email: true } }, attachments: { orderBy: { createdAt: "asc" } } }, orderBy: { submittedAt: "asc" } });
     return rows.map((row) => this.mapSubmission(row));
   }
 
@@ -88,7 +148,7 @@ export class AcademicService {
       total += score;
     }
     const row = await this.prisma.$transaction(async (transaction) => {
-      const updated = await transaction.assignmentSubmission.update({ where: { id: submissionId }, data: { status: "GRADED", score: total, rubricScores, feedback: feedback.trim(), gradedBy: session.user.id, gradedAt: new Date() }, include: { learner: { select: { displayName: true, email: true } } } });
+      const updated = await transaction.assignmentSubmission.update({ where: { id: submissionId }, data: { status: "GRADED", score: total, rubricScores, feedback: feedback.trim(), gradedBy: session.user.id, gradedAt: new Date() }, include: { learner: { select: { displayName: true, email: true } }, attachments: { orderBy: { createdAt: "asc" } } } });
       await transaction.notification.upsert({ where: { dedupKey: `assignment-graded:${submissionId}` }, update: { readAt: null, createdAt: new Date() }, create: { id: `notification-${randomUUID()}`, recipientId: submission.learnerId, type: "ASSIGNMENT_GRADED", title: `Đã chấm bài: ${submission.assignment.title}`, entityType: "ASSIGNMENT", entityId: submission.assignmentId, dedupKey: `assignment-graded:${submissionId}` } });
       return updated;
     });
@@ -156,12 +216,33 @@ export class AcademicService {
     if (!session.permissions.includes("exam:manage") || !(await this.accessibleClassIds(session)).includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
   }
 
-  private mapAssignment(row: Prisma.AssignmentGetPayload<{ include: { class: { select: { code: true } }; submissions: { include: { learner: { select: { displayName: true; email: true } } } } } }>, submission?: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } } } }>): AssignmentView {
+  private mapAssignment(row: Prisma.AssignmentGetPayload<{ include: { class: { select: { code: true } }; submissions: { include: { learner: { select: { displayName: true; email: true } }; attachments: true } } } }>, submission?: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } }; attachments: true } }>): AssignmentView {
     return { id: row.id, classId: row.classId, classCode: row.class.code, title: row.title, description: row.description, instructions: row.instructions, dueAt: row.dueAt.toISOString(), maxScore: Number(row.maxScore), rubric: this.rubric(row.rubric), status: row.status, createdById: row.createdById, submission: submission ? this.mapSubmission(submission) : undefined, createdAt: row.createdAt.toISOString() };
   }
 
-  private mapSubmission(row: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } } } }>): AssignmentSubmissionView {
-    return { id: row.id, assignmentId: row.assignmentId, learnerId: row.learnerId, learnerName: row.learner.displayName, learnerEmail: row.learner.email, content: row.content, status: row.status, submittedAt: row.submittedAt.toISOString(), score: row.score === null ? undefined : Number(row.score), rubricScores: this.rubricScores(row.rubricScores), feedback: row.feedback ?? undefined, gradedAt: row.gradedAt?.toISOString() };
+  private mapSubmission(row: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } }; attachments: true } }>): AssignmentSubmissionView {
+    return { id: row.id, assignmentId: row.assignmentId, learnerId: row.learnerId, learnerName: row.learner.displayName, learnerEmail: row.learner.email, content: row.content, attachments: row.attachments.map((item) => ({ id: item.id, originalName: item.originalName, mimeType: item.mimeType, sizeBytes: Number(item.sizeBytes), createdAt: item.createdAt.toISOString(), canPreview: item.mimeType === "application/pdf" || item.mimeType.startsWith("image/") })), status: row.status, submittedAt: row.submittedAt.toISOString(), score: row.score === null ? undefined : Number(row.score), rubricScores: this.rubricScores(row.rubricScores), feedback: row.feedback ?? undefined, gradedAt: row.gradedAt?.toISOString() };
+  }
+
+  private validateAssignmentFiles(files: UploadedAssignmentFile[]): void {
+    if (files.length > 5) throw new BadRequestException("Mỗi lần chỉ được chọn tối đa 5 tệp.");
+    const mimeByExtension: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf", doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", txt: "text/plain" };
+    for (const file of files) {
+      if (!file.originalName || file.originalName.length > 255) throw new BadRequestException("Tên tệp phải có từ 1 đến 255 ký tự.");
+      if (file.size <= 0 || file.size > 20 * 1024 * 1024 || file.buffer.length !== file.size) throw new BadRequestException(`Tệp ${file.originalName} phải có dung lượng từ 1 byte đến 20 MB.`);
+      const extension = file.originalName.split(".").pop()?.toLowerCase() ?? "";
+      const expectedMime = mimeByExtension[extension];
+      if (!expectedMime || (file.mimeType && file.mimeType !== "application/octet-stream" && file.mimeType !== expectedMime)) throw new BadRequestException(`Tệp ${file.originalName} không đúng định dạng JPG, PNG, WebP, PDF, DOC, DOCX hoặc TXT.`);
+      const validSignature = extension === "txt" ? !file.buffer.includes(0) && !file.buffer.toString("utf8").includes("\uFFFD")
+        : extension === "jpg" || extension === "jpeg" ? file.buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
+          : extension === "png" ? file.buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+            : extension === "webp" ? file.buffer.subarray(0, 4).toString("ascii") === "RIFF" && file.buffer.subarray(8, 12).toString("ascii") === "WEBP"
+              : extension === "pdf" ? file.buffer.subarray(0, 4).toString("ascii") === "%PDF"
+                : extension === "doc" ? file.buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))
+                  : file.buffer.subarray(0, 2).toString("ascii") === "PK";
+      if (!validSignature) throw new BadRequestException(`Nội dung tệp ${file.originalName} không khớp với phần mở rộng.`);
+      file.mimeType = expectedMime;
+    }
   }
 
   private rubric(value: Prisma.JsonValue): RubricCriterion[] {

@@ -16,8 +16,10 @@ Wind EDU là hệ thống vận hành trung tâm giảng dạy trong một khôn
 - Quản lý câu hỏi một lựa chọn, nhiều lựa chọn, đúng/sai, trả lời ngắn và tự luận.
 - Phiên bản hóa, phát hành, nhập hàng loạt và phân loại câu hỏi.
 - Tạo đề, xáo câu hỏi có thể tái lập, giới hạn lượt thi và duyệt đề.
-- Làm bài, lưu đáp án, chấm điểm, công bố kết quả, phúc khảo và lưu lịch sử sửa điểm.
+- Làm bài, tự động lưu đáp án và tự động nộp theo đồng hồ máy chủ khi hết giờ; thao tác nộp lặp không tạo kết quả trùng.
+- Chấm điểm, công bố kết quả, phúc khảo và lưu lịch sử sửa điểm.
 - Quản lý bài tập, rubric, bài nộp và gradebook theo lớp.
+- Bài tập nhận nội dung hoặc tối đa 5 tệp JPG/PNG/WebP/PDF/DOC/DOCX/TXT, tối đa 20 MB/tệp; học viên có thể thêm hoặc xóa từng tệp trước hạn và trước khi chấm.
 
 ### Diễn đàn trao đổi
 

@@ -19,7 +19,8 @@ export interface ClassRoster { classId: string; instructors: Array<ClassInstruct
 export interface EnrollmentImportResult { userId: string; status: "ENROLLED" | "SKIPPED" | "FAILED"; message: string }
 export interface DirectoryUser { id: string; displayName: string; email: string; roleCode: "INSTRUCTOR" | "LEARNER" }
 export interface RubricCriterion { id: string; title: string; description: string; maxPoints: number }
-export interface AssignmentSubmission { id: string; assignmentId: string; learnerId: string; learnerName: string; learnerEmail: string; content: string; status: "SUBMITTED" | "GRADED"; submittedAt: string; score?: number; rubricScores: Array<{ criterionId: string; score: number }>; feedback?: string; gradedAt?: string }
+export interface AssignmentAttachment { id: string; originalName: string; mimeType: string; sizeBytes: number; createdAt: string; canPreview: boolean }
+export interface AssignmentSubmission { id: string; assignmentId: string; learnerId: string; learnerName: string; learnerEmail: string; content: string; attachments: AssignmentAttachment[]; status: "SUBMITTED" | "GRADED"; submittedAt: string; score?: number; rubricScores: Array<{ criterionId: string; score: number }>; feedback?: string; gradedAt?: string }
 export interface Assignment { id: string; classId: string; classCode: string; title: string; description: string; instructions: string; dueAt: string; maxScore: number; rubric: RubricCriterion[]; status: "DRAFT" | "PUBLISHED" | "CLOSED"; createdById: string; submission?: AssignmentSubmission; createdAt: string }
 export interface AcademicCalendarEvent { id: string; classId: string; classCode: string; type: "CLASS" | "LIVE_SESSION" | "EXAM" | "ASSIGNMENT"; title: string; startAt: string; endAt?: string; href: string }
 export interface ClassAnnouncement { id: string; classId: string; classCode: string; title: string; body: string; authorName: string; publishedAt: string }

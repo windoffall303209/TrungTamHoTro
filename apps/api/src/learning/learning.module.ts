@@ -5,10 +5,11 @@ import { EngagementController } from "./engagement.controller.js";
 import { LearningService } from "./learning.service.js";
 import { AcademicController } from "./academic.controller.js";
 import { AcademicService } from "./academic.service.js";
+import { ExamAttemptReconciliationService } from "./exam-attempt-reconciliation.service.js";
 
 @Module({
   controllers: [CourseController, ContentController, EngagementController, AcademicController],
-  providers: [LearningService, AcademicService],
+  providers: [LearningService, AcademicService, ExamAttemptReconciliationService],
   exports: [LearningService],
 })
 export class LearningModule {}
