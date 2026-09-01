@@ -537,6 +537,59 @@ describe("LearningService", () => {
     expect(question.options).toEqual(["$x = 2$", "$x = 3$"]);
   });
 
+  it("tải, kế thừa và xóa ảnh câu hỏi theo phiên bản", async () => {
+    const service = new LearningService();
+    const draft = await service.createQuestion({ courseId: "course-web", type: "TRUE_FALSE", content: "Sơ đồ minh họa này có hợp lệ không?", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["sơ-đồ"] });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+
+    const withImage = await service.uploadQuestionImage(draft.id, { originalName: "Sơ đồ hệ thống.png", mimeType: "image/png", size: png.length, buffer: png });
+    expect(withImage).toMatchObject({ imageName: "Sơ đồ hệ thống.png", imageMimeType: "image/png", imageSizeBytes: png.length });
+    expect((await service.readQuestionImage(draft.id, "INSTRUCTOR", "usr-instructor")).buffer).toEqual(png);
+
+    const next = await service.updateQuestion(draft.id, { ...withImage, content: "Sơ đồ minh họa này có còn hợp lệ không?" });
+    expect(next.imageName).toBe("Sơ đồ hệ thống.png");
+    expect((await service.readQuestionImage(next.id, "INSTRUCTOR", "usr-instructor")).buffer).toEqual(png);
+    expect((await service.removeQuestionImage(next.id)).imageUrl).toBeUndefined();
+    await expect(service.readQuestionImage(next.id, "INSTRUCTOR", "usr-instructor")).rejects.toThrow(NotFoundException);
+  });
+
+  it("từ chối ảnh câu hỏi giả mạo định dạng", async () => {
+    const service = new LearningService();
+    await expect(service.uploadQuestionImage("q-rest-01", { originalName: "gia-mao.png", mimeType: "image/png", size: 8, buffer: Buffer.from("notimage") })).rejects.toThrow("không khớp định dạng");
+  });
+
+  it("chỉ trả ảnh trong đề khi học viên có lượt làm bài còn hiệu lực", async () => {
+    const service = new LearningService();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    await service.uploadQuestionImage("q-rest-01", { originalName: "http.png", mimeType: "image/png", size: png.length, buffer: png });
+
+    await expect(service.readQuestionImage("q-rest-01", "LEARNER", "usr-learner")).rejects.toThrow(NotFoundException);
+    await service.startAttempt("exam-mid-web", "usr-learner");
+    expect((await service.readQuestionImage("q-rest-01", "LEARNER", "usr-learner")).buffer).toEqual(png);
+  });
+
+  it("tự động phê duyệt câu hỏi theo cấu hình mặc định", async () => {
+    const system = new SystemService();
+    const service = new LearningService(undefined, undefined, undefined, undefined, system);
+    const draft = await service.createQuestion({ courseId: "course-web", type: "TRUE_FALSE", content: "HTTP là một giao thức ở tầng ứng dụng.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["http"] });
+
+    expect((await service.publishQuestion(draft.id, "usr-instructor")).status).toBe("PUBLISHED");
+    expect((await service.listNotifications("usr-instructor")).some((item) => item.title.includes("tự động phê duyệt"))).toBe(true);
+  });
+
+  it("chuyển câu hỏi sang hàng chờ khi bật duyệt thủ công", async () => {
+    const system = new SystemService();
+    await system.updateSettings({ questionApprovalMode: "MANUAL" });
+    const service = new LearningService(undefined, undefined, undefined, undefined, system);
+    const draft = await service.createQuestion({ courseId: "course-web", type: "TRUE_FALSE", content: "TLS bảo vệ dữ liệu khi truyền qua mạng.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["tls"] });
+
+    expect((await service.publishQuestion(draft.id)).status).toBe("PENDING_REVIEW");
+    await expect(service.reviewQuestion(draft.id, "RETURN", "")).rejects.toThrow("lý do");
+    expect((await service.reviewQuestion(draft.id, "RETURN", "Cần diễn đạt rõ phạm vi áp dụng")).status).toBe("DRAFT");
+    expect((await service.publishQuestion(draft.id)).status).toBe("PENDING_REVIEW");
+    expect((await service.reviewQuestion(draft.id, "APPROVE")).status).toBe("PUBLISHED");
+  });
+
   it("nhập câu hỏi hàng loạt và trả kết quả riêng cho từng dòng", async () => {
     const service = new LearningService();
     const results = await service.importQuestions([
@@ -596,7 +649,7 @@ describe("LearningService", () => {
     await expect(service.listGradeHistory(attempt.id, "instructor-outside")).rejects.toThrow(NotFoundException);
   });
 
-  it("xáo câu hỏi tái lập theo seed và lưu lịch sử mỗi lần sửa điểm", async () => {
+  it("giữ thứ tự gốc cho bản xem của giảng viên dù đề bật xáo câu hỏi", async () => {
     const service = new LearningService();
     const examInput = {
       classId: "class-web-01",
@@ -612,8 +665,16 @@ describe("LearningService", () => {
     };
     const firstExam = await service.createExam(examInput);
     const secondExam = await service.createExam({ ...examInput, title: "Đề xáo câu hỏi bản sao" });
-    expect(firstExam.questionIds).toEqual(secondExam.questionIds);
+    expect(firstExam.questionIds).toEqual(examInput.questionIds);
+    expect(secondExam.questionIds).toEqual(examInput.questionIds);
     expect(firstExam).toMatchObject({ shuffleQuestions: true, randomSeed: "lop-web-dot-1" });
+    expect((await service.getInstructorExamPreview(firstExam.id)).map((question) => question.id)).toEqual(examInput.questionIds);
+    await expect(service.getInstructorExamPreview(firstExam.id, "instructor-outside")).rejects.toThrow(NotFoundException);
+
+  });
+
+  it("lưu lịch sử mỗi lần sửa điểm", async () => {
+    const service = new LearningService();
 
     const attempt = await service.startAttempt("exam-mid-web");
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
