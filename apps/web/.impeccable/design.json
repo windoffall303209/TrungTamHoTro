@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-27T12:10:00.000Z",
+  "title": "Design System: Wind EDU",
+  "extensions": {
+    "colorMeta": {
+      "paper": { "role": "neutral", "displayName": "Giấy vận hành", "canonical": "#f7f4ed", "tonalRamp": ["#102a43", "#355069", "#516274", "#a9bac1", "#d5dfe2", "#eee8dc", "#f7f4ed", "#fffdfa"] },
+      "ink": { "role": "primary", "displayName": "Mực điều phối", "canonical": "#102a43", "tonalRamp": ["#102a43", "#183d5f", "#285879", "#4b7594", "#7fa2b7", "#b6cdd7", "#e2edef", "#f5f9f9"] },
+      "vermilion": { "role": "primary", "displayName": "Dấu đỏ gạch", "canonical": "#c75b39", "tonalRamp": ["#4a1d16", "#703022", "#963e2b", "#c75b39", "#dc8163", "#edb3a0", "#f7dcd2", "#fdf2ee"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Tiêu đề vận hành", "purpose": "Tiêu đề trang sans-serif đậm và phần nghiệp vụ quan trọng." },
+      "body": { "displayName": "Chữ vận hành", "purpose": "Dữ liệu, mô tả và control tiếng Việt." }
+    },
+    "shadows": [
+      { "name": "layered-only", "value": "0 20px 50px rgba(16,42,67,0.2)", "purpose": "Chỉ dùng cho drawer và popover vượt trên canvas." }
+    ],
+    "motion": [
+      { "name": "standard", "value": "150ms ease-out", "purpose": "Phản hồi hover, focus và chuyển trạng thái ngắn." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "< 640px" },
+      { "name": "rail", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Nút điều phối chính",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Hành động quan trọng nhất trong một vùng làm việc.",
+      "html": "<button class=\"ds-primary\">Lưu thay đổi</button>",
+      "css": ".ds-primary{border:1px solid #102a43;border-radius:12px;background:#102a43;color:#fffdfa;padding:10px 16px;font:700 14px 'Be Vietnam Pro',Arial,sans-serif;transition:background 150ms ease-out,border-color 150ms ease-out}.ds-primary:hover{background:#183d5f}.ds-primary:focus-visible{outline:3px solid rgba(199,91,57,.25);outline-offset:2px}"
+    },
+    {
+      "name": "Trường tìm kiếm",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Lọc danh sách nghiệp vụ trên nền giấy sáng.",
+      "html": "<input class=\"ds-input\" placeholder=\"Tìm học liệu\" />",
+      "css": ".ds-input{box-sizing:border-box;width:100%;border:1px solid #a9bac1;border-radius:12px;background:#fffdfa;color:#102a43;padding:10px 12px;font:500 14px 'Be Vietnam Pro',Arial,sans-serif}.ds-input::placeholder{color:#516274}.ds-input:focus{outline:3px solid rgba(199,91,57,.15);border-color:#c75b39}"
+    },
+    {
+      "name": "Hàng sổ nghiệp vụ",
+      "kind": "custom",
+      "refersTo": "ledger-row",
+      "description": "Đơn vị lặp lại cho dữ liệu cần quét và thao tác nhanh.",
+      "html": "<article class=\"ds-row\"><strong>Tài liệu API</strong><span>Đã phát hành</span><button>Xem</button></article>",
+      "css": ".ds-row{display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;border-bottom:1px solid #d5dfe2;background:rgba(255,253,250,.65);padding:18px 20px;color:#102a43;font:600 14px 'Be Vietnam Pro',Arial,sans-serif}.ds-row span{border-radius:999px;background:#eee8dc;padding:5px 8px;color:#516274;font-size:11px}.ds-row button{border:0;background:transparent;color:#102a43;font:700 13px 'Be Vietnam Pro',Arial,sans-serif}.ds-row button:hover{color:#c75b39}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Sổ giáo vụ đương đại",
+    "overview": "Wind EDU tổ chức bốn vai trò trong một không gian vận hành chung. Giao diện ưu tiên đọc nhanh, kiểm tra trạng thái và đi vào thao tác tiếp theo bằng nền giấy, mực xanh đen và đường sổ rõ ràng.",
+    "keyCharacteristics": ["Mật độ vừa phải, theo hàng và cột như trang sổ.", "Một không gian vận hành dùng chung.", "Mặt phẳng, viền mảnh, không tạo cảnh quan thẻ nổi."],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Đỏ gạch chỉ đánh dấu điều cần hành động hoặc nhận biết ngay.", "section": "colors" },
+      { "name": "The Flat-By-Default Rule", "body": "Không thêm shadow cho container không có tầng không gian riêng.", "section": "elevation" }
+    ],
+    "dos": ["Do dùng nền giấy, đường kẻ và typography để tổ chức dữ liệu.", "Do giữ một hành động chính rõ ràng trong mỗi vùng."],
+    "donts": ["Don't biến danh sách dữ liệu thành lưới thẻ bo tròn.", "Don't dùng gradient hoặc accent bão hòa khắp màn hình.", "Don't tạo eyebrow trang trí phía trên mọi tiêu đề."]
+  }
+}

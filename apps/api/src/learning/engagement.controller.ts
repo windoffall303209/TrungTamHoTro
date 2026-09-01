@@ -1,0 +1,223 @@
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
+import type { AuthenticatedSession } from "../auth/auth.service.js";
+import { CurrentSession } from "../auth/current-session.decorator.js";
+import { RequireAuthentication, RequirePermissions } from "../auth/require-permissions.decorator.js";
+import {
+  AppealReportDto, AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
+  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
+} from "./learning.dto.js";
+import { LearningService } from "./learning.service.js";
+import type { ClassProgressReport, ContentReport, ExamAnalytics, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
+
+@ApiTags("Forum, Live Class & Support")
+@Controller()
+export class EngagementController {
+  constructor(private readonly learning: LearningService) {}
+
+  @Get("forum/topics") @RequirePermissions("forum:view")
+  listTopics(@CurrentSession() session: AuthenticatedSession): Promise<ForumTopic[]> { return this.learning.listTopics(session.roleCode, session.user.id); }
+
+  @Post("instructor/classes/:classId/forum/topics") @RequirePermissions("forum:moderate")
+  createTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.createTopic(classId, input, session.user.id, session.roleCode); }
+
+  @Post("learner/classes/:classId/forum/topics") @RequirePermissions("forum:post")
+  createLearnerTopic(@Param("classId") classId: string, @Body() input: CreateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.createTopic(classId, { ...input, isPinned: false }, session.user.id, session.roleCode); }
+
+  @Patch("instructor/forum/topics/:topicId") @RequirePermissions("forum:moderate")
+  moderateTopic(@Param("topicId") topicId: string, @Body() input: ModerateTopicDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumTopic> { return this.learning.moderateTopic(topicId, input, session.user.id); }
+
+  @Get("forum/topics/:topicId/posts") @RequirePermissions("forum:view")
+  listPosts(@Param("topicId") topicId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost[]> { return this.learning.listPosts(topicId, session.roleCode, session.user.id); }
+
+  @Post("learner/forum/topics/:topicId/posts") @RequirePermissions("forum:post")
+  createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> {
+    return this.learning.createPost(topicId, input.body, session.user.id, input.parentId, input.attachmentIds, input.mentionedUserIds);
+  }
+
+  @Patch("learner/forum/posts/:postId") @RequirePermissions("forum:post")
+  updatePost(@Param("postId") postId: string, @Body() input: UpdatePostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.updatePost(postId, input.body, session.user.id); }
+
+  @Post("learner/forum/posts/:postId/delete") @RequirePermissions("forum:post")
+  deletePost(@Param("postId") postId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.deletePost(postId, session.user.id); }
+
+  @Post("instructor/forum/posts/:postId/hide") @RequirePermissions("forum:moderate")
+  hidePost(@Param("postId") postId: string, @Body() input: HideForumPostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.hidePost(postId, input.reason, session.user.id); }
+
+  @Get("learner/notifications") @RequirePermissions("forum:view")
+  listNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> { return this.learning.listNotifications(session.user.id); }
+
+  @Patch("learner/notifications/:notificationId/read") @RequirePermissions("forum:view")
+  markNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {
+    return this.learning.markNotificationRead(notificationId, session.user.id);
+  }
+
+  @Get("notifications") @RequireAuthentication()
+  listRoleNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> {
+    return this.learning.listNotifications(session.user.id);
+  }
+
+  @Patch("notifications/:notificationId/read") @RequireAuthentication()
+  markRoleNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {
+    return this.learning.markNotificationRead(notificationId, session.user.id);
+  }
+
+  @Post("learner/content-reports") @RequirePermissions("forum:view")
+  reportContent(@Body() input: CreateReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.reportContent({ ...input, reporterId: session.user.id }); }
+
+  @Get("learner/content-reports") @RequirePermissions("forum:view")
+  listLearnerReports(@CurrentSession() session: AuthenticatedSession): Promise<ContentReport[]> { return this.learning.listLearnerReports(session.user.id); }
+
+  @Get("manager/forum/reports") @RequirePermissions("forum:moderate")
+  listReports(): Promise<ContentReport[]> { return this.learning.listReports(); }
+
+  @Get("manager/forum/reports/:reportId/context") @RequirePermissions("forum:moderate")
+  getReportContext(@Param("reportId") reportId: string): Promise<ModerationContext> { return this.learning.getReportContext(reportId); }
+
+  @Post("manager/forum/reports/:reportId/claim") @RequirePermissions("forum:moderate")
+  claimReport(@Param("reportId") reportId: string, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.claimReport(reportId, session.user.id); }
+
+  @Post("manager/forum/reports/:reportId/resolve") @RequirePermissions("forum:moderate")
+  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution, session.user.id); }
+
+  @Post("learner/content-reports/:reportId/appeal") @RequirePermissions("forum:view")
+  appealReport(@Param("reportId") reportId: string, @Body() input: AppealReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.appealReport(reportId, input.reason, session.user.id); }
+
+  @Get("sessions") @RequirePermissions("session:view")
+  listSessions(@CurrentSession() session: AuthenticatedSession): Promise<LiveSession[]> { return this.learning.listSessions(session.roleCode, session.user.id); }
+
+  @Post("instructor/classes/:classId/sessions") @RequirePermissions("session:manage")
+  createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.createSession(classId, input, session.user.id, session.roleCode); }
+
+  @Post("manager/classes/:classId/sessions") @RequirePermissions("class:manage")
+  createManagerSession(@Param("classId") classId: string, @Body() input: CreateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.createSession(classId, input, session.user.id, session.roleCode); }
+
+  @Patch("manager/sessions/:sessionId") @RequirePermissions("class:manage")
+  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.updateSession(sessionId, input, session.user.id); }
+
+  @Post("manager/sessions/:sessionId/cancel") @RequirePermissions("class:manage")
+  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason, session.user.id); }
+
+  @Patch("instructor/sessions/:sessionId/status") @RequirePermissions("session:manage")
+  transitionSession(@Param("sessionId") sessionId: string, @Body() input: TransitionSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.transitionSession(sessionId, input.status, session.user.id); }
+
+  @Post("learner/sessions/:sessionId/join") @RequirePermissions("session:view")
+  joinSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id); }
+
+  @Post("learner/sessions/:sessionId/leave") @RequirePermissions("session:view")
+  leaveSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.leaveSession(sessionId, session.user.id); }
+
+  @Patch("instructor/sessions/:sessionId/attendance") @RequirePermissions("session:manage")
+  updateAttendance(@Param("sessionId") sessionId: string, @Body() input: UpdateAttendanceDto, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.updateAttendance(sessionId, input.learnerId, input.status, input.attendedMinutes, input.adjustmentReason, session.user.id); }
+
+  @Get("manager/sessions/:sessionId/attendance") @RequirePermissions("class:manage")
+  getAttendanceReview(@Param("sessionId") sessionId: string): Promise<object> { return this.learning.getAttendanceReview(sessionId); }
+
+  @Post("manager/sessions/:sessionId/attendance/sync") @RequirePermissions("class:manage")
+  syncAttendance(@Param("sessionId") sessionId: string, @Body() input: SyncAttendanceDto, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.syncAttendance(sessionId, input.records, session.user.id); }
+
+  @Post("manager/sessions/:sessionId/attendance/lock") @RequirePermissions("class:manage")
+  lockAttendance(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.lockAttendance(sessionId, session.user.id); }
+
+  @Post("manager/attendance-appeals/:appealId/resolve") @RequirePermissions("class:manage")
+  resolveAttendanceAppeal(@Param("appealId") appealId: string, @Body() input: ResolveAttendanceAppealDto, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.resolveAttendanceAppeal(appealId, input.decision, input.resolution, input.status, input.attendedMinutes, session.user.id);
+  }
+
+  @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
+  attachRecording(@Param("sessionId") sessionId: string, @Body() input: AttachRecordingDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.attachRecording(sessionId, input.recordingUrl, session.user.id); }
+
+  @Patch("instructor/sessions/:sessionId/recordings/status") @RequirePermissions("session:manage")
+  completeRecording(@Param("sessionId") sessionId: string, @Body() input: CompleteRecordingDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> {
+    return this.learning.completeRecording(sessionId, input.status, input.retentionDays, input.errorMessage, session.user.id);
+  }
+
+  @Get("learner/sessions/:sessionId/summary") @RequirePermissions("session:view")
+  getSessionSummary(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.getSessionSummary(sessionId, session.user.id); }
+
+  @Get("learner/sessions/:sessionId/recording-access") @RequirePermissions("session:view")
+  createRecordingAccess(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.createRecordingAccess(sessionId, session.user.id); }
+
+  @Get("learner/sessions/:sessionId/recording") @RequirePermissions("session:view")
+  resolveRecordingAccess(@Param("sessionId") sessionId: string, @Query("expires") expires: string, @Query("signature") signature: string, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.resolveRecordingAccess(sessionId, Number(expires), signature ?? "", session.user.id);
+  }
+
+  @Post("learner/sessions/:sessionId/attendance-appeals") @RequirePermissions("session:view")
+  requestAttendanceAppeal(@Param("sessionId") sessionId: string, @Body() input: CreateAttendanceAppealDto, @CurrentSession() session: AuthenticatedSession): Promise<object> {
+    return this.learning.requestAttendanceAppeal(sessionId, input.reason, session.user.id);
+  }
+
+  @Get("support/tickets") @RequireAuthentication()
+  listTickets(@CurrentSession() session: AuthenticatedSession): Promise<SupportTicket[]> { return this.learning.listTickets(session.roleCode, session.user.id); }
+
+  @Post("support/tickets") @RequirePermissions("support:create")
+  createTicket(@Body() input: CreateTicketDto, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.createTicket(input, session.user.id); }
+
+  @Post("support/tickets/:ticketId/attachments") @RequirePermissions("support:create")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
+  addSupportAttachment(
+    @Param("ticketId") ticketId: string,
+    @CurrentSession() session: AuthenticatedSession,
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+  ): Promise<SupportAttachment> {
+    if (!file) throw new BadRequestException("Cần chọn một tệp bằng chứng.");
+    return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
+  }
+
+  @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
+  updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input, session.user.id); }
+
+  @Post("support/tickets/:ticketId/close") @RequirePermissions("support:create")
+  closeTicket(@Param("ticketId") ticketId: string, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.closeTicketByReporter(ticketId, session.user.id); }
+
+  @Get("support/tickets/:ticketId/comments") @RequireAuthentication()
+  listTicketComments(@Param("ticketId") ticketId: string, @CurrentSession() session: AuthenticatedSession): Promise<TicketComment[]> {
+    return this.learning.listTicketComments(ticketId, session.roleCode, session.user.id);
+  }
+
+  @Post("support/tickets/:ticketId/comments") @RequireAuthentication()
+  addTicketComment(@Param("ticketId") ticketId: string, @Body() input: CreateTicketCommentDto, @CurrentSession() session: AuthenticatedSession): Promise<TicketComment> {
+    return this.learning.addTicketComment(ticketId, input.body, session.roleCode, session.user.id);
+  }
+
+  @Get("reports/operations") @RequirePermissions("report:view")
+  getOperationalReport(@Query("from") from?: string, @Query("to") to?: string): Promise<OperationalReport> { return this.learning.getOperationalReport(from, to); }
+
+  @Get("reports/classes") @RequirePermissions("report:view")
+  getClassReports(): Promise<object[]> { return this.learning.getClassReports(); }
+
+  @Get("instructor/analytics/exams") @RequirePermissions("report:view")
+  getExamAnalytics(@CurrentSession() session: AuthenticatedSession, @Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<ExamAnalytics> { return this.learning.getExamAnalytics({ classId, examId, from, to }, session.user.id); }
+
+  @Get("instructor/analytics/exams/export") @RequirePermissions("report:view")
+  async exportExamAnalytics(@CurrentSession() session: AuthenticatedSession, @Query("classId") classId?: string, @Query("examId") examId?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<StreamableFile> {
+    const buffer = await this.learning.exportExamAnalytics({ classId, examId, from, to }, session.user.id);
+    return new StreamableFile(buffer, { type: "text/csv; charset=utf-8", disposition: `attachment; filename="exam-analytics-${Date.now()}.csv"`, length: buffer.length });
+  }
+
+  @Get("manager/classes/:classId/progress") @RequirePermissions("report:view")
+  getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input); }
+
+  @Post("manager/classes/:classId/progress/interventions") @RequirePermissions("report:view")
+  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input, session.user.id); }
+
+  @Patch("manager/progress/interventions/:interventionId") @RequirePermissions("report:view")
+  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input.status, session.user.id); }
+
+  @Post("manager/reports/run") @RequirePermissions("report:view")
+  runOperationalReport(@Body() input: RunOperationalReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ReportRun> { return this.learning.runOperationalReport(input.from, input.to, session.user.id); }
+
+  @Get("manager/reports/exports") @RequirePermissions("report:view")
+  listReportExports(@CurrentSession() session: AuthenticatedSession): Promise<ReportExport[]> { return this.learning.listReportExports(session.user.id); }
+
+  @Post("manager/reports/exports") @RequirePermissions("report:view")
+  createReportExport(@Body() input: CreateReportExportDto, @CurrentSession() session: AuthenticatedSession): Promise<ReportExport> { return this.learning.createReportExport(input.reportRunId, input.format, session.user.id); }
+
+  @Get("manager/reports/exports/:exportId/download") @RequirePermissions("report:view")
+  async downloadReportExport(@Param("exportId") exportId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
+    const download = await this.learning.downloadReportExport(exportId, session.user.id);
+    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`, length: download.buffer.length });
+  }
+}

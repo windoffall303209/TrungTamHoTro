@@ -1,0 +1,194 @@
+"use client";
+
+import {
+  Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, CheckCheck, ClipboardCheck, Database, FileQuestion,
+  GraduationCap, Headphones, History, LayoutDashboard, ListChecks, LoaderCircle, Menu, MessageSquareText, Presentation, Settings,
+  ShieldCheck, ShieldEllipsis, UserCheck, Users, X, LogOut, UserRoundCog, ChevronDown,
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api-client";
+import { useApp } from "@/providers/app-provider";
+import type { PermissionCode, RoleCode } from "@/lib/app-types";
+import { hasAnyPermission } from "@/lib/access-control";
+import type { LearningNotification } from "@/lib/learning-types";
+import { UserAvatar } from "@/components/user-avatar";
+
+interface NavigationItem {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  permissions?: readonly PermissionCode[];
+  roles?: readonly RoleCode[];
+}
+
+const navItems: NavigationItem[] = [
+  { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
+  { href: "/courses", label: "Khóa học & lớp", icon: GraduationCap, permissions: ["course:view", "class:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/materials", label: "Kho học liệu", icon: Database, permissions: ["material:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion, permissions: ["question:view"], roles: ["SYSTEM_ADMIN", "INSTRUCTOR"] },
+  { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck, permissions: ["exam:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/forum", label: "Diễn đàn", icon: MessageSquareText, permissions: ["forum:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/live-classes", label: "Lớp học online", icon: CalendarDays, permissions: ["session:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] },
+  { href: "/academic", label: "Lịch & bài tập", icon: ClipboardCheck, permissions: ["class:view", "exam:view"], roles: ["INSTRUCTOR", "LEARNER"] },
+  { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined, permissions: ["report:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR"] },
+  { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks, permissions: ["class:manage"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"] },
+  { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck, permissions: ["class:manage"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"] },
+  { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive, permissions: ["class:manage"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"] },
+  { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"], roles: ["INSTRUCTOR"] },
+  { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
+  { href: "/support", label: "Hỗ trợ", icon: Headphones, permissions: ["support:create", "support:manage"] },
+  { href: "/admin/users", label: "Người dùng", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, permissions: ["role:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/settings", label: "Cấu hình", icon: Settings, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
+];
+
+function Sidebar({ close }: { close?: () => void }) {
+  const pathname = usePathname();
+  const { session } = useApp();
+  const available = navItems.filter((item) => {
+    const roleAllowed = !item.roles || item.roles.includes(session.roleCode);
+    const permissionAllowed = !item.permissions || hasAnyPermission(session, item.permissions);
+    return roleAllowed && permissionAllowed;
+  });
+
+  return (
+    <div className="flex h-full flex-col bg-[#102a43] text-[#fffdfa]">
+      <div className="flex h-16 items-center gap-3 border-b border-white/15 px-5">
+        <div className="grid size-10 place-items-center rounded-xl border border-white/25 bg-[#c75b39] text-[#fffdfa]"><GraduationCap size={20} /></div>
+        <div><p className="font-heading text-lg font-bold tracking-[-0.025em]">Wind EDU</p><p className="text-[10px] font-bold tracking-[0.14em] text-[#d8e3e8] uppercase">Sổ giáo vụ số</p></div>
+      </div>
+      <nav aria-label="Điều hướng chính" className="flex-1 overflow-y-auto px-3 py-5">
+        <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#9fb5c2]">Không gian chung</p>
+        <div className="space-y-1">
+          {available.map(({ href, label, icon: Icon }) => {
+            const active = pathname === href || pathname.startsWith(`${href}/`);
+            const resolvedLabel = href === "/courses" ? session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : label : label;
+            return (
+              <Link aria-current={active ? "page" : undefined} className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-[#fffdfa] text-[#102a43]" : "text-[#bfd0d8] hover:bg-white/8 hover:text-[#fffdfa]"}`} href={href} key={href} onClick={close}>
+                <Icon className={active ? "text-[#c75b39]" : "text-[#9fb5c2] group-hover:text-[#fffdfa]"} size={18} />{resolvedLabel}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+export function WorkspaceShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [notifications, setNotifications] = useState<LearningNotification[]>([]);
+  const [notificationLoading, setNotificationLoading] = useState(true);
+  const [notificationError, setNotificationError] = useState("");
+  const { session, setRole, logout, notify } = useApp();
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationLoading(true);
+    setNotificationError("");
+    try {
+      setNotifications(await apiRequest<LearningNotification[]>("/notifications", { roleCode: session.roleCode }));
+    } catch (error) {
+      setNotifications([]);
+      setNotificationError(error instanceof Error ? error.message : "Không thể tải thông báo.");
+    } finally {
+      setNotificationLoading(false);
+    }
+  }, [session.roleCode]);
+
+  useEffect(() => {
+    window.queueMicrotask(() => { void loadNotifications(); });
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    if (!menuOpen && !notificationOpen && !profileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    if (menuOpen) document.body.style.overflow = "hidden";
+    const closeOverlay = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      setNotificationOpen(false);
+      setProfileOpen(false);
+    };
+    document.addEventListener("keydown", closeOverlay);
+    return () => {
+      document.removeEventListener("keydown", closeOverlay);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [menuOpen, notificationOpen, profileOpen]);
+
+  async function markRead(item: LearningNotification): Promise<void> {
+    if (item.readAt) return;
+    try {
+      const updated = await apiRequest<LearningNotification>(`/notifications/${item.id}/read`, { method: "PATCH", roleCode: session.roleCode });
+      setNotifications((current) => current.map((notification) => notification.id === updated.id ? updated : notification));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể cập nhật thông báo.", "error");
+    }
+  }
+
+  async function markAllRead(): Promise<void> {
+    const unread = notifications.filter((item) => !item.readAt);
+    if (!unread.length) return;
+    try {
+      const updated = await Promise.all(unread.map((item) => apiRequest<LearningNotification>(`/notifications/${item.id}/read`, { method: "PATCH", roleCode: session.roleCode })));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setNotifications((current) => current.map((item) => byId.get(item.id) ?? item));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể đánh dấu toàn bộ thông báo.", "error");
+    }
+  }
+
+  function notificationHref(item: LearningNotification): string {
+    if (item.type.includes("SUPPORT")) return "/support";
+    if (item.type.includes("FORUM") || item.type.includes("MENTION") || item.type.includes("REPORT")) return "/forum";
+    if (item.type.includes("SESSION") || item.type.includes("ATTENDANCE") || item.type.includes("RECORDING")) return "/live-classes";
+    if (item.type.includes("EXAM") || item.type.includes("GRADE")) return "/exams";
+    if (item.type.includes("MATERIAL")) return "/materials";
+    return "/dashboard";
+  }
+
+  async function signOut(): Promise<void> {
+    await logout();
+    router.replace("/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f7f4ed] text-[#102a43]">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block"><Sidebar /></aside>
+      {menuOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button aria-label="Đóng menu" className="absolute inset-0 bg-[#102a43]/65 backdrop-blur-sm" onClick={() => setMenuOpen(false)} type="button" />
+          <aside aria-label="Điều hướng trên thiết bị di động" className="relative h-full w-72 animate-slide-in shadow-2xl"><button aria-label="Đóng menu" className="absolute right-3 top-3 z-10 grid size-11 place-items-center rounded-xl text-[#bfd0d8] hover:bg-white/10" onClick={() => setMenuOpen(false)} type="button"><X size={19} /></button><Sidebar close={() => setMenuOpen(false)} /></aside>
+        </div>
+      ) : null}
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[#a9bac1] bg-[#f7f4ed]/92 px-4 backdrop-blur md:px-7">
+          <div className="flex min-w-0 items-center gap-3"><button aria-label="Mở menu" className="grid size-11 shrink-0 place-items-center rounded-lg border border-[#a9bac1] text-[#102a43] lg:hidden" onClick={() => setMenuOpen(true)} type="button"><Menu size={20} /></button><div className="min-w-0"><p className="max-w-22 text-xs font-bold leading-4 text-[#102a43] sm:max-w-none sm:text-[1.05rem] sm:leading-5">Trung tâm hỗ trợ giảng dạy</p><p className="mt-0.5 hidden text-[0.9rem] leading-[1.125rem] text-[#516274] sm:block">Một không gian vận hành theo vai trò</p></div></div>
+          <div className="relative flex items-center gap-2 md:gap-3">
+            {session.availableRoles.length > 1 ? <><label className="sr-only" htmlFor="role-switcher">Vai trò đang sử dụng</label><select className="min-h-11 w-36 shrink-0 rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-3 py-2 text-xs font-bold text-[#102a43] outline-none transition focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15 md:w-auto md:text-sm" id="role-switcher" onChange={(event) => void setRole(event.target.value as RoleCode)} value={session.roleCode}>{session.availableRoles.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}</select></> : null}
+            <button aria-controls="notification-center" aria-expanded={notificationOpen} aria-label={unreadCount ? `Thông báo, ${unreadCount} chưa đọc` : "Thông báo"} className="relative grid size-11 place-items-center rounded-full border border-[#a9bac1] text-[#516274] hover:border-[#c75b39] hover:text-[#c75b39]" onClick={() => { setNotificationOpen((open) => !open); setProfileOpen(false); }} type="button"><Bell size={17} />{unreadCount ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-[#c75b39] px-1 text-[10px] font-extrabold leading-4 text-white ring-2 ring-[#f7f4ed]">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
+            <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setProfileOpen(false); }} onMouseEnter={() => setProfileOpen(true)} onMouseLeave={() => setProfileOpen(false)}>
+              <button aria-controls="profile-menu" aria-expanded={profileOpen} aria-haspopup="menu" aria-label="Mở menu tài khoản" className="flex min-h-12 items-center gap-2 rounded-xl px-1.5 text-left transition hover:bg-[#eee8dc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c75b39] sm:pr-2" onClick={() => setProfileOpen((open) => !open)} type="button">
+                <div className="hidden min-w-0 text-right md:block"><p className="max-w-40 truncate text-sm font-extrabold text-[#102a43]">{session.user.name}</p><p className="mt-0.5 max-w-40 truncate text-xs text-[#516274]">{session.user.roleName}</p></div>
+                <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
+                <ChevronDown className={`hidden text-[#657789] transition-transform sm:block ${profileOpen ? "rotate-180" : ""}`} size={15} />
+              </button>
+              {profileOpen ? <div className="absolute right-0 top-full z-40 pt-2"><section aria-label="Menu tài khoản" className="w-[min(14rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[#d5dfe2] bg-[#fffdfa] p-2 shadow-[0_18px_50px_rgb(16_42_67/0.2)]" id="profile-menu" role="menu">
+                <Link className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#102a43] hover:bg-[#eee8dc]" href="/account" onClick={() => setProfileOpen(false)} role="menuitem"><UserRoundCog size={17} />Thông tin</Link><button className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#a84343] hover:bg-[#f8ece6]" onClick={() => void signOut()} role="menuitem" type="button"><LogOut size={17} />Đăng xuất</button>
+              </section></div> : null}
+            </div>
+            {notificationOpen ? <><button aria-label="Đóng trung tâm thông báo" className="fixed inset-0 z-20 cursor-default bg-transparent" onClick={() => setNotificationOpen(false)} type="button" /><section aria-label="Trung tâm thông báo" className="absolute right-0 top-12 z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[#d5dfe2] bg-[#fffdfa] shadow-[0_18px_50px_rgb(16_42_67/0.2)]" id="notification-center"><div className="flex items-center justify-between border-b border-[#d5dfe2] px-5 py-4"><div><h2 className="font-heading text-base font-extrabold">Thông báo</h2><p className="mt-0.5 text-xs text-[#516274]">{unreadCount ? `${unreadCount} mục chưa đọc` : "Đã đọc tất cả"}</p></div><button className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-extrabold text-[#963f2a] hover:bg-[#eee8dc] disabled:text-[#a9bac1]" disabled={!unreadCount} onClick={() => void markAllRead()} type="button"><CheckCheck size={15} />Đọc tất cả</button></div><div className="max-h-[min(32rem,70dvh)] overflow-y-auto">{notificationLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-semibold text-[#516274]"><LoaderCircle className="animate-spin text-[#c75b39]" size={19} />Đang tải…</div> : notificationError ? <div className="grid min-h-40 place-items-center px-5 text-center"><div><p className="text-sm font-bold text-[#a84343]">{notificationError}</p><button className="action-link mt-2" onClick={() => void loadNotifications()} type="button">Thử lại</button></div></div> : notifications.length ? notifications.map((item) => <Link className={`block min-h-16 border-b border-[#d5dfe2] px-5 py-4 transition last:border-0 hover:bg-[#eee8dc]/65 ${item.readAt ? "bg-[#fffdfa]" : "bg-[#f8ece6]/60"}`} href={notificationHref(item)} key={item.id} onClick={() => { void markRead(item); setNotificationOpen(false); }}><div className="flex items-start gap-3"><span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.readAt ? "bg-[#a9bac1]" : "bg-[#c75b39]"}`} /><div><p className="text-sm font-bold text-[#102a43]">{item.title}</p><p className="mt-1 text-xs text-[#516274]">{new Date(item.createdAt).toLocaleString("vi-VN")}</p></div></div></Link>) : <div className="grid min-h-40 place-items-center px-5 text-center"><div><Bell className="mx-auto text-[#a9bac1]" size={28} /><p className="mt-2 text-sm font-bold text-[#516274]">Chưa có thông báo</p></div></div>}</div></section></> : null}
+          </div>
+        </header>
+        <main>{children}</main>
+      </div>
+    </div>
+  );
+}

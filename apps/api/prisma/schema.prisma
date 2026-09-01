@@ -1,0 +1,1250 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ClassStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+}
+
+enum EnrollmentStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum InstructorAssignmentRole {
+  PRIMARY
+  CO_INSTRUCTOR
+}
+
+enum MaterialVisibility {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+enum ExamStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  CLOSED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  ESCALATED
+  RESOLVED
+  REJECTED
+}
+
+enum ReportExportStatus {
+  QUEUED
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum InterventionStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum Severity {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum RegradeStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum AttendanceAppealStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum AccountTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  MFA_LOGIN
+  MFA_DISABLE
+  PASSWORD_CHANGE_OTP
+  MFA_SETUP_OTP
+  MFA_DISABLE_OTP
+}
+
+enum AssignmentStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum AssignmentSubmissionStatus {
+  SUBMITTED
+  GRADED
+}
+
+model User {
+  id                       String              @id @default(cuid())
+  username                 String              @unique @db.VarChar(191)
+  email                    String              @unique @db.VarChar(191)
+  passwordHash             String?             @map("password_hash") @db.VarChar(255)
+  googleSubject            String?             @unique @map("google_subject") @db.VarChar(255)
+  displayName              String              @map("display_name") @db.VarChar(150)
+  phone                    String?             @db.VarChar(30)
+  timezone                 String              @default("Asia/Bangkok") @db.VarChar(80)
+  locale                   String              @default("vi-VN") @db.VarChar(20)
+  avatarObjectKey          String?             @unique @map("avatar_object_key") @db.VarChar(500)
+  avatarMimeType           String?             @map("avatar_mime_type") @db.VarChar(50)
+  avatarUpdatedAt          DateTime?           @map("avatar_updated_at")
+  status                   UserStatus          @default(ACTIVE)
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  emailVerifiedAt          DateTime?           @map("email_verified_at")
+  mfaSecretEncrypted       String?             @map("mfa_secret_encrypted") @db.Text
+  mfaEnabledAt             DateTime?           @map("mfa_enabled_at")
+  roles                    UserRole[]
+  ownedCourses             Course[]            @relation("CourseOwner")
+  instructedClasses        ClassInstructor[]
+  enrollments              ClassEnrollment[]
+  materials                Material[]          @relation("MaterialOwner")
+  materialAccessLogs       MaterialAccessLog[]
+  regradeRequests          RegradeRequest[]
+  questions                Question[]          @relation("QuestionAuthor")
+  examAttempts             ExamAttempt[]       @relation("AttemptLearner")
+  forumTopics              ForumTopic[]        @relation("TopicAuthor")
+  forumPosts               ForumPost[]         @relation("PostAuthor")
+  forumMentions            ForumMention[]      @relation("MentionedUser")
+  notifications            Notification[]      @relation("NotificationRecipient")
+  contentReports           ContentReport[]     @relation("ReportAuthor")
+  hostedSessions           LiveSession[]       @relation("SessionHost")
+  lockedAttendanceSessions LiveSession[]       @relation("AttendanceLocker")
+  attendance               AttendanceRecord[]
+  attendanceAppeals        AttendanceAppeal[]
+  reportedTickets          SupportTicket[]     @relation("TicketReporter")
+  assignedTickets          SupportTicket[]     @relation("TicketAssignee")
+  ticketComments           TicketComment[]     @relation("TicketCommentAuthor")
+  ticketAttachments        SupportAttachment[] @relation("TicketAttachmentUploader")
+  materialReviews          FileReview[]        @relation("MaterialReviewer")
+  examApprovals            ExamApproval[]      @relation("ExamReviewer")
+  auditLogs                AuditLog[]
+  authSessions             AuthSession[]
+  accountTokens            AccountToken[]
+  mfaRecoveryCodes         MfaRecoveryCode[]
+  createdAssignments       Assignment[]        @relation("AssignmentCreator")
+  assignmentSubmissions    AssignmentSubmission[] @relation("AssignmentLearner")
+  classAnnouncements       ClassAnnouncement[] @relation("AnnouncementAuthor")
+
+  @@map("users")
+}
+
+model AuthSession {
+  id              String    @id @default(cuid())
+  tokenHash       String    @unique @map("token_hash") @db.Char(64)
+  csrfTokenHash   String?   @map("csrf_token_hash") @db.Char(64)
+  userId          String    @map("user_id")
+  currentRoleCode String    @map("current_role_code") @db.VarChar(50)
+  expiresAt       DateTime  @map("expires_at")
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at")
+  ipAddress       String?   @map("ip_address") @db.VarChar(45)
+  userAgent       String?   @map("user_agent") @db.VarChar(500)
+  revokedAt       DateTime? @map("revoked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
+  @@map("auth_sessions")
+}
+
+model AccountToken {
+  id         String           @id @default(cuid())
+  tokenHash  String           @unique @map("token_hash") @db.Char(64)
+  codeHash   String?          @map("code_hash") @db.Char(64)
+  failedAttempts Int          @default(0) @map("failed_attempts")
+  type       AccountTokenType
+  userId     String           @map("user_id")
+  expiresAt  DateTime         @map("expires_at")
+  consumedAt DateTime?        @map("consumed_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+  @@index([expiresAt, consumedAt])
+  @@map("account_tokens")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  codeHash  String    @unique @map("code_hash") @db.Char(64)
+  userId    String    @map("user_id")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@map("mfa_recovery_codes")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(50)
+  name        String           @db.VarChar(100)
+  description String?          @db.VarChar(500)
+  version     Int              @default(1)
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique @db.VarChar(100)
+  description String?          @db.VarChar(500)
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Course {
+  id          String          @id @default(cuid())
+  code        String          @unique @db.VarChar(50)
+  name        String          @db.VarChar(200)
+  description String          @db.Text
+  outcomes    Json
+  status      CourseStatus    @default(DRAFT)
+  version     Int             @default(1)
+  ownerId     String          @map("owner_id")
+  owner       User            @relation("CourseOwner", fields: [ownerId], references: [id])
+    classes     LearningClass[]
+    versions    CourseVersion[]
+  questions   Question[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([ownerId, status])
+  @@map("courses")
+}
+
+model CourseVersion {
+  id          String   @id @default(cuid())
+  courseId    String   @map("course_id")
+  version     Int
+  name        String   @db.VarChar(200)
+  description String   @db.Text
+  outcomes    Json
+  publishedBy String   @map("published_by") @db.VarChar(191)
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  publishedAt DateTime @default(now()) @map("published_at")
+
+  @@unique([courseId, version])
+  @@index([courseId, publishedAt])
+  @@map("course_versions")
+}
+
+model LearningClass {
+    id            String            @id @default(cuid())
+    courseId      String            @map("course_id")
+    courseVersion Int               @map("course_version")
+    code          String            @db.VarChar(50)
+  name          String            @db.VarChar(200)
+  term          String            @db.VarChar(50)
+  startAt       DateTime          @map("start_at")
+  endAt         DateTime          @map("end_at")
+    capacity      Int
+    timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
+    allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
+  status        ClassStatus       @default(DRAFT)
+  closeReason   String?           @map("close_reason") @db.VarChar(500)
+  archivePolicy String?           @map("archive_policy") @db.VarChar(50)
+  closedAt      DateTime?         @map("closed_at")
+  archivedAt    DateTime?         @map("archived_at")
+  course        Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  instructors   ClassInstructor[]
+  instructorHistory ClassInstructorHistory[]
+  enrollments   ClassEnrollment[]
+  enrollmentHistory ClassEnrollmentHistory[]
+  materials     Material[]
+  exams         Exam[]
+  forumTopics   ForumTopic[]
+  sessions      LiveSession[]
+  assignments   Assignment[]
+  announcements ClassAnnouncement[]
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+    @@index([courseId, status])
+    @@index([term])
+    @@unique([code, term])
+  @@map("learning_classes")
+}
+
+model Assignment {
+  id          String           @id @default(cuid())
+  classId     String           @map("class_id")
+  createdById String           @map("created_by_id")
+  title       String           @db.VarChar(255)
+  description String           @db.Text
+  instructions String          @db.Text
+  dueAt       DateTime         @map("due_at")
+  maxScore    Decimal          @map("max_score") @db.Decimal(8, 2)
+  rubric      Json
+  status      AssignmentStatus @default(DRAFT)
+  class       LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdBy   User             @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  submissions AssignmentSubmission[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([classId, status, dueAt])
+  @@index([createdById])
+  @@map("assignments")
+}
+
+model AssignmentSubmission {
+  id           String                     @id @default(cuid())
+  assignmentId String                     @map("assignment_id")
+  learnerId    String                     @map("learner_id")
+  content      String                     @db.Text
+  status       AssignmentSubmissionStatus @default(SUBMITTED)
+  submittedAt  DateTime                   @default(now()) @map("submitted_at")
+  score        Decimal?                   @db.Decimal(8, 2)
+  rubricScores Json?                      @map("rubric_scores")
+  feedback     String?                    @db.Text
+  gradedBy     String?                    @map("graded_by") @db.VarChar(191)
+  gradedAt     DateTime?                  @map("graded_at")
+  assignment   Assignment                 @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  learner      User                       @relation("AssignmentLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  attachments  AssignmentSubmissionAttachment[]
+  updatedAt    DateTime                   @updatedAt @map("updated_at")
+
+  @@unique([assignmentId, learnerId])
+  @@index([learnerId, status])
+  @@map("assignment_submissions")
+}
+
+model AssignmentSubmissionAttachment {
+  id           String               @id @default(cuid())
+  submissionId String               @map("submission_id")
+  objectKey    String               @unique @map("object_key") @db.VarChar(500)
+  originalName String               @map("original_name") @db.VarChar(255)
+  mimeType     String               @map("mime_type") @db.VarChar(150)
+  sizeBytes    BigInt               @map("size_bytes")
+  checksum     String               @db.VarChar(128)
+  submission   AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime             @default(now()) @map("created_at")
+
+  @@index([submissionId, createdAt])
+  @@map("assignment_submission_attachments")
+}
+
+model ClassAnnouncement {
+  id          String        @id @default(cuid())
+  classId     String        @map("class_id")
+  authorId    String        @map("author_id")
+  title       String        @db.VarChar(255)
+  body        String        @db.Text
+  publishedAt DateTime      @default(now()) @map("published_at")
+  class       LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author      User          @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([classId, publishedAt])
+  @@index([authorId])
+  @@map("class_announcements")
+}
+
+model ClassInstructor {
+  classId      String        @map("class_id")
+  instructorId String        @map("instructor_id")
+  role         InstructorAssignmentRole @default(CO_INSTRUCTOR)
+  assignedBy   String        @default("usr-manager") @map("assigned_by") @db.VarChar(191)
+  assignedAt   DateTime      @default(now()) @map("assigned_at")
+  class        LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  instructor   User          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+
+  @@id([classId, instructorId])
+  @@index([instructorId])
+  @@map("class_instructors")
+}
+
+model ClassInstructorHistory {
+  id           String                   @id @default(cuid())
+  classId      String                   @map("class_id")
+  instructorId String                   @map("instructor_id")
+  role         InstructorAssignmentRole
+  action       String                   @db.VarChar(30)
+  reason       String?                  @db.VarChar(500)
+  actorId      String                   @map("actor_id") @db.VarChar(191)
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  class        LearningClass            @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId, createdAt])
+  @@map("class_instructor_history")
+}
+
+model ClassEnrollment {
+  id        String           @id @default(cuid())
+  classId   String           @map("class_id")
+  learnerId String           @map("learner_id")
+  status    EnrollmentStatus @default(ACTIVE)
+  joinedAt  DateTime         @default(now()) @map("joined_at")
+  source    String           @default("MANUAL") @db.VarChar(30)
+  removalReason String?      @map("removal_reason") @db.VarChar(500)
+  removedAt DateTime?        @map("removed_at")
+  class     LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  learner   User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, learnerId])
+  @@index([learnerId, status])
+  @@map("class_enrollments")
+}
+
+model ClassEnrollmentHistory {
+  id        String        @id @default(cuid())
+  classId   String        @map("class_id")
+  learnerId String        @map("learner_id")
+  action    String        @db.VarChar(30)
+  source    String        @db.VarChar(30)
+  reason    String?       @db.VarChar(500)
+  actorId   String        @map("actor_id") @db.VarChar(191)
+  createdAt DateTime      @default(now()) @map("created_at")
+  class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId, createdAt])
+  @@map("class_enrollment_history")
+}
+
+model Material {
+  id               String                @id @default(cuid())
+  classId          String                @map("class_id")
+  ownerId          String                @map("owner_id")
+  name             String                @db.VarChar(255)
+  objectKey        String                @unique @map("object_key") @db.VarChar(500)
+  mimeType         String                @map("mime_type") @db.VarChar(150)
+  sizeBytes        BigInt                @map("size_bytes")
+  checksum         String?               @db.VarChar(128)
+  quarantinedAt    DateTime?             @map("quarantined_at")
+  quarantineReason String?               @map("quarantine_reason") @db.VarChar(500)
+  folder           String                @db.VarChar(255)
+  tags             Json
+  version          Int                   @default(1)
+  visibility       MaterialVisibility    @default(DRAFT)
+  class            LearningClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  owner            User                  @relation("MaterialOwner", fields: [ownerId], references: [id])
+  accessLogs       MaterialAccessLog[]
+  forumAttachments ForumPostAttachment[]
+  reviews          FileReview[]
+  versions         MaterialVersion[]
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  @@index([classId, visibility])
+  @@index([ownerId])
+  @@index([quarantinedAt])
+  @@map("materials")
+}
+
+model MaterialVersion {
+  id         String             @id @default(cuid())
+  materialId String             @map("material_id")
+  version    Int
+  name       String             @db.VarChar(255)
+  objectKey  String             @map("object_key") @db.VarChar(500)
+  mimeType   String             @map("mime_type") @db.VarChar(150)
+  sizeBytes  BigInt             @map("size_bytes")
+  checksum   String?            @db.VarChar(128)
+  folder     String             @db.VarChar(255)
+  tags       Json
+  visibility MaterialVisibility
+  createdBy  String             @map("created_by") @db.VarChar(191)
+  material   Material           @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  @@unique([materialId, version])
+  @@index([createdAt])
+  @@map("material_versions")
+}
+
+model FileReview {
+  id         String   @id @default(cuid())
+  materialId String   @map("material_id")
+  reviewerId String   @map("reviewer_id")
+  action     String   @db.VarChar(30)
+  reason     String?  @db.VarChar(500)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  reviewer   User     @relation("MaterialReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([materialId, createdAt])
+  @@index([reviewerId])
+  @@map("file_reviews")
+}
+
+model MaterialAccessLog {
+  id         String   @id @default(cuid())
+  materialId String   @map("material_id")
+  userId     String   @map("user_id")
+  action     String   @db.VarChar(20)
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([materialId, createdAt])
+  @@index([userId, createdAt])
+  @@map("material_access_logs")
+}
+
+model Question {
+  id             String          @id @default(cuid())
+  courseId       String          @map("course_id")
+  authorId       String          @map("author_id")
+  type           QuestionType
+  content        String          @db.Text
+  options        Json
+  correctAnswers Json            @map("correct_answers")
+  difficulty     Int             @default(1) @db.TinyInt
+  tags           Json
+  status         ContentStatus   @default(DRAFT)
+  version        Int             @default(1)
+  familyId       String          @map("family_id") @db.VarChar(191)
+  supersedesId   String?         @map("supersedes_id") @db.VarChar(191)
+  contentHash    String          @map("content_hash") @db.VarChar(64)
+  course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
+  exams          ExamQuestion[]
+  answers        AttemptAnswer[]
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@index([courseId, status])
+  @@index([familyId, version])
+  @@index([courseId, contentHash])
+  @@index([authorId])
+  @@map("questions")
+}
+
+model Exam {
+  id              String         @id @default(cuid())
+  classId         String         @map("class_id")
+  title           String         @db.VarChar(255)
+  durationMinutes Int            @map("duration_minutes")
+  totalScore      Decimal        @map("total_score") @db.Decimal(8, 2)
+  openAt          DateTime       @map("open_at")
+  closeAt         DateTime       @map("close_at")
+  attemptLimit    Int            @default(1) @map("attempt_limit")
+  shuffleQuestions Boolean       @default(false) @map("shuffle_questions")
+  randomSeed      String?        @map("random_seed") @db.VarChar(100)
+  status          ExamStatus     @default(DRAFT)
+  version         Int            @default(1)
+  class           LearningClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  questions       ExamQuestion[]
+  attempts        ExamAttempt[]
+  approvals       ExamApproval[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([classId, status, openAt])
+  @@map("exams")
+}
+
+model ExamApproval {
+  id          String   @id @default(cuid())
+  examId      String   @map("exam_id")
+  reviewerId  String   @map("reviewer_id")
+  examVersion Int      @map("exam_version")
+  decision    String   @db.VarChar(30)
+  reviewNote  String?  @map("review_note") @db.VarChar(1000)
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  reviewer    User     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([examId, createdAt])
+  @@index([reviewerId])
+  @@map("exam_approvals")
+}
+
+model ExamQuestion {
+  examId     String   @map("exam_id")
+  questionId String   @map("question_id")
+  position   Int
+  score      Decimal  @db.Decimal(8, 2)
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@id([examId, questionId])
+  @@unique([examId, position])
+  @@map("exam_questions")
+}
+
+model ExamAttempt {
+  id               String           @id @default(cuid())
+  examId           String           @map("exam_id")
+  learnerId        String           @map("learner_id")
+  attemptNo        Int              @map("attempt_no")
+  status           AttemptStatus    @default(IN_PROGRESS)
+  score            Decimal?         @db.Decimal(8, 2)
+  feedback         String?          @db.Text
+  startedAt        DateTime         @default(now()) @map("started_at")
+  submittedAt      DateTime?        @map("submitted_at")
+  gradePublishedAt DateTime?        @map("grade_published_at")
+  exam             Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  learner          User             @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  answers          AttemptAnswer[]
+  regradeRequests  RegradeRequest[]
+  gradeHistory     GradeHistory[]
+
+  @@unique([examId, learnerId, attemptNo])
+  @@index([learnerId, status])
+  @@map("exam_attempts")
+}
+
+model GradeHistory {
+  id            String      @id @default(cuid())
+  attemptId     String      @map("attempt_id")
+  graderId      String      @map("grader_id") @db.VarChar(191)
+  previousScore Decimal?    @map("previous_score") @db.Decimal(8, 2)
+  nextScore     Decimal     @map("next_score") @db.Decimal(8, 2)
+  reason        String      @db.Text
+  attempt       ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@index([attemptId, createdAt])
+  @@map("grade_history")
+}
+
+model RegradeRequest {
+  id         String        @id @default(cuid())
+  attemptId  String        @map("attempt_id")
+  learnerId  String        @map("learner_id")
+  reason     String        @db.Text
+  status     RegradeStatus @default(OPEN)
+  resolution String?       @db.Text
+  attempt    ExamAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  learner    User          @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  @@index([attemptId, status])
+  @@index([learnerId, createdAt])
+  @@map("regrade_requests")
+}
+
+model AttemptAnswer {
+  attemptId  String      @map("attempt_id")
+  questionId String      @map("question_id")
+  answerData Json        @map("answer_data")
+  score      Decimal?    @db.Decimal(8, 2)
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@id([attemptId, questionId])
+  @@map("attempt_answers")
+}
+
+model ForumTopic {
+  id        String        @id @default(cuid())
+  classId   String        @map("class_id")
+  authorId  String        @map("author_id")
+  title     String        @db.VarChar(255)
+  body      String        @db.Text
+  tags      Json
+    isPinned  Boolean       @default(false) @map("is_pinned")
+    isLocked  Boolean       @default(false) @map("is_locked")
+    status    ContentStatus @default(PUBLISHED)
+  class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author    User          @relation("TopicAuthor", fields: [authorId], references: [id])
+  posts     ForumPost[]
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  @@index([classId, createdAt])
+  @@map("forum_topics")
+}
+
+model ForumPost {
+  id          String                @id @default(cuid())
+  topicId     String                @map("topic_id")
+  authorId    String                @map("author_id")
+  parentId    String?               @map("parent_id")
+  body        String                @db.Text
+  status      ContentStatus         @default(PUBLISHED)
+  editHistory Json?                 @map("edit_history")
+  editedAt    DateTime?             @map("edited_at")
+  deletedAt   DateTime?             @map("deleted_at")
+  topic       ForumTopic            @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  author      User                  @relation("PostAuthor", fields: [authorId], references: [id])
+  parent      ForumPost?            @relation("PostReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     ForumPost[]           @relation("PostReplies")
+  attachments ForumPostAttachment[]
+  mentions    ForumMention[]
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@index([topicId, status, createdAt])
+  @@index([parentId])
+  @@map("forum_posts")
+}
+
+model ForumPostAttachment {
+  postId     String    @map("post_id")
+  materialId String    @map("material_id")
+  post       ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  material   Material  @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@id([postId, materialId])
+  @@index([materialId])
+  @@map("forum_post_attachments")
+}
+
+model ForumMention {
+  postId          String    @map("post_id")
+  mentionedUserId String    @map("mentioned_user_id")
+  post            ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mentionedUser   User      @relation("MentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@id([postId, mentionedUserId])
+  @@index([mentionedUserId])
+  @@map("forum_mentions")
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String    @map("recipient_id")
+  type        String    @db.VarChar(50)
+  title       String    @db.VarChar(255)
+  entityType  String    @map("entity_type") @db.VarChar(50)
+  entityId    String    @map("entity_id") @db.VarChar(191)
+  dedupKey    String    @unique @map("dedup_key") @db.VarChar(255)
+  readAt      DateTime? @map("read_at")
+  recipient   User      @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([recipientId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model ContentReport {
+  id         String       @id @default(cuid())
+  targetType String       @map("target_type") @db.VarChar(30)
+  targetId   String       @map("target_id") @db.VarChar(191)
+  reporterId String       @map("reporter_id")
+  reason     String       @db.VarChar(150)
+  details    String       @db.Text
+    status     ReportStatus @default(OPEN)
+    resolution String?      @db.Text
+    assignedToId String?    @map("assigned_to_id") @db.VarChar(191)
+    escalationLevel Int     @default(0) @map("escalation_level")
+    resolvedAt DateTime?    @map("resolved_at")
+    appealReason String?    @map("appeal_reason") @db.Text
+    appealedAt DateTime?    @map("appealed_at")
+    reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id])
+    actions    ModerationAction[]
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  @@unique([targetType, targetId, reporterId, status])
+  @@index([status, createdAt])
+  @@map("content_reports")
+}
+
+model ModerationAction {
+  id             String       @id @default(cuid())
+  reportId       String       @map("report_id")
+  actorId        String       @map("actor_id") @db.VarChar(191)
+  action         String       @db.VarChar(50)
+  reason         String       @db.Text
+  previousStatus ReportStatus @map("previous_status")
+  nextStatus     ReportStatus @map("next_status")
+  report         ContentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([reportId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("moderation_actions")
+}
+
+model LiveSession {
+  id                   String             @id @default(cuid())
+  classId              String             @map("class_id")
+  hostId               String             @map("host_id")
+  title                String             @db.VarChar(255)
+  startsAt             DateTime           @map("starts_at")
+  endsAt               DateTime           @map("ends_at")
+  provider             String             @db.VarChar(50)
+  requestedProvider    String             @map("requested_provider") @db.VarChar(50)
+  fallbackUsed         Boolean            @default(false) @map("fallback_used")
+  provisioningAttempts Int                @default(1) @map("provisioning_attempts")
+  providerRef          String?            @map("provider_ref") @db.VarChar(255)
+  timezone             String             @default("Asia/Bangkok") @db.VarChar(80)
+  hostUrl              String             @map("host_url") @db.VarChar(1000)
+  attendeeUrl          String             @map("attendee_url") @db.VarChar(1000)
+  recordingUrl         String?            @map("recording_url") @db.VarChar(1000)
+  recordingStatus      String             @default("NONE") @map("recording_status") @db.VarChar(20)
+  recordingReadyAt     DateTime?          @map("recording_ready_at")
+  recordingExpiresAt   DateTime?          @map("recording_expires_at")
+  recordingError       String?            @map("recording_error") @db.VarChar(500)
+  status               SessionStatus      @default(SCHEDULED)
+  changeReason         String?            @map("change_reason") @db.VarChar(500)
+  cancellationReason   String?            @map("cancellation_reason") @db.VarChar(500)
+  attendanceLockedAt   DateTime?          @map("attendance_locked_at")
+  attendanceLockedById String?            @map("attendance_locked_by_id")
+  class                LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  host                 User               @relation("SessionHost", fields: [hostId], references: [id])
+  attendanceLockedBy   User?              @relation("AttendanceLocker", fields: [attendanceLockedById], references: [id], onDelete: SetNull)
+  attendance           AttendanceRecord[]
+  appeals              AttendanceAppeal[]
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  @@index([classId, startsAt])
+  @@index([hostId])
+  @@map("live_sessions")
+}
+
+model AttendanceRecord {
+  sessionId             String           @map("session_id")
+  learnerId             String           @map("learner_id")
+  joinedAt              DateTime?        @map("joined_at")
+  leftAt                DateTime?        @map("left_at")
+  attendedMinutes       Int              @default(0) @map("attended_minutes")
+  status                AttendanceStatus @default(ABSENT)
+  adjustmentReason      String?          @map("adjustment_reason") @db.VarChar(500)
+  providerParticipantId String?          @map("provider_participant_id") @db.VarChar(191)
+  providerSnapshot      Json?            @map("provider_snapshot")
+  session               LiveSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learner               User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  @@id([sessionId, learnerId])
+  @@unique([sessionId, providerParticipantId])
+  @@index([learnerId, status])
+  @@map("attendance_records")
+}
+
+model AttendanceAppeal {
+  id         String                 @id @default(cuid())
+  sessionId  String                 @map("session_id")
+  learnerId  String                 @map("learner_id")
+  reason     String                 @db.Text
+  status     AttendanceAppealStatus @default(OPEN)
+  resolution String?                @db.Text
+  session    LiveSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  learner    User                   @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+
+  @@index([sessionId, status])
+  @@index([learnerId, createdAt])
+  @@map("attendance_appeals")
+}
+
+model SupportTicket {
+  id            String              @id @default(cuid())
+  duplicateOfId String?             @map("duplicate_of_id")
+  reporterId    String              @map("reporter_id")
+  assigneeId    String?             @map("assignee_id")
+  category      String              @db.VarChar(100)
+  severity      Severity
+  description   String              @db.Text
+  contextId     String?             @map("context_id") @db.VarChar(191)
+  status        TicketStatus        @default(OPEN)
+  resolution    String?             @db.Text
+  dueAt         DateTime            @map("due_at")
+  reporter      User                @relation("TicketReporter", fields: [reporterId], references: [id])
+  assignee      User?               @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments      TicketComment[]
+  attachments   SupportAttachment[]
+  duplicateOf   SupportTicket?      @relation("TicketDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    SupportTicket[]     @relation("TicketDuplicates")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, severity, dueAt])
+  @@index([reporterId])
+  @@index([duplicateOfId])
+  @@map("support_tickets")
+}
+
+model SupportAttachment {
+  id         String        @id @default(cuid())
+  ticketId   String        @map("ticket_id")
+  uploaderId String        @map("uploader_id")
+  name       String        @db.VarChar(255)
+  objectKey  String        @unique @map("object_key") @db.VarChar(500)
+  mimeType   String        @map("mime_type") @db.VarChar(150)
+  sizeBytes  BigInt        @map("size_bytes")
+  checksum   String        @db.VarChar(128)
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploader   User          @relation("TicketAttachmentUploader", fields: [uploaderId], references: [id], onDelete: Restrict)
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@index([uploaderId])
+  @@map("support_attachments")
+}
+
+model TicketComment {
+  id        String        @id @default(cuid())
+  ticketId  String        @map("ticket_id")
+  authorId  String        @map("author_id")
+  body      String        @db.Text
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User          @relation("TicketCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+  @@map("ticket_comments")
+}
+
+model SystemSetting {
+  key         String   @id @db.VarChar(100)
+  value       Json
+  version     Int      @default(1)
+  effectiveAt DateTime @default(now()) @map("effective_at")
+  updatedBy   String   @map("updated_by") @db.VarChar(191)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model SystemSettingRevision {
+  id          String   @id @default(cuid())
+  key         String   @db.VarChar(100)
+  value       Json
+  version     Int
+  effectiveAt DateTime @map("effective_at")
+  updatedBy   String   @map("updated_by") @db.VarChar(191)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([key, version])
+  @@index([key, effectiveAt])
+  @@map("system_setting_revisions")
+}
+
+model RetentionPolicy {
+  id            String   @id @default(cuid())
+  category      String   @db.VarChar(100)
+  version       Int
+  retentionDays Int      @map("retention_days")
+  action        String   @db.VarChar(20)
+  approvedBy    String   @map("approved_by") @db.VarChar(191)
+  effectiveAt   DateTime @map("effective_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  jobs          RetentionJob[]
+
+  @@unique([category, version])
+  @@index([category, effectiveAt])
+  @@map("retention_policies")
+}
+
+model LegalHold {
+  id        String    @id @default(cuid())
+  category  String    @db.VarChar(100)
+  reason    String    @db.VarChar(500)
+  active    Boolean   @default(true)
+  createdBy String    @map("created_by") @db.VarChar(191)
+  releasedAt DateTime? @map("released_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([category, active])
+  @@map("legal_holds")
+}
+
+model RetentionJob {
+  id            String          @id @default(cuid())
+  policyId      String          @map("policy_id")
+  status        JobStatus       @default(PENDING)
+  affectedRows  Int             @default(0) @map("affected_rows")
+  skippedRows   Int             @default(0) @map("skipped_rows")
+  evidence      Json?
+  requestedBy   String          @map("requested_by") @db.VarChar(191)
+  approvedBy    String          @map("approved_by") @db.VarChar(191)
+  completedAt   DateTime?       @map("completed_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  policy        RetentionPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("retention_jobs")
+}
+
+model SystemAlert {
+  id           String    @id @default(cuid())
+  fingerprint  String    @unique @db.VarChar(191)
+  serviceName  String    @map("service_name") @db.VarChar(100)
+  severity     String    @db.VarChar(20)
+  status       String    @default("OPEN") @db.VarChar(30)
+  summary      String    @db.VarChar(500)
+  metricValue  Float?    @map("metric_value")
+  threshold    Float?
+  detectedAt   DateTime  @default(now()) @map("detected_at")
+  acknowledgedBy String? @map("acknowledged_by") @db.VarChar(191)
+  mutedUntil   DateTime? @map("muted_until")
+  recoveredAt  DateTime? @map("recovered_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, severity, detectedAt])
+  @@map("system_alerts")
+}
+
+model IntegrationProvider {
+  id            String    @id @default(cuid())
+  provider      String    @unique @db.VarChar(50)
+  enabled       Boolean   @default(false)
+  credentialRef String?   @map("credential_ref") @db.VarChar(255)
+  webhookUrl    String?   @map("webhook_url") @db.VarChar(1000)
+  isDefault     Boolean   @default(false) @map("is_default")
+  healthStatus  String    @default("UNKNOWN") @map("health_status") @db.VarChar(30)
+  lastCheckedAt DateTime? @map("last_checked_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([isDefault, enabled])
+  @@map("integration_providers")
+}
+
+model BackupJob {
+  id          String       @id @default(cuid())
+  type        String       @db.VarChar(30)
+  status      JobStatus    @default(PENDING)
+  checksum    String?      @db.VarChar(128)
+  sizeBytes   BigInt?      @map("size_bytes")
+  objectKey   String?      @map("object_key") @db.VarChar(500)
+  errorMessage String?     @map("error_message") @db.VarChar(500)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  completedAt DateTime?    @map("completed_at")
+  restores    RestoreJob[]
+
+  @@index([status, createdAt])
+  @@map("backup_jobs")
+}
+
+model RestoreJob {
+  id           String    @id @default(cuid())
+  backupId     String    @map("backup_id")
+  approvedBy   String    @map("approved_by") @db.VarChar(191)
+  status       JobStatus @default(PENDING)
+  verification String?   @db.Text
+  backup       BackupJob @relation(fields: [backupId], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  completedAt  DateTime? @map("completed_at")
+
+  @@index([status, createdAt])
+  @@map("restore_jobs")
+}
+
+model DataExportJob {
+  id        String    @id @default(cuid())
+  category  String    @db.VarChar(100)
+  format    String    @db.VarChar(20)
+  status    JobStatus @default(PENDING)
+  rowCount  Int?      @map("row_count")
+  objectKey String?   @map("object_key") @db.VarChar(500)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([status, expiresAt])
+  @@map("data_export_jobs")
+}
+
+model NotificationTemplate {
+  id        String        @id @default(cuid())
+  eventCode String        @map("event_code") @db.VarChar(100)
+  locale    String        @db.VarChar(20)
+  subject   String        @db.VarChar(255)
+  body      String        @db.Text
+  version   Int           @default(1)
+  status    ContentStatus @default(DRAFT)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  @@unique([eventCode, locale, version])
+  @@index([eventCode, locale, status])
+  @@map("notification_templates")
+}
+
+model ModerationPolicy {
+  id                String   @id @default(cuid())
+  version           Int      @unique
+  prohibitedTerms   Json     @map("prohibited_terms")
+  maxPostsPerMinute Int      @map("max_posts_per_minute")
+  action            String   @db.VarChar(50)
+  publishedBy       String   @map("published_by") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("moderation_policies")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?  @map("actor_id")
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String?  @map("entity_id") @db.VarChar(191)
+  requestId  String?  @map("request_id") @db.VarChar(100)
+  context    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model ProgressIntervention {
+  id          String             @id @default(cuid())
+  classId     String             @map("class_id") @db.VarChar(191)
+  learnerId   String             @map("learner_id") @db.VarChar(191)
+  ownerId     String             @map("owner_id") @db.VarChar(191)
+  title       String             @db.VarChar(255)
+  notes       String?            @db.Text
+  dueAt       DateTime           @map("due_at")
+  status      InterventionStatus @default(OPEN)
+  completedAt DateTime?          @map("completed_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  @@index([classId, learnerId, status])
+  @@index([ownerId, dueAt])
+  @@map("progress_interventions")
+}
+
+model ReportRun {
+  id                String   @id @default(cuid())
+  reportType        String   @map("report_type") @db.VarChar(50)
+  definitionVersion String   @map("definition_version") @db.VarChar(30)
+  timezone          String   @db.VarChar(80)
+  filters           Json
+  result            Json
+  requestedById     String   @map("requested_by_id") @db.VarChar(191)
+  createdAt         DateTime @default(now()) @map("created_at")
+  exports            ReportExport[]
+
+  @@index([reportType, createdAt])
+  @@index([requestedById, createdAt])
+  @@map("report_runs")
+}
+
+model ReportExport {
+  id            String             @id @default(cuid())
+  reportRunId   String             @map("report_run_id")
+  format        String             @db.VarChar(20)
+  status        ReportExportStatus @default(QUEUED)
+  fileName      String             @map("file_name") @db.VarChar(255)
+  filePath      String?            @map("file_path") @db.VarChar(1000)
+  sizeBytes     BigInt?            @map("size_bytes")
+  errorMessage  String?            @map("error_message") @db.Text
+  expiresAt     DateTime           @map("expires_at")
+  requestedById String             @map("requested_by_id") @db.VarChar(191)
+  reportRun     ReportRun          @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  @@index([requestedById, createdAt])
+  @@index([status, expiresAt])
+  @@map("report_exports")
+}
