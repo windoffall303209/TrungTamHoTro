@@ -1,0 +1,8 @@
+ALTER TABLE `users`
+  ADD COLUMN `phone` VARCHAR(30) NULL,
+  ADD COLUMN `timezone` VARCHAR(80) NOT NULL DEFAULT 'Asia/Bangkok',
+  ADD COLUMN `locale` VARCHAR(20) NOT NULL DEFAULT 'vi-VN';
+
+ALTER TABLE `auth_sessions`
+  ADD COLUMN `ip_address` VARCHAR(45) NULL,
+  ADD COLUMN `user_agent` VARCHAR(500) NULL;
