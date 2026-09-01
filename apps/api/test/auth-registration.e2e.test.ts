@@ -134,6 +134,7 @@ describe("Đăng ký và xác minh email qua API", () => {
     const avatarDownload = await fetch(`${baseUrl}/account/avatar`, { headers: { cookie } });
     expect(avatarDownload.status).toBe(200);
     expect(avatarDownload.headers.get("content-type")).toContain("image/png");
+    expect(avatarDownload.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
     expect(Buffer.from(await avatarDownload.arrayBuffer())).toEqual(avatarBytes);
     expect((await authenticatedRequest("DELETE", "/account/avatar", cookie, loginData.csrfToken)).status).toBe(200);
 
