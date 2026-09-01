@@ -9,6 +9,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import { DEFAULT_MATERIAL_MIME_TYPES, includeSupportedDocumentMimeTypes, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
+import { SystemService, type ExamApprovalMode } from "../system/system.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
@@ -98,6 +99,7 @@ export class LearningService {
     @Optional() private readonly config?: ConfigService<Environment, true>,
     @Optional() private readonly objectStorage?: ObjectStorageService,
     @Optional() private readonly antivirus?: AntivirusService,
+    @Optional() private readonly system?: SystemService,
   ) {}
 
   async listCourses(): Promise<LearningCourse[]> {
@@ -919,7 +921,7 @@ export class LearningService {
     return this.materialReviews.filter((review) => review.materialId === materialId).map((review) => ({ ...review }));
   }
 
-  async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string } = {}): Promise<LearningQuestion[]> {
+  async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string; status?: LearningQuestion["status"] } = {}): Promise<LearningQuestion[]> {
     const input = typeof filters === "string" ? { query: filters } : filters;
     const normalized = input.query?.trim().toLowerCase() ?? "";
     const matches = (item: LearningQuestion): boolean =>
@@ -927,13 +929,15 @@ export class LearningService {
       && (!input.courseId || item.courseId === input.courseId)
       && (!input.type || item.type === input.type)
       && (!input.difficulty || item.difficulty === input.difficulty)
-      && (!input.tag || item.tags.some((tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase()));
+      && (!input.tag || item.tags.some((tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase()))
+      && (!input.status || item.status === input.status);
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.question.findMany({ orderBy: { createdAt: "desc" } });
+      const rows = await prisma.question.findMany({ where: input.status ? { status: input.status } : undefined, orderBy: { createdAt: "desc" } });
       return this.latestQuestionVersions(rows.map((row) => this.mapQuestion(row))).filter(matches);
     }
-    return this.latestQuestionVersions(this.questions).filter(matches).map((item) => this.cloneQuestion(item));
+    const candidates = input.status ? this.questions.filter((item) => item.status === input.status) : this.questions;
+    return this.latestQuestionVersions(candidates).filter(matches).map((item) => this.cloneQuestion(item));
   }
 
   async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
@@ -1167,21 +1171,30 @@ export class LearningService {
   }
 
   async submitExamForReview(examId: string, actorId = "usr-instructor"): Promise<LearningExam> {
+    const approvalMode = await this.getExamApprovalMode();
+    const nextStatus: LearningExam["status"] = approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
     const prisma = this.database();
     if (prisma) {
-      const assignment = await prisma.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, select: { id: true } });
+      const assignment = await prisma.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, include: { class: { include: { instructors: true } } } });
       if (!assignment) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
       const exam = await this.getDatabaseExam(prisma, examId);
       if (!exam.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
       if (exam.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
-      await prisma.exam.update({ where: { id: examId }, data: { status: "PENDING_REVIEW" } });
-      return this.getDatabaseExam(prisma, examId);
+      return prisma.$transaction(async (transaction) => {
+        await transaction.exam.update({ where: { id: examId }, data: { status: nextStatus } });
+        if (approvalMode === "AUTO") {
+          await transaction.auditLog.create({ data: { actorId, action: "EXAM_AUTO_APPROVED", entityType: "exam", entityId: examId, context: { version: exam.version, approvalMode } } });
+          for (const { instructorId } of assignment.class.instructors) await transaction.notification.create({ data: { id: id("notification"), recipientId: instructorId, type: "EXAM_REVIEWED", title: `Đề ${assignment.title} đã được tự động phê duyệt`, entityType: "EXAM", entityId: examId, dedupKey: `exam-auto-approval:${examId}:${exam.version}:${instructorId}` } });
+        }
+        return this.getDatabaseExam(transaction, examId);
+      });
     }
     const item = this.findExam(examId);
     if (!this.findClass(item.classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
     if (!item.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     if (item.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
-    item.status = "PENDING_REVIEW";
+    item.status = nextStatus;
+    if (approvalMode === "AUTO") for (const recipientId of this.findClass(item.classId).instructorIds) this.notifications.unshift({ id: id("notification"), recipientId, type: "EXAM_REVIEWED", title: `Đề ${item.title} đã được tự động phê duyệt`, entityType: "EXAM", entityId: examId, createdAt: now() });
     return { ...item, questionIds: [...item.questionIds] };
   }
 
@@ -2864,6 +2877,13 @@ export class LearningService {
 
   private database(): PrismaService | undefined {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
+  }
+
+  private async getExamApprovalMode(): Promise<ExamApprovalMode> {
+    // Các unit test khởi tạo service độc lập vẫn giữ quy trình thủ công cũ;
+    // trong ứng dụng thực tế SystemService luôn được inject và mặc định là AUTO.
+    if (!this.system) return "MANUAL";
+    return (await this.system.getSettings()).examApprovalMode;
   }
 
   private mapCourse(row: Prisma.CourseGetPayload<Record<string, never>>): LearningCourse {

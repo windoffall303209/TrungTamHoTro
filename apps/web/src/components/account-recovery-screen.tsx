@@ -5,7 +5,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 
-const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 text-base text-[#102a43] outline-none transition placeholder:text-[#80909b] focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15";
+const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-base text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-subtle)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15";
 
 function announceVerification(verificationId: string): void {
   const message = { verificationId, verifiedAt: new Date().toISOString() };
@@ -183,50 +183,50 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     ? !newEmail || currentPassword.length < 8
     : !/^\d{6}$/.test(verificationCode)));
 
-  return <main className="grid min-h-screen place-items-center bg-[#f7f4ed] px-5 py-10 text-[#102a43]">
-    <section className="w-full max-w-[31rem] border-y border-[#a9bac1] bg-[#fffdfa]/75 px-5 py-8 sm:px-8">
-      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><GraduationCap className="text-[#c75b39]" size={24} />Wind EDU</Link>
+  return <main className="grid min-h-screen place-items-center bg-[var(--canvas)] px-5 py-10 text-[var(--ink)]">
+    <section className="w-full max-w-[31rem] border-y border-[var(--rule-strong)] bg-[var(--surface)]/75 px-5 py-8 sm:px-8">
+      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
       {done ? <div aria-live="polite">
-        <CheckCircle2 className="text-[#27685f]" size={34} />
+        <CheckCircle2 className="text-[var(--success)]" size={34} />
         <h1 className="mt-5 text-3xl font-bold tracking-[-0.03em]">{mode === "forgot" ? "Hãy kiểm tra hộp thư" : mode === "reset" ? "Đã đổi mật khẩu" : "Email đã được xác minh"}</h1>
-        <p className="mt-3 text-sm leading-6 text-[#516274]">{mode === "forgot"
+        <p className="mt-3 text-sm leading-6 text-[var(--ink-soft)]">{mode === "forgot"
           ? "Nếu tài khoản tồn tại, email hướng dẫn đã được gửi. Thông báo này không tiết lộ email có trong hệ thống hay không."
           : mode === "verify" && linkVerified
             ? "Trang xác minh ban đầu sẽ tự cập nhật. Bạn có thể đóng trang này và quay lại để đăng nhập."
             : "Bạn có thể quay lại đăng nhập và tiếp tục sử dụng Wind EDU."}</p>
-        <Link className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#102a43] px-5 text-sm font-bold text-white" href="/login"><ArrowLeft size={16} />Về trang đăng nhập</Link>
+        <Link className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--action)] px-5 text-sm font-bold text-[var(--action-ink)]" href="/login"><ArrowLeft size={16} />Về trang đăng nhập</Link>
       </div> : <>
-        <MailCheck className="text-[#c75b39]" size={32} />
+        <MailCheck className="text-[var(--accent)]" size={32} />
         <h1 className="mt-5 text-3xl font-bold tracking-[-0.03em]">{title}</h1>
-        <p className="mt-3 text-sm leading-6 text-[#516274]">{description}</p>
-        {notice ? <p className="mt-5 border-y border-[#27685f]/30 bg-[#dcebe5]/55 px-4 py-3 text-sm font-semibold text-[#1f5a52]" role="status">{notice}</p> : null}
+        <p className="mt-3 text-sm leading-6 text-[var(--ink-soft)]">{description}</p>
+        {notice ? <p className="mt-5 border-y border-[var(--success)]/30 bg-[var(--success-soft)]/55 px-4 py-3 text-sm font-semibold text-[var(--success-deep)]" role="status">{notice}</p> : null}
         {mode !== "verify" || verificationId ? <form className="mt-7 space-y-5" onSubmit={(event) => void submit(event)}>
           {mode === "forgot" ? <label className="block text-sm font-bold">Email tài khoản<input autoComplete="email" className={fieldClass} onChange={(event) => setEmail(event.target.value)} required type="email" value={email} /></label> : null}
           {mode === "reset" ? <>
             <label className="block text-sm font-bold">Mật khẩu mới<input autoComplete="new-password" className={fieldClass} minLength={8} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></label>
             <label className="block text-sm font-bold">Nhập lại mật khẩu<input autoComplete="new-password" className={fieldClass} minLength={8} onChange={(event) => setConfirmPassword(event.target.value)} required type="password" value={confirmPassword} /></label>
-            <p className="text-xs leading-5 text-[#657789]">Dùng từ 8–128 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</p>
+            <p className="text-xs leading-5 text-[var(--ink-muted)]">Dùng từ 8–128 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</p>
           </> : null}
           {mode === "verify" ? editingEmail ? <>
-            <div className="border-y border-[#a9bac1] bg-[#f7f4ed]/70 px-4 py-4">
+            <div className="border-y border-[var(--rule-strong)] bg-[var(--canvas)]/70 px-4 py-4">
               <p className="text-sm font-bold">Đổi email xác minh</p>
-              <p className="mt-1 text-xs leading-5 text-[#657789]">Mật khẩu giúp bảo vệ tài khoản nếu liên kết xác minh bị lộ. Mã và liên kết cũ sẽ ngừng hoạt động.</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">Mật khẩu giúp bảo vệ tài khoản nếu liên kết xác minh bị lộ. Mã và liên kết cũ sẽ ngừng hoạt động.</p>
             </div>
             <label className="block text-sm font-bold">Email mới<input autoComplete="email" autoFocus className={fieldClass} maxLength={191} onChange={(event) => setNewEmail(event.target.value)} placeholder="email-moi@example.com" required type="email" value={newEmail} /></label>
             <label className="block text-sm font-bold">Mật khẩu hiện tại<input autoComplete="current-password" className={fieldClass} minLength={8} onChange={(event) => setCurrentPassword(event.target.value)} required type="password" value={currentPassword} /></label>
           </> : <>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#a9bac1] py-3">
-              <span className="text-xs leading-5 text-[#657789]">Mã được gửi tới<br /><strong className="text-sm text-[#102a43]">{maskedEmail(email)}</strong></span>
-              <button className="inline-flex min-h-10 items-center gap-2 text-xs font-bold text-[#102a43] underline decoration-[#c75b39] underline-offset-4" onClick={() => { setEditingEmail(true); setNewEmail(email); setCurrentPassword(""); setVerificationCode(""); setError(""); setNotice(""); }} type="button"><PencilLine size={14} />Đổi email xác thực</button>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[var(--rule-strong)] py-3">
+              <span className="text-xs leading-5 text-[var(--ink-muted)]">Mã được gửi tới<br /><strong className="text-sm text-[var(--ink)]">{maskedEmail(email)}</strong></span>
+              <button className="inline-flex min-h-10 items-center gap-2 text-xs font-bold text-[var(--ink)] underline decoration-[var(--accent)] underline-offset-4" onClick={() => { setEditingEmail(true); setNewEmail(email); setCurrentPassword(""); setVerificationCode(""); setError(""); setNotice(""); }} type="button"><PencilLine size={14} />Đổi email xác thực</button>
             </div>
             <label className="block text-sm font-bold">Mã xác minh 6 số<input autoComplete="one-time-code" autoFocus className={`${fieldClass} text-center font-mono text-xl font-bold tracking-[0.32em]`} inputMode="numeric" maxLength={6} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" required value={verificationCode} /></label>
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-[#657789]"><span>Không nhận được mã?</span><button className="inline-flex min-h-10 items-center gap-2 font-bold text-[#102a43] underline decoration-[#c75b39] underline-offset-4 disabled:opacity-50" disabled={loading || !email} onClick={() => void resendCode()} type="button"><RefreshCw size={14} />Gửi mã mới</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs leading-5 text-[var(--ink-muted)]"><span>Không nhận được mã?</span><button className="inline-flex min-h-10 items-center gap-2 font-bold text-[var(--ink)] underline decoration-[var(--accent)] underline-offset-4 disabled:opacity-50" disabled={loading || !email} onClick={() => void resendCode()} type="button"><RefreshCw size={14} />Gửi mã mới</button></div>
           </> : null}
-          {error ? <p className="border-y border-[#a84343]/35 bg-[#f4dddd]/45 px-4 py-3 text-sm font-semibold text-[#873737]" role="alert">{error}</p> : null}
-          <button className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#102a43] px-5 text-sm font-bold text-white disabled:opacity-60" disabled={submitDisabled} type="submit">{loading ? <><LoaderCircle className="animate-spin" size={17} />Đang xử lý…</> : mode === "forgot" ? "Gửi liên kết khôi phục" : mode === "reset" ? "Lưu mật khẩu mới" : editingEmail ? "Lưu và gửi mã mới" : "Xác minh email"}</button>
-          {mode === "verify" && editingEmail ? <button className="mx-auto flex min-h-10 items-center gap-2 text-sm font-bold text-[#516274]" onClick={() => { setEditingEmail(false); setCurrentPassword(""); setError(""); }} type="button"><ArrowLeft size={15} />Hủy đổi email</button> : null}
-        </form> : <div className="mt-7" aria-live="polite">{loading ? <p className="flex items-center gap-2 text-sm font-semibold"><LoaderCircle className="animate-spin" size={18} />Đang xác minh…</p> : error ? <p className="border-y border-[#a84343]/35 bg-[#f4dddd]/45 px-4 py-3 text-sm font-semibold text-[#873737]" role="alert">{error}</p> : null}</div>}
-        <Link className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[#516274]" href="/login"><ArrowLeft size={15} />Quay lại đăng nhập</Link>
+          {error ? <p className="border-y border-[var(--danger)]/35 bg-[var(--danger-soft)]/45 px-4 py-3 text-sm font-semibold text-[var(--danger-deep)]" role="alert">{error}</p> : null}
+          <button className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--action)] px-5 text-sm font-bold text-[var(--action-ink)] disabled:opacity-60" disabled={submitDisabled} type="submit">{loading ? <><LoaderCircle className="animate-spin" size={17} />Đang xử lý…</> : mode === "forgot" ? "Gửi liên kết khôi phục" : mode === "reset" ? "Lưu mật khẩu mới" : editingEmail ? "Lưu và gửi mã mới" : "Xác minh email"}</button>
+          {mode === "verify" && editingEmail ? <button className="mx-auto flex min-h-10 items-center gap-2 text-sm font-bold text-[var(--ink-soft)]" onClick={() => { setEditingEmail(false); setCurrentPassword(""); setError(""); }} type="button"><ArrowLeft size={15} />Hủy đổi email</button> : null}
+        </form> : <div className="mt-7" aria-live="polite">{loading ? <p className="flex items-center gap-2 text-sm font-semibold"><LoaderCircle className="animate-spin" size={18} />Đang xác minh…</p> : error ? <p className="border-y border-[var(--danger)]/35 bg-[var(--danger-soft)]/45 px-4 py-3 text-sm font-semibold text-[var(--danger-deep)]" role="alert">{error}</p> : null}</div>}
+        <Link className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-[var(--ink-soft)]" href="/login"><ArrowLeft size={15} />Quay lại đăng nhập</Link>
       </>}
     </section>
   </main>;

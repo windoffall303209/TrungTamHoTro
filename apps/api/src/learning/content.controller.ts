@@ -122,7 +122,27 @@ export class ContentController {
   }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
-  listQuestions(@Query("query") query?: string, @Query("courseId") courseId?: string, @Query("type") type?: string, @Query("difficulty") difficulty?: string, @Query("tag") tag?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions({ query, courseId, type, difficulty: difficulty ? Number(difficulty) : undefined, tag }); }
+  listQuestions(
+    @Query("query") query?: string,
+    @Query("courseId") courseId?: string,
+    @Query("type") type?: string,
+    @Query("difficulty") difficulty?: string,
+    @Query("tag") tag?: string,
+    @Query("status") status?: string,
+  ): Promise<LearningQuestion[]> {
+    const normalizedStatus = status?.trim().toUpperCase();
+    if (normalizedStatus && normalizedStatus !== "DRAFT" && normalizedStatus !== "PUBLISHED") {
+      throw new BadRequestException("Trạng thái câu hỏi phải là DRAFT hoặc PUBLISHED.");
+    }
+    return this.learning.listQuestions({
+      query,
+      courseId,
+      type,
+      difficulty: difficulty ? Number(difficulty) : undefined,
+      tag,
+      status: normalizedStatus as LearningQuestion["status"] | undefined,
+    });
+  }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
   createQuestion(@Body() input: CreateQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.createQuestion(input, session.user.id); }
