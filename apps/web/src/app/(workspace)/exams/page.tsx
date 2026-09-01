@@ -1,13 +1,15 @@
 "use client";
 
 import { CheckCircle2, Clock3, Play, Plus, RotateCcw, Send } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Pagination, RichText, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { hasPermission } from "@/lib/access-control";
+import { eligibleExamQuestions } from "@/lib/exam-question-selection";
 import type {
   Exam,
   ExamAttempt,
@@ -45,6 +47,7 @@ export default function ExamsPage() {
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
+  const canReview = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [items, setItems] = useState<LearnerExam[]>([]);
   const pagination = usePagination(items);
   const [classes, setClasses] = useState<LearningClass[]>([]);
@@ -64,7 +67,14 @@ export default function ExamsPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [returnTarget, setReturnTarget] = useState<LearnerExam | null>(null);
+  const [returnNote, setReturnNote] = useState("");
   const [form, setForm] = useState(blank);
+  const selectableQuestions = useMemo(
+    () => eligibleExamQuestions(questions, classes, form.classId),
+    [classes, form.classId, questions],
+  );
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -75,7 +85,7 @@ export default function ExamsPage() {
         }),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
         instructor
-          ? apiRequest<Question[]>("/instructor/question-bank/questions", {
+          ? apiRequest<Question[]>("/instructor/question-bank/questions?status=PUBLISHED", {
               roleCode: session.roleCode,
             })
           : Promise.resolve([]),
@@ -128,17 +138,35 @@ export default function ExamsPage() {
   };
   const publish = async (item: Exam) => {
     try {
-      await apiRequest(`/instructor/exams/${item.id}/publish`, {
+      const updated = await apiRequest<Exam>(`/instructor/exams/${item.id}/publish`, {
         method: "POST",
         roleCode: session.roleCode,
       });
-      notify("Đã gửi đề sang quản lý trung tâm phê duyệt.");
+      notify(updated.status === "PUBLISHED" ? "Đề đã được tự động phê duyệt và phát hành." : "Đã gửi đề sang hàng chờ phê duyệt.");
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không gửi duyệt được.",
         "error",
       );
+    }
+  };
+  const review = async (item: LearnerExam, decision: "APPROVE" | "RETURN", reviewNote?: string) => {
+    setReviewingId(item.id);
+    try {
+      await apiRequest(`/manager/exams/${item.id}/approve`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ decision, reviewNote }),
+      });
+      notify(decision === "APPROVE" ? "Đã phê duyệt và phát hành đề." : "Đã trả đề về bản nháp cho giảng viên.");
+      setReturnTarget(null);
+      setReturnNote("");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không cập nhật được trạng thái phê duyệt.", "error");
+    } finally {
+      setReviewingId(null);
     }
   };
   const start = async (item: LearnerExam) => {
@@ -315,7 +343,7 @@ export default function ExamsPage() {
           {attempt.status === "IN_PROGRESS" ? (
             <div className="mt-5 space-y-4 border-t border-sky-200 pt-5">
               {attemptQuestions.map((question, index) => (
-                <fieldset className="rounded-xl bg-white p-4" key={question.id}>
+                <fieldset className="rounded-xl bg-[var(--surface)] p-4" key={question.id}>
                   <legend className="px-1 text-sm font-extrabold">Câu {index + 1}</legend>
                   <RichText className="mt-2 font-semibold">{question.content}</RichText>
                   {question.options.length ? <div className="mt-4 grid gap-2">
@@ -344,10 +372,10 @@ export default function ExamsPage() {
         </section>
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
-        <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
+        <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           {pagination.pageItems.map((item) => (
             <article
-              className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+              className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
               key={item.id}
             >
               <div>
@@ -405,6 +433,18 @@ export default function ExamsPage() {
                   Gửi phê duyệt
                 </Button>
               ) : null}
+              {canReview && item.status === "PENDING_REVIEW" ? (
+                <>
+                  <Button loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")}>
+                    <CheckCircle2 size={15} />
+                    Phê duyệt
+                  </Button>
+                  <Button disabled={reviewingId === item.id} onClick={() => { setReturnTarget(item); setReturnNote(""); }} variant="secondary">
+                    <RotateCcw size={15} />
+                    Trả lại
+                  </Button>
+                </>
+              ) : null}
               {learner &&
               ["AVAILABLE", "IN_PROGRESS"].includes(
                 item.availabilityStatus ?? "",
@@ -444,7 +484,13 @@ export default function ExamsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Tạo đề thi">
         <form className="space-y-4" onSubmit={(e) => void create(e)}>
           <Field label="Lớp học">
-            <SearchableSelect aria-label="Tìm và chọn lớp ra đề" onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
+            <SearchableSelect
+              aria-label="Tìm và chọn lớp ra đề"
+              onChange={(classId) => setForm((current) => current.classId === classId ? current : { ...current, classId, questionIds: [] })}
+              options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))}
+              placeholder="Gõ mã hoặc tên lớp để lọc…"
+              value={form.classId}
+            />
           </Field>
           <Field label="Tên đề">
             <input
@@ -454,28 +500,40 @@ export default function ExamsPage() {
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </Field>
-          <Field label="Câu hỏi">
-            <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
-              {questions.map((q) => (
-                <label className="flex min-h-11 items-center gap-3 rounded-lg px-2 text-sm hover:bg-slate-50" key={q.id}>
+          <fieldset aria-describedby="exam-question-hint">
+            <div className="flex items-baseline justify-between gap-3">
+              <legend className="text-sm font-bold text-[var(--ink)]">Câu hỏi</legend>
+              {form.classId ? <span className="text-xs font-semibold tabular-nums text-[var(--ink-muted)]">{form.questionIds.length}/{selectableQuestions.length} đã chọn</span> : null}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]" id="exam-question-hint">
+              Chỉ hiển thị phiên bản đã xuất bản thuộc khóa học của lớp đã chọn.
+            </p>
+            <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-2">
+              {!form.classId ? (
+                <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">Chọn lớp học trước để xem câu hỏi phù hợp.</p>
+              ) : selectableQuestions.length === 0 ? (
+                <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">Khóa học của lớp này chưa có câu hỏi đã xuất bản. Hãy xuất bản câu hỏi trong Ngân hàng câu hỏi trước.</p>
+              ) : selectableQuestions.map((question) => (
+                <label className="flex min-h-12 items-start gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--surface-muted)]" key={question.id}>
                   <input
-                    className="size-5 shrink-0 accent-sky-600"
+                    checked={form.questionIds.includes(question.id)}
+                    className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]"
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      questionIds: event.target.checked
+                        ? [...current.questionIds, question.id]
+                        : current.questionIds.filter((id) => id !== question.id),
+                    }))}
                     type="checkbox"
-                    checked={form.questionIds.includes(q.id)}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        questionIds: e.target.checked
-                          ? [...form.questionIds, q.id]
-                          : form.questionIds.filter((id) => id !== q.id),
-                      })
-                    }
                   />
-                  <RichText className="min-w-0">{q.content}</RichText>
+                  <span className="min-w-0">
+                    <RichText>{question.content}</RichText>
+                    <span className="mt-1 block text-xs font-medium text-[var(--success-deep)]">Đã xuất bản · Phiên bản {question.version}</span>
+                  </span>
                 </label>
               ))}
             </div>
-          </Field>
+          </fieldset>
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Phút">
               <input
@@ -547,6 +605,12 @@ export default function ExamsPage() {
         <form className="space-y-4" onSubmit={(event) => void requestRegrade(event)}>
           <Field label="Lý do cần kiểm tra lại"><textarea className={inputClass} minLength={10} required rows={5} value={regradeReason} onChange={(event) => setRegradeReason(event.target.value)} /></Field>
           <Button loading={saving} type="submit">Gửi yêu cầu</Button>
+        </form>
+      </Modal>
+      <Modal open={Boolean(returnTarget)} onClose={() => { setReturnTarget(null); setReturnNote(""); }} title="Trả lại đề thi" description={returnTarget ? `Đề “${returnTarget.title}” sẽ quay về bản nháp để giảng viên chỉnh sửa.` : undefined}>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (returnTarget) void review(returnTarget, "RETURN", returnNote); }}>
+          <Field label="Lý do trả lại"><textarea autoFocus className={inputClass} minLength={5} onChange={(event) => setReturnNote(event.target.value)} placeholder="Nêu rõ nội dung giảng viên cần điều chỉnh…" required rows={5} value={returnNote} /></Field>
+          <div className="flex flex-wrap gap-2"><Button loading={Boolean(returnTarget && reviewingId === returnTarget.id)} type="submit"><RotateCcw size={15} />Xác nhận trả lại</Button><Button onClick={() => { setReturnTarget(null); setReturnNote(""); }} type="button" variant="ghost">Hủy</Button></div>
         </form>
       </Modal>
     </div>

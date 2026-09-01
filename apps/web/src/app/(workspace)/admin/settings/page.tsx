@@ -2,12 +2,18 @@
 
 import {
   Activity,
+  ArrowLeft,
+  BookCheck,
+  ChevronRight,
   CloudCog,
   DatabaseBackup,
   HardDrive,
+  History,
   Save,
+  Settings2,
   ShieldCheck,
 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -25,6 +31,7 @@ interface Settings {
   storageQuotaMb: number;
   allowedMimeTypes: string[];
   moderationEnabled: boolean;
+  examApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;
   version: number;
@@ -74,8 +81,21 @@ interface StorageOverview {
   }>;
 }
 
+type SettingsSection = "general" | "exam-approval" | "integrations" | "backups" | "storage" | "health" | "history";
+const settingsSections: Array<{ id: SettingsSection; title: string; description: string; icon: typeof Settings2 }> = [
+  { id: "general", title: "Quy định vận hành", description: "Tên trung tâm, vùng thời gian, dữ liệu, kiểm duyệt và bảo trì.", icon: ShieldCheck },
+  { id: "exam-approval", title: "Phê duyệt đề thi", description: "Chọn tự động phát hành hoặc quản trị viên duyệt thủ công.", icon: BookCheck },
+  { id: "integrations", title: "Tích hợp lớp học", description: "Cấu hình, kiểm tra và chọn nhà cung cấp phòng học trực tuyến.", icon: CloudCog },
+  { id: "backups", title: "Sao lưu dữ liệu", description: "Chạy sao lưu và theo dõi các bản sao gần nhất.", icon: DatabaseBackup },
+  { id: "storage", title: "Phân bổ lưu trữ", description: "Theo dõi quota và dung lượng học liệu theo từng lớp.", icon: HardDrive },
+  { id: "health", title: "Tình trạng dịch vụ", description: "Kiểm tra cơ sở dữ liệu, độ trễ API, lưu trữ và hàng đợi.", icon: Activity },
+  { id: "history", title: "Lịch sử cấu hình", description: "Tra cứu phiên bản, thời điểm hiệu lực và người cập nhật.", icon: History },
+];
+
 export default function SettingsPage() {
   const { session, notify } = useApp();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const canConfigure = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [history, setHistory] = useState<Settings[]>([]);
@@ -276,15 +296,70 @@ export default function SettingsPage() {
       );
     }
   };
+  const saveExamApprovalMode = async (mode: Settings["examApprovalMode"]) => {
+    if (!settings || settings.examApprovalMode === mode) return;
+    setSaving(true);
+    try {
+      const updated = await apiRequest<Settings>("/system/settings", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ examApprovalMode: mode }),
+      });
+      setSettings(updated);
+      notify(mode === "AUTO" ? "Đã bật tự động phê duyệt đề thi." : "Đã chuyển sang phê duyệt đề thi thủ công.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không đổi được chế độ phê duyệt.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
   if (!canConfigure) return <AccessDenied />;
+  const requestedSection = searchParams.get("section");
+  const activeSection = settingsSections.some((item) => item.id === requestedSection) ? requestedSection as SettingsSection : null;
+  const activeMeta = settingsSections.find((item) => item.id === activeSection);
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className={`mx-auto px-5 py-8 md:px-8 md:py-10 ${activeSection ? "max-w-5xl" : "max-w-7xl"}`}>
+      {activeSection ? (
+        <button className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-extrabold text-[var(--ink-soft)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" onClick={() => router.push("/admin/settings")} type="button">
+          <ArrowLeft size={18} />
+          Quay lại Cấu hình
+        </button>
+      ) : null}
       <PageHeader
         eyebrow="Platform Governance"
-        title="Cấu hình hệ thống"
-        description="Chính sách dữ liệu, tích hợp, kiểm duyệt, sao lưu và tình trạng dịch vụ."
+        title={activeMeta?.title ?? "Cấu hình hệ thống"}
+        description={activeMeta?.description ?? "Chọn chức năng cần quản trị. Mỗi nhóm cấu hình được tách thành một màn hình để thao tác tập trung hơn."}
       />
-      {health ? (
+      {!activeSection ? (
+        <nav aria-label="Danh sách chức năng cấu hình" className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+          {settingsSections.map((item) => {
+            const Icon = item.icon;
+            const summary = item.id === "exam-approval" ? (settings?.examApprovalMode === "MANUAL" ? "Duyệt thủ công" : "Tự động duyệt") : item.id === "health" ? (health?.status === "healthy" ? "Ổn định" : "Cần kiểm tra") : item.id === "storage" ? `${storage?.usagePercent ?? 0}% đã dùng` : item.id === "integrations" ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật` : item.id === "backups" ? `${backups.length} bản sao` : item.id === "history" ? `${history.length} phiên bản` : settings ? `Phiên bản ${settings.version}` : "Đang tải";
+            return (
+              <button className="group grid min-h-24 w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 transition hover:bg-[var(--surface-muted)] md:px-6" key={item.id} onClick={() => router.push(`/admin/settings?section=${item.id}`)} type="button">
+                <span className="grid size-12 place-items-center rounded-xl border border-[var(--rule)] bg-[var(--surface)] text-[var(--accent-ink)]"><Icon size={21} /></span>
+                <span className="min-w-0"><span className="block font-heading text-lg font-extrabold text-[var(--ink)]">{item.title}</span><span className="mt-1 block text-sm leading-5 text-[var(--ink-soft)]">{item.description}</span></span>
+                <span className="flex items-center gap-3"><span className="hidden text-xs font-bold text-[var(--ink-muted)] sm:inline">{summary}</span><ChevronRight className="text-[var(--ink-muted)] transition group-hover:translate-x-1 group-hover:text-[var(--accent-ink)]" size={20} /></span>
+              </button>
+            );
+          })}
+        </nav>
+      ) : null}
+      {activeSection === "exam-approval" && settings ? (
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-sm leading-6 text-[var(--ink-soft)]">Thiết lập này áp dụng cho các đề được giảng viên gửi từ thời điểm thay đổi. Đề đã nằm trong hàng chờ vẫn có thể được quản trị viên phê duyệt hoặc trả lại.</p>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              {([{"mode":"AUTO" as const,"title":"Tự động phê duyệt","description":"Đề hợp lệ được phát hành ngay khi giảng viên gửi. Phù hợp với quy trình vận hành hiện tại."},{"mode":"MANUAL" as const,"title":"Phê duyệt thủ công","description":"Đề chuyển sang trạng thái chờ; quản trị viên cần phê duyệt hoặc trả lại kèm lý do."}]).map((option) => {
+                const selected = settings.examApprovalMode === option.mode;
+                return <button aria-pressed={selected} className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`} disabled={saving} key={option.mode} onClick={() => void saveExamApprovalMode(option.mode)} type="button"><span className="flex items-center justify-between gap-3"><span className="font-heading text-lg font-extrabold">{option.title}</span><span className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}>{selected ? <span className="size-2 rounded-full bg-white" /> : null}</span></span><span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">{option.description}</span><span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">{selected ? "Đang áp dụng" : "Chọn chế độ này"}</span></button>;
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
+      {activeSection === "health" && health ? (
         <section className="metric-ledger mb-7">
           <div
             className={health.status === "healthy" ? "bg-emerald-50" : "bg-amber-50"}
@@ -318,8 +393,8 @@ export default function SettingsPage() {
           </div>
         </section>
       ) : null}
-      <div className="grid gap-7 xl:grid-cols-[1.1fr_.9fr]">
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      <div className={`${["general", "history", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}>
+        <section className={`${activeSection === "general" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}>
           <div className="flex items-center gap-3">
             <ShieldCheck className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -488,11 +563,11 @@ export default function SettingsPage() {
             <div className="mt-6 h-80 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="order-3 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6 xl:col-span-2">
+        <section className={`${activeSection === "history" ? "block" : "hidden"} order-3 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6 xl:col-span-2`}>
           <h2 className="font-heading text-xl font-extrabold">
             Lịch sử cấu hình
           </h2>
-          <div className="mt-4 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
             {history.length ? history.slice(0, 6).map((item) => (
               <article
                 className="py-4"
@@ -512,14 +587,14 @@ export default function SettingsPage() {
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
-                  {item.storageQuotaMb} MB
+                  {item.storageQuotaMb} MB · {item.examApprovalMode === "MANUAL" ? "duyệt đề thủ công" : "tự động duyệt đề"}
                 </p>
               </article>
             )) : <p className="empty-copy">Chưa có phiên bản cấu hình trước đó.</p>}
           </div>
         </section>
-        <div className="order-2 space-y-7">
-          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <div className={`${["integrations", "backups"].includes(activeSection ?? "") ? "block" : "hidden"} order-2 space-y-7`}>
+          <section className={`${activeSection === "integrations" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}>
             <div className="flex items-center gap-3">
               <CloudCog className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">
@@ -546,7 +621,7 @@ export default function SettingsPage() {
                       onClick={() => void toggle(item)}
                     >
                       <span
-                        className={`absolute top-3 size-5 rounded-full bg-white shadow transition ${item.enabled ? "left-8" : "left-1"}`}
+                        className={`absolute top-3 size-5 rounded-full bg-[var(--surface)] shadow transition ${item.enabled ? "left-8" : "left-1"}`}
                       />
                     </button>
                   </div>
@@ -584,7 +659,7 @@ export default function SettingsPage() {
               ))}
             </div>
           </section>
-          <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+          <section className={`${activeSection === "backups" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <DatabaseBackup className="text-sky-700" />
@@ -594,7 +669,7 @@ export default function SettingsPage() {
                 Chạy ngay
               </Button>
             </div>
-            <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+            <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
               {backups.slice(0, 4).map((item) => (
                 <div
                   className="flex items-center justify-between gap-3 py-4"
@@ -616,8 +691,8 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
-      {storage ? (
-        <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      {activeSection === "storage" && storage ? (
+        <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <HardDrive className="text-sky-700" />
@@ -641,7 +716,7 @@ export default function SettingsPage() {
               style={{ width: `${storage.usagePercent}%` }}
             />
           </div>
-          <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+          <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
             {storage.byClass.length ? (
               storage.byClass.map((item) => (
                 <div className="py-4" key={item.classId}>

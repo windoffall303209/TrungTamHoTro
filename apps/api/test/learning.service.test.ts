@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
+import { SystemService } from "../src/system/system.service.js";
 
 describe("LearningService", () => {
   it("chỉ trả học viên đang ghi danh trong lớp được phân công cho giảng viên", async () => {
@@ -511,9 +512,11 @@ describe("LearningService", () => {
     const published = await service.publishQuestion(draft.id);
     const versionTwo = await service.updateQuestion(published.id, { ...published, content: "Giao thức nào bảo vệ lưu lượng web?", difficulty: 2 });
     expect(versionTwo).toMatchObject({ version: 2, status: "DRAFT", supersedesId: published.id, familyId: published.familyId });
+    expect((await service.listQuestions({ courseId: "course-web", status: "PUBLISHED" })).find((item) => item.familyId === published.familyId)?.id).toBe(published.id);
     await expect(service.updateQuestion(published.id, { ...published, content: "Không được sửa bản cũ" })).rejects.toThrow(ConflictException);
     expect((await service.listQuestions({ tag: "security", difficulty: 2 }))[0]?.id).toBe(versionTwo.id);
     await service.publishQuestion(versionTwo.id);
+    expect((await service.listQuestions({ courseId: "course-web", status: "PUBLISHED" })).find((item) => item.familyId === published.familyId)?.id).toBe(versionTwo.id);
     expect((await service.createExam({ classId: "class-web-01", title: "Đề dùng câu đã duyệt", questionIds: [versionTwo.id], durationMinutes: 15, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-10-01T00:00:00.000Z", attemptLimit: 1 })).status).toBe("DRAFT");
   });
 
@@ -557,6 +560,16 @@ describe("LearningService", () => {
     expect(history.map((item) => item.decision)).toEqual(["APPROVE", "RETURN"]);
     expect(history.every((item) => item.examVersion === exam.version)).toBe(true);
     expect((await service.listNotifications("usr-instructor")).filter((item) => item.type === "EXAM_REVIEWED")).toHaveLength(2);
+  });
+
+  it("tự động phê duyệt đề khi cấu hình hệ thống ở chế độ AUTO", async () => {
+    const system = new SystemService();
+    const service = new LearningService(undefined, undefined, undefined, undefined, system);
+    const exam = await service.createExam({ classId: "class-web-01", title: "Đề duyệt tự động", questionIds: ["q-rest-01"], durationMinutes: 30, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-12-01T00:00:00.000Z", attemptLimit: 1 });
+
+    expect((await service.submitExamForReview(exam.id)).status).toBe("PUBLISHED");
+    expect((await service.listExamApprovals(exam.id))).toHaveLength(0);
+    expect((await service.listNotifications("usr-instructor")).some((item) => item.title.includes("tự động phê duyệt"))).toBe(true);
   });
 
   it("cô lập đề, lượt làm và quyền chấm theo giảng viên được phân công", async () => {

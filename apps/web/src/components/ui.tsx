@@ -8,15 +8,15 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 export function Button({ children, variant = "primary", loading = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost"; loading?: boolean }) {
-  const styles = { primary: "bg-[#102a43] text-[#fffdfa] hover:bg-[#c75b39]", secondary: "border border-[#a9bac1] bg-[#fffdfa] text-[#102a43] hover:border-[#102a43]", danger: "bg-[#a84343] text-white hover:bg-[#853333]", ghost: "text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43]" };
+  const styles = { primary: "bg-[var(--action)] text-[var(--action-ink)] hover:bg-[var(--accent)]", secondary: "border border-[var(--rule-strong)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--action)]", danger: "bg-[var(--danger-fill)] text-[var(--status-on-fill)] hover:bg-[var(--danger-hover)]", ghost: "text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" };
   return <button aria-busy={loading || undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform] duration-200 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} /> : null}{children}</button>;
 }
 
 export function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return <label className="block text-sm font-bold text-[#102a43]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[#a84343]">{error}</span> : null}</label>;
+  return <label className="block text-sm font-bold text-[var(--ink)]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[var(--danger)]">{error}</span> : null}</label>;
 }
 
-export const inputClass = "min-h-11 w-full rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-3.5 py-2.5 text-sm text-[#102a43] outline-none transition placeholder:text-[#657789] focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15 disabled:cursor-not-allowed disabled:bg-[#eee8dc] disabled:text-[#657789]";
+export const inputClass = "min-h-11 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-muted)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15 disabled:cursor-not-allowed disabled:bg-[var(--surface-muted)] disabled:text-[var(--ink-muted)]";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
@@ -37,11 +37,11 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   };
 
   return (
-    <div aria-label={label} className={`flex gap-1 overflow-x-auto border-b border-[#a9bac1] ${className}`} role="tablist">
+    <div aria-label={label} className={`flex gap-1 overflow-x-auto border-b border-[var(--rule-strong)] ${className}`} role="tablist">
       {items.map((item, index) => (
         <button
           aria-selected={item.value === value}
-          className={`relative inline-flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-extrabold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#c75b39] ${item.value === value ? "text-[#102a43] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[#c75b39]" : "text-[#657789] hover:bg-[#eee8dc]/70 hover:text-[#102a43]"}`}
+          className={`relative inline-flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-extrabold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)] ${item.value === value ? "text-[var(--ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[var(--accent)]" : "text-[var(--ink-muted)] hover:bg-[var(--surface-muted)]/70 hover:text-[var(--ink)]"}`}
           id={`${baseId}-${item.value}`}
           key={item.value}
           onClick={() => onChange(item.value)}
@@ -54,7 +54,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
           type="button"
         >
           {item.label}
-          {typeof item.count === "number" ? <span className="min-w-6 rounded-full bg-[#eee8dc] px-2 py-0.5 text-center text-xs tabular-nums text-[#516274]">{item.count}</span> : null}
+          {typeof item.count === "number" ? <span className="min-w-6 rounded-full bg-[var(--surface-muted)] px-2 py-0.5 text-center text-xs tabular-nums text-[var(--ink-soft)]">{item.count}</span> : null}
         </button>
       ))}
     </div>
@@ -111,22 +111,22 @@ export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSiz
   const end = Math.min(totalItems, currentPage * pageSize);
 
   return (
-    <nav aria-label={`Phân trang ${itemLabel}`} className={`mt-5 flex flex-col gap-3 border-t border-[#d5dfe2] pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#516274]">
-        <span aria-live="polite">Hiển thị <strong className="text-[#102a43]">{start}–{end}</strong> trong {totalItems} {itemLabel}</span>
-        <label className="inline-flex items-center gap-2 font-bold text-[#102a43]">
+    <nav aria-label={`Phân trang ${itemLabel}`} className={`mt-5 flex flex-col gap-3 border-t border-[var(--rule)] pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--ink-soft)]">
+        <span aria-live="polite">Hiển thị <strong className="text-[var(--ink)]">{start}–{end}</strong> trong {totalItems} {itemLabel}</span>
+        <label className="inline-flex items-center gap-2 font-bold text-[var(--ink)]">
           Số dòng
-          <select aria-label={`Số ${itemLabel} mỗi trang`} className="min-h-11 rounded-lg border border-[#a9bac1] bg-[#fffdfa] px-3 text-sm outline-none focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15" onChange={(event) => onPageSizeChange(Number(event.target.value))} value={pageSize}>
+          <select aria-label={`Số ${itemLabel} mỗi trang`} className="min-h-11 rounded-lg border border-[var(--rule-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15" onChange={(event) => onPageSizeChange(Number(event.target.value))} value={pageSize}>
             {PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
         </label>
       </div>
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn trang">
-        <button aria-label="Trang trước" className="grid size-11 place-items-center rounded-lg text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} type="button"><ChevronLeft aria-hidden="true" size={18} /></button>
+        <button aria-label="Trang trước" className="grid size-11 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} type="button"><ChevronLeft aria-hidden="true" size={18} /></button>
         {visiblePages(currentPage, totalPages).map((item) => typeof item === "number" ? (
-          <button aria-current={item === currentPage ? "page" : undefined} aria-label={`Trang ${item}`} className={`min-h-11 min-w-11 rounded-lg px-2 text-sm font-bold ${item === currentPage ? "bg-[#102a43] text-[#fffdfa]" : "text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43]"}`} key={item} onClick={() => onPageChange(item)} type="button">{item}</button>
-        ) : <span aria-hidden="true" className="grid min-h-11 min-w-7 place-items-center text-[#657789]" key={item}>…</span>)}
-        <button aria-label="Trang sau" className="grid size-11 place-items-center rounded-lg text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)} type="button"><ChevronRight aria-hidden="true" size={18} /></button>
+          <button aria-current={item === currentPage ? "page" : undefined} aria-label={`Trang ${item}`} className={`min-h-11 min-w-11 rounded-lg px-2 text-sm font-bold ${item === currentPage ? "bg-[var(--action)] text-[var(--action-ink)]" : "text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"}`} key={item} onClick={() => onPageChange(item)} type="button">{item}</button>
+        ) : <span aria-hidden="true" className="grid min-h-11 min-w-7 place-items-center text-[var(--ink-muted)]" key={item}>…</span>)}
+        <button aria-label="Trang sau" className="grid size-11 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)} type="button"><ChevronRight aria-hidden="true" size={18} /></button>
       </div>
     </nav>
   );
@@ -173,12 +173,12 @@ export function Modal({ open, title, description, onClose, children, size = "md"
   }, [open]);
 
   if (!open) return null;
-  return <div className="fixed inset-0 z-[70] grid place-items-center p-4"><button aria-label="Đóng hộp thoại" className="absolute inset-0 bg-[#102a43]/55 backdrop-blur-sm" onClick={onClose} tabIndex={-1} type="button" /><section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-2xl border border-[#d5dfe2] bg-[#fffdfa] p-5 shadow-[0_22px_65px_rgb(16_42_67/0.22)] md:p-7 ${size === "xl" ? "max-w-6xl" : "max-w-xl"}`} ref={dialogRef} role="dialog"><button aria-label="Đóng" className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43]" onClick={onClose} type="button"><X size={19} /></button><h2 className="pr-12 font-heading text-2xl font-bold tracking-[-0.025em] text-[#102a43]" id={titleId}>{title}</h2>{description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[#516274]" id={descriptionId}>{description}</p> : null}<div className="mt-6">{children}</div></section></div>;
+  return <div className="fixed inset-0 z-[70] grid place-items-center p-4"><button aria-label="Đóng hộp thoại" className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm" onClick={onClose} tabIndex={-1} type="button" /><section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-2xl border border-[var(--rule)] bg-[var(--surface)] p-5 shadow-[var(--dialog-shadow)] md:p-7 ${size === "xl" ? "max-w-6xl" : "max-w-xl"}`} ref={dialogRef} role="dialog"><button aria-label="Đóng" className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" onClick={onClose} type="button"><X size={19} /></button><h2 className="pr-12 font-heading text-2xl font-bold tracking-[-0.025em] text-[var(--ink)]" id={titleId}>{title}</h2>{description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-soft)]" id={descriptionId}>{description}</p> : null}<div className="mt-6">{children}</div></section></div>;
 }
 
 export function RichText({ children, className = "" }: { children: string; className?: string }) {
   return (
-    <div className={`rich-content min-w-0 text-[#102a43] ${className}`}>
+    <div className={`rich-content min-w-0 text-[var(--ink)] ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
         {children}
       </ReactMarkdown>
@@ -236,29 +236,29 @@ export function FormattedTextarea({ value, onChange, label, rows = 5, required =
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <label className="text-sm font-bold text-[#102a43]" htmlFor={errorId}>{label}</label>
+        <label className="text-sm font-bold text-[var(--ink)]" htmlFor={errorId}>{label}</label>
         <div aria-label={`Định dạng ${label.toLowerCase()}`} className="flex flex-wrap gap-1" role="toolbar">
           {controls.map((control) => (
-            <button aria-label={control.label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-[#516274] hover:bg-[#eee8dc] hover:text-[#102a43] disabled:cursor-not-allowed disabled:opacity-40" disabled={disabled} key={control.action} onClick={() => applyFormat(control.action)} title={control.label} type="button">
+            <button aria-label={control.label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40" disabled={disabled} key={control.action} onClick={() => applyFormat(control.action)} title={control.label} type="button">
               {control.icon}<span className={compact ? "sr-only" : "hidden sm:inline"}>{control.label}</span>
             </button>
           ))}
         </div>
       </div>
       <textarea aria-describedby={error ? `${errorId}-error` : undefined} aria-invalid={Boolean(error)} className={`${inputClass} mt-2 resize-y font-sans leading-6`} disabled={disabled} id={errorId} minLength={minLength} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} ref={textareaRef} required={required} rows={rows} value={value} />
-      {error ? <p className="mt-1 text-xs font-semibold text-[#a84343]" id={`${errorId}-error`}>{error}</p> : compact ? null : <p className="mt-1 text-xs leading-5 text-[#516274]">Chọn đoạn văn rồi dùng thanh định dạng. Công thức dùng LaTeX giữa <code>$...$</code> hoặc <code>$$...$$</code>.</p>}
+      {error ? <p className="mt-1 text-xs font-semibold text-[var(--danger)]" id={`${errorId}-error`}>{error}</p> : compact ? null : <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">Chọn đoạn văn rồi dùng thanh định dạng. Công thức dùng LaTeX giữa <code>$...$</code> hoặc <code>$$...$$</code>.</p>}
     </div>
   );
 }
 
 export function StatusBadge({ status }: { status: string }) {
   const style = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED"].includes(status)
-    ? "border-[#27685f]/25 bg-[#27685f]/10 text-[#1f574f]"
+    ? "border-[var(--success)]/25 bg-[var(--success)]/10 text-[var(--success-deep)]"
     : ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status)
-      ? "border-[#a84343]/25 bg-[#a84343]/10 text-[#873737]"
-    : ["PENDING_VERIFICATION", "IN_REVIEW", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status)
-        ? "border-[#a26920]/25 bg-[#a26920]/10 text-[#76501d]"
-        : "border-[#a9bac1] bg-[#eee8dc] text-[#516274]";
-  const labels: Record<string, string> = { PENDING_VERIFICATION: "Chờ xác minh email", ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
+      ? "border-[var(--danger)]/25 bg-[var(--danger)]/10 text-[var(--danger-deep)]"
+    : ["PENDING_VERIFICATION", "PENDING_REVIEW", "IN_REVIEW", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status)
+        ? "border-[var(--warning)]/25 bg-[var(--warning)]/10 text-[var(--warning-deep)]"
+        : "border-[var(--rule-strong)] bg-[var(--surface-muted)] text-[var(--ink-soft)]";
+  const labels: Record<string, string> = { PENDING_VERIFICATION: "Chờ xác minh email", PENDING_REVIEW: "Chờ phê duyệt", ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
   return <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-[0.02em] ${style}`} title={labels[status] ? `Mã trạng thái: ${status}` : undefined}>{labels[status] ?? status}</span>;
 }

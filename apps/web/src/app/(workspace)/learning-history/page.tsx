@@ -118,7 +118,7 @@ export default function LearningHistoryPage() {
           const summary = summaries[item.id];
           return (
             <article
-              className="bg-[#fffdfa]/65 p-5"
+              className="bg-[var(--surface)]/65 p-5"
               key={item.id}
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -140,7 +140,7 @@ export default function LearningHistoryPage() {
                 </Button>
               </div>
               {summary ? (
-                <div className="mt-5 grid border-t border-slate-100 pt-5 sm:grid-cols-3 sm:divide-x sm:divide-[#d5dfe2]">
+                <div className="mt-5 grid border-t border-slate-100 pt-5 sm:grid-cols-3 sm:divide-x sm:divide-[var(--rule)]">
                   <div className="px-4 py-3 sm:first:pl-0">
                     <p className="text-2xl font-extrabold">
                       {summary.attendance.attendedMinutes}&apos;

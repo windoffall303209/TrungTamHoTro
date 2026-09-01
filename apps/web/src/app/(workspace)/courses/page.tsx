@@ -44,27 +44,27 @@ export default function CoursesPage() {
     <SectionState loading={loading} empty={manager ? activeTab === "courses" ? courses.length === 0 : classes.length === 0 : classes.length === 0}>
       <div className="mt-7">
         {manager && activeTab === "courses" ? <section className="min-w-0">
-          <div className="flex items-end justify-between gap-5 border-b-2 border-[#a9bac1] pb-4">
+          <div className="flex items-end justify-between gap-5 border-b-2 border-[var(--rule-strong)] pb-4">
             <div><h2 className="font-heading text-2xl font-extrabold">Danh mục khóa học</h2><p className="mt-1 text-sm text-slate-500">Nội dung đào tạo và phiên bản đang được sử dụng.</p></div>
             <span className="shrink-0 text-sm font-bold text-slate-500">{courses.length} khóa học</span>
           </div>
-          <div className="border-b border-[#a9bac1] bg-[#fffdfa]/65">
-            {coursePagination.pageItems.map((course) => <article className="border-b border-[#d5dfe2] px-6 py-6 last:border-b-0" key={course.id}>
+          <div className="border-b border-[var(--rule-strong)] bg-[var(--surface)]/65">
+            {coursePagination.pageItems.map((course) => <article className="border-b border-[var(--rule)] px-6 py-6 last:border-b-0" key={course.id}>
               <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-extrabold text-sky-700">{course.code} · phiên bản {course.version}</p><h3 className="mt-1 font-heading text-xl font-extrabold">{course.name}</h3><p className="mt-2 max-w-[60ch] text-sm leading-6 text-slate-500">{course.description}</p></div><StatusBadge status={course.status} /></div>
-              <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[#e2e8e9] pt-3">{course.status === "DRAFT" ? <Button onClick={() => void publish(course)} variant="secondary"><Rocket size={15} />Xuất bản</Button> : null}{course.status !== "ARCHIVED" ? <Button onClick={() => editCourse(course)} variant="ghost"><Pencil size={15} />Sửa bản nháp</Button> : null}<Button onClick={() => void openVersions(course)} variant="ghost"><History size={15} />Lịch sử</Button>{course.status !== "ARCHIVED" ? <Button onClick={() => setArchiveTarget(course)} variant="ghost"><Archive size={15} />Ngừng dùng</Button> : null}</div>
+              <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--rule)] pt-3">{course.status === "DRAFT" ? <Button onClick={() => void publish(course)} variant="secondary"><Rocket size={15} />Xuất bản</Button> : null}{course.status !== "ARCHIVED" ? <Button onClick={() => editCourse(course)} variant="ghost"><Pencil size={15} />Sửa bản nháp</Button> : null}<Button onClick={() => void openVersions(course)} variant="ghost"><History size={15} />Lịch sử</Button>{course.status !== "ARCHIVED" ? <Button onClick={() => setArchiveTarget(course)} variant="ghost"><Archive size={15} />Ngừng dùng</Button> : null}</div>
             </article>)}
           </div>
           <Pagination itemLabel="khóa học" onPageChange={coursePagination.setPage} onPageSizeChange={coursePagination.setPageSize} page={coursePagination.page} pageSize={coursePagination.pageSize} totalItems={coursePagination.totalItems} />
         </section> : null}
         {!manager || activeTab === "classes" ? <section className="min-w-0">
-          <div className="flex items-end justify-between gap-5 border-b-2 border-[#a9bac1] pb-4">
+          <div className="flex items-end justify-between gap-5 border-b-2 border-[var(--rule-strong)] pb-4">
             <div><h2 className="font-heading text-2xl font-extrabold">{manager ? "Lớp đang quản lý" : session.roleCode === "INSTRUCTOR" ? "Lớp được phân công" : "Lớp đã ghi danh"}</h2><p className="mt-1 text-sm text-slate-500">Theo dõi nhân sự, quy mô lớp và mốc vận hành tại một chỗ.</p></div>
             <span className="shrink-0 text-sm font-bold text-slate-500">{classes.length} lớp</span>
           </div>
-          <div className="border-b border-[#a9bac1] bg-[#fffdfa]/65">
-            {classPagination.pageItems.map((item) => <article className="border-b border-[#d5dfe2] px-6 py-6 last:border-b-0" key={item.id}>
+          <div className="border-b border-[var(--rule-strong)] bg-[var(--surface)]/65">
+            {classPagination.pageItems.map((item) => <article className="border-b border-[var(--rule)] px-6 py-6 last:border-b-0" key={item.id}>
               <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-extrabold text-sky-700">{item.code} · {item.term} · khóa v{item.courseVersion}</p><h3 className="mt-1 font-heading text-xl font-extrabold">{item.name}</h3><p className="mt-1 text-xs text-slate-500">{item.timezone} · {item.allowLateEnrollment ? "Cho ghi danh muộn" : "Khóa ghi danh muộn"}</p></div><StatusBadge status={item.status} /></div>
-              <div className="mt-5 grid grid-cols-3 divide-x divide-[#d5dfe2] border-y border-[#e2e8e9] py-4 text-center"><div><p className="tabular font-extrabold">{item.instructorIds.length}</p><p className="mt-1 text-[11px] text-slate-500">Giảng viên</p></div><div><p className="tabular font-extrabold">{item.learnerIds.length}/{item.capacity}</p><p className="mt-1 text-[11px] text-slate-500">Học viên</p></div><div><p className="tabular font-extrabold">{new Date(item.startAt).toLocaleDateString("vi-VN")}</p><p className="mt-1 text-[11px] text-slate-500">Khai giảng</p></div></div>
+              <div className="mt-5 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center"><div><p className="tabular font-extrabold">{item.instructorIds.length}</p><p className="mt-1 text-[11px] text-slate-500">Giảng viên</p></div><div><p className="tabular font-extrabold">{item.learnerIds.length}/{item.capacity}</p><p className="mt-1 text-[11px] text-slate-500">Học viên</p></div><div><p className="tabular font-extrabold">{new Date(item.startAt).toLocaleDateString("vi-VN")}</p><p className="mt-1 text-[11px] text-slate-500">Khai giảng</p></div></div>
               <div className="mt-3 flex flex-wrap gap-2"><Button onClick={() => router.push(`/courses/classes/${item.id}`)} variant="secondary">Xem chi tiết lớp<ArrowRight size={15} /></Button>{manager && item.status === "DRAFT" ? <Button onClick={() => void activate(item)} variant="ghost">Kích hoạt lớp</Button> : null}</div>
             </article>)}
           </div>

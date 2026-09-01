@@ -407,7 +407,7 @@ export default function OperationsPage() {
         description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
       />
       <div className="grid gap-7 xl:grid-cols-2">
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <FileClock className="text-sky-700" />
@@ -497,7 +497,7 @@ export default function OperationsPage() {
           </div>
           <Pagination itemLabel="bản ghi audit" onPageChange={auditPagination.setPage} onPageSizeChange={auditPagination.setPageSize} page={auditPagination.page} pageSize={auditPagination.pageSize} totalItems={auditPagination.totalItems} />
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -540,7 +540,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BellRing className="text-sky-700" />
@@ -585,7 +585,7 @@ export default function OperationsPage() {
           </div>
           <Pagination itemLabel="mẫu thông báo" onPageChange={templatePagination.setPage} onPageSizeChange={templatePagination.setPageSize} page={templatePagination.page} pageSize={templatePagination.pageSize} totalItems={templatePagination.totalItems} />
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -655,7 +655,7 @@ export default function OperationsPage() {
             <div className="mt-5 h-52 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -731,7 +731,7 @@ export default function OperationsPage() {
             </Button>
           </div>
           {retentionPreview ? (
-            <div className="mt-4 grid grid-cols-3 divide-x divide-[#d5dfe2] border-y border-[#d5dfe2] py-4 text-center">
+            <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center">
               <div>
                 <strong>{retentionPreview.estimatedRows}</strong>
                 <p className="text-xs text-slate-500">Đủ điều kiện</p>
@@ -746,7 +746,7 @@ export default function OperationsPage() {
               </div>
             </div>
           ) : null}
-          <div className="mt-4 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
             {retentionPolicies.slice(0, 4).map((item) => (
               <div
                 className="flex items-center justify-between gap-3 py-4"
@@ -776,7 +776,7 @@ export default function OperationsPage() {
             ))}
           </div>
         </section>
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-rose-600" />
             <h2 className="font-heading text-xl font-extrabold">

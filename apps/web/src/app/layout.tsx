@@ -14,9 +14,22 @@ export const metadata: Metadata = {
   description: "Không gian vận hành tập trung cho dữ liệu, đề thi, diễn đàn và lớp học online.",
 };
 
+const themeInitializer = `(() => {
+  try {
+    const stored = localStorage.getItem("wind-edu-theme");
+    const theme = stored === "light" || stored === "dark"
+      ? stored
+      : "light";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0b1620" : "#f7f4ed");
+  } catch { document.documentElement.dataset.theme = "light"; }
+})();`;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html data-scroll-behavior="smooth" lang="vi">
+    <html data-scroll-behavior="smooth" lang="vi" suppressHydrationWarning>
+      <head><meta content="#f7f4ed" name="theme-color" /><script dangerouslySetInnerHTML={{ __html: themeInitializer }} /></head>
       <body className={beVietnamPro.variable}>
         {/*
           THESIS: Wind EDU is a contemporary registrar's desk, not a generic dashboard-card mosaic.
