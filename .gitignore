@@ -10,6 +10,13 @@ coverage/
 apps/api/src/generated/
 .codex-temp/
 outputs/
+output/
+.playwright-cli/
+.playwright-mcp/
+artifacts/
+docs/
+security_best_practices_report.md
+debug.log
 npm-debug.log*
 pnpm-debug.log*
 
