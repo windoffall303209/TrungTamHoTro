@@ -8,7 +8,7 @@ import { ObjectStorageService } from "../infrastructure/object-storage.service.j
 import { DEFAULT_MATERIAL_MIME_TYPES, includeSupportedDocumentMimeTypes } from "../infrastructure/file-transfer.js";
 
 export type ExamApprovalMode = "AUTO" | "MANUAL";
-export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; examApprovalMode: ExamApprovalMode; notificationSender: string; maintenanceMode: boolean; version: number; effectiveAt: string; updatedBy: string; updatedAt: string }
+export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; examApprovalMode: ExamApprovalMode; questionApprovalMode: ExamApprovalMode; notificationSender: string; maintenanceMode: boolean; version: number; effectiveAt: string; updatedBy: string; updatedAt: string }
 export interface SystemSettingRevision extends SystemSettings { id: string; key: string }
 export interface StorageOverview { quotaBytes: number; usedBytes: number; usagePercent: number; maxFileSizeMb: number; allowedMimeTypes: string[]; byClass: Array<{ classId: string; classCode: string; className: string; fileCount: number; usedBytes: number }> }
 export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; maskedCredential: string; webhookConfigured: boolean; lastCheckedAt?: string; updatedAt: string }
@@ -43,6 +43,7 @@ const defaultSettings = (): SystemSettings => ({
   allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
   moderationEnabled: true,
   examApprovalMode: "AUTO",
+  questionApprovalMode: "AUTO",
   notificationSender: "Wind EDU",
   maintenanceMode: false,
   version: 1,
@@ -619,6 +620,7 @@ export class SystemService {
       allowedMimeTypes: includeSupportedDocumentMimeTypes(this.stringArray(record.allowedMimeTypes, fallback.allowedMimeTypes)),
       moderationEnabled: this.booleanValue(record.moderationEnabled, fallback.moderationEnabled),
       examApprovalMode: record.examApprovalMode === "MANUAL" ? "MANUAL" : "AUTO",
+      questionApprovalMode: record.questionApprovalMode === "MANUAL" ? "MANUAL" : "AUTO",
       notificationSender: this.stringValue(record.notificationSender, fallback.notificationSender),
       maintenanceMode: this.booleanValue(record.maintenanceMode, fallback.maintenanceMode),
       version,

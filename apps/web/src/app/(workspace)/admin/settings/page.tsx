@@ -3,21 +3,25 @@
 import {
   Activity,
   ArrowLeft,
+  Bot,
   BookCheck,
   ChevronRight,
   CloudCog,
   DatabaseBackup,
   HardDrive,
   History,
+  ListChecks,
   Save,
   Settings2,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { SearchableSelect } from "@/components/searchable-select";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import { useApp } from "@/providers/app-provider";
@@ -32,6 +36,7 @@ interface Settings {
   allowedMimeTypes: string[];
   moderationEnabled: boolean;
   examApprovalMode: "AUTO" | "MANUAL";
+  questionApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;
   version: number;
@@ -80,11 +85,16 @@ interface StorageOverview {
     usedBytes: number;
   }>;
 }
+type AiProviderType = "GEMINI" | "NVIDIA_NIM" | "OPENAI" | "CUSTOM";
+interface AiProvider { id: string; provider: AiProviderType; name: string; model: string; baseUrl?: string; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; hasApiKey: boolean; maskedApiKey: string; lastCheckedAt?: string; updatedAt: string }
+type ModelCatalog = Record<"GEMINI" | "NVIDIA_NIM" | "OPENAI", Array<{ value: string; label: string; description: string }>>;
 
-type SettingsSection = "general" | "exam-approval" | "integrations" | "backups" | "storage" | "health" | "history";
+type SettingsSection = "general" | "exam-approval" | "question-approval" | "ai-providers" | "integrations" | "backups" | "storage" | "health" | "history";
 const settingsSections: Array<{ id: SettingsSection; title: string; description: string; icon: typeof Settings2 }> = [
   { id: "general", title: "Quy định vận hành", description: "Tên trung tâm, vùng thời gian, dữ liệu, kiểm duyệt và bảo trì.", icon: ShieldCheck },
   { id: "exam-approval", title: "Phê duyệt đề thi", description: "Chọn tự động phát hành hoặc quản trị viên duyệt thủ công.", icon: BookCheck },
+  { id: "question-approval", title: "Phê duyệt câu hỏi", description: "Chọn tự động xuất bản hoặc đưa câu hỏi vào hàng chờ duyệt.", icon: ListChecks },
+  { id: "ai-providers", title: "AI và quét đề", description: "Quản lý API key, model và nhà cung cấp dùng để đọc ảnh đề thi.", icon: Bot },
   { id: "integrations", title: "Tích hợp lớp học", description: "Cấu hình, kiểm tra và chọn nhà cung cấp phòng học trực tuyến.", icon: CloudCog },
   { id: "backups", title: "Sao lưu dữ liệu", description: "Chạy sao lưu và theo dõi các bản sao gần nhất.", icon: DatabaseBackup },
   { id: "storage", title: "Phân bổ lưu trữ", description: "Theo dõi quota và dung lượng học liệu theo từng lớp.", icon: HardDrive },
@@ -104,6 +114,11 @@ export default function SettingsPage() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [storage, setStorage] = useState<StorageOverview | null>(null);
+  const [aiProviders, setAiProviders] = useState<AiProvider[]>([]);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ GEMINI: [], NVIDIA_NIM: [], OPENAI: [] });
+  const [editingAi, setEditingAi] = useState<AiProvider | null>(null);
+  const [aiEditorOpen, setAiEditorOpen] = useState(false);
+  const [aiForm, setAiForm] = useState({ provider: "GEMINI" as AiProviderType, name: "", model: "gemini-2.5-flash", baseUrl: "", apiKey: "", enabled: true, isDefault: false });
   const [saving, setSaving] = useState(false);
   const [configuring, setConfiguring] = useState<Integration | null>(null);
   const [integrationForm, setIntegrationForm] = useState({
@@ -113,7 +128,7 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     if (!canConfigure) return;
     try {
-      const [a, b, c, d, e, f] = await Promise.all([
+      const [a, b, c, d, e, f, g, h] = await Promise.all([
         apiRequest<Settings>("/system/settings", {
           roleCode: session.roleCode,
         }),
@@ -130,6 +145,8 @@ export default function SettingsPage() {
         apiRequest<Settings[]>("/system/settings/history", {
           roleCode: session.roleCode,
         }),
+        apiRequest<AiProvider[]>("/system/ai-providers", { roleCode: session.roleCode }),
+        apiRequest<ModelCatalog>("/system/ai-providers/catalog", { roleCode: session.roleCode }),
       ]);
       setSettings(a);
       setIntegrations(b);
@@ -137,6 +154,8 @@ export default function SettingsPage() {
       setHealth(d);
       setStorage(e);
       setHistory(f);
+      setAiProviders(g);
+      setModelCatalog(h);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tải được cấu hình.",
@@ -314,6 +333,47 @@ export default function SettingsPage() {
       setSaving(false);
     }
   };
+  const saveQuestionApprovalMode = async (mode: Settings["questionApprovalMode"]) => {
+    if (!settings || settings.questionApprovalMode === mode) return;
+    setSaving(true);
+    try {
+      const updated = await apiRequest<Settings>("/system/settings", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ questionApprovalMode: mode }),
+      });
+      setSettings(updated);
+      notify(mode === "AUTO" ? "Đã bật tự động phê duyệt câu hỏi." : "Đã chuyển sang phê duyệt câu hỏi thủ công.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không đổi được chế độ phê duyệt câu hỏi.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const openAiEditor = (item?: AiProvider, provider: AiProviderType = "CUSTOM") => {
+    const target = item ?? null;
+    setEditingAi(target);
+    setAiEditorOpen(true);
+    setAiForm({ provider: target?.provider ?? provider, name: target?.provider === "CUSTOM" ? target.name : "", model: target?.model ?? (provider === "GEMINI" ? "gemini-2.5-flash" : provider === "NVIDIA_NIM" ? "meta/llama-3.2-90b-vision-instruct" : provider === "OPENAI" ? "gpt-5.4-mini" : ""), baseUrl: target?.baseUrl ?? "", apiKey: "", enabled: target?.enabled ?? true, isDefault: target?.isDefault ?? false });
+  };
+  const saveAiProvider = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true);
+    try {
+      await apiRequest("/system/ai-providers", { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ id: editingAi?.id, ...aiForm, apiKey: aiForm.apiKey || undefined }) });
+      notify("Đã lưu cấu hình AI. Khóa bí mật đã được mã hóa."); setAiEditorOpen(false); setEditingAi(null); setAiForm((current) => ({ ...current, apiKey: "" })); await load();
+    } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được cấu hình AI.", "error"); }
+    finally { setSaving(false); }
+  };
+  const testAiProvider = async (item: AiProvider) => {
+    try { await apiRequest(`/system/ai-providers/${item.id}/test`, { method: "POST", roleCode: session.roleCode }); notify(`Kết nối ${item.name} hoạt động.`); }
+    catch (error) { notify(error instanceof Error ? error.message : "Kiểm tra kết nối AI thất bại.", "error"); }
+    finally { await load(); }
+  };
+  const removeAiProvider = async (item: AiProvider) => {
+    try { await apiRequest(`/system/ai-providers/${item.id}`, { method: "DELETE", roleCode: session.roleCode }); notify(`Đã xóa cấu hình ${item.name}.`); await load(); }
+    catch (error) { notify(error instanceof Error ? error.message : "Không xóa được cấu hình AI.", "error"); }
+  };
   if (!canConfigure) return <AccessDenied />;
   const requestedSection = searchParams.get("section");
   const activeSection = settingsSections.some((item) => item.id === requestedSection) ? requestedSection as SettingsSection : null;
@@ -335,7 +395,7 @@ export default function SettingsPage() {
         <nav aria-label="Danh sách chức năng cấu hình" className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           {settingsSections.map((item) => {
             const Icon = item.icon;
-            const summary = item.id === "exam-approval" ? (settings?.examApprovalMode === "MANUAL" ? "Duyệt thủ công" : "Tự động duyệt") : item.id === "health" ? (health?.status === "healthy" ? "Ổn định" : "Cần kiểm tra") : item.id === "storage" ? `${storage?.usagePercent ?? 0}% đã dùng` : item.id === "integrations" ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật` : item.id === "backups" ? `${backups.length} bản sao` : item.id === "history" ? `${history.length} phiên bản` : settings ? `Phiên bản ${settings.version}` : "Đang tải";
+            const summary = item.id === "exam-approval" ? (settings?.examApprovalMode === "MANUAL" ? "Duyệt thủ công" : "Tự động duyệt") : item.id === "question-approval" ? (settings?.questionApprovalMode === "MANUAL" ? "Duyệt thủ công" : "Tự động duyệt") : item.id === "ai-providers" ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật` : item.id === "health" ? (health?.status === "healthy" ? "Ổn định" : "Cần kiểm tra") : item.id === "storage" ? `${storage?.usagePercent ?? 0}% đã dùng` : item.id === "integrations" ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật` : item.id === "backups" ? `${backups.length} bản sao` : item.id === "history" ? `${history.length} phiên bản` : settings ? `Phiên bản ${settings.version}` : "Đang tải";
             return (
               <button className="group grid min-h-24 w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 transition hover:bg-[var(--surface-muted)] md:px-6" key={item.id} onClick={() => router.push(`/admin/settings?section=${item.id}`)} type="button">
                 <span className="grid size-12 place-items-center rounded-xl border border-[var(--rule)] bg-[var(--surface)] text-[var(--accent-ink)]"><Icon size={21} /></span>
@@ -356,6 +416,39 @@ export default function SettingsPage() {
                 return <button aria-pressed={selected} className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`} disabled={saving} key={option.mode} onClick={() => void saveExamApprovalMode(option.mode)} type="button"><span className="flex items-center justify-between gap-3"><span className="font-heading text-lg font-extrabold">{option.title}</span><span className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}>{selected ? <span className="size-2 rounded-full bg-white" /> : null}</span></span><span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">{option.description}</span><span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">{selected ? "Đang áp dụng" : "Chọn chế độ này"}</span></button>;
               })}
             </div>
+          </div>
+        </section>
+      ) : null}
+      {activeSection === "question-approval" && settings ? (
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-sm leading-6 text-[var(--ink-soft)]">Giảng viên vẫn chủ động lưu bản nháp. Chế độ này chỉ được áp dụng khi họ chọn Xuất bản; câu hỏi đang chờ duyệt không tự thay đổi khi cấu hình được cập nhật.</p>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              {([{"mode":"AUTO" as const,"title":"Tự động phê duyệt","description":"Câu hỏi hợp lệ được xuất bản ngay và có thể chọn khi tạo đề."},{"mode":"MANUAL" as const,"title":"Phê duyệt thủ công","description":"Câu hỏi chuyển sang chờ duyệt; quản trị viên phê duyệt hoặc trả lại kèm lý do."}]).map((option) => {
+                const selected = settings.questionApprovalMode === option.mode;
+                return <button aria-pressed={selected} className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`} disabled={saving} key={option.mode} onClick={() => void saveQuestionApprovalMode(option.mode)} type="button"><span className="flex items-center justify-between gap-3"><span className="font-heading text-lg font-extrabold">{option.title}</span><span className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}>{selected ? <span className="size-2 rounded-full bg-white" /> : null}</span></span><span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">{option.description}</span><span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">{selected ? "Đang áp dụng" : "Chọn chế độ này"}</span></button>;
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
+      {activeSection === "ai-providers" ? (
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+          <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 md:px-6">
+            <div><h2 className="font-heading text-xl font-extrabold">Nhà cung cấp AI</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--ink-soft)]">API key chỉ được gửi tới máy chủ, mã hóa trước khi lưu và không hiển thị lại. Chọn một cấu hình mặc định cho luồng quét đề.</p></div>
+            <Button onClick={() => openAiEditor(undefined, "CUSTOM")} variant="secondary"><Bot size={17} />Thêm custom</Button>
+          </div>
+          <div className="divide-y divide-[var(--rule)] border-t border-[var(--rule)]">
+            {aiProviders.map((item) => (
+              <article className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-6" key={item.id}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-[var(--ink)]">{item.name}</h3>{item.isDefault ? <StatusBadge status="DEFAULT" /> : null}<StatusBadge status={item.healthStatus} /></div>
+                  <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">{item.model} · {item.maskedApiKey}</p>
+                  <p className="mt-1 text-xs text-[var(--ink-muted)]">{item.enabled ? "Đang bật" : "Đang tắt"}{item.lastCheckedAt ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString("vi-VN")}` : " · chưa kiểm tra kết nối"}</p>
+                </div>
+                <div className="flex flex-wrap gap-2 md:justify-end"><Button onClick={() => openAiEditor(item)} variant="ghost">Cấu hình</Button>{item.hasApiKey ? <Button onClick={() => void testAiProvider(item)} variant="secondary">Kiểm tra</Button> : null}{item.provider === "CUSTOM" && item.hasApiKey ? <Button aria-label={`Xóa ${item.name}`} onClick={() => void removeAiProvider(item)} variant="ghost"><Trash2 size={16} /></Button> : null}</div>
+              </article>
+            ))}
           </div>
         </section>
       ) : null}
@@ -587,7 +680,7 @@ export default function SettingsPage() {
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
-                  {item.storageQuotaMb} MB · {item.examApprovalMode === "MANUAL" ? "duyệt đề thủ công" : "tự động duyệt đề"}
+                  {item.storageQuotaMb} MB · {item.examApprovalMode === "MANUAL" ? "duyệt đề thủ công" : "tự động duyệt đề"} · {item.questionApprovalMode === "MANUAL" ? "duyệt câu hỏi thủ công" : "tự động duyệt câu hỏi"}
                 </p>
               </article>
             )) : <p className="empty-copy">Chưa có phiên bản cấu hình trước đó.</p>}
@@ -777,6 +870,18 @@ export default function SettingsPage() {
             />
           </Field>
           <Button type="submit">Lưu cấu hình</Button>
+        </form>
+      </Modal>
+      <Modal open={aiEditorOpen} onClose={() => { if (!saving) { setAiEditorOpen(false); setEditingAi(null); } }} title={editingAi ? `Cấu hình ${editingAi.name}` : "Thêm nhà cung cấp tùy chỉnh"} description="Model tích hợp có thể gõ để lọc. Với custom, nhập trực tiếp model và endpoint tương thích OpenAI Chat Completions.">
+        <form className="space-y-4" onSubmit={(event) => void saveAiProvider(event)}>
+          {aiForm.provider === "CUSTOM" ? <Field label="Tên hiển thị"><input className={inputClass} maxLength={100} onChange={(event) => setAiForm({ ...aiForm, name: event.target.value })} required value={aiForm.name} /></Field> : null}
+          <Field label="Model">
+            {aiForm.provider === "CUSTOM" ? <input className={inputClass} onChange={(event) => setAiForm({ ...aiForm, model: event.target.value })} placeholder="org/model-name" required value={aiForm.model} /> : <SearchableSelect aria-label={`Tìm model ${aiForm.provider}`} onChange={(model) => setAiForm({ ...aiForm, model })} options={modelCatalog[aiForm.provider].map((item) => ({ ...item, keywords: `${item.value} ${item.label}` }))} placeholder="Gõ tên model để lọc…" value={aiForm.model} />}
+          </Field>
+          {aiForm.provider === "CUSTOM" ? <Field label="Endpoint Chat Completions"><input className={inputClass} onChange={(event) => setAiForm({ ...aiForm, baseUrl: event.target.value })} placeholder="https://ai.example.com/v1/chat/completions" required type="url" value={aiForm.baseUrl} /></Field> : null}
+          <Field label={editingAi?.hasApiKey ? "API key mới (để trống nếu giữ nguyên)" : "API key"}><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setAiForm({ ...aiForm, apiKey: event.target.value })} placeholder={editingAi?.hasApiKey ? editingAi.maskedApiKey : "Nhập khóa bí mật"} required={!editingAi?.hasApiKey} type="password" value={aiForm.apiKey} /></Field>
+          <div className="grid gap-2 sm:grid-cols-2"><label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold"><input checked={aiForm.enabled} className="size-5 accent-[var(--accent)]" onChange={(event) => setAiForm({ ...aiForm, enabled: event.target.checked })} type="checkbox" />Bật cấu hình này</label><label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold"><input checked={aiForm.isDefault} className="size-5 accent-[var(--accent)]" onChange={(event) => setAiForm({ ...aiForm, isDefault: event.target.checked })} type="checkbox" />Dùng mặc định khi quét</label></div>
+          <div className="flex justify-end gap-2"><Button onClick={() => setAiEditorOpen(false)} type="button" variant="secondary">Hủy</Button><Button loading={saving} type="submit"><Save size={16} />Lưu cấu hình</Button></div>
         </form>
       </Modal>
     </div>

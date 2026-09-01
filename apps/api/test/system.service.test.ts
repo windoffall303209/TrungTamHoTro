@@ -61,6 +61,7 @@ describe("SystemService", () => {
   it("lập phiên bản cấu hình theo thời điểm hiệu lực và giữ lịch sử", async () => {
     const service = new SystemService();
     expect((await service.getSettings()).examApprovalMode).toBe("AUTO");
+    expect((await service.getSettings()).questionApprovalMode).toBe("AUTO");
     await expect(service.updateSettings({ timezone: "Mars/Olympus" })).rejects.toThrow("Múi giờ");
     const scheduled = await service.updateSettings({ timezone: "Asia/Ho_Chi_Minh", effectiveAt: "2030-01-01T00:00:00.000Z" });
     expect(scheduled).toMatchObject({ version: 2, updatedBy: "usr-admin" });
@@ -70,6 +71,7 @@ describe("SystemService", () => {
     expect(active.version).toBe(3);
     expect((await service.getSettings()).locale).toBe("en-US");
     expect((await service.updateSettings({ examApprovalMode: "MANUAL" })).examApprovalMode).toBe("MANUAL");
+    expect((await service.updateSettings({ questionApprovalMode: "MANUAL" })).questionApprovalMode).toBe("MANUAL");
   });
 
   it("lọc audit, xuất audit có hạn và che thông tin nhạy cảm khỏi log", async () => {

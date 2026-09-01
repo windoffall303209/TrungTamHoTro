@@ -1,9 +1,11 @@
 "use client";
 
-import { CheckCircle2, Clock3, Play, Plus, RotateCcw, Send } from "lucide-react";
+import { CheckCircle2, Clock3, Eye, ListOrdered, Play, Plus, RotateCcw, Search, Send } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { QuestionImage } from "@/components/question-image";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Pagination, RichText, StatusBadge, usePagination } from "@/components/ui";
@@ -44,6 +46,7 @@ interface LearnerExam extends Exam {
 }
 export default function ExamsPage() {
   const { session, notify } = useApp();
+  const searchParams = useSearchParams();
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
@@ -70,11 +73,20 @@ export default function ExamsPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [returnTarget, setReturnTarget] = useState<LearnerExam | null>(null);
   const [returnNote, setReturnNote] = useState("");
+  const [previewExam, setPreviewExam] = useState<LearnerExam | null>(null);
+  const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [form, setForm] = useState(blank);
+  const [questionQuery, setQuestionQuery] = useState("");
   const selectableQuestions = useMemo(
     () => eligibleExamQuestions(questions, classes, form.classId),
     [classes, form.classId, questions],
   );
+  const filteredSelectableQuestions = useMemo(() => {
+    const needle = questionQuery.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("vi-VN");
+    if (!needle) return selectableQuestions;
+    return selectableQuestions.filter((question) => `${question.content} ${question.tags.join(" ")} ${question.type}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("vi-VN").includes(needle));
+  }, [questionQuery, selectableQuestions]);
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -110,6 +122,17 @@ export default function ExamsPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    if (searchParams.get("create") !== "scan" || !questions.length || !classes.length) return;
+    const raw = sessionStorage.getItem("wind-scan-question-ids");
+    if (!raw) return;
+    try {
+      const ids = JSON.parse(raw) as string[];
+      const selectedQuestions = questions.filter((question) => ids.includes(question.id));
+      const classItem = classes.find((item) => item.courseId === selectedQuestions[0]?.courseId);
+      if (classItem && selectedQuestions.length) { setForm({ ...blank, classId: classItem.id, questionIds: selectedQuestions.map((item) => item.id) }); setOpen(true); notify(`Đã đưa ${selectedQuestions.length} câu vừa quét vào đề mới.`, "info"); }
+    } finally { sessionStorage.removeItem("wind-scan-question-ids"); }
+  }, [classes, notify, questions, searchParams]);
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -150,6 +173,12 @@ export default function ExamsPage() {
         "error",
       );
     }
+  };
+  const preview = async (item: LearnerExam) => {
+    setPreviewExam(item); setPreviewQuestions([]); setPreviewLoading(true);
+    try { setPreviewQuestions(await apiRequest<Question[]>(`/instructor/exams/${item.id}/preview`, { roleCode: session.roleCode })); }
+    catch (error) { setPreviewExam(null); notify(error instanceof Error ? error.message : "Không tải được bản xem đề thi.", "error"); }
+    finally { setPreviewLoading(false); }
   };
   const review = async (item: LearnerExam, decision: "APPROVE" | "RETURN", reviewNote?: string) => {
     setReviewingId(item.id);
@@ -303,7 +332,7 @@ export default function ExamsPage() {
         description="Thiết kế, công bố, làm bài và chấm điểm theo cùng một vòng đời dữ liệu."
         actions={
           instructor ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button onClick={() => { setQuestionQuery(""); setOpen(true); }}>
               <Plus size={17} />
               Tạo đề thi
             </Button>
@@ -346,6 +375,7 @@ export default function ExamsPage() {
                 <fieldset className="rounded-xl bg-[var(--surface)] p-4" key={question.id}>
                   <legend className="px-1 text-sm font-extrabold">Câu {index + 1}</legend>
                   <RichText className="mt-2 font-semibold">{question.content}</RichText>
+                  <QuestionImage className="mt-4" imageUrl={question.imageUrl} />
                   {question.options.length ? <div className="mt-4 grid gap-2">
                     {question.options.map((option) => {
                       const checked = attempt.answers[question.id]?.includes(option) ?? false;
@@ -424,6 +454,9 @@ export default function ExamsPage() {
               </p>
               </div>
               <div className="flex flex-wrap gap-2 lg:justify-end">
+              {instructor ? (
+                <Button onClick={() => void preview(item)} variant="ghost"><Eye size={15} />Xem đề</Button>
+              ) : null}
               {instructor && item.status === "DRAFT" ? (
                 <Button
                   onClick={() => void publish(item)}
@@ -508,12 +541,15 @@ export default function ExamsPage() {
             <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]" id="exam-question-hint">
               Chỉ hiển thị phiên bản đã xuất bản thuộc khóa học của lớp đã chọn.
             </p>
+            {form.classId && selectableQuestions.length ? <div className="relative mt-3"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input aria-label="Lọc câu hỏi trong đề" className={`${inputClass} pl-10`} onChange={(event) => setQuestionQuery(event.target.value)} placeholder="Gõ nội dung, dạng hoặc thẻ để lọc…" value={questionQuery} /></div> : null}
             <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-2">
               {!form.classId ? (
                 <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">Chọn lớp học trước để xem câu hỏi phù hợp.</p>
               ) : selectableQuestions.length === 0 ? (
                 <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">Khóa học của lớp này chưa có câu hỏi đã xuất bản. Hãy xuất bản câu hỏi trong Ngân hàng câu hỏi trước.</p>
-              ) : selectableQuestions.map((question) => (
+              ) : filteredSelectableQuestions.length === 0 ? (
+                <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">Không có câu hỏi khớp từ khóa. Các câu đã chọn vẫn được giữ nguyên.</p>
+              ) : filteredSelectableQuestions.map((question) => (
                 <label className="flex min-h-12 items-start gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--surface-muted)]" key={question.id}>
                   <input
                     checked={form.questionIds.includes(question.id)}
@@ -612,6 +648,27 @@ export default function ExamsPage() {
           <Field label="Lý do trả lại"><textarea autoFocus className={inputClass} minLength={5} onChange={(event) => setReturnNote(event.target.value)} placeholder="Nêu rõ nội dung giảng viên cần điều chỉnh…" required rows={5} value={returnNote} /></Field>
           <div className="flex flex-wrap gap-2"><Button loading={Boolean(returnTarget && reviewingId === returnTarget.id)} type="submit"><RotateCcw size={15} />Xác nhận trả lại</Button><Button onClick={() => { setReturnTarget(null); setReturnNote(""); }} type="button" variant="ghost">Hủy</Button></div>
         </form>
+      </Modal>
+      <Modal open={Boolean(previewExam)} onClose={() => { if (!previewLoading) { setPreviewExam(null); setPreviewQuestions([]); } }} size="xl" title={previewExam?.title ?? "Xem đề thi"} description="Bản dành cho giảng viên — luôn hiển thị theo thứ tự gốc khi tạo đề, không áp dụng xáo trộn câu hỏi.">
+        {previewExam ? <div>
+          <div className="grid gap-3 border-y border-[var(--rule)] py-4 sm:grid-cols-4">
+            <div><p className="text-xs font-bold text-[var(--ink-muted)]">Lớp học</p><p className="mt-1 text-sm font-extrabold">{classes.find((item) => item.id === previewExam.classId)?.code ?? previewExam.classId}</p></div>
+            <div><p className="text-xs font-bold text-[var(--ink-muted)]">Thời gian</p><p className="mt-1 text-sm font-extrabold">{previewExam.durationMinutes} phút</p></div>
+            <div><p className="text-xs font-bold text-[var(--ink-muted)]">Tổng điểm</p><p className="mt-1 text-sm font-extrabold">{previewExam.totalScore}</p></div>
+            <div><p className="text-xs font-bold text-[var(--ink-muted)]">Thứ tự học viên</p><p className="mt-1 text-sm font-extrabold">{previewExam.shuffleQuestions ? "Có xáo trộn" : "Theo thứ tự gốc"}</p></div>
+          </div>
+          {previewLoading ? <p className="py-16 text-center text-sm font-semibold text-[var(--ink-muted)]">Đang tải nội dung đề…</p> : <ol className="mt-5 space-y-5">
+            {previewQuestions.map((question, index) => (
+              <li className="rounded-xl border border-[var(--rule-strong)] bg-[var(--canvas)] p-4 md:p-5" key={question.id}>
+                <div className="flex items-center justify-between gap-3"><p className="flex items-center gap-2 text-sm font-extrabold"><ListOrdered size={16} />Câu {index + 1}</p><span className="text-xs font-bold text-[var(--ink-muted)]">{question.type} · Mức {question.difficulty}</span></div>
+                <RichText className="mt-3 font-semibold">{question.content}</RichText>
+                <QuestionImage className="mt-4" imageUrl={question.imageUrl} />
+                {question.options.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{question.options.map((option, optionIndex) => { const correct = question.correctAnswers.includes(option); return <div className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${correct ? "border-[var(--success)] bg-[var(--success-soft)]" : "border-[var(--rule)] bg-[var(--surface)]"}`} key={`${optionIndex}-${option}`}><span className="grid size-7 shrink-0 place-items-center rounded-lg border border-current text-xs font-extrabold">{String.fromCharCode(65 + optionIndex)}</span><RichText className="min-w-0">{option}</RichText>{correct ? <CheckCircle2 aria-label="Đáp án đúng" className="ml-auto shrink-0 text-[var(--success-deep)]" size={17} /> : null}</div>; })}</div> : null}
+                {question.correctAnswers.length && !question.options.length ? <div className="mt-4 rounded-lg bg-[var(--success-soft)] p-3"><p className="text-xs font-bold text-[var(--success-deep)]">Đáp án / ý tham khảo</p>{question.correctAnswers.map((answer) => <RichText className="mt-1 text-sm" key={answer}>{answer}</RichText>)}</div> : null}
+              </li>
+            ))}
+          </ol>}
+        </div> : null}
       </Modal>
     </div>
   );
