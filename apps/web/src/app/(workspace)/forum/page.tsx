@@ -326,7 +326,7 @@ export default function ForumPage() {
           <div className="mt-2 flex flex-wrap gap-2">
             {notifications.map((item) => (
               <button
-                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-[#eee8dc] text-[#516274]" : "bg-[#f2d9cd] text-[#963f2a]"}`}
+                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-[var(--surface-muted)] text-[var(--ink-soft)]" : "bg-[var(--accent-soft-strong)] text-[var(--accent-ink)]"}`}
                 key={item.id}
                 onClick={() => void markNotificationRead(item)}
                 type="button"
@@ -371,9 +371,9 @@ export default function ForumPage() {
       {learner && reports.length ? <div className="mb-6 space-y-2 border-y border-slate-200 py-3">{reports.map((item) => <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-600" key={item.id}><span className="inline-flex items-center gap-2"><Flag size={13} className="text-rose-600" />{item.reason}<StatusBadge status={item.status} /></span>{(["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt) ? <Button className="px-3 text-xs" onClick={() => setAppealTarget(item)} variant="ghost">Kháng nghị</Button> : null}</div>)}</div> : null}
       <SectionState loading={loading} empty={topics.length === 0}>
         <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
-          <div className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
+          <div className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
             {topicPagination.pageItems.map((topic) => (
-              <article className={`data-row border-b border-[#d5dfe2] last:border-b-0 ${selected?.id === topic.id ? "bg-[#f8ece6]" : "bg-transparent"}`} key={topic.id}>
+              <article className={`data-row border-b border-[var(--rule)] last:border-b-0 ${selected?.id === topic.id ? "bg-[var(--accent-soft)]" : "bg-transparent"}`} key={topic.id}>
               <button
                 aria-pressed={selected?.id === topic.id}
                 className="w-full p-5 pb-3 text-left"
@@ -399,7 +399,7 @@ export default function ForumPage() {
             ))}
             <Pagination className="mx-4 mb-4" itemLabel="chủ đề" onPageChange={topicPagination.setPage} onPageSizeChange={topicPagination.setPageSize} page={topicPagination.page} pageSize={topicPagination.pageSize} totalItems={topicPagination.totalItems} />
           </div>
-          <section className="min-h-80 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5">
+          <section className="min-h-80 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5">
             {selected ? (
               <>
                 <h2 className="font-heading text-xl font-extrabold">
@@ -417,7 +417,7 @@ export default function ForumPage() {
                 <div className="space-y-3">
                   {posts.length ? (
                     postPagination.pageItems.map((item) => (
-                      <article className={`border-b border-[#d5dfe2] py-4 last:border-b-0 ${item.parentId ? "ml-6 border-t border-sky-200 pl-4" : ""}`} key={item.id}>
+                      <article className={`border-b border-[var(--rule)] py-4 last:border-b-0 ${item.parentId ? "ml-6 border-t border-sky-200 pl-4" : ""}`} key={item.id}>
                         <p className="text-sm leading-6">{item.body}</p>
                         {item.mentionedUserIds.length ? (
                           <p className="mt-2 text-xs font-bold text-violet-700">
@@ -427,7 +427,7 @@ export default function ForumPage() {
                         {item.attachmentIds.length ? (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {item.attachmentIds.map((materialId) => (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-sky-700" key={materialId}>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface)] px-2.5 py-1 text-xs font-bold text-sky-700" key={materialId}>
                                 <Paperclip size={12} />
                                 {materials.find((material) => material.id === materialId)?.name ?? materialId}
                               </span>

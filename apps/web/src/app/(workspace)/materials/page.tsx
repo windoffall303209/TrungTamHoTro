@@ -197,9 +197,9 @@ export default function MaterialsPage() {
         {learner ? <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setPage(1); }} /> : null}
       </div>
       <SectionState loading={loading} empty={items.length === 0}>
-        <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
+        <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           {(learner ? items : clientPagination.pageItems).map((item) => (
-            <article className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
+            <article className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
               <div className="flex min-w-0 gap-4">
                 <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
                 <div className="min-w-0">
@@ -239,7 +239,7 @@ export default function MaterialsPage() {
               <span className="min-w-0 flex-1 truncate">{file?.name ?? "Chọn tệp từ máy"}</span>
               <input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setFile(event.target.files?.[0] ?? null)} required type="file" />
             </label>
-            <span className="mt-1.5 block text-xs leading-5 text-[#516274]">Hỗ trợ PDF, Word (.doc, .docx), MP4, PNG và JPEG. Word được tải xuống để mở bằng ứng dụng tương thích.</span>
+            <span className="mt-1.5 block text-xs leading-5 text-[var(--ink-soft)]">Hỗ trợ PDF, Word (.doc, .docx), MP4, PNG và JPEG. Word được tải xuống để mở bằng ứng dụng tương thích.</span>
           </Field>
           <Field label="Thư mục"><input className={inputClass} required value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })} /></Field>
           <Field label="Thẻ — ngăn cách bằng dấu phẩy"><input className={inputClass} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field>
@@ -262,10 +262,10 @@ export default function MaterialsPage() {
         </form>
       </Modal>
       <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title="Tải phiên bản mới" description="Tệp đang dùng không bị ghi đè; phiên bản mới bắt đầu ở trạng thái nháp sau khi quét.">
-        <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#db9b83] bg-[#f8ece6] p-4 text-sm font-bold text-[#963f2a]"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-[#516274]">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Hỗ trợ PDF, Word, MP4, PNG và JPEG; tệp vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
+        <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-sm font-bold text-[var(--accent-ink)]"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-[var(--ink-soft)]">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Hỗ trợ PDF, Word, MP4, PNG và JPEG; tệp vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
       </Modal>
       <Modal open={Boolean(historyTarget)} onClose={() => setHistoryTarget(null)} title="Lịch sử phiên bản" description={historyTarget?.name}>
-        <div className="divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">{versions.map((version) => <article className="py-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={version.visibility} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString("vi-VN")}</p><Button className="px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
+        <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{versions.map((version) => <article className="py-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={version.visibility} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString("vi-VN")}</p><Button className="px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
       </Modal>
     </div>
   );

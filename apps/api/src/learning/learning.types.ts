@@ -29,7 +29,8 @@ export interface FileReviewRecord { id: string; materialId: string; reviewerId: 
 export interface LearningQuestion {
   id: string; courseId: string; type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER" | "ESSAY";
   content: string; options: string[]; correctAnswers: string[]; difficulty: 1 | 2 | 3; tags: string[];
-  status: "DRAFT" | "PUBLISHED"; version: number; familyId?: string; supersedesId?: string;
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED"; version: number; familyId?: string; supersedesId?: string;
+  imageUrl?: string; imageName?: string; imageMimeType?: string; imageSizeBytes?: number;
 }
 export interface MaterialVersionSnapshot { id: string; materialId: string; version: number; name: string; mimeType: string; sizeBytes: number; folder: string; tags: string[]; visibility: "DRAFT" | "PUBLISHED" | "HIDDEN"; createdBy: string; createdAt: string }
 export interface QuestionImportResult { row: number; status: "IMPORTED" | "FAILED"; questionId?: string; message: string }

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
@@ -6,14 +6,15 @@ import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, ReviewQuestionDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
 import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
+import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
 export class ContentController {
-  constructor(private readonly learning: LearningService) {}
+  constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService) {}
 
   @Get("materials") @RequirePermissions("material:view")
   listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id); }
@@ -122,7 +123,27 @@ export class ContentController {
   }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
-  listQuestions(@Query("query") query?: string, @Query("courseId") courseId?: string, @Query("type") type?: string, @Query("difficulty") difficulty?: string, @Query("tag") tag?: string): Promise<LearningQuestion[]> { return this.learning.listQuestions({ query, courseId, type, difficulty: difficulty ? Number(difficulty) : undefined, tag }); }
+  listQuestions(
+    @Query("query") query?: string,
+    @Query("courseId") courseId?: string,
+    @Query("type") type?: string,
+    @Query("difficulty") difficulty?: string,
+    @Query("tag") tag?: string,
+    @Query("status") status?: string,
+  ): Promise<LearningQuestion[]> {
+    const normalizedStatus = status?.trim().toUpperCase();
+    if (normalizedStatus && normalizedStatus !== "DRAFT" && normalizedStatus !== "PENDING_REVIEW" && normalizedStatus !== "PUBLISHED") {
+      throw new BadRequestException("Trạng thái câu hỏi phải là DRAFT, PENDING_REVIEW hoặc PUBLISHED.");
+    }
+    return this.learning.listQuestions({
+      query,
+      courseId,
+      type,
+      difficulty: difficulty ? Number(difficulty) : undefined,
+      tag,
+      status: normalizedStatus as LearningQuestion["status"] | undefined,
+    });
+  }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
   createQuestion(@Body() input: CreateQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.createQuestion(input, session.user.id); }
@@ -130,11 +151,48 @@ export class ContentController {
   @Patch("instructor/question-bank/questions/:questionId") @RequirePermissions("question:manage")
   updateQuestion(@Param("questionId") questionId: string, @Body() input: UpdateQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.updateQuestion(questionId, input, session.user.id); }
 
+  @Post("instructor/question-bank/questions/:questionId/image") @RequirePermissions("question:manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
+  uploadQuestionImage(
+    @Param("questionId") questionId: string,
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+  ): Promise<LearningQuestion> {
+    if (!file) throw new BadRequestException("Cần chọn một ảnh cho câu hỏi.");
+    return this.learning.uploadQuestionImage(questionId, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer });
+  }
+
+  @Delete("instructor/question-bank/questions/:questionId/image") @RequirePermissions("question:manage")
+  removeQuestionImage(@Param("questionId") questionId: string): Promise<LearningQuestion> { return this.learning.removeQuestionImage(questionId); }
+
+  @Get("question-bank/questions/:questionId/image") @RequirePermissions("exam:view")
+  async readQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
+    const image = await this.learning.readQuestionImage(questionId, session.roleCode, session.user.id);
+    return new StreamableFile(image.buffer, { type: image.mimeType, disposition: fileContentDisposition("inline", image.fileName), length: image.buffer.length });
+  }
+
   @Post("instructor/question-bank/questions/:questionId/publish") @RequirePermissions("question:manage")
-  publishQuestion(@Param("questionId") questionId: string): Promise<LearningQuestion> { return this.learning.publishQuestion(questionId); }
+  publishQuestion(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.publishQuestion(questionId, session.user.id); }
+
+  @Post("admin/question-bank/questions/:questionId/review") @RequirePermissions("system:configure")
+  reviewQuestion(@Param("questionId") questionId: string, @Body() input: ReviewQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.reviewQuestion(questionId, input.decision, input.reviewNote, session.user.id); }
 
   @Post("instructor/question-bank/questions/import") @RequirePermissions("question:manage")
   importQuestions(@Body() input: ImportQuestionsDto, @CurrentSession() session: AuthenticatedSession): Promise<QuestionImportResult[]> { return this.learning.importQuestions(input.questions, session.user.id); }
+
+  @Post("instructor/question-bank/scan-image") @RequirePermissions("question:manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 12 * 1024 * 1024, files: 1 } }))
+  scanQuestionImage(
+    @Body("providerId") providerId: string | undefined,
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+  ): Promise<QuestionScanResult> {
+    if (!file) throw new BadRequestException("Cần chọn ảnh đề thi để quét.");
+    return this.aiProviders.scanImage({ providerId: providerId?.trim() || undefined, fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
+  }
+
+  @Get("instructor/question-bank/ai-providers") @RequirePermissions("question:manage")
+  async listQuestionScanProviders(): Promise<Awaited<ReturnType<AiProviderService["list"]>>> {
+    return (await this.aiProviders.list()).filter((item) => item.enabled && item.hasApiKey);
+  }
 
   @Get("exams") @RequirePermissions("exam:view")
   listExams(@CurrentSession() session: AuthenticatedSession): Promise<LearningExam[]> { return this.learning.listExams(session.roleCode, session.user.id); }
@@ -147,6 +205,9 @@ export class ContentController {
 
   @Get("learner/exams/:examId/questions") @RequirePermissions("exam:view")
   getLearnerExamQuestions(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getExamQuestions(examId, session.user.id); }
+
+  @Get("instructor/exams/:examId/preview") @RequirePermissions("exam:manage")
+  getInstructorExamPreview(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getInstructorExamPreview(examId, session.user.id); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
   createExam(@Body() input: CreateExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.createExam(input, session.user.id); }

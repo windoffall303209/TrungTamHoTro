@@ -12,7 +12,7 @@ export function UserAvatar({ avatarUrl, name, className = "size-11", priority = 
   const source = avatarUrl ? /^(?:blob:|data:|https?:\/\/)/.test(avatarUrl) ? avatarUrl : publicApiUrl(avatarUrl) : "";
 
   return (
-    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[#d8e3e8] font-extrabold text-[#102a43] ring-1 ring-[#a9bac1] ${className}`}>
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--avatar)] font-extrabold text-[var(--ink)] ring-1 ring-[var(--rule-strong)] ${className}`}>
       {source ? <AvatarImage key={source} name={name} priority={priority} source={source} /> : <span aria-hidden="true">{initials(name)}</span>}
     </span>
   );

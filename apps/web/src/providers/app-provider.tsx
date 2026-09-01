@@ -78,7 +78,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, completeMfa, completeGoogleMfa, logout, setRole, refreshSession, notify }), [authLoading, completeGoogleMfa, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
-  return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-rose-600 text-white" : toast.tone === "info" ? "bg-slate-900 text-white" : "bg-emerald-600 text-white"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
+  return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-[var(--danger-fill)] text-[var(--status-on-fill)]" : toast.tone === "info" ? "bg-[var(--action)] text-[var(--action-ink)]" : "bg-[var(--success-fill)] text-[var(--status-on-fill)]"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 
 export function useApp(): AppContextValue {

@@ -52,14 +52,14 @@ export function SearchableSelect({
   return (
     <div className="relative min-w-0">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#657789]" size={17} />
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} />
         <input
           aria-activedescendant={open && filtered[activeIndex] ? `${listboxId}-${activeIndex}` : undefined}
           aria-autocomplete="list"
           aria-controls={listboxId}
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="min-h-12 w-full rounded-xl border border-[#a9bac1] bg-[#fffdfa] py-2 pl-10 pr-20 text-base font-normal text-[#102a43] outline-none transition placeholder:text-[#80909b] focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15 disabled:cursor-not-allowed disabled:bg-[#eee8dc]"
+          className="min-h-12 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] py-2 pl-10 pr-20 text-base font-normal text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-subtle)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15 disabled:cursor-not-allowed disabled:bg-[var(--surface-muted)]"
           disabled={disabled}
           onBlur={() => window.setTimeout(() => setOpen(false), 120)}
           onChange={(event) => {
@@ -94,16 +94,16 @@ export function SearchableSelect({
           value={open ? query : selected?.label ?? ""}
         />
         {value && !disabled ? (
-          <button aria-label={`Bỏ chọn ${selected?.label ?? "lựa chọn"}`} className="absolute right-10 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-[#657789] hover:bg-[#eee8dc] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#c75b39]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); setQuery(""); setOpen(true); }} type="button"><X size={15} /></button>
+          <button aria-label={`Bỏ chọn ${selected?.label ?? "lựa chọn"}`} className="absolute right-10 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); setQuery(""); setOpen(true); }} type="button"><X size={15} /></button>
         ) : null}
-        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#657789]" size={17} />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} />
       </div>
       {open ? (
-        <div className="absolute z-50 mt-2 max-h-64 w-full overflow-auto rounded-xl border border-[#a9bac1] bg-[#fffdfa] p-1.5 shadow-[0_14px_36px_rgba(16,42,67,0.16)]" id={listboxId} role="listbox">
+        <div className="absolute z-50 mt-2 max-h-64 w-full overflow-auto rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-1.5 shadow-[var(--popover-shadow)]" id={listboxId} role="listbox">
           {filtered.length ? filtered.map((option, index) => (
             <button
               aria-selected={option.value === value}
-              className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left ${index === activeIndex ? "bg-[#eee8dc]" : "hover:bg-[#f7f4ed]"}`}
+              className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left ${index === activeIndex ? "bg-[var(--surface-muted)]" : "hover:bg-[var(--canvas)]"}`}
               id={`${listboxId}-${index}`}
               key={option.value}
               onMouseDown={(event) => event.preventDefault()}
@@ -112,10 +112,10 @@ export function SearchableSelect({
               role="option"
               type="button"
             >
-              <span className="min-w-0"><strong className="block truncate text-sm">{option.label}</strong>{option.description ? <small className="mt-0.5 block truncate text-xs font-normal text-[#657789]">{option.description}</small> : null}</span>
-              {option.value === value ? <Check className="shrink-0 text-[#27685f]" size={17} /> : null}
+              <span className="min-w-0"><strong className="block truncate text-sm">{option.label}</strong>{option.description ? <small className="mt-0.5 block truncate text-xs font-normal text-[var(--ink-muted)]">{option.description}</small> : null}</span>
+              {option.value === value ? <Check className="shrink-0 text-[var(--success)]" size={17} /> : null}
             </button>
-          )) : <p className="px-3 py-4 text-sm leading-5 text-[#657789]">{emptyMessage}</p>}
+          )) : <p className="px-3 py-4 text-sm leading-5 text-[var(--ink-muted)]">{emptyMessage}</p>}
         </div>
       ) : null}
     </div>
