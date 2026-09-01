@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, HttpException, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Header, Headers, HttpCode, HttpException, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
@@ -176,6 +176,7 @@ export class AccountController {
   constructor(private readonly auth: AuthService) {}
 
   @Get("avatar")
+  @Header("Cross-Origin-Resource-Policy", "cross-origin")
   async avatar(@Headers("cookie") cookies?: string): Promise<StreamableFile> {
     const session = await this.session(cookies);
     const avatar = await this.auth.readAvatar(session.user.id);
