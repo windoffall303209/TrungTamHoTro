@@ -12,6 +12,7 @@ import type { ClassClosureReadiness, LearningClass } from "@/lib/learning-types"
 import { useApp } from "@/providers/app-provider";
 
 export default function ClassLifecyclePage() {
+  const [requestedClassId] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("classId") ?? "");
   const { session, notify } = useApp();
   const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
@@ -37,13 +38,13 @@ export default function ClassLifecyclePage() {
     try {
       const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
       setClasses(data);
-      const nextId = selectedId || data[0]?.id || "";
+      const nextId = selectedId || data.find((item) => item.id === requestedClassId)?.id || data[0]?.id || "";
       setSelectedId(nextId);
       if (nextId) await loadReadiness(nextId);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
     }
-  }, [canManage, loadReadiness, notify, selectedId, session.roleCode]);
+  }, [canManage, loadReadiness, notify, requestedClassId, selectedId, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);

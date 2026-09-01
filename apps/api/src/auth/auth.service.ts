@@ -1,9 +1,10 @@
 import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { Environment } from "../config/environment.js";
 import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
+import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
 import { createMfaSecret, createRecoveryCodes, createTotpUri, decryptMfaSecret, encryptMfaSecret, verifyTotp } from "./mfa.js";
 import type { PermissionCode, RoleCode } from "./permissions.js";
 import { hashPassword, verifyPassword } from "./password.js";
@@ -24,20 +25,20 @@ type SecurityEmailTokenType = "PASSWORD_CHANGE_OTP" | "MFA_SETUP_OTP" | "MFA_DIS
 
 type UserWithRoles = {
   id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string | null; googleSubject: string | null; displayName: string; status: string;
-  mfaSecretEncrypted: string | null; mfaEnabledAt: Date | null;
+  mfaSecretEncrypted: string | null; mfaEnabledAt: Date | null; avatarObjectKey: string | null; avatarMimeType: string | null; avatarUpdatedAt: Date | null;
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
 export interface AuthenticatedSession {
   sessionId: string;
-  user: { id: string; username: string; name: string; email: string; roleName: string };
+  user: { id: string; username: string; name: string; email: string; roleName: string; avatarUrl?: string | null };
   roleCode: RoleCode;
   permissions: PermissionCode[];
   availableRoles: Array<{ code: RoleCode; name: string }>;
 }
 
 export interface SessionContext { ipAddress?: string; userAgent?: string }
-export interface AccountProfile { id: string; username: string; displayName: string; email: string; phone: string; timezone: string; locale: string; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; hasPassword: boolean; googleConnected: boolean; createdAt: string }
+export interface AccountProfile { id: string; username: string; displayName: string; email: string; phone: string; timezone: string; locale: string; avatarUrl: string | null; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; hasPassword: boolean; googleConnected: boolean; createdAt: string }
 export interface AccountSession { id: string; current: boolean; currentRoleCode: string; ipAddress: string; userAgent: string; createdAt: string; lastSeenAt: string; expiresAt: string }
 export interface SessionIssue { token: string; csrfToken: string; maxAgeMs: number; session: AuthenticatedSession }
 export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: string };
@@ -56,6 +57,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailDeliveryService,
+    private readonly objectStorage: ObjectStorageService,
     config: ConfigService<Environment, true>,
   ) {
     this.encryptionSecret = config.get("AUTH_ENCRYPTION_SECRET", { infer: true });
@@ -437,7 +439,7 @@ export class AuthService {
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
     return {
       id: user.id, username: user.username, displayName: user.displayName, email: user.email, phone: user.phone ?? "", timezone: user.timezone,
-      locale: user.locale, status: user.status, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
+      locale: user.locale, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt), status: user.status, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
       mfaEnabled: Boolean(user.mfaEnabledAt), hasPassword: Boolean(user.passwordHash), googleConnected: Boolean(user.googleSubject), createdAt: user.createdAt.toISOString(),
     };
   }
@@ -445,6 +447,35 @@ export class AuthService {
   async updateProfile(userId: string, input: { displayName: string; phone?: string; timezone: string; locale: string }): Promise<AccountProfile> {
     await this.prisma.user.update({ where: { id: userId }, data: { displayName: input.displayName.trim(), phone: input.phone?.trim() || null, timezone: input.timezone, locale: input.locale } });
     return this.getProfile(userId);
+  }
+
+  async updateAvatar(userId: string, upload: { mimeType: string; size: number; buffer: Buffer }): Promise<AccountProfile> {
+    const extension = this.validateAvatar(upload);
+    const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true } });
+    if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
+    const stored = await this.objectStorage.put(`avatars/${userId}/${randomUUID()}.${extension}`, upload.buffer);
+    try {
+      await this.prisma.user.update({ where: { id: userId }, data: { avatarObjectKey: stored.objectKey, avatarMimeType: upload.mimeType, avatarUpdatedAt: new Date() } });
+    } catch (error) {
+      await this.objectStorage.remove(stored.objectKey).catch(() => undefined);
+      throw error;
+    }
+    if (current.avatarObjectKey) await this.objectStorage.remove(current.avatarObjectKey).catch((error: unknown) => this.logger.warn(`Không xóa được avatar cũ: ${error instanceof Error ? error.message : String(error)}`));
+    return this.getProfile(userId);
+  }
+
+  async removeAvatar(userId: string): Promise<AccountProfile> {
+    const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true } });
+    if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
+    await this.prisma.user.update({ where: { id: userId }, data: { avatarObjectKey: null, avatarMimeType: null, avatarUpdatedAt: null } });
+    if (current.avatarObjectKey) await this.objectStorage.remove(current.avatarObjectKey).catch((error: unknown) => this.logger.warn(`Không xóa được avatar: ${error instanceof Error ? error.message : String(error)}`));
+    return this.getProfile(userId);
+  }
+
+  async readAvatar(userId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true, avatarMimeType: true } });
+    if (!user?.avatarObjectKey || !user.avatarMimeType) throw new NotFoundException("Tài khoản chưa có ảnh đại diện.");
+    return { buffer: await this.objectStorage.get(user.avatarObjectKey), mimeType: user.avatarMimeType };
   }
 
   async changePassword(userId: string, currentSessionId: string, currentPassword: string | undefined, newPassword: string, challengeId?: string, code?: string): Promise<{ revokedSessions: number }> {
@@ -766,7 +797,7 @@ export class AuthService {
     if (!selected) throw new ForbiddenException("Vai trò của phiên không còn hợp lệ.");
     return {
       sessionId,
-      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name },
+      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
       roleCode,
       permissions: selected.permissions.map(({ permission }) => permission.code as PermissionCode),
       availableRoles: user.roles.map(({ role }) => ({ code: role.code as RoleCode, name: role.name })),
@@ -774,6 +805,15 @@ export class AuthService {
   }
 
   private hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
+  private avatarUrl(objectKey: string | null, updatedAt: Date | null): string | null { return objectKey ? `/account/avatar?v=${updatedAt?.getTime() ?? 0}` : null; }
+  private validateAvatar(upload: { mimeType: string; size: number; buffer: Buffer }): "png" | "jpg" | "webp" {
+    if (upload.size !== upload.buffer.length || upload.size < 1 || upload.size > 3 * 1024 * 1024) throw new BadRequestException("Ảnh đại diện phải có kích thước từ 1 byte đến 3 MB.");
+    const png = upload.mimeType === "image/png" && upload.buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const jpeg = upload.mimeType === "image/jpeg" && upload.buffer[0] === 0xff && upload.buffer[1] === 0xd8 && upload.buffer[2] === 0xff;
+    const webp = upload.mimeType === "image/webp" && upload.buffer.subarray(0, 4).toString("ascii") === "RIFF" && upload.buffer.subarray(8, 12).toString("ascii") === "WEBP";
+    if (!png && !jpeg && !webp) throw new BadRequestException("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP hợp lệ.");
+    return png ? "png" : jpeg ? "jpg" : "webp";
+  }
   private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
   private assertDatabase(): void {
     if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối MySQL. Hãy bật DATABASE_CONNECT_ON_START.");

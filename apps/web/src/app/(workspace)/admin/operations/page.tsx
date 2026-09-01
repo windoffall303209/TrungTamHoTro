@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import { useApp } from "@/providers/app-provider";
@@ -126,6 +126,9 @@ export default function OperationsPage() {
     approvedBy: "Trưởng quản trị",
   });
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const auditPagination = usePagination(audit);
+  const templatePagination = usePagination(templates);
+  const alertPagination = usePagination(alerts);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [form, setForm] = useState({
     eventCode: "EXAM_PUBLISHED",
@@ -475,7 +478,7 @@ export default function OperationsPage() {
             </Button>
           </div>
           <div className="mt-5 max-h-80 divide-y divide-slate-100 overflow-y-auto">
-            {audit.map((item) => (
+            {auditPagination.pageItems.map((item) => (
               <div className="py-3" key={item.id}>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-extrabold text-sky-700">
@@ -492,6 +495,7 @@ export default function OperationsPage() {
               </div>
             ))}
           </div>
+          <Pagination itemLabel="bản ghi audit" onPageChange={auditPagination.setPage} onPageSizeChange={auditPagination.setPageSize} page={auditPagination.page} pageSize={auditPagination.pageSize} totalItems={auditPagination.totalItems} />
         </section>
         <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
@@ -550,7 +554,7 @@ export default function OperationsPage() {
             </Button>
           </div>
           <div className="mt-5 space-y-3">
-            {templates.map((item) => (
+            {templatePagination.pageItems.map((item) => (
               <div
                 className="rounded-xl border border-slate-100 p-4"
                 key={item.id}
@@ -579,6 +583,7 @@ export default function OperationsPage() {
               </div>
             ))}
           </div>
+          <Pagination itemLabel="mẫu thông báo" onPageChange={templatePagination.setPage} onPageSizeChange={templatePagination.setPageSize} page={templatePagination.page} pageSize={templatePagination.pageSize} totalItems={templatePagination.totalItems} />
         </section>
         <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <div className="flex items-center gap-3">
@@ -784,7 +789,7 @@ export default function OperationsPage() {
           </p>
           <div className="mt-5 space-y-3">
             {alerts.length ? (
-              alerts.map((item) => (
+              alertPagination.pageItems.map((item) => (
                 <article
                   className={`rounded-xl border p-4 ${item.severity === "CRITICAL" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}
                   key={item.id}
@@ -832,6 +837,7 @@ export default function OperationsPage() {
               </p>
             )}
           </div>
+          <Pagination itemLabel="cảnh báo" onPageChange={alertPagination.setPage} onPageSizeChange={alertPagination.setPageSize} page={alertPagination.page} pageSize={alertPagination.pageSize} totalItems={alertPagination.totalItems} />
         </section>
       </div>
       <Modal

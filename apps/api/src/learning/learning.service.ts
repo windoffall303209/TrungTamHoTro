@@ -8,6 +8,7 @@ import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
+import { DEFAULT_MATERIAL_MIME_TYPES, includeSupportedDocumentMimeTypes, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
@@ -573,7 +574,7 @@ export class LearningService {
     actorId = "usr-instructor",
   ): Promise<LearningMaterial> {
     const prisma = this.database();
-    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
+    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
     if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
     if (!policy.allowedMimeTypes.includes(input.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
     const quarantineReason = upload ? await this.scanUpload(upload) : undefined;
@@ -787,7 +788,7 @@ export class LearningService {
     const material = this.materials.find((item) => item.id === materialId);
     if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
     this.assertMemoryMaterialClassAccess(material.classId, role, actorId);
-    return this.materialVersions.filter((item) => item.materialId === materialId && (role !== "LEARNER" || item.visibility === "PUBLISHED")).sort((a, b) => b.version - a.version).map((item) => ({ id: item.id, materialId: item.materialId, version: item.version, name: item.name, mimeType: item.mimeType, sizeBytes: item.sizeBytes, folder: item.folder, tags: [...item.tags], visibility: item.visibility, createdBy: item.createdBy, createdAt: item.createdAt }));
+    return this.materialVersions.filter((item) => item.materialId === materialId && (role !== "LEARNER" || item.visibility === "PUBLISHED")).sort((a, b) => b.version - a.version).map((item) => ({ id: item.id, materialId: item.materialId, version: item.version, name: normalizeMultipartFileName(item.name), mimeType: item.mimeType, sizeBytes: item.sizeBytes, folder: item.folder, tags: [...item.tags], visibility: item.visibility, createdBy: item.createdBy, createdAt: item.createdAt }));
   }
 
   async createMaterialVersionAccess(materialId: string, version: number, role: string, action: MaterialAccessAction = "DOWNLOAD", actorId = this.userIdForRole(role)): Promise<{ url: string; expiresAt: string }> {
@@ -835,7 +836,7 @@ export class LearningService {
 
   async replaceMaterialVersion(materialId: string, input: Pick<LearningMaterial, "folder" | "tags">, upload: UploadedMaterialFile, actorId = "usr-instructor"): Promise<LearningMaterial> {
     const prisma = this.database();
-    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"] };
+    const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
     if (upload.size > policy.maxFileSizeMb * 1_000_000) throw new BadRequestException(`Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`);
     if (!policy.allowedMimeTypes.includes(upload.mimeType)) throw new BadRequestException("Loại MIME không được chính sách lưu trữ cho phép.");
     const quarantineReason = await this.scanUpload(upload);
@@ -1275,11 +1276,12 @@ export class LearningService {
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (attempt.status !== "IN_PROGRESS") throw new BadRequestException("Bài làm đã khóa.");
       if (this.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
-      const examQuestion = await prisma.examQuestion.findUnique({ where: { examId_questionId: { examId: attempt.examId, questionId } } });
+      const examQuestion = await prisma.examQuestion.findUnique({ where: { examId_questionId: { examId: attempt.examId, questionId } }, include: { question: true } });
       if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
+      const normalizedAnswers = this.validateSubmittedAnswers(this.mapQuestion(examQuestion.question), answers);
       await prisma.attemptAnswer.upsert({
         where: { attemptId_questionId: { attemptId, questionId } },
-        update: { answerData: answers }, create: { attemptId, questionId, answerData: answers },
+        update: { answerData: normalizedAnswers }, create: { attemptId, questionId, answerData: normalizedAnswers },
       });
       return this.getDatabaseAttempt(prisma, attemptId);
     }
@@ -1289,7 +1291,9 @@ export class LearningService {
     const exam = this.findExam(item.examId);
     if (this.attemptDeadline(new Date(item.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
     if (!exam.questionIds.includes(questionId)) throw new BadRequestException("Câu hỏi không thuộc đề.");
-    item.answers[questionId] = [...answers];
+    const question = this.questions.find((candidate) => candidate.id === questionId);
+    if (!question) throw new BadRequestException("Câu hỏi không tồn tại.");
+    item.answers[questionId] = this.validateSubmittedAnswers(question, answers);
     item.lastSavedAt = now();
     return { ...item, answers: { ...item.answers }, serverTime: now() };
   }
@@ -1310,15 +1314,14 @@ export class LearningService {
         let score = 0;
         let requiresManualGrade = false;
         for (const examQuestion of attempt.exam.questions) {
-          const objective = !["SHORT_ANSWER", "ESSAY"].includes(examQuestion.question.type);
-          if (!objective) {
+          const requiresManualAnswer = ["SHORT_ANSWER", "ESSAY"].includes(examQuestion.question.type);
+          if (requiresManualAnswer) {
             requiresManualGrade = true;
             continue;
           }
           const answer = attempt.answers.find((item) => item.questionId === examQuestion.questionId);
           const submitted = this.toStringArray(answer?.answerData ?? []);
-          const expected = this.toStringArray(examQuestion.question.correctAnswers);
-          const isCorrect = JSON.stringify([...submitted].sort()) === JSON.stringify([...expected].sort());
+          const isCorrect = this.isQuestionAnswerCorrect(this.mapQuestion(examQuestion.question), submitted);
           const awarded = isCorrect ? Number(examQuestion.score) : 0;
           score += awarded;
           if (answer) await transaction.attemptAnswer.update({
@@ -1330,7 +1333,7 @@ export class LearningService {
           data: {
             score, submittedAt, status: requiresManualGrade ? "SUBMITTED" : "GRADED",
             gradePublishedAt: requiresManualGrade ? null : submittedAt,
-            feedback: requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.",
+            feedback: requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận hoặc câu trả lời ngắn." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.",
           },
           include: { answers: true },
         });
@@ -1342,16 +1345,19 @@ export class LearningService {
     if (item.status !== "IN_PROGRESS") return { ...item, answers: { ...item.answers } };
     const exam = this.findExam(item.examId);
     let correct = 0;
+    let requiresManualGrade = false;
     exam.questionIds.forEach((questionId) => {
       const question = this.questions.find((candidate) => candidate.id === questionId);
-      if (question && JSON.stringify([...(item.answers[questionId] ?? [])].sort()) === JSON.stringify([...question.correctAnswers].sort())) correct += 1;
+      if (!question) return;
+      if (["SHORT_ANSWER", "ESSAY"].includes(question.type)) { requiresManualGrade = true; return; }
+      if (this.isQuestionAnswerCorrect(question, item.answers[questionId] ?? [])) correct += 1;
     });
     item.score = Math.round((correct / exam.questionIds.length) * exam.totalScore * 100) / 100;
-    item.status = "GRADED";
+    item.status = requiresManualGrade ? "SUBMITTED" : "GRADED";
     item.submittedAt = now();
     item.submissionReceipt = this.submissionReceipt(item.id, item.submittedAt);
-    item.gradePublishedAt = now();
-    item.feedback = "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
+    item.gradePublishedAt = requiresManualGrade ? undefined : now();
+    item.feedback = requiresManualGrade ? "Bài đang chờ giảng viên chấm câu tự luận hoặc câu trả lời ngắn." : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
     return { ...item, answers: { ...item.answers } };
   }
 
@@ -2904,7 +2910,7 @@ export class LearningService {
       id: row.id,
       classId: row.classId,
       ownerId: row.ownerId,
-      name: row.name,
+      name: normalizeMultipartFileName(row.name),
       mimeType: row.mimeType,
       sizeBytes,
       folder: row.folder,
@@ -2984,7 +2990,7 @@ export class LearningService {
   private mapMaterialVersion(row: Prisma.MaterialVersionGetPayload<Record<string, never>>): MaterialVersionSnapshot {
     const sizeBytes = Number(row.sizeBytes);
     if (!Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước phiên bản học liệu vượt giới hạn số an toàn.");
-    return { id: row.id, materialId: row.materialId, version: row.version, name: row.name, mimeType: row.mimeType, sizeBytes, folder: row.folder, tags: this.toStringArray(row.tags), visibility: row.visibility, createdBy: row.createdBy, createdAt: row.createdAt.toISOString() };
+    return { id: row.id, materialId: row.materialId, version: row.version, name: normalizeMultipartFileName(row.name), mimeType: row.mimeType, sizeBytes, folder: row.folder, tags: this.toStringArray(row.tags), visibility: row.visibility, createdBy: row.createdBy, createdAt: row.createdAt.toISOString() };
   }
 
   private cloneQuestion(item: LearningQuestion): LearningQuestion {
@@ -3006,7 +3012,13 @@ export class LearningService {
   }
 
   private validateQuestionInput(input: Omit<LearningQuestion, "id" | "status" | "version">): Omit<LearningQuestion, "id" | "status" | "version" | "familyId" | "supersedesId"> {
-    const content = input.content.trim().replace(/\s+/g, " ");
+    const content = input.content
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .join("\n")
+      .replace(/\n{4,}/g, "\n\n\n")
+      .trim();
     const options = [...new Set(input.options.map((item) => item.trim()).filter(Boolean))];
     const correctAnswers = [...new Set(input.correctAnswers.map((item) => item.trim()).filter(Boolean))];
     const tags = [...new Set(input.tags.map((item) => item.trim().toLowerCase()).filter(Boolean))];
@@ -3019,6 +3031,23 @@ export class LearningService {
     if (input.type === "MULTIPLE_CHOICE" && correctAnswers.length < 1) throw new BadRequestException("Câu hỏi nhiều đáp án cần ít nhất một đáp án đúng.");
     if (input.type === "TRUE_FALSE" && (options.length !== 2 || !options.includes("Đúng") || !options.includes("Sai"))) throw new BadRequestException("Câu hỏi đúng/sai phải có hai lựa chọn Đúng và Sai.");
     return { courseId: input.courseId.trim(), type: input.type, content, options, correctAnswers, difficulty: input.difficulty, tags };
+  }
+
+  private validateSubmittedAnswers(question: LearningQuestion, answers: string[]): string[] {
+    const normalized = answers.map((answer) => answer.trim()).filter(Boolean);
+    if (new Set(normalized).size !== normalized.length) throw new BadRequestException("Câu trả lời không được chứa giá trị trùng.");
+    if (["SINGLE_CHOICE", "TRUE_FALSE"].includes(question.type) && normalized.length > 1) throw new BadRequestException("Câu hỏi này chỉ chấp nhận một lựa chọn.");
+    if (["SHORT_ANSWER", "ESSAY"].includes(question.type) && normalized.length > 1) throw new BadRequestException("Câu hỏi này chỉ chấp nhận một nội dung trả lời.");
+    if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(question.type) && normalized.some((answer) => !question.options.includes(answer))) throw new BadRequestException("Lựa chọn trả lời không thuộc câu hỏi.");
+    return normalized;
+  }
+
+  private isQuestionAnswerCorrect(question: LearningQuestion, submitted: string[]): boolean {
+    if (question.type === "SHORT_ANSWER") {
+      const value = submitted[0]?.trim().toLocaleLowerCase("vi");
+      return Boolean(value) && question.correctAnswers.some((answer) => answer.trim().toLocaleLowerCase("vi") === value);
+    }
+    return JSON.stringify([...submitted].sort()) === JSON.stringify([...question.correctAnswers].sort());
   }
 
   private mapExam(row: ExamWithQuestions): LearningExam {
@@ -3437,9 +3466,11 @@ export class LearningService {
     return {
       maxFileSizeMb: typeof record.maxFileSizeMb === "number" ? record.maxFileSizeMb : 50,
       storageQuotaMb: typeof record.storageQuotaMb === "number" ? record.storageQuotaMb : 10_240,
-      allowedMimeTypes: Array.isArray(record.allowedMimeTypes) && record.allowedMimeTypes.every((item) => typeof item === "string")
-        ? record.allowedMimeTypes
-        : ["application/pdf", "video/mp4", "image/png", "image/jpeg"],
+      allowedMimeTypes: includeSupportedDocumentMimeTypes(
+        Array.isArray(record.allowedMimeTypes) && record.allowedMimeTypes.every((item) => typeof item === "string")
+          ? record.allowedMimeTypes
+          : DEFAULT_MATERIAL_MIME_TYPES,
+      ),
     };
   }
 

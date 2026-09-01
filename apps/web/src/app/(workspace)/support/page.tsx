@@ -4,7 +4,7 @@ import { CheckCheck, LifeBuoy, MessageSquare, Paperclip, Plus, Send } from "luci
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningNotification, Ticket, TicketComment } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -13,6 +13,7 @@ export default function SupportPage() {
   const { session, notify } = useApp();
   const admin = session.roleCode === "SYSTEM_ADMIN";
   const [items, setItems] = useState<Ticket[]>([]);
+  const pagination = usePagination(items);
   const [alerts, setAlerts] = useState<LearningNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -154,7 +155,7 @@ export default function SupportPage() {
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-3">
-          {items.map((item) => (
+          {pagination.pageItems.map((item) => (
             <article
               className="grid gap-4 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 md:grid-cols-[auto_1fr_auto] md:items-center"
               key={item.id}
@@ -209,6 +210,7 @@ export default function SupportPage() {
           ))}
         </div>
       </SectionState>
+      <Pagination itemLabel="yêu cầu hỗ trợ" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
       <Modal
         open={open}
         onClose={() => setOpen(false)}

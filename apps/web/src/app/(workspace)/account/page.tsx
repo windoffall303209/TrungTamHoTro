@@ -3,14 +3,15 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { ArrowLeft, Copy, KeyRound, Laptop, MailCheck, RefreshCw, Save, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, Camera, Copy, KeyRound, Laptop, MailCheck, RefreshCw, Save, ShieldCheck, Smartphone, Trash2, Upload, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, StatusBadge, inputClass } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
+import { UserAvatar } from "@/components/user-avatar";
 
-const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: "", phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, googleConnected: false, createdAt: "" };
+const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: "", phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", avatarUrl: null, status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, googleConnected: false, createdAt: "" };
 const authenticatorApps = [
   { id: "google", name: "Google Authenticator", note: "Android và iOS" },
   { id: "microsoft", name: "Microsoft Authenticator", note: "Android và iOS" },
@@ -32,6 +33,9 @@ export default function AccountPage() {
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [passwordChallenge, setPasswordChallenge] = useState<{ id: string; email: string } | null>(null);
@@ -63,6 +67,7 @@ export default function AccountPage() {
   }, [notify]);
 
   useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
+  useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
   useEffect(() => {
     if (!mfaSetup) return;
     let active = true;
@@ -79,6 +84,33 @@ export default function AccountPage() {
       await refreshSession(); notify("Đã cập nhật hồ sơ cá nhân.");
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ.", "error"); }
     finally { setSaving(false); }
+  }
+
+  function selectAvatar(file: File | null) {
+    if (!file) { setAvatarFile(null); setAvatarPreview(""); return; }
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { notify("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP.", "error"); return; }
+    if (file.size > 3 * 1024 * 1024) { notify("Ảnh đại diện không được vượt quá 3 MB.", "error"); return; }
+    setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file));
+  }
+
+  async function saveAvatar() {
+    if (!avatarFile) return;
+    setAvatarSaving(true);
+    try {
+      const body = new FormData(); body.append("file", avatarFile);
+      setProfile(await apiRequest<AccountProfile>("/account/avatar", { method: "POST", body }));
+      setAvatarFile(null); setAvatarPreview(""); await refreshSession(); notify("Đã cập nhật ảnh đại diện.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể cập nhật ảnh đại diện.", "error"); }
+    finally { setAvatarSaving(false); }
+  }
+
+  async function removeAvatar() {
+    setAvatarSaving(true);
+    try {
+      setProfile(await apiRequest<AccountProfile>("/account/avatar", { method: "DELETE" }));
+      setAvatarFile(null); setAvatarPreview(""); await refreshSession(); notify("Đã xóa ảnh đại diện.", "info");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xóa ảnh đại diện.", "error"); }
+    finally { setAvatarSaving(false); }
   }
 
   async function changePassword(event: FormEvent) {
@@ -182,6 +214,10 @@ export default function AccountPage() {
     <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
       <form className="content-panel p-5 md:p-7" onSubmit={saveProfile}>
         <div className="flex items-start gap-3"><UserRound className="mt-0.5 text-[#c75b39]" size={22} /><div><h2 className="section-title">Thông tin cá nhân</h2><p className="mt-1 text-sm leading-6 text-[#516274]">Thông tin dùng để nhận diện bạn trong lớp học, diễn đàn và báo cáo.</p></div></div>
+        <div className="mt-6 flex flex-col gap-5 border-y border-[#d5dfe2] py-5 sm:flex-row sm:items-center">
+          <UserAvatar avatarUrl={avatarPreview || profile.avatarUrl} className="size-24 text-2xl" name={profile.displayName || "Người dùng"} priority />
+          <div className="min-w-0 flex-1"><h3 className="font-bold">Ảnh đại diện</h3><p className="mt-1 text-xs leading-5 text-[#657789]">PNG, JPEG hoặc WebP; tối đa 3 MB. Ảnh vuông sẽ hiển thị cân đối nhất.</p><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 text-sm font-bold text-[#102a43] hover:border-[#102a43]"><Camera size={16} />{profile.avatarUrl ? "Chọn ảnh khác" : "Chọn ảnh"}<input accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => selectAvatar(event.target.files?.[0] ?? null)} type="file" /></label>{avatarFile ? <Button loading={avatarSaving} onClick={() => void saveAvatar()} type="button"><Upload size={16} />Lưu ảnh</Button> : null}{profile.avatarUrl ? <Button disabled={avatarSaving} onClick={() => void removeAvatar()} type="button" variant="ghost"><Trash2 size={15} />Xóa ảnh</Button> : null}</div>{avatarFile ? <p className="mt-2 truncate text-xs font-semibold text-[#516274]">Đã chọn: {avatarFile.name}</p> : null}</div>
+        </div>
         <div className="mt-6 grid gap-5 sm:grid-cols-2">
           <Field label="Họ và tên"><input className={inputClass} disabled={loading} maxLength={150} onChange={(event) => setProfile({ ...profile, displayName: event.target.value })} required value={profile.displayName} /></Field>
           <Field label="Tài khoản"><input className={inputClass} disabled readOnly value={profile.username} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[#657789]">Dùng để đăng nhập vào Wind EDU.</span></Field>

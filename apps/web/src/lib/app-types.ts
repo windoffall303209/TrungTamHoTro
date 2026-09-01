@@ -15,6 +15,7 @@ export interface SessionUser {
   name: string;
   email: string;
   roleName: string;
+  avatarUrl?: string | null;
 }
 
 export interface SessionData {
@@ -34,6 +35,7 @@ export interface AccountProfile {
   phone: string;
   timezone: string;
   locale: string;
+  avatarUrl: string | null;
   status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   emailVerifiedAt: string | null;
   mfaEnabled: boolean;

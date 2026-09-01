@@ -6,7 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, RichText, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type {
   Exam,
@@ -46,10 +46,12 @@ export default function ExamsPage() {
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
   const [items, setItems] = useState<LearnerExam[]>([]);
+  const pagination = usePagination(items);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [attemptQuestions, setAttemptQuestions] = useState<Question[]>([]);
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [results, setResults] = useState<LearnerResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<LearnerResult | null>(null);
   const [regradeOpen, setRegradeOpen] = useState(false);
@@ -159,6 +161,7 @@ export default function ExamsPage() {
         Math.max(0, Math.floor((deadline - Date.now()) / 1000)),
       );
       setAttemptQuestions(questionData);
+      setAnswerDrafts(Object.fromEntries(questionData.map((question) => [question.id, data.answers[question.id]?.[0] ?? ""])));
       notify(
         "Đã bắt đầu lượt làm bài; câu hỏi chỉ được mở sau khi server tạo lượt hợp lệ.",
       );
@@ -170,13 +173,15 @@ export default function ExamsPage() {
       );
     }
   };
-  const answer = async (questionId: string, value: string) => {
+  const answer = async (questionId: string, answers: string[]) => {
     if (!attempt) return;
+    const previousAttempt = attempt;
+    setAttempt({ ...attempt, answers: { ...attempt.answers, [questionId]: answers } });
     const request = () =>
       apiRequest<ExamAttempt>(`/learner/exam-attempts/${attempt.id}/answers`, {
         method: "PATCH",
         roleCode: session.roleCode,
-        body: JSON.stringify({ questionId, answers: [value] }),
+        body: JSON.stringify({ questionId, answers }),
       });
     setAutosaveStatus("SAVING");
     try {
@@ -190,6 +195,7 @@ export default function ExamsPage() {
       setAttempt(data);
       setAutosaveStatus("SAVED");
     } catch (error) {
+      setAttempt(previousAttempt);
       setAutosaveStatus("ERROR");
       notify(
         error instanceof Error
@@ -198,6 +204,10 @@ export default function ExamsPage() {
         "error",
       );
     }
+  };
+  const saveTextAnswer = (questionId: string) => {
+    const value = answerDrafts[questionId]?.trim();
+    void answer(questionId, value ? [value] : []);
   };
   const submit = useCallback(async (automatic = false) => {
     if (!attempt || attempt.status !== "IN_PROGRESS") return;
@@ -306,28 +316,27 @@ export default function ExamsPage() {
             <div className="mt-5 space-y-4 border-t border-sky-200 pt-5">
               {attemptQuestions.map((question, index) => (
                 <fieldset className="rounded-xl bg-white p-4" key={question.id}>
-                  <legend className="px-1 text-sm font-extrabold">
-                    Câu {index + 1}. {question.content}
-                  </legend>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {question.options.map((option) => (
+                  <legend className="px-1 text-sm font-extrabold">Câu {index + 1}</legend>
+                  <RichText className="mt-2 font-semibold">{question.content}</RichText>
+                  {question.options.length ? <div className="mt-4 grid gap-2">
+                    {question.options.map((option) => {
+                      const checked = attempt.answers[question.id]?.includes(option) ?? false;
+                      return (
                       <label
-                        className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 p-3 text-sm hover:border-sky-400"
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3 text-sm hover:border-sky-400"
                         key={option}
                       >
                         <input
-                          checked={
-                            attempt.answers[question.id]?.includes(option) ??
-                            false
-                          }
+                          checked={checked}
+                          className="mt-1 size-4 shrink-0"
                           name={question.id}
-                          onChange={() => void answer(question.id, option)}
-                          type="radio"
+                          onChange={() => void answer(question.id, question.type === "MULTIPLE_CHOICE" ? checked ? (attempt.answers[question.id] ?? []).filter((answerValue) => answerValue !== option) : [...(attempt.answers[question.id] ?? []), option] : [option])}
+                          type={question.type === "MULTIPLE_CHOICE" ? "checkbox" : "radio"}
                         />
-                        {option}
+                        <RichText className="min-w-0">{option}</RichText>
                       </label>
-                    ))}
-                  </div>
+                    );})}
+                  </div> : question.type === "SHORT_ANSWER" ? <input aria-label={`Câu trả lời câu ${index + 1}`} className={`${inputClass} mt-4`} onBlur={() => saveTextAnswer(question.id)} onChange={(event) => setAnswerDrafts({ ...answerDrafts, [question.id]: event.target.value })} placeholder="Nhập câu trả lời ngắn…" value={answerDrafts[question.id] ?? ""} /> : <textarea aria-label={`Bài làm câu ${index + 1}`} className={`${inputClass} mt-4`} onBlur={() => saveTextAnswer(question.id)} onChange={(event) => setAnswerDrafts({ ...answerDrafts, [question.id]: event.target.value })} placeholder="Nhập bài làm tự luận…" rows={6} value={answerDrafts[question.id] ?? ""} />}
                 </fieldset>
               ))}
             </div>
@@ -336,7 +345,7 @@ export default function ExamsPage() {
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
-          {items.map((item) => (
+          {pagination.pageItems.map((item) => (
             <article
               className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
               key={item.id}
@@ -412,6 +421,7 @@ export default function ExamsPage() {
           ))}
         </div>
       </SectionState>
+      <Pagination itemLabel="đề thi" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
       {learner && results.length ? (
         <section className="mt-10 border-t border-slate-200 pt-7">
           <div className="mb-5 flex items-end justify-between gap-4">
@@ -461,7 +471,7 @@ export default function ExamsPage() {
                       })
                     }
                   />
-                  <span>{q.content}</span>
+                  <RichText className="min-w-0">{q.content}</RichText>
                 </label>
               ))}
             </div>

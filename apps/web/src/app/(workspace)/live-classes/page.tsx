@@ -6,7 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -19,6 +19,7 @@ export default function LiveClassesPage() {
   const learner = session.roleCode === "LEARNER";
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
+  const pagination = usePagination(items);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -150,7 +151,7 @@ export default function LiveClassesPage() {
       />
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-4">
-          {items.map((item) => (
+          {pagination.pageItems.map((item) => (
             <article
               className="grid gap-5 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
               key={item.id}
@@ -222,6 +223,7 @@ export default function LiveClassesPage() {
           ))}
         </div>
       </SectionState>
+      <Pagination itemLabel="buổi học trực tuyến" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
       <Modal
         open={open}
         onClose={() => setOpen(false)}

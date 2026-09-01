@@ -5,6 +5,7 @@ import type { Request } from "express";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
+import { fileContentDisposition, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
 import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
 import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
@@ -43,9 +44,10 @@ export class ContentController {
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
-    const upload: UploadedMaterialFile = { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer };
+    const originalName = normalizeMultipartFileName(file.originalname);
+    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, buffer: file.buffer };
     return this.learning.createMaterial(classId, {
-      name: file.originalname,
+      name: originalName,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       folder: input.folder,
@@ -64,7 +66,7 @@ export class ContentController {
   @Get("materials/:materialId/versions/:version/download") @RequirePermissions("material:view")
   async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
     const download = await this.learning.readMaterialVersionDownload(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
-    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: `${rawAction === "PREVIEW" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(download.fileName)}`, length: download.buffer.length });
+    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.buffer.length });
   }
 
   @Post("instructor/materials/:materialId/versions") @RequirePermissions("material:manage")
@@ -76,7 +78,7 @@ export class ContentController {
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn tệp cho phiên bản mới.");
-    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
+    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
   }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
@@ -114,7 +116,7 @@ export class ContentController {
     }, session.user.id);
     return new StreamableFile(download.buffer, {
       type: download.mimeType,
-      disposition: `${action === "PREVIEW" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+      disposition: fileContentDisposition(action === "PREVIEW" ? "inline" : "attachment", download.fileName),
       length: download.buffer.length,
     });
   }

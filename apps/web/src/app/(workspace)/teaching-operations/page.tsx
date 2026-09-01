@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasEveryPermission } from "@/lib/access-control";
 import type { DirectoryUser, ExamAttempt, LiveSession } from "@/lib/learning-types";
@@ -15,6 +15,7 @@ export default function TeachingOperationsPage() {
   const { session, notify } = useApp();
   const canManageTeaching = session.roleCode === "INSTRUCTOR" && hasEveryPermission(session, ["question:manage", "exam:manage", "session:manage"]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
+  const attemptPagination = usePagination(attempts);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [learners, setLearners] = useState<DirectoryUser[]>([]);
   const [learnersSessionId, setLearnersSessionId] = useState("");
@@ -185,7 +186,7 @@ export default function TeachingOperationsPage() {
           </div>
           <div className="mt-5 space-y-3">
             {attempts.length ? (
-              attempts.map((item) => (
+              attemptPagination.pageItems.map((item) => (
                 <div
                   className="flex items-center justify-between rounded-xl bg-slate-50 p-4"
                   key={item.id}
@@ -221,6 +222,7 @@ export default function TeachingOperationsPage() {
               </p>
             )}
           </div>
+          <Pagination itemLabel="bài làm" onPageChange={attemptPagination.setPage} onPageSizeChange={attemptPagination.setPageSize} page={attemptPagination.page} pageSize={attemptPagination.pageSize} totalItems={attemptPagination.totalItems} />
         </section>
         <div className="space-y-7">
           <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">

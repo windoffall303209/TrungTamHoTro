@@ -64,7 +64,17 @@ export class ObjectStorageService {
     this.assertCloudinaryConfigured();
     const publicId = this.cloudinaryPublicId(objectKey);
     const url = cloudinary.url(publicId, { resource_type: "raw", type: "authenticated", sign_url: true, secure: true });
-    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+    let response = await fetch(url, { signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+    if (response.status === 401 || response.status === 403) {
+      // Một số tài khoản Cloudinary chặn URL delivery cho PDF/raw nhưng vẫn cho phép
+      // endpoint tải riêng tư đã ký. Dùng endpoint này để không biến upload thành tệp chết.
+      const privateUrl = cloudinary.utils.private_download_url(publicId, "", {
+        resource_type: "raw",
+        type: "authenticated",
+        expires_at: Math.floor(Date.now() / 1000) + 60,
+      });
+      response = await fetch(privateUrl, { signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+    }
     if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
     if (!response.ok) throw new ServiceUnavailableException(`Cloudinary trả về lỗi tải tệp (${response.status}).`);
     return Buffer.from(await response.arrayBuffer());

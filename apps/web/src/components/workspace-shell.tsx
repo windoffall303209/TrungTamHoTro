@@ -3,7 +3,7 @@
 import {
   Archive, Bell, BookOpenCheck, CalendarDays, ChartNoAxesCombined, CheckCheck, ClipboardCheck, Database, FileQuestion,
   GraduationCap, Headphones, History, LayoutDashboard, ListChecks, LoaderCircle, Menu, MessageSquareText, Presentation, Settings,
-  ShieldCheck, ShieldEllipsis, UserCheck, Users, X, LogOut, UserRoundCog,
+  ShieldCheck, ShieldEllipsis, UserCheck, Users, X, LogOut, UserRoundCog, ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -13,6 +13,7 @@ import { useApp } from "@/providers/app-provider";
 import type { PermissionCode, RoleCode } from "@/lib/app-types";
 import { hasAnyPermission } from "@/lib/access-control";
 import type { LearningNotification } from "@/lib/learning-types";
+import { UserAvatar } from "@/components/user-avatar";
 
 interface NavigationItem {
   href: string;
@@ -38,7 +39,6 @@ const navItems: NavigationItem[] = [
   { href: "/teaching-operations", label: "Nghiệp vụ giảng dạy", icon: Presentation, permissions: ["question:manage", "exam:manage", "session:manage"], roles: ["INSTRUCTOR"] },
   { href: "/learning-history", label: "Lịch sử học tập", icon: History, roles: ["LEARNER"] },
   { href: "/support", label: "Hỗ trợ", icon: Headphones, permissions: ["support:create", "support:manage"] },
-  { href: "/account", label: "Tài khoản", icon: UserRoundCog },
   { href: "/admin/users", label: "Người dùng", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/roles", label: "Vai trò & quyền", icon: ShieldCheck, permissions: ["role:view"], roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/settings", label: "Cấu hình", icon: Settings, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
@@ -56,7 +56,7 @@ function Sidebar({ close }: { close?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-[#102a43] text-[#fffdfa]">
-      <div className="flex h-20 items-center gap-3 border-b border-white/15 px-5">
+      <div className="flex h-16 items-center gap-3 border-b border-white/15 px-5">
         <div className="grid size-10 place-items-center rounded-xl border border-white/25 bg-[#c75b39] text-[#fffdfa]"><GraduationCap size={20} /></div>
         <div><p className="font-heading text-lg font-bold tracking-[-0.025em]">Wind EDU</p><p className="text-[10px] font-bold tracking-[0.14em] text-[#d8e3e8] uppercase">Sổ giáo vụ số</p></div>
       </div>
@@ -74,12 +74,6 @@ function Sidebar({ close }: { close?: () => void }) {
           })}
         </div>
       </nav>
-      <div className="border-t border-white/15 p-4">
-        <Link className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-white/8" href="/account" onClick={close}>
-          <div className="grid size-9 place-items-center rounded-full bg-[#d8e3e8] text-sm font-extrabold text-[#102a43]">{session.user.name.split(" ").slice(-2).map((part) => part[0]).join("")}</div>
-          <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{session.user.name}</p><p className="truncate text-xs text-[#bfd0d8]">{session.user.roleName}</p></div><UserRoundCog className="shrink-0 text-[#9fb5c2]" size={17} />
-        </Link>
-      </div>
     </div>
   );
 }
@@ -88,6 +82,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState<LearningNotification[]>([]);
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [notificationError, setNotificationError] = useState("");
@@ -112,20 +107,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }, [loadNotifications]);
 
   useEffect(() => {
-    if (!menuOpen && !notificationOpen) return;
+    if (!menuOpen && !notificationOpen && !profileOpen) return;
     const previousOverflow = document.body.style.overflow;
     if (menuOpen) document.body.style.overflow = "hidden";
     const closeOverlay = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setMenuOpen(false);
       setNotificationOpen(false);
+      setProfileOpen(false);
     };
     document.addEventListener("keydown", closeOverlay);
     return () => {
       document.removeEventListener("keydown", closeOverlay);
       document.body.style.overflow = previousOverflow;
     };
-  }, [menuOpen, notificationOpen]);
+  }, [menuOpen, notificationOpen, profileOpen]);
 
   async function markRead(item: LearningNotification): Promise<void> {
     if (item.readAt) return;
@@ -173,13 +169,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </div>
       ) : null}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-20 items-center justify-between border-b border-[#a9bac1] bg-[#f7f4ed]/92 px-4 backdrop-blur md:px-7">
-          <div className="flex min-w-0 items-center gap-3"><button aria-label="Mở menu" className="grid size-11 shrink-0 place-items-center rounded-lg border border-[#a9bac1] text-[#102a43] lg:hidden" onClick={() => setMenuOpen(true)} type="button"><Menu size={20} /></button><div className="min-w-0"><p className="max-w-22 text-xs font-bold leading-4 text-[#102a43] sm:max-w-none sm:text-sm">Trung tâm hỗ trợ giảng dạy</p><p className="mt-0.5 hidden text-xs text-[#516274] sm:block">Một không gian vận hành theo vai trò</p></div></div>
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[#a9bac1] bg-[#f7f4ed]/92 px-4 backdrop-blur md:px-7">
+          <div className="flex min-w-0 items-center gap-3"><button aria-label="Mở menu" className="grid size-11 shrink-0 place-items-center rounded-lg border border-[#a9bac1] text-[#102a43] lg:hidden" onClick={() => setMenuOpen(true)} type="button"><Menu size={20} /></button><div className="min-w-0"><p className="max-w-22 text-xs font-bold leading-4 text-[#102a43] sm:max-w-none sm:text-[1.05rem] sm:leading-5">Trung tâm hỗ trợ giảng dạy</p><p className="mt-0.5 hidden text-[0.9rem] leading-[1.125rem] text-[#516274] sm:block">Một không gian vận hành theo vai trò</p></div></div>
           <div className="relative flex items-center gap-2 md:gap-3">
-            <label className="sr-only" htmlFor="role-switcher">Vai trò đang sử dụng</label>
-            {session.availableRoles.length > 1 ? <select className="min-h-11 w-36 shrink-0 rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-3 py-2 text-xs font-bold text-[#102a43] outline-none transition focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15 md:w-auto md:text-sm" id="role-switcher" onChange={(event) => void setRole(event.target.value as RoleCode)} value={session.roleCode}>{session.availableRoles.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}</select> : <span className="hidden min-h-11 items-center rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 text-sm font-bold sm:inline-flex">{session.user.roleName}</span>}
-            <button aria-controls="notification-center" aria-expanded={notificationOpen} aria-label={unreadCount ? `Thông báo, ${unreadCount} chưa đọc` : "Thông báo"} className="relative grid size-11 place-items-center rounded-full border border-[#a9bac1] text-[#516274] hover:border-[#c75b39] hover:text-[#c75b39]" onClick={() => setNotificationOpen((open) => !open)} type="button"><Bell size={17} />{unreadCount ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-[#c75b39] px-1 text-[10px] font-extrabold leading-4 text-white ring-2 ring-[#f7f4ed]">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
-            <button aria-label="Đăng xuất" className="grid size-11 place-items-center rounded-full border border-[#a9bac1] text-[#516274] hover:border-[#c75b39] hover:text-[#c75b39]" onClick={() => void signOut()} title="Đăng xuất" type="button"><LogOut size={17} /></button>
+            {session.availableRoles.length > 1 ? <><label className="sr-only" htmlFor="role-switcher">Vai trò đang sử dụng</label><select className="min-h-11 w-36 shrink-0 rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-3 py-2 text-xs font-bold text-[#102a43] outline-none transition focus:border-[#c75b39] focus:ring-3 focus:ring-[#c75b39]/15 md:w-auto md:text-sm" id="role-switcher" onChange={(event) => void setRole(event.target.value as RoleCode)} value={session.roleCode}>{session.availableRoles.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}</select></> : null}
+            <button aria-controls="notification-center" aria-expanded={notificationOpen} aria-label={unreadCount ? `Thông báo, ${unreadCount} chưa đọc` : "Thông báo"} className="relative grid size-11 place-items-center rounded-full border border-[#a9bac1] text-[#516274] hover:border-[#c75b39] hover:text-[#c75b39]" onClick={() => { setNotificationOpen((open) => !open); setProfileOpen(false); }} type="button"><Bell size={17} />{unreadCount ? <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-[#c75b39] px-1 text-[10px] font-extrabold leading-4 text-white ring-2 ring-[#f7f4ed]">{unreadCount > 9 ? "9+" : unreadCount}</span> : null}</button>
+            <div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setProfileOpen(false); }} onMouseEnter={() => setProfileOpen(true)} onMouseLeave={() => setProfileOpen(false)}>
+              <button aria-controls="profile-menu" aria-expanded={profileOpen} aria-haspopup="menu" aria-label="Mở menu tài khoản" className="flex min-h-12 items-center gap-2 rounded-xl px-1.5 text-left transition hover:bg-[#eee8dc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c75b39] sm:pr-2" onClick={() => setProfileOpen((open) => !open)} type="button">
+                <div className="hidden min-w-0 text-right md:block"><p className="max-w-40 truncate text-sm font-extrabold text-[#102a43]">{session.user.name}</p><p className="mt-0.5 max-w-40 truncate text-xs text-[#516274]">{session.user.roleName}</p></div>
+                <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
+                <ChevronDown className={`hidden text-[#657789] transition-transform sm:block ${profileOpen ? "rotate-180" : ""}`} size={15} />
+              </button>
+              {profileOpen ? <div className="absolute right-0 top-full z-40 pt-2"><section aria-label="Menu tài khoản" className="w-[min(14rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[#d5dfe2] bg-[#fffdfa] p-2 shadow-[0_18px_50px_rgb(16_42_67/0.2)]" id="profile-menu" role="menu">
+                <Link className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#102a43] hover:bg-[#eee8dc]" href="/account" onClick={() => setProfileOpen(false)} role="menuitem"><UserRoundCog size={17} />Thông tin</Link><button className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-bold text-[#a84343] hover:bg-[#f8ece6]" onClick={() => void signOut()} role="menuitem" type="button"><LogOut size={17} />Đăng xuất</button>
+              </section></div> : null}
+            </div>
             {notificationOpen ? <><button aria-label="Đóng trung tâm thông báo" className="fixed inset-0 z-20 cursor-default bg-transparent" onClick={() => setNotificationOpen(false)} type="button" /><section aria-label="Trung tâm thông báo" className="absolute right-0 top-12 z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[#d5dfe2] bg-[#fffdfa] shadow-[0_18px_50px_rgb(16_42_67/0.2)]" id="notification-center"><div className="flex items-center justify-between border-b border-[#d5dfe2] px-5 py-4"><div><h2 className="font-heading text-base font-extrabold">Thông báo</h2><p className="mt-0.5 text-xs text-[#516274]">{unreadCount ? `${unreadCount} mục chưa đọc` : "Đã đọc tất cả"}</p></div><button className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-extrabold text-[#963f2a] hover:bg-[#eee8dc] disabled:text-[#a9bac1]" disabled={!unreadCount} onClick={() => void markAllRead()} type="button"><CheckCheck size={15} />Đọc tất cả</button></div><div className="max-h-[min(32rem,70dvh)] overflow-y-auto">{notificationLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-semibold text-[#516274]"><LoaderCircle className="animate-spin text-[#c75b39]" size={19} />Đang tải…</div> : notificationError ? <div className="grid min-h-40 place-items-center px-5 text-center"><div><p className="text-sm font-bold text-[#a84343]">{notificationError}</p><button className="action-link mt-2" onClick={() => void loadNotifications()} type="button">Thử lại</button></div></div> : notifications.length ? notifications.map((item) => <Link className={`block min-h-16 border-b border-[#d5dfe2] px-5 py-4 transition last:border-0 hover:bg-[#eee8dc]/65 ${item.readAt ? "bg-[#fffdfa]" : "bg-[#f8ece6]/60"}`} href={notificationHref(item)} key={item.id} onClick={() => { void markRead(item); setNotificationOpen(false); }}><div className="flex items-start gap-3"><span className={`mt-1.5 size-2 shrink-0 rounded-full ${item.readAt ? "bg-[#a9bac1]" : "bg-[#c75b39]"}`} /><div><p className="text-sm font-bold text-[#102a43]">{item.title}</p><p className="mt-1 text-xs text-[#516274]">{new Date(item.createdAt).toLocaleString("vi-VN")}</p></div></div></Link>) : <div className="grid min-h-40 place-items-center px-5 text-center"><div><Bell className="mx-auto text-[#a9bac1]" size={28} /><p className="mt-2 text-sm font-bold text-[#516274]">Chưa có thông báo</p></div></div>}</div></section></> : null}
           </div>
         </header>

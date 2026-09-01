@@ -6,7 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type { LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -25,8 +25,8 @@ export default function MaterialsPage() {
   const [mimeFilter, setMimeFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +39,7 @@ export default function MaterialsPage() {
   const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
   const [reviewReason, setReviewReason] = useState("");
   const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
+  const clientPagination = usePagination(items);
 
   const load = useCallback(async () => {
     if (!allowed) return;
@@ -50,7 +51,7 @@ export default function MaterialsPage() {
       if (mimeFilter) params.set("mimeType", mimeFilter);
       if (tagFilter) params.set("tag", tagFilter);
       params.set("page", String(page));
-      params.set("pageSize", "12");
+      params.set("pageSize", String(pageSize));
       const [materialData, classData] = await Promise.all([
         learner
           ? apiRequest<{ items: Material[]; total: number; totalPages: number }>(`/learner/materials/search?${params}`, { roleCode: session.roleCode })
@@ -60,11 +61,9 @@ export default function MaterialsPage() {
       if (Array.isArray(materialData)) {
         setItems(materialData);
         setTotal(materialData.length);
-        setTotalPages(1);
       } else {
         setItems(materialData.items);
         setTotal(materialData.total);
-        setTotalPages(materialData.totalPages);
       }
       setClasses(classData);
     } catch (error) {
@@ -72,7 +71,7 @@ export default function MaterialsPage() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, classFilter, learner, mimeFilter, notify, page, query, session.roleCode, tagFilter]);
+  }, [allowed, classFilter, learner, mimeFilter, notify, page, pageSize, query, session.roleCode, tagFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
@@ -173,7 +172,7 @@ export default function MaterialsPage() {
   const preview = async (item: Material) => {
     try {
       const access = await apiRequest<{ url: string; expiresAt: string }>(`/materials/${item.id}/access?action=PREVIEW`, { roleCode: session.roleCode });
-      await previewApiFile(access.url, session.roleCode);
+      await previewApiFile(access.url, session.roleCode, item.name);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không mở được bản xem trước.", "error");
     }
@@ -194,12 +193,12 @@ export default function MaterialsPage() {
           <input className={`${inputClass} pl-10`} placeholder="Tìm tên, thư mục…" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
         </div>
         {learner ? <div className="min-w-64"><SearchableSelect aria-label="Tìm và lọc theo lớp" onChange={(value) => { setClassFilter(value); setPage(1); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Tất cả lớp đã ghi danh" value={classFilter} /></div> : null}
-        {learner ? <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select> : null}
+        {learner ? <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="application/msword">Word DOC</option><option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select> : null}
         {learner ? <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setPage(1); }} /> : null}
       </div>
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="border-y border-[#a9bac1] bg-[#fffdfa]/65">
-          {items.map((item) => (
+          {(learner ? items : clientPagination.pageItems).map((item) => (
             <article className="grid gap-4 border-b border-[#d5dfe2] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
               <div className="flex min-w-0 gap-4">
                 <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
@@ -228,7 +227,7 @@ export default function MaterialsPage() {
           ))}
         </div>
       </SectionState>
-      {learner && total > 0 ? <div className="mt-6 flex items-center justify-between rounded-xl border border-[#a9bac1] bg-[#fffdfa] px-4 py-3"><p className="text-sm text-slate-600">{total} học liệu · Trang {page}/{totalPages}</p><div className="flex gap-2"><Button disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} variant="secondary">Trang trước</Button><Button disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} variant="secondary">Trang sau</Button></div></div> : null}
+      {learner ? <Pagination itemLabel="học liệu" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} page={page} pageSize={pageSize} totalItems={total} /> : <Pagination itemLabel="học liệu" onPageChange={clientPagination.setPage} onPageSizeChange={clientPagination.setPageSize} page={clientPagination.page} pageSize={clientPagination.pageSize} totalItems={clientPagination.totalItems} />}
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Lớp học">
@@ -238,8 +237,9 @@ export default function MaterialsPage() {
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-sm font-bold text-sky-800">
               <UploadCloud size={21} />
               <span className="min-w-0 flex-1 truncate">{file?.name ?? "Chọn tệp từ máy"}</span>
-              <input className="sr-only" onChange={(event) => setFile(event.target.files?.[0] ?? null)} required type="file" />
+              <input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setFile(event.target.files?.[0] ?? null)} required type="file" />
             </label>
+            <span className="mt-1.5 block text-xs leading-5 text-[#516274]">Hỗ trợ PDF, Word (.doc, .docx), MP4, PNG và JPEG. Word được tải xuống để mở bằng ứng dụng tương thích.</span>
           </Field>
           <Field label="Thư mục"><input className={inputClass} required value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })} /></Field>
           <Field label="Thẻ — ngăn cách bằng dấu phẩy"><input className={inputClass} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field>
@@ -262,7 +262,7 @@ export default function MaterialsPage() {
         </form>
       </Modal>
       <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title="Tải phiên bản mới" description="Tệp đang dùng không bị ghi đè; phiên bản mới bắt đầu ở trạng thái nháp sau khi quét.">
-        <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#db9b83] bg-[#f8ece6] p-4 text-sm font-bold text-[#963f2a]"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-[#516274]">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Tệp mới vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
+        <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#db9b83] bg-[#f8ece6] p-4 text-sm font-bold text-[#963f2a]"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-[#516274]">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Hỗ trợ PDF, Word, MP4, PNG và JPEG; tệp vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
       </Modal>
       <Modal open={Boolean(historyTarget)} onClose={() => setHistoryTarget(null)} title="Lịch sử phiên bản" description={historyTarget?.name}>
         <div className="divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">{versions.map((version) => <article className="py-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={version.visibility} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString("vi-VN")}</p><Button className="px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
