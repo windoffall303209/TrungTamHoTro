@@ -1,0 +1,107 @@
+"use client";
+
+import { ArrowLeft, Check, ImagePlus, ScanLine, Sparkles, Trash2 } from "lucide-react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { AccessDenied } from "@/components/access-denied";
+import { PageHeader } from "@/components/page-header";
+import { SearchableSelect } from "@/components/searchable-select";
+import { Button, Field, FormattedTextarea, inputClass, RichText } from "@/components/ui";
+import { hasPermission } from "@/lib/access-control";
+import { apiRequest } from "@/lib/api-client";
+import type { Course, Question, QuestionImportResult } from "@/lib/learning-types";
+import { useApp } from "@/providers/app-provider";
+
+interface AiProvider { id: string; provider: string; name: string; model: string; isDefault: boolean; healthStatus: string }
+interface ScanDraft extends Omit<Question, "id" | "courseId" | "status" | "version"> { confidence: number; warnings: string[] }
+interface ScanResult { providerId: string; provider: string; model: string; sourceName: string; questions: ScanDraft[]; warnings: string[] }
+
+const objectiveTypes = new Set(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"]);
+
+export default function ScanQuestionsPage() {
+  const router = useRouter();
+  const { session, notify } = useApp();
+  const allowed = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:manage");
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [providers, setProviders] = useState<AiProvider[]>([]);
+  const [courseId, setCourseId] = useState("");
+  const [providerId, setProviderId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [drafts, setDrafts] = useState<ScanDraft[]>([]);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!allowed) return;
+    void Promise.all([
+      apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }),
+      apiRequest<AiProvider[]>("/instructor/question-bank/ai-providers", { roleCode: session.roleCode }),
+    ]).then(([courseData, providerData]) => { setCourses(courseData); setProviders(providerData); setProviderId(providerData.find((item) => item.isDefault)?.id ?? providerData[0]?.id ?? ""); }).catch((error) => notify(error instanceof Error ? error.message : "Không tải được dữ liệu quét đề.", "error"));
+  }, [allowed, notify, session.roleCode]);
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  const selectedDrafts = useMemo(() => selected.map((index) => drafts[index]).filter((item): item is ScanDraft => Boolean(item)), [drafts, selected]);
+
+  if (!allowed) return <AccessDenied />;
+  const chooseFile = (next?: File) => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]);
+  };
+  const scan = async () => {
+    if (!file || !providerId) return;
+    setScanning(true);
+    try {
+      const body = new FormData(); body.append("file", file); body.append("providerId", providerId);
+      const result = await apiRequest<ScanResult>("/instructor/question-bank/scan-image", { method: "POST", roleCode: session.roleCode, body });
+      setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);
+    } catch (error) { notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
+    finally { setScanning(false); }
+  };
+  const updateDraft = (index: number, patch: Partial<ScanDraft>) => setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  const save = async (createExam: boolean) => {
+    if (!courseId || !selectedDrafts.length) return;
+    setSaving(true);
+    try {
+      const results = await apiRequest<QuestionImportResult[]>("/instructor/question-bank/questions/import", { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ questions: selectedDrafts.map((question) => ({ courseId, type: question.type, content: question.content, options: question.options, correctAnswers: question.correctAnswers, difficulty: question.difficulty, tags: question.tags })) }) });
+      const ids = results.filter((item) => item.status === "IMPORTED" && item.questionId).map((item) => item.questionId!);
+      const published = await Promise.allSettled(ids.map((id) => apiRequest<Question>(`/instructor/question-bank/questions/${id}/publish`, { method: "POST", roleCode: session.roleCode })));
+      const publishedIds = published.flatMap((result) => result.status === "fulfilled" && result.value.status === "PUBLISHED" ? [result.value.id] : []);
+      notify(`Đã lưu ${ids.length}/${selectedDrafts.length} câu và gửi xuất bản.`);
+      if (createExam && publishedIds.length) { sessionStorage.setItem("wind-scan-question-ids", JSON.stringify(publishedIds)); router.push("/exams?create=scan"); }
+      else router.push("/questions");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được kết quả quét.", "error"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+      <button className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)]" onClick={() => router.push("/questions")} type="button"><ArrowLeft size={18} />Quay lại Ngân hàng câu hỏi</button>
+      <PageHeader eyebrow="AI Document Intake" title="Quét ảnh tạo câu hỏi" description="Tải ảnh đề, để AI nhận diện rồi rà soát nội dung, đáp án, Markdown và LaTeX trước khi lưu." />
+      <section className="grid gap-6 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] md:p-6">
+        <div className="space-y-4">
+          <Field label="Khóa học"><SearchableSelect aria-label="Tìm khóa học cho câu hỏi quét" onChange={setCourseId} options={courses.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, keywords: item.description }))} placeholder="Gõ mã hoặc tên khóa học…" value={courseId} /></Field>
+          <Field label="Nhà cung cấp AI"><SearchableSelect aria-label="Tìm nhà cung cấp AI" onChange={setProviderId} options={providers.map((item) => ({ value: item.id, label: item.name, description: `${item.model}${item.isDefault ? " · mặc định" : ""}`, keywords: `${item.provider} ${item.model}` }))} placeholder="Gõ tên hoặc model để lọc…" value={providerId} /></Field>
+          {!providers.length ? <p className="rounded-xl bg-[var(--warning-soft)] p-3 text-sm font-semibold text-[var(--warning-deep)]">Chưa có API key AI đang bật. Quản trị viên cần cấu hình tại Cấu hình → AI và quét đề.</p> : null}
+          <label className="grid min-h-36 cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--rule-strong)] bg-[var(--canvas)] p-5 text-center hover:border-[var(--accent)]"><input accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => chooseFile(event.target.files?.[0])} type="file" /><span><ImagePlus className="mx-auto text-[var(--accent-ink)]" size={28} /><strong className="mt-3 block">{file?.name ?? "Chọn ảnh đề thi"}</strong><small className="mt-1 block text-[var(--ink-soft)]">PNG, JPEG hoặc WebP · tối đa 12 MB</small></span></label>
+          {previewUrl ? <Image alt="Ảnh đề chuẩn bị quét" className="max-h-[420px] w-full rounded-xl border border-[var(--rule)] bg-white object-contain" height={1200} src={previewUrl} unoptimized width={900} /> : null}
+          <Button disabled={!file || !providerId} loading={scanning} onClick={() => void scan()}><ScanLine size={17} />Quét và nhận diện</Button>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--rule)] pb-3"><div><h2 className="font-heading text-xl font-extrabold">Bản nháp cần rà soát</h2><p className="mt-1 text-sm text-[var(--ink-soft)]">{drafts.length ? `${selected.length}/${drafts.length} câu được chọn` : "Kết quả quét sẽ xuất hiện ở đây."}</p></div><Sparkles className="text-[var(--accent-ink)]" size={22} /></div>
+          <div className="mt-4 max-h-[760px] space-y-4 overflow-y-auto pr-1">
+            {!drafts.length ? <div className="grid min-h-56 place-items-center text-center text-sm text-[var(--ink-muted)]">Chưa có dữ liệu quét.</div> : drafts.map((draft, index) => (
+              <article className="rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-4" key={index}>
+                <div className="flex items-start justify-between gap-3"><label className="flex items-center gap-2 text-sm font-bold"><input checked={selected.includes(index)} className="size-5 accent-[var(--accent)]" onChange={(event) => setSelected((current) => event.target.checked ? [...current, index] : current.filter((value) => value !== index))} type="checkbox" />Câu {index + 1}</label><span className="text-xs font-bold tabular-nums text-[var(--ink-muted)]">Tin cậy {Math.round(draft.confidence * 100)}%</span></div>
+                <div className="mt-4 space-y-3"><FormattedTextarea label="Nội dung" onChange={(content) => updateDraft(index, { content })} rows={3} value={draft.content} /><div className="grid gap-3 sm:grid-cols-2"><Field label="Dạng câu hỏi"><select className={inputClass} onChange={(event) => updateDraft(index, { type: event.target.value as ScanDraft["type"] })} value={draft.type}>{["SINGLE_CHOICE","MULTIPLE_CHOICE","TRUE_FALSE","SHORT_ANSWER","ESSAY"].map((type) => <option key={type} value={type}>{type}</option>)}</select></Field><Field label="Độ khó"><select className={inputClass} onChange={(event) => updateDraft(index, { difficulty: Number(event.target.value) as 1 | 2 | 3 })} value={draft.difficulty}><option value={1}>Cơ bản</option><option value={2}>Trung bình</option><option value={3}>Nâng cao</option></select></Field></div>{objectiveTypes.has(draft.type) ? <div className="space-y-2">{draft.options.map((option, optionIndex) => <div className="flex gap-2" key={optionIndex}><input className={inputClass} onChange={(event) => updateDraft(index, { options: draft.options.map((item, i) => i === optionIndex ? event.target.value : item) })} value={option} /><button aria-label={`Xóa lựa chọn ${optionIndex + 1}`} className="grid size-11 shrink-0 place-items-center rounded-xl text-[var(--ink-muted)] hover:bg-[var(--danger-soft)]" onClick={() => updateDraft(index, { options: draft.options.filter((_, i) => i !== optionIndex) })} type="button"><Trash2 size={16} /></button></div>)}</div> : null}<Field label="Đáp án đúng / ý tham khảo, mỗi dòng một ý"><textarea className={inputClass} onChange={(event) => updateDraft(index, { correctAnswers: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} rows={2} value={draft.correctAnswers.join("\n")} /></Field>{draft.warnings.length ? <ul className="rounded-lg bg-[var(--warning-soft)] px-3 py-2 text-xs leading-5 text-[var(--warning-deep)]">{draft.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul> : null}<details><summary className="cursor-pointer text-xs font-bold text-[var(--ink-soft)]">Xem bản render Markdown + LaTeX</summary><RichText className="mt-2 rounded-lg bg-[var(--canvas)] p-3 text-sm">{draft.content}</RichText></details></div>
+              </article>
+            ))}
+          </div>
+          {drafts.length ? <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--rule)] pt-4"><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(false)} variant="secondary"><Check size={16} />Lưu vào ngân hàng</Button><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(true)}><Sparkles size={16} />Lưu và tạo đề</Button></div> : null}
+        </div>
+      </section>
+    </div>
+  );
+}

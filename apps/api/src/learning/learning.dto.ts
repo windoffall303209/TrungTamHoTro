@@ -119,6 +119,11 @@ export class ReviewExamDto {
   @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
 }
 
+export class ReviewQuestionDto {
+  @IsIn(["APPROVE", "RETURN"]) decision!: "APPROVE" | "RETURN";
+  @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
+}
+
 export class SaveAnswerDto {
   @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
   @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(20_000, { each: true }) answers!: string[];

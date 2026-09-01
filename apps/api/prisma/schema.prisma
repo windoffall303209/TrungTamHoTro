@@ -612,6 +612,11 @@ model Question {
   familyId       String          @map("family_id") @db.VarChar(191)
   supersedesId   String?         @map("supersedes_id") @db.VarChar(191)
   contentHash    String          @map("content_hash") @db.VarChar(64)
+  imageObjectKey String?         @map("image_object_key") @db.VarChar(500)
+  imageName      String?         @map("image_name") @db.VarChar(255)
+  imageMimeType  String?         @map("image_mime_type") @db.VarChar(100)
+  imageSizeBytes BigInt?         @map("image_size_bytes")
+  imageChecksum  String?         @map("image_checksum") @db.VarChar(128)
   course         Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
   author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
   exams          ExamQuestion[]

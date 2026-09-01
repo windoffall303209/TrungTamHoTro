@@ -85,9 +85,10 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
 export async function previewApiFile(path: string, roleCode: RoleCode, fallbackFileName = "Học liệu"): Promise<void> {
   const previewWindow = window.open("", "_blank");
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
+  const palette = previewPalette();
   previewWindow.document.title = "Đang tải bản xem trước…";
   previewWindow.document.body.textContent = "Đang tải bản xem trước…";
-  previewWindow.document.body.style.cssText = "margin:0;display:grid;min-height:100vh;place-items:center;background:#f7f4ed;color:#102a43;font:600 15px system-ui,sans-serif";
+  previewWindow.document.body.style.cssText = `margin:0;display:grid;min-height:100vh;place-items:center;background:${palette.canvas};color:${palette.ink};font-weight:600;font-size:15px;font-family:${palette.fontFamily}`;
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { accept: "application/pdf,image/*,video/mp4,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document", "x-role-code": roleCode },
@@ -102,7 +103,7 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
     const blobUrl = URL.createObjectURL(blob);
     const mimeType = (response.headers.get("content-type") ?? blob.type).split(";", 1)[0]?.toLowerCase() ?? "application/octet-stream";
     const fileName = apiFileName(response.headers.get("content-disposition") ?? "", fallbackFileName);
-    renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType });
+    renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType }, palette);
     previewWindow.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });
     previewWindow.focus();
   } catch (error) {
@@ -111,7 +112,39 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
   }
 }
 
-function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fileName: string; mimeType: string }): void {
+interface PreviewPalette {
+  action: string;
+  actionInk: string;
+  canvas: string;
+  colorScheme: "light" | "dark";
+  fontFamily: string;
+  ink: string;
+  inkSoft: string;
+  rule: string;
+  surface: string;
+  surfaceMuted: string;
+}
+
+function previewPalette(): PreviewPalette {
+  const root = document.documentElement;
+  const styles = window.getComputedStyle(root);
+  const bodyStyles = window.getComputedStyle(document.body);
+  const read = (token: string, fallback: string) => styles.getPropertyValue(token).trim() || fallback;
+  return {
+    action: read("--action", "#102a43"),
+    actionInk: read("--action-ink", "#fffdfa"),
+    canvas: read("--canvas", "#f7f4ed"),
+    colorScheme: root.dataset.theme === "dark" ? "dark" : "light",
+    fontFamily: bodyStyles.fontFamily || '"Be Vietnam Pro", Arial, sans-serif',
+    ink: read("--ink", "#102a43"),
+    inkSoft: read("--ink-soft", "#516274"),
+    rule: read("--rule-strong", "#a9bac1"),
+    surface: read("--surface", "#fffdfa"),
+    surfaceMuted: read("--surface-muted", "#e9eef0"),
+  };
+}
+
+function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fileName: string; mimeType: string }, palette: PreviewPalette): void {
   const doc = previewWindow.document;
   doc.title = `${file.fileName} · Wind EDU`;
   try { previewWindow.history.replaceState(null, "", "/xem-tep"); } catch { /* about:blank may reject history changes in hardened browsers */ }
@@ -121,13 +154,13 @@ function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fil
 
   const style = doc.createElement("style");
   style.textContent = `
-    *{box-sizing:border-box}html,body{height:100%;margin:0}body{overflow:hidden;background:#e9eef0;color:#102a43;font-family:Arial,sans-serif}
-    header{height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #a9bac1;background:#fffdfa}
+    :root{color-scheme:${palette.colorScheme}}*{box-sizing:border-box}html,body{height:100%;margin:0}body{overflow:hidden;background:${palette.surfaceMuted};color:${palette.ink};font-family:${palette.fontFamily}}
+    header{height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid ${palette.rule};background:${palette.surface}}
     strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}.actions{display:flex;flex:none;gap:8px}
-    a,button{min-height:42px;border:1px solid #a9bac1;border-radius:10px;padding:0 14px;background:#fffdfa;color:#102a43;font:700 14px Arial,sans-serif;text-decoration:none;cursor:pointer;display:inline-flex;align-items:center}
-    button{background:#102a43;color:#fff;border-color:#102a43}main{height:calc(100% - 64px);display:grid;place-items:center;padding:16px}
-    iframe,img,video{width:100%;height:100%;border:0;background:#fff;object-fit:contain}.unsupported{max-width:560px;padding:28px;text-align:center;background:#fffdfa;border:1px solid #a9bac1;border-radius:14px}
-    .unsupported h1{margin:0 0 10px;font-size:22px}.unsupported p{margin:0;color:#516274;line-height:1.6}
+    a,button{min-height:42px;border:1px solid ${palette.rule};border-radius:12px;padding:0 14px;background:${palette.surface};color:${palette.ink};font:700 14px ${palette.fontFamily};text-decoration:none;cursor:pointer;display:inline-flex;align-items:center}
+    button{background:${palette.action};color:${palette.actionInk};border-color:${palette.action}}main{height:calc(100% - 64px);display:grid;place-items:center;padding:16px}
+    iframe,img,video{width:100%;height:100%;border:0;background:${palette.surface};object-fit:contain}.unsupported{max-width:560px;padding:28px;text-align:center;background:${palette.surface};border:1px solid ${palette.rule};border-radius:12px}
+    .unsupported h1{margin:0 0 10px;font-size:22px}.unsupported p{margin:0;color:${palette.inkSoft};line-height:1.6}
   `;
   doc.head.appendChild(style);
 

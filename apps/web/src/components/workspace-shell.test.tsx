@@ -13,9 +13,15 @@ vi.mock("@/providers/app-provider", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard", useRouter: () => ({ replace: vi.fn() }) }));
 
 describe("WorkspaceShell", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    document.documentElement.classList.remove("theme-changing");
+    delete document.documentElement.dataset.theme;
+    window.localStorage.clear();
+  });
 
   beforeEach(() => {
+    document.documentElement.dataset.theme = "light";
     apiRequest.mockReset();
     notify.mockReset();
     useApp.mockReset();
@@ -28,6 +34,23 @@ describe("WorkspaceShell", () => {
     apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/notifications"
       ? [{ id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", createdAt: "2026-08-27T07:00:00.000Z" }]
       : { id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", readAt: "2026-08-27T08:00:00.000Z", createdAt: "2026-08-27T07:00:00.000Z" }));
+  });
+
+  it("đặt nút giao diện trước thông báo và lưu lựa chọn sáng tối", async () => {
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+
+    const themeToggle = await screen.findByRole("button", { name: "Chuyển sang giao diện tối" });
+    const notification = await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" });
+    expect(themeToggle.compareDocumentPosition(notification) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(themeToggle);
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(window.localStorage.getItem("wind-edu-theme")).toBe("dark");
+    expect(screen.getByRole("button", { name: "Chuyển sang giao diện sáng" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Chuyển sang giao diện sáng" }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(window.localStorage.getItem("wind-edu-theme")).toBe("light");
   });
 
   it("hiển thị số chưa đọc và đánh dấu toàn bộ thông báo", async () => {

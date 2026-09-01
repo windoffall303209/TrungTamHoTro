@@ -9,6 +9,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import { ObjectStorageService, type StoredObject } from "../infrastructure/object-storage.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import { DEFAULT_MATERIAL_MIME_TYPES, includeSupportedDocumentMimeTypes, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
+import { SystemService, type ExamApprovalMode } from "../system/system.service.js";
 import type {
   AttendanceAppeal, AttendanceRecord, AttendanceSessionReview, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, ContentReport, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamApprovalRecord, ExamAttempt, FileReviewRecord, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerProgress, LearningClass, LearningNotification, ModerationActionRecord, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, RiskThresholds,
   LearnerExamSummary, LearnerResult, LearningCourse, LearningExam, LearningMaterial, LearningQuestion, LiveSession, MaterialVersionSnapshot, QuestionImportResult,
@@ -33,6 +34,7 @@ export interface MaterialDownload { fileName: string; mimeType: string; buffer: 
 export type MaterialAccessAction = "PREVIEW" | "DOWNLOAD";
 export interface MaterialSearchResult { items: LearningMaterial[]; total: number; page: number; pageSize: number; totalPages: number }
 type MemoryMaterialVersion = MaterialVersionSnapshot & { objectKey?: string; checksum?: string };
+type MemoryQuestionImage = { objectKey: string; fileName: string; mimeType: string; sizeBytes: number; checksum: string; buffer: Buffer };
 
 @Injectable()
 export class LearningService {
@@ -59,6 +61,7 @@ export class LearningService {
     { id: "q-rest-01", familyId: "q-rest-01", courseId: "course-web", type: "SINGLE_CHOICE", content: "HTTP method nào phù hợp để cập nhật một phần tài nguyên?", options: ["GET", "POST", "PATCH", "DELETE"], correctAnswers: ["PATCH"], difficulty: 1, tags: ["http", "api"], status: "PUBLISHED", version: 1 },
     { id: "q-db-01", familyId: "q-db-01", courseId: "course-web", type: "TRUE_FALSE", content: "Khóa ngoại giúp duy trì tính toàn vẹn tham chiếu.", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["database"], status: "PUBLISHED", version: 1 },
   ];
+  private readonly questionImages = new Map<string, MemoryQuestionImage>();
 
   private readonly exams: LearningExam[] = [
     { id: "exam-mid-web", classId: "class-web-01", title: "Kiểm tra giữa kỳ Web Full-stack", questionIds: ["q-rest-01", "q-db-01"], durationMinutes: 45, totalScore: 10, openAt: "2026-08-20T00:00:00.000Z", closeAt: "2026-12-30T23:59:00.000Z", attemptLimit: 2, status: "PUBLISHED", version: 1 },
@@ -98,6 +101,7 @@ export class LearningService {
     @Optional() private readonly config?: ConfigService<Environment, true>,
     @Optional() private readonly objectStorage?: ObjectStorageService,
     @Optional() private readonly antivirus?: AntivirusService,
+    @Optional() private readonly system?: SystemService,
   ) {}
 
   async listCourses(): Promise<LearningCourse[]> {
@@ -919,7 +923,7 @@ export class LearningService {
     return this.materialReviews.filter((review) => review.materialId === materialId).map((review) => ({ ...review }));
   }
 
-  async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string } = {}): Promise<LearningQuestion[]> {
+  async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string; status?: LearningQuestion["status"] } = {}): Promise<LearningQuestion[]> {
     const input = typeof filters === "string" ? { query: filters } : filters;
     const normalized = input.query?.trim().toLowerCase() ?? "";
     const matches = (item: LearningQuestion): boolean =>
@@ -927,13 +931,15 @@ export class LearningService {
       && (!input.courseId || item.courseId === input.courseId)
       && (!input.type || item.type === input.type)
       && (!input.difficulty || item.difficulty === input.difficulty)
-      && (!input.tag || item.tags.some((tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase()));
+      && (!input.tag || item.tags.some((tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase()))
+      && (!input.status || item.status === input.status);
     const prisma = this.database();
     if (prisma) {
-      const rows = await prisma.question.findMany({ orderBy: { createdAt: "desc" } });
+      const rows = await prisma.question.findMany({ where: input.status ? { status: input.status } : undefined, orderBy: { createdAt: "desc" } });
       return this.latestQuestionVersions(rows.map((row) => this.mapQuestion(row))).filter(matches);
     }
-    return this.latestQuestionVersions(this.questions).filter(matches).map((item) => this.cloneQuestion(item));
+    const candidates = input.status ? this.questions.filter((item) => item.status === input.status) : this.questions;
+    return this.latestQuestionVersions(candidates).filter(matches).map((item) => this.cloneQuestion(item));
   }
 
   async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
@@ -977,6 +983,8 @@ export class LearningService {
         id: id("question"), familyId, supersedesId: current.id, contentHash, courseId: normalized.courseId,
         authorId, type: normalized.type, content: normalized.content, options: normalized.options,
         correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags,
+        imageObjectKey: current.imageObjectKey, imageName: current.imageName, imageMimeType: current.imageMimeType,
+        imageSizeBytes: current.imageSizeBytes, imageChecksum: current.imageChecksum,
         status: "DRAFT", version: current.version + 1,
       } }));
     }
@@ -986,28 +994,137 @@ export class LearningService {
     const latest = this.questions.filter((item) => (item.familyId ?? item.id) === familyId).sort((a, b) => b.version - a.version)[0];
     if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể sửa phiên bản mới nhất của câu hỏi.");
     if (this.questions.some((item) => item.courseId === normalized.courseId && (item.familyId ?? item.id) !== familyId && this.questionContentHash(item.content) === contentHash)) throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
-    const next: LearningQuestion = { ...normalized, id: id("question"), familyId, supersedesId: current.id, status: "DRAFT", version: current.version + 1 };
+    const next: LearningQuestion = { ...normalized, id: id("question"), familyId, supersedesId: current.id, status: "DRAFT", version: current.version + 1, imageUrl: current.imageUrl, imageName: current.imageName, imageMimeType: current.imageMimeType, imageSizeBytes: current.imageSizeBytes };
     this.questions.unshift(next);
+    const currentImage = this.questionImages.get(current.id);
+    if (currentImage) {
+      this.questionImages.set(next.id, currentImage);
+      next.imageUrl = `/question-bank/questions/${next.id}/image?v=${encodeURIComponent(currentImage.checksum)}`;
+    }
     return this.cloneQuestion(next);
   }
 
-  async publishQuestion(questionId: string): Promise<LearningQuestion> {
+  async uploadQuestionImage(questionId: string, upload: UploadedMaterialFile): Promise<LearningQuestion> {
+    await this.validateQuestionImage(upload);
+    const fileName = normalizeMultipartFileName(upload.originalName);
+    const extension = upload.mimeType === "image/png" ? ".png" : upload.mimeType === "image/webp" ? ".webp" : ".jpg";
+    const objectKey = `question-images/${questionId}/${randomUUID()}${extension}`;
+    const checksum = `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}`;
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.question.findUnique({ where: { id: questionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+      const stored = await this.writeStoredFile(objectKey, upload.buffer);
+      try {
+        const updated = await prisma.question.update({ where: { id: questionId }, data: { imageObjectKey: stored.objectKey, imageName: fileName, imageMimeType: upload.mimeType, imageSizeBytes: BigInt(upload.size), imageChecksum: stored.checksum } });
+        if (current.imageObjectKey && current.imageObjectKey !== stored.objectKey) await this.removeQuestionObjectIfUnreferenced(current.imageObjectKey);
+        return this.mapQuestion(updated);
+      } catch (error) {
+        await this.removeStoredFile(stored.objectKey);
+        throw error;
+      }
+    }
+    const current = this.questions.find((item) => item.id === questionId);
+    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    this.questionImages.set(questionId, { objectKey, fileName, mimeType: upload.mimeType, sizeBytes: upload.size, checksum, buffer: Buffer.from(upload.buffer) });
+    current.imageUrl = `/question-bank/questions/${questionId}/image?v=${encodeURIComponent(checksum)}`;
+    current.imageName = fileName;
+    current.imageMimeType = upload.mimeType;
+    current.imageSizeBytes = upload.size;
+    return this.cloneQuestion(current);
+  }
+
+  async removeQuestionImage(questionId: string): Promise<LearningQuestion> {
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.question.findUnique({ where: { id: questionId } });
+      if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+      const updated = await prisma.question.update({ where: { id: questionId }, data: { imageObjectKey: null, imageName: null, imageMimeType: null, imageSizeBytes: null, imageChecksum: null } });
+      if (current.imageObjectKey) await this.removeQuestionObjectIfUnreferenced(current.imageObjectKey);
+      return this.mapQuestion(updated);
+    }
+    const current = this.questions.find((item) => item.id === questionId);
+    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    this.questionImages.delete(questionId);
+    delete current.imageUrl;
+    delete current.imageName;
+    delete current.imageMimeType;
+    delete current.imageSizeBytes;
+    return this.cloneQuestion(current);
+  }
+
+  async readQuestionImage(questionId: string, role: string, actorId: string): Promise<MaterialDownload> {
+    const prisma = this.database();
+    if (prisma) {
+      if (role === "LEARNER") {
+        const exam = await prisma.exam.findFirst({
+          where: { status: "PUBLISHED", questions: { some: { questionId } }, class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } }, attempts: { some: { learnerId: actorId, status: "IN_PROGRESS" } } },
+          include: { attempts: { where: { learnerId: actorId, status: "IN_PROGRESS" } } },
+        });
+        if (!exam || !exam.attempts.some((attempt) => this.attemptDeadline(attempt.startedAt, exam.durationMinutes, exam.closeAt) > new Date())) throw new NotFoundException("Không tìm thấy ảnh câu hỏi được phép xem.");
+      }
+      const question = await prisma.question.findUnique({ where: { id: questionId } });
+      if (!question?.imageObjectKey || !question.imageName || !question.imageMimeType) throw new NotFoundException("Không tìm thấy ảnh câu hỏi được phép xem.");
+      return { fileName: normalizeMultipartFileName(question.imageName), mimeType: question.imageMimeType, buffer: await this.readStoredFile(question.imageObjectKey) };
+    }
+    const question = this.questions.find((item) => item.id === questionId);
+    const canRead = role !== "LEARNER" || this.exams.some((exam) => exam.status === "PUBLISHED" && exam.questionIds.includes(questionId) && this.findClass(exam.classId).learnerIds.includes(actorId) && this.attempts.some((attempt) => attempt.examId === exam.id && attempt.learnerId === actorId && attempt.status === "IN_PROGRESS" && this.attemptDeadline(new Date(attempt.startedAt), exam.durationMinutes, new Date(exam.closeAt)) > new Date()));
+    const image = this.questionImages.get(questionId);
+    if (!question || !canRead || !image) throw new NotFoundException("Không tìm thấy ảnh câu hỏi được phép xem.");
+    return { fileName: image.fileName, mimeType: image.mimeType, buffer: Buffer.from(image.buffer) };
+  }
+
+  async publishQuestion(questionId: string, actorId = "usr-instructor"): Promise<LearningQuestion> {
+    const approvalMode = await this.getQuestionApprovalMode();
+    const nextStatus: LearningQuestion["status"] = approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
     const prisma = this.database();
     if (prisma) {
       const current = await prisma.question.findUnique({ where: { id: questionId } });
       if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
       if (current.status === "PUBLISHED") return this.mapQuestion(current);
+      if (current.status === "PENDING_REVIEW") return this.mapQuestion(current);
       const latest = await prisma.question.findFirst({ where: { familyId: current.familyId }, orderBy: { version: "desc" } });
       if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.");
-      return this.mapQuestion(await prisma.question.update({ where: { id: questionId }, data: { status: "PUBLISHED" } }));
+      return prisma.$transaction(async (transaction) => {
+        const updated = await transaction.question.update({ where: { id: questionId }, data: { status: nextStatus } });
+        await transaction.auditLog.create({ data: { actorId, action: approvalMode === "AUTO" ? "QUESTION_AUTO_APPROVED" : "QUESTION_SUBMITTED_FOR_REVIEW", entityType: "question", entityId: questionId, context: { version: current.version, approvalMode } } });
+        if (approvalMode === "AUTO") await transaction.notification.create({ data: { id: id("notification"), recipientId: current.authorId, type: "QUESTION_REVIEWED", title: "Câu hỏi đã được tự động phê duyệt", entityType: "QUESTION", entityId: questionId, dedupKey: `question-auto-approval:${questionId}:${current.version}:${current.authorId}` } });
+        return this.mapQuestion(updated);
+      });
     }
     const current = this.questions.find((item) => item.id === questionId);
     if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
     if (current.status === "PUBLISHED") return this.cloneQuestion(current);
+    if (current.status === "PENDING_REVIEW") return this.cloneQuestion(current);
     const familyId = current.familyId ?? current.id;
     const latest = this.questions.filter((item) => (item.familyId ?? item.id) === familyId).sort((a, b) => b.version - a.version)[0];
     if (latest?.id !== current.id) throw new ConflictException("Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.");
-    current.status = "PUBLISHED";
+    current.status = nextStatus;
+    if (approvalMode === "AUTO") this.notifications.unshift({ id: id("notification"), recipientId: actorId, type: "QUESTION_REVIEWED", title: "Câu hỏi đã được tự động phê duyệt", entityType: "QUESTION", entityId: questionId, createdAt: now() });
+    return this.cloneQuestion(current);
+  }
+
+  async reviewQuestion(questionId: string, decision: "APPROVE" | "RETURN", rawNote?: string, reviewerId = "usr-admin"): Promise<LearningQuestion> {
+    const reviewNote = rawNote?.trim();
+    if (decision === "RETURN" && (!reviewNote || reviewNote.length < 5)) throw new BadRequestException("Cần lý do ít nhất 5 ký tự khi trả lại câu hỏi.");
+    const nextStatus: LearningQuestion["status"] = decision === "APPROVE" ? "PUBLISHED" : "DRAFT";
+    const prisma = this.database();
+    if (prisma) {
+      return prisma.$transaction(async (transaction) => {
+        const current = await transaction.question.findUnique({ where: { id: questionId } });
+        if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+        if (current.status !== "PENDING_REVIEW") throw new ConflictException("Câu hỏi không ở trạng thái chờ phê duyệt.");
+        const reviewId = id("question-review");
+        const updated = await transaction.question.update({ where: { id: questionId }, data: { status: nextStatus } });
+        await transaction.auditLog.create({ data: { actorId: reviewerId, action: `QUESTION_${decision}`, entityType: "question", entityId: questionId, context: { version: current.version, reviewNote: reviewNote ?? "Đạt yêu cầu" } } });
+        await transaction.notification.create({ data: { id: id("notification"), recipientId: current.authorId, type: "QUESTION_REVIEWED", title: decision === "APPROVE" ? "Câu hỏi đã được phê duyệt" : `Câu hỏi đã được trả lại: ${reviewNote}`, entityType: "QUESTION", entityId: questionId, dedupKey: `${reviewId}:${current.authorId}` } });
+        return this.mapQuestion(updated);
+      });
+    }
+    const current = this.questions.find((item) => item.id === questionId);
+    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    if (current.status !== "PENDING_REVIEW") throw new ConflictException("Câu hỏi không ở trạng thái chờ phê duyệt.");
+    current.status = nextStatus;
     return this.cloneQuestion(current);
   }
 
@@ -1108,7 +1225,10 @@ export class LearningService {
       if (!activeAttempt || this.attemptDeadline(activeAttempt.startedAt, exam.durationMinutes, exam.closeAt) <= new Date()) {
         throw new BadRequestException("Lượt làm bài đã hết thời gian.");
       }
-      return exam.questions.map(({ question }) => ({ ...this.mapQuestion(question), correctAnswers: [] }));
+      const original = exam.questions.map(({ question }) => this.mapQuestion(question));
+      const questionIds = exam.shuffleQuestions ? this.seededOrder(original.map((question) => question.id), `${exam.randomSeed ?? "wind-exam-default"}:${learnerId}`) : original.map((question) => question.id);
+      const byId = new Map(original.map((question) => [question.id, question]));
+      return questionIds.map((questionId) => ({ ...byId.get(questionId)!, correctAnswers: [] }));
     }
     const exam = this.findExam(examId);
     if (exam.status !== "PUBLISHED") throw new BadRequestException("Đề chưa được phát hành.");
@@ -1121,17 +1241,37 @@ export class LearningService {
     if (!activeAttempt || this.attemptDeadline(new Date(activeAttempt.startedAt), exam.durationMinutes, new Date(exam.closeAt)) <= new Date()) {
       throw new BadRequestException("Lượt làm bài đã hết thời gian.");
     }
-    return exam.questionIds.map((questionId) => {
+    const questionIds = exam.shuffleQuestions ? this.seededOrder(exam.questionIds, `${exam.randomSeed ?? "wind-exam-default"}:${learnerId}`) : exam.questionIds;
+    return questionIds.map((questionId) => {
       const question = this.questions.find((item) => item.id === questionId);
       if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
       return { ...question, options: [...question.options], correctAnswers: [], tags: [...question.tags] };
     });
   }
 
+  async getInstructorExamPreview(examId: string, instructorId = "usr-instructor"): Promise<LearningQuestion[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const exam = await prisma.exam.findFirst({
+        where: { id: examId, class: { instructors: { some: { instructorId } } } },
+        include: { questions: { include: { question: true }, orderBy: { position: "asc" } } },
+      });
+      if (!exam) throw new NotFoundException("Không tìm thấy đề thi được phép xem.");
+      return exam.questions.map(({ question }) => this.mapQuestion(question));
+    }
+    const exam = this.findExam(examId);
+    if (!this.findClass(exam.classId).instructorIds.includes(instructorId)) throw new NotFoundException("Không tìm thấy đề thi được phép xem.");
+    return exam.questionIds.map((questionId) => {
+      const question = this.questions.find((item) => item.id === questionId);
+      if (!question) throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
+      return { ...question, options: [...question.options], correctAnswers: [...question.correctAnswers], tags: [...question.tags] };
+    });
+  }
+
   async createExam(input: Omit<LearningExam, "id" | "status" | "version">, actorId = "usr-instructor"): Promise<LearningExam> {
     if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
     if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
-    const orderedQuestionIds = input.shuffleQuestions ? this.seededOrder(input.questionIds, input.randomSeed?.trim() || "wind-exam-default") : [...input.questionIds];
+    const originalQuestionIds = [...input.questionIds];
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
@@ -1151,7 +1291,7 @@ export class LearningService {
         });
         const scorePerQuestion = input.totalScore / input.questionIds.length;
         await transaction.examQuestion.createMany({
-          data: orderedQuestionIds.map((questionId, position) => ({ examId: exam.id, questionId, position: position + 1, score: scorePerQuestion })),
+          data: originalQuestionIds.map((questionId, position) => ({ examId: exam.id, questionId, position: position + 1, score: scorePerQuestion })),
         });
         return this.getDatabaseExam(transaction, exam.id);
       });
@@ -1161,27 +1301,36 @@ export class LearningService {
     if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (new Set(input.questionIds).size !== input.questionIds.length) throw new BadRequestException("Danh sách đề không được chứa câu hỏi trùng.");
     if (input.questionIds.some((questionId) => !this.questions.some((question) => question.id === questionId && question.status === "PUBLISHED" && question.courseId === classItem.courseId))) throw new BadRequestException("Đề chỉ được dùng câu hỏi đã xuất bản thuộc khóa học của lớp.");
-    const item: LearningExam = { ...input, questionIds: orderedQuestionIds, id: id("exam"), status: "DRAFT", version: 1 };
+    const item: LearningExam = { ...input, questionIds: originalQuestionIds, id: id("exam"), status: "DRAFT", version: 1 };
     this.exams.unshift(item);
     return { ...item, questionIds: [...item.questionIds] };
   }
 
   async submitExamForReview(examId: string, actorId = "usr-instructor"): Promise<LearningExam> {
+    const approvalMode = await this.getExamApprovalMode();
+    const nextStatus: LearningExam["status"] = approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
     const prisma = this.database();
     if (prisma) {
-      const assignment = await prisma.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, select: { id: true } });
+      const assignment = await prisma.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, include: { class: { include: { instructors: true } } } });
       if (!assignment) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
       const exam = await this.getDatabaseExam(prisma, examId);
       if (!exam.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
       if (exam.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
-      await prisma.exam.update({ where: { id: examId }, data: { status: "PENDING_REVIEW" } });
-      return this.getDatabaseExam(prisma, examId);
+      return prisma.$transaction(async (transaction) => {
+        await transaction.exam.update({ where: { id: examId }, data: { status: nextStatus } });
+        if (approvalMode === "AUTO") {
+          await transaction.auditLog.create({ data: { actorId, action: "EXAM_AUTO_APPROVED", entityType: "exam", entityId: examId, context: { version: exam.version, approvalMode } } });
+          for (const { instructorId } of assignment.class.instructors) await transaction.notification.create({ data: { id: id("notification"), recipientId: instructorId, type: "EXAM_REVIEWED", title: `Đề ${assignment.title} đã được tự động phê duyệt`, entityType: "EXAM", entityId: examId, dedupKey: `exam-auto-approval:${examId}:${exam.version}:${instructorId}` } });
+        }
+        return this.getDatabaseExam(transaction, examId);
+      });
     }
     const item = this.findExam(examId);
     if (!this.findClass(item.classId).instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
     if (!item.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     if (item.status !== "DRAFT") throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
-    item.status = "PENDING_REVIEW";
+    item.status = nextStatus;
+    if (approvalMode === "AUTO") for (const recipientId of this.findClass(item.classId).instructorIds) this.notifications.unshift({ id: id("notification"), recipientId, type: "EXAM_REVIEWED", title: `Đề ${item.title} đã được tự động phê duyệt`, entityType: "EXAM", entityId: examId, createdAt: now() });
     return { ...item, questionIds: [...item.questionIds] };
   }
 
@@ -2866,6 +3015,18 @@ export class LearningService {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
   }
 
+  private async getExamApprovalMode(): Promise<ExamApprovalMode> {
+    // Các unit test khởi tạo service độc lập vẫn giữ quy trình thủ công cũ;
+    // trong ứng dụng thực tế SystemService luôn được inject và mặc định là AUTO.
+    if (!this.system) return "MANUAL";
+    return (await this.system.getSettings()).examApprovalMode;
+  }
+
+  private async getQuestionApprovalMode(): Promise<ExamApprovalMode> {
+    if (!this.system) return "AUTO";
+    return (await this.system.getSettings()).questionApprovalMode;
+  }
+
   private mapCourse(row: Prisma.CourseGetPayload<Record<string, never>>): LearningCourse {
     return {
       id: row.id,
@@ -2924,6 +3085,8 @@ export class LearningService {
   }
 
   private mapQuestion(row: Prisma.QuestionGetPayload<Record<string, never>>): LearningQuestion {
+    const imageSizeBytes = row.imageSizeBytes === null ? undefined : Number(row.imageSizeBytes);
+    if (imageSizeBytes !== undefined && !Number.isSafeInteger(imageSizeBytes)) throw new BadRequestException("Kích thước ảnh câu hỏi vượt giới hạn số an toàn.");
     return {
       id: row.id,
       courseId: row.courseId,
@@ -2933,10 +3096,14 @@ export class LearningService {
       correctAnswers: this.toStringArray(row.correctAnswers),
       difficulty: Math.min(3, Math.max(1, row.difficulty)) as 1 | 2 | 3,
       tags: this.toStringArray(row.tags),
-      status: row.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+      status: row.status === "PUBLISHED" ? "PUBLISHED" : row.status === "PENDING_REVIEW" ? "PENDING_REVIEW" : "DRAFT",
       version: row.version,
       familyId: row.familyId,
       supersedesId: row.supersedesId ?? undefined,
+      imageUrl: row.imageObjectKey ? `/question-bank/questions/${row.id}/image?v=${encodeURIComponent(row.imageChecksum ?? row.updatedAt.getTime().toString())}` : undefined,
+      imageName: row.imageName ?? undefined,
+      imageMimeType: row.imageMimeType ?? undefined,
+      imageSizeBytes,
     };
   }
 
@@ -3506,6 +3673,12 @@ export class LearningService {
     });
   }
 
+  private async removeQuestionObjectIfUnreferenced(objectKey: string): Promise<void> {
+    const prisma = this.database();
+    if (prisma && await prisma.question.count({ where: { imageObjectKey: objectKey } }) > 0) return;
+    await this.removeStoredFile(objectKey);
+  }
+
   private resolveObjectPath(objectKey: string): string {
     const root = resolve(this.config?.get("STORAGE_ROOT", { infer: true }) ?? "../TestDoAn-data");
     const target = resolve(root, objectKey);
@@ -3632,6 +3805,21 @@ export class LearningService {
     if (/<script\b|javascript:/i.test(text)) return "Phát hiện nội dung script có khả năng thực thi.";
     if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName)) return "Phần mở rộng tệp có khả năng thực thi.";
     return undefined;
+  }
+
+  private async validateQuestionImage(upload: UploadedMaterialFile): Promise<void> {
+    const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước ảnh không khớp nội dung nhận được.");
+    if (upload.size < 1 || upload.size > 8 * 1024 * 1024) throw new BadRequestException("Ảnh câu hỏi phải có kích thước từ 1 byte đến 8 MB.");
+    if (!allowedMimeTypes.has(upload.mimeType)) throw new BadRequestException("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP.");
+    const buffer = upload.buffer;
+    const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+    const signatureMatches = upload.mimeType === "image/png" ? isPng : upload.mimeType === "image/jpeg" ? isJpeg : isWebp;
+    if (!signatureMatches) throw new BadRequestException("Nội dung ảnh không khớp định dạng tệp đã khai báo.");
+    const threat = await this.scanUpload(upload);
+    if (threat) throw new BadRequestException(`Ảnh câu hỏi không an toàn: ${threat}`);
   }
 
   private async scanUpload(upload: UploadedMaterialFile): Promise<string | undefined> {

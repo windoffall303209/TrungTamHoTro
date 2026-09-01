@@ -139,7 +139,7 @@ export default function AttendancePage() {
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Attendance Governance" title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
 
-      <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
             <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
@@ -157,7 +157,7 @@ export default function AttendancePage() {
       </div>
 
       <div className="mt-7 grid gap-7 xl:grid-cols-[.85fr_1.15fr]">
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <div className="flex items-center gap-3"><FileJson className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Nhập dữ liệu nhà cung cấp</h2></div>
           <p className="mt-2 text-xs leading-5 text-slate-500">JSON là mảng gồm `providerParticipantId`, `learnerId`, `joinedAt`, `leftAt`. Hệ thống tự loại người ngoài lớp, chặn bản ghi trùng và tính phút thực tế.</p>
           <form className="mt-5 space-y-4" onSubmit={(event) => void syncProvider(event)}>
@@ -168,7 +168,7 @@ export default function AttendancePage() {
           </form>
         </section>
 
-        <section className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
+        <section className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           <div className="flex items-center gap-3 border-b border-slate-100 p-5"><UserCheck className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Kết quả điểm danh</h2></div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[620px] text-left text-sm">
@@ -184,9 +184,9 @@ export default function AttendancePage() {
         </section>
       </div>
 
-      <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
         <div className="flex items-center gap-3"><CheckCircle2 className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Yêu cầu điều chỉnh</h2></div>
-        <div className="mt-5 divide-y divide-[#d5dfe2] border-y border-[#d5dfe2]">
+        <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
           {review?.appeals.length ? review.appeals.map((appeal) => (
             <article className="px-1 py-5 md:px-4" key={appeal.id}>
               <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{appeal.learnerId}</p><p className="mt-1 text-sm leading-6 text-slate-600">{appeal.reason}</p></div><StatusBadge status={appeal.status} /></div>

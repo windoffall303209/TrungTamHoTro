@@ -153,7 +153,7 @@ export default function LiveClassesPage() {
         <div className="space-y-4">
           {pagination.pageItems.map((item) => (
             <article
-              className="grid gap-5 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+              className="grid gap-5 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
               key={item.id}
             >
               <div

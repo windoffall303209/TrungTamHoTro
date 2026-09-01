@@ -6,8 +6,10 @@ import { LearningService } from "./learning.service.js";
 import { AcademicController } from "./academic.controller.js";
 import { AcademicService } from "./academic.service.js";
 import { ExamAttemptReconciliationService } from "./exam-attempt-reconciliation.service.js";
+import { SystemModule } from "../system/system.module.js";
 
 @Module({
+  imports: [SystemModule],
   controllers: [CourseController, ContentController, EngagementController, AcademicController],
   providers: [LearningService, AcademicService, ExamAttemptReconciliationService],
   exports: [LearningService],

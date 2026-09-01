@@ -10,6 +10,10 @@ colors:
   rule: "#d5dfe2"
   rule-strong: "#a9bac1"
   vermilion: "#c75b39"
+  night-canvas: "#0b1620"
+  night-surface: "#172b3a"
+  night-ink: "#f5efe6"
+  night-vermilion: "#e47c59"
 typography:
   display:
     fontFamily: "Be Vietnam Pro, Arial, sans-serif"
@@ -71,6 +75,13 @@ Nền giấy ấm giữ trải nghiệm bình tĩnh, còn mực xanh đen và đ
 - **Đường sổ:** dùng làm ranh giới giữa hàng, vùng và nhóm dữ liệu.
 
 **The One Accent Rule.** Đỏ gạch không được dùng làm nền trang hoặc màu trang trí lặp lại; nó chỉ đánh dấu điều cần người dùng hành động hoặc nhận biết ngay.
+
+### Light & Dark
+
+- **Sáng — Giấy ban ngày:** nền giấy ấm, mặt phẳng ngà và mực xanh đen; phù hợp phòng học, văn phòng và môi trường có ánh sáng mạnh.
+- **Tối — Sổ giáo vụ ban đêm:** canvas xanh mực sâu, mặt phẳng xanh than phân tầng, chữ ngà ấm và đỏ gạch sáng hơn; giảm chói khi đọc lâu nhưng vẫn giữ nguyên nhận diện Wind EDU.
+- Hai theme dùng chung token theo vai trò (`canvas`, `surface`, `ink`, `rule`, `action`, `semantic`) thay vì đảo màu trực tiếp. Sidebar luôn là vùng mực đậm; surface và trạng thái được phối riêng cho từng theme.
+- Lựa chọn được lưu trên thiết bị. Khi chưa có lựa chọn, hệ thống mặc định dùng theme sáng và áp theme trước hydration để không nháy nền sai.
 
 ## Typography
 

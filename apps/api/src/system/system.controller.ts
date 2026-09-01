@@ -1,13 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type ModerationPolicy, type NotificationTemplate, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings, type TemplateTestDelivery } from "./system.service.js";
+import { AiProviderService, type AiProviderConfig, type AiProviderType } from "./ai-provider.service.js";
 
 const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
-class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsBoolean() moderationEnabled?: boolean; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
+class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsBoolean() moderationEnabled?: boolean; @IsOptional() @IsIn(["AUTO", "MANUAL"]) examApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsIn(["AUTO", "MANUAL"]) questionApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
 class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() credentialReference?: string; @IsOptional() @IsString() webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
@@ -21,15 +22,21 @@ class CreateRetentionPolicyDto { @IsString() category!: string; @IsInt() @Min(30
 class RunRetentionDto { @IsString() policyId!: string; @IsString() @MinLength(3) requestedBy!: string; @IsString() @MinLength(3) approvedBy!: string }
 class CreateLegalHoldDto { @IsString() category!: string; @IsString() @MinLength(5) @MaxLength(500) reason!: string }
 class UpdateAlertDto { @IsIn(["ACKNOWLEDGE", "MUTE", "RESOLVE"]) action!: "ACKNOWLEDGE" | "MUTE" | "RESOLVE"; @IsOptional() @IsInt() @Min(5) @Max(1440) muteMinutes?: number }
+class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType; @IsOptional() @IsString() @MaxLength(100) name?: string; @IsString() @MinLength(1) @MaxLength(200) model!: string; @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string; @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string; @IsOptional() @IsBoolean() enabled?: boolean; @IsOptional() @IsBoolean() isDefault?: boolean }
 
 @ApiTags("System") @Controller("system")
 export class SystemController {
-  constructor(private readonly system: SystemService) {}
+  constructor(private readonly system: SystemService, private readonly aiProviders: AiProviderService) {}
   @Get("modules") @ApiOperation({ summary: "Liệt kê các phân hệ sản phẩm" }) @ApiOkResponse({ description: "Danh sách phân hệ và trạng thái nền tảng" }) getModules(): typeof modules { return modules; }
   @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
   @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto, @CurrentSession() session: AuthenticatedSession): Promise<SystemSettings> { return this.system.updateSettings(input, session.user.id); }
   @Get("settings/history") @RequirePermissions("system:configure") listSettingHistory(): Promise<SystemSettingRevision[]> { return this.system.listSettingRevisions(); }
   @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
+  @Get("ai-providers/catalog") @RequirePermissions("system:configure") getAiProviderCatalog(): ReturnType<AiProviderService["getCatalog"]> { return this.aiProviders.getCatalog(); }
+  @Get("ai-providers") @RequirePermissions("system:configure") listAiProviders(): Promise<AiProviderConfig[]> { return this.aiProviders.list(); }
+  @Post("ai-providers") @RequirePermissions("system:configure") configureAiProvider(@Body() input: ConfigureAiProviderDto, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.configure(input, session.user.id); }
+  @Post("ai-providers/:providerId/test") @RequirePermissions("system:configure") testAiProvider(@Param("providerId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.test(id, session.user.id); }
+  @Delete("ai-providers/:providerId") @RequirePermissions("system:configure") async removeAiProvider(@Param("providerId") id: string): Promise<{ removed: true }> { await this.aiProviders.remove(id); return { removed: true }; }
   @Patch("integrations/:integrationId") @RequirePermissions("system:configure") updateIntegration(@Param("integrationId") id: string, @Body() input: ToggleIntegrationDto, @CurrentSession() session: AuthenticatedSession): Promise<IntegrationConfig> { return this.system.updateIntegration(id, input.enabled, session.user.id); }
   @Post("integrations/configure") @RequirePermissions("system:configure") configureIntegration(@Body() input: ConfigureIntegrationDto, @CurrentSession() session: AuthenticatedSession): Promise<IntegrationConfig> { return this.system.configureIntegration(input, session.user.id); }
   @Post("integrations/:integrationId/test") @RequirePermissions("system:configure") testIntegration(@Param("integrationId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<IntegrationConfig> { return this.system.testIntegration(id, session.user.id); }
