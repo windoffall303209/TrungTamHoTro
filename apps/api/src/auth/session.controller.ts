@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, HttpException, Param, Patch, Post, Query, Req, Res } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, HttpException, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
 import { ChangePasswordDto, ChangeVerificationEmailDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, GoogleMfaRecoveryDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResendVerificationDto, ResetPasswordDto, SecurityEmailChallengeDto, StartMfaSetupDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
@@ -173,6 +174,27 @@ export class SessionController {
 @Controller("account")
 export class AccountController {
   constructor(private readonly auth: AuthService) {}
+
+  @Get("avatar")
+  async avatar(@Headers("cookie") cookies?: string): Promise<StreamableFile> {
+    const session = await this.session(cookies);
+    const avatar = await this.auth.readAvatar(session.user.id);
+    return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
+  }
+
+  @Post("avatar")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 3 * 1024 * 1024, files: 1 } }))
+  async updateAvatar(@Headers("cookie") cookies: string | undefined, @UploadedFile() file?: { mimetype: string; size: number; buffer: Buffer }): Promise<object> {
+    if (!file) throw new BadRequestException("Hãy chọn một ảnh đại diện.");
+    const session = await this.session(cookies);
+    return this.auth.updateAvatar(session.user.id, { mimeType: file.mimetype, size: file.size, buffer: file.buffer });
+  }
+
+  @Delete("avatar")
+  async removeAvatar(@Headers("cookie") cookies?: string): Promise<object> {
+    const session = await this.session(cookies);
+    return this.auth.removeAvatar(session.user.id);
+  }
 
   @Get("profile")
   async profile(@Headers("cookie") cookies?: string): Promise<object> {

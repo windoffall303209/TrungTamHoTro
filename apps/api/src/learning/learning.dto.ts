@@ -41,7 +41,7 @@ export class DirectoryQueryDto {
 }
 
 export class AssignInstructorDto extends AssignUserDto {
-  @IsIn(["PRIMARY", "CO_INSTRUCTOR"]) role!: "PRIMARY" | "CO_INSTRUCTOR";
+  @IsOptional() @IsIn(["PRIMARY", "CO_INSTRUCTOR"]) role?: "PRIMARY" | "CO_INSTRUCTOR";
 }
 
 export class RemoveMemberDto {
@@ -84,13 +84,13 @@ export class ReviewMaterialDto {
 }
 
 export class CreateQuestionDto {
-  @IsString() courseId!: string;
+  @IsString() @IsNotEmpty() @MaxLength(191) courseId!: string;
   @IsIn(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"]) type!: LearningQuestion["type"];
-  @IsString() @MinLength(5) content!: string;
-  @IsArray() @IsString({ each: true }) options!: string[];
-  @IsArray() @IsString({ each: true }) correctAnswers!: string[];
+  @IsString() @MinLength(5) @MaxLength(20_000) content!: string;
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(5_000, { each: true }) options!: string[];
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(5_000, { each: true }) correctAnswers!: string[];
   @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
-  @IsArray() @IsString({ each: true }) tags!: string[];
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(100, { each: true }) tags!: string[];
 }
 
 export class UpdateQuestionDto extends CreateQuestionDto {}
@@ -120,8 +120,8 @@ export class ReviewExamDto {
 }
 
 export class SaveAnswerDto {
-  @IsString() questionId!: string;
-  @IsArray() @IsString({ each: true }) answers!: string[];
+  @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(20_000, { each: true }) answers!: string[];
 }
 
 export class GradeAttemptDto {

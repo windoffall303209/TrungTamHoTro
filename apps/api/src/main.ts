@@ -26,6 +26,7 @@ async function bootstrap(): Promise<void> {
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Accept", "Content-Type", "X-Role-Code", "X-CSRF-Token"],
+    exposedHeaders: ["Content-Disposition", "Content-Type", "Content-Length"],
   });
   app.use(helmet());
   app.use(compression());

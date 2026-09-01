@@ -344,6 +344,39 @@ describe("LearningService", () => {
     }
   });
 
+  it("tải lên và đọc lại học liệu Word DOCX", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "wind-word-material-"));
+    const config = {
+      get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT"
+        ? storageRoot
+        : key === "STORAGE_SIGNING_SECRET"
+          ? "test-storage-signing-secret-at-least-32-characters"
+          : undefined,
+    } as unknown as ConfigService<Environment, true>;
+    const service = new LearningService(undefined, config);
+    const mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const bytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+
+    try {
+      const material = await service.createMaterial("class-web-01", {
+        name: "Bài giảng đại số.docx",
+        mimeType,
+        sizeBytes: bytes.length,
+        folder: "Tuần 1",
+        tags: ["word"],
+      }, { originalName: "Bài giảng đại số.docx", mimeType, size: bytes.length, buffer: bytes });
+      const access = await service.createMaterialAccess(material.id, "INSTRUCTOR");
+      const signedUrl = new URL(access.url, "http://localhost");
+      const download = await service.readMaterialDownload(material.id, Number(signedUrl.searchParams.get("expires")), signedUrl.searchParams.get("signature") ?? "", "INSTRUCTOR");
+
+      expect(material.name).toBe("Bài giảng đại số.docx");
+      expect(download.mimeType).toBe(mimeType);
+      expect(download.buffer.equals(bytes)).toBe(true);
+    } finally {
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  });
+
   it("cách ly tệp có chữ ký nguy hiểm và cảnh báo đúng chủ tệp", async () => {
     const storageRoot = await mkdtemp(join(tmpdir(), "wind-quarantine-"));
     const config = { get: (key: keyof Environment): string | undefined => key === "STORAGE_ROOT" ? storageRoot : undefined } as unknown as ConfigService<Environment, true>;
@@ -482,6 +515,23 @@ describe("LearningService", () => {
     expect((await service.listQuestions({ tag: "security", difficulty: 2 }))[0]?.id).toBe(versionTwo.id);
     await service.publishQuestion(versionTwo.id);
     expect((await service.createExam({ classId: "class-web-01", title: "Đề dùng câu đã duyệt", questionIds: [versionTwo.id], durationMinutes: 15, totalScore: 10, openAt: "2026-09-01T00:00:00.000Z", closeAt: "2026-10-01T00:00:00.000Z", attemptLimit: 1 })).status).toBe("DRAFT");
+  });
+
+  it("giữ nguyên Markdown và LaTeX khi chuẩn hóa nội dung câu hỏi", async () => {
+    const service = new LearningService();
+    const question = await service.createQuestion({
+      courseId: "course-web",
+      type: "SINGLE_CHOICE",
+      content: "**Tính giá trị** của $x$:\n\n$$\n2x + 4 = 10\n$$",
+      options: ["$x = 2$", "$x = 3$"],
+      correctAnswers: ["$x = 3$"],
+      difficulty: 1,
+      tags: ["toán"],
+    });
+
+    expect(question.content).toContain("**Tính giá trị**");
+    expect(question.content).toContain("\n\n$$\n2x + 4 = 10\n$$");
+    expect(question.options).toEqual(["$x = 2$", "$x = 3$"]);
   });
 
   it("nhập câu hỏi hàng loạt và trả kết quả riêng cho từng dòng", async () => {

@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/api-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 
 const emptySession: SessionData = {
-  sessionId: "", user: { id: "", username: "", name: "", email: "", roleName: "" }, roleCode: "LEARNER", permissions: [], availableRoles: [],
+  sessionId: "", user: { id: "", username: "", name: "", email: "", roleName: "", avatarUrl: null }, roleCode: "LEARNER", permissions: [], availableRoles: [],
 };
 
 interface ToastState { id: number; message: string; tone: "success" | "error" | "info" }

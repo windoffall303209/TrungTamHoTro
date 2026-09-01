@@ -122,6 +122,21 @@ describe("Đăng ký và xác minh email qua API", () => {
     expect(loginData.user.username).toBe(username);
 
     const cookie = login.headers.get("set-cookie")?.split(";", 1)[0] ?? "";
+    const invalidAvatar = new FormData(); invalidAvatar.append("file", new Blob(["not-an-image"], { type: "image/png" }), "avatar.png");
+    const invalidAvatarResponse = await fetch(`${baseUrl}/account/avatar`, { method: "POST", headers: { cookie, "x-csrf-token": loginData.csrfToken }, body: invalidAvatar });
+    expect(invalidAvatarResponse.status).toBe(400);
+
+    const avatarBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    const avatarForm = new FormData(); avatarForm.append("file", new Blob([avatarBytes], { type: "image/png" }), "avatar.png");
+    const avatarUpload = await fetch(`${baseUrl}/account/avatar`, { method: "POST", headers: { cookie, "x-csrf-token": loginData.csrfToken }, body: avatarForm });
+    expect(avatarUpload.status).toBe(201);
+    expect(((await avatarUpload.json()) as Envelope<{ avatarUrl: string }>).data.avatarUrl).toMatch(/^\/account\/avatar\?v=\d+$/);
+    const avatarDownload = await fetch(`${baseUrl}/account/avatar`, { headers: { cookie } });
+    expect(avatarDownload.status).toBe(200);
+    expect(avatarDownload.headers.get("content-type")).toContain("image/png");
+    expect(Buffer.from(await avatarDownload.arrayBuffer())).toEqual(avatarBytes);
+    expect((await authenticatedRequest("DELETE", "/account/avatar", cookie, loginData.csrfToken)).status).toBe(200);
+
     const setup = await authenticatedRequest("POST", "/account/mfa/setup", cookie, loginData.csrfToken);
     expect(setup.status).toBe(201);
     const secret = (setup.body as Envelope<{ secret: string; otpauthUri: string }>).data.secret;

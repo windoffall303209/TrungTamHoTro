@@ -5,7 +5,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Tabs } from "@/components/ui";
 import { UserPicker } from "@/components/user-picker";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
@@ -28,6 +28,7 @@ export default function ClassOperationsPage() {
   const [decision, setDecision] = useState<ReviewDecision>("APPROVE");
   const [reviewNote, setReviewNote] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"members" | "materials" | "exams">("members");
 
   const load = useCallback(async () => {
     if (!canManage) return;
@@ -141,8 +142,9 @@ export default function ClassOperationsPage() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
+      <Tabs className="mt-6" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materials.filter((item) => item.visibility === "DRAFT").length }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
 
-      <section className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
+      {activeTab === "members" ? <section className="mt-7 overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
         <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-white p-6">
         <div className="flex items-center gap-3">
           <UsersRound className="text-sky-700" />
@@ -160,10 +162,9 @@ export default function ClassOperationsPage() {
           <div className="bg-white p-6"><h3 className="font-heading text-lg font-extrabold">Ghi danh học viên</h3><div className="mt-4 flex items-end gap-2"><div className="min-w-0 flex-1"><UserPicker classId={member.classId} label="Chọn học viên" onChange={(userId) => setMember({ ...member, learnerId: userId })} role="LEARNER" value={member.learnerId} /></div><Button aria-label="Ghi danh học viên" disabled={!member.learnerId} onClick={() => void assign("enrollments")}><UserPlus size={16} /></Button></div><div className="mt-4"><Field label="Nhập hàng loạt — mỗi email một dòng"><textarea className={inputClass} placeholder="hocvien1@example.com&#10;hocvien2@example.com" rows={3} value={bulkLearners} onChange={(event) => setBulkLearners(event.target.value)} /></Field><Button onClick={() => void importEnrollments()} variant="secondary"><Upload size={15} />Kiểm tra & nhập</Button></div>{importResults.length ? <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs">{importResults.map((item, index) => <p className={item.status === "ENROLLED" ? "text-emerald-700" : item.status === "FAILED" ? "text-rose-700" : "text-amber-700"} key={`${item.userId}-${index}`}>{item.userId}: {item.message}</p>)}</div> : null}<div className="mt-5 max-h-56 divide-y divide-[#d5dfe2] overflow-auto border-y border-[#d5dfe2]">{roster?.enrollments.filter((item) => item.status === "ACTIVE").map((item) => <div className="flex items-center justify-between gap-3 py-3" key={item.learnerId}><div className="min-w-0"><p className="truncate text-sm font-bold">{item.displayName ?? item.learnerId}</p><p className="truncate text-xs text-slate-500">{item.email ? `${item.email} · ` : ""}{item.source === "MANUAL" ? "Thủ công" : "Nhập hàng loạt"}</p></div><Button aria-label={`Gỡ ${item.displayName ?? item.learnerId}`} onClick={() => void removeMember("enrollments", item.learnerId)} variant="ghost"><Trash2 size={15} /></Button></div>)}</div></div>
         </div>
         {roster?.history.length ? <div className="border-t border-slate-100 p-6"><h3 className="flex items-center gap-2 text-sm font-extrabold"><History size={16} />Lịch sử thay đổi gần đây</h3><div className="mt-3 grid gap-2 md:grid-cols-2">{roster.history.slice(0, 6).map((item) => <div className="rounded-xl border border-slate-100 px-4 py-3 text-xs" key={item.id}><span className="font-bold">{item.memberId}</span> · {item.action}{item.reason ? ` — ${item.reason}` : ""}</div>)}</div></div> : null}
-      </section>
+      </section> : null}
 
-      <div className="mt-7 grid gap-7 xl:grid-cols-2">
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      {activeTab === "materials" ? <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <h2 className="font-heading text-xl font-extrabold">Học liệu chờ duyệt</h2>
           <div className="mt-4 space-y-3">
             {materials.some((item) => item.visibility === "DRAFT") ? materials.filter((item) => item.visibility === "DRAFT").map((item) => (
@@ -173,9 +174,9 @@ export default function ClassOperationsPage() {
               </div>
             )) : <p className="py-8 text-center text-sm text-slate-400">Không có học liệu chờ duyệt.</p>}
           </div>
-        </section>
+        </section> : null}
 
-        <section className="border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
+      {activeTab === "exams" ? <section className="mt-7 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-6">
           <h2 className="font-heading text-xl font-extrabold">Đề thi chờ phê duyệt</h2>
           <div className="mt-4 space-y-3">
             {pendingExams.length ? pendingExams.map((item) => (
@@ -185,8 +186,7 @@ export default function ClassOperationsPage() {
               </div>
             )) : <p className="py-8 text-center text-sm text-slate-400">Không có đề thi chờ phê duyệt.</p>}
           </div>
-        </section>
-      </div>
+        </section> : null}
 
       <Modal open={Boolean(reviewingExam)} onClose={() => setReviewingExam(null)} title="Phê duyệt đề thi" description={reviewingExam ? `${reviewingExam.title} · phiên bản ${reviewingExam.version}` : undefined}>
         <form className="space-y-4" onSubmit={(event) => void submitExamReview(event)}>

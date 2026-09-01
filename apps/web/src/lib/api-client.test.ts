@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiRequest } from "./api-client";
+import { ApiError, apiFileName, apiRequest } from "./api-client";
 
 describe("apiRequest", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -39,5 +39,15 @@ describe("apiRequest", () => {
       message: "Phản hồi từ hệ thống không đúng định dạng.",
       status: 502,
     } satisfies Partial<ApiError>);
+  });
+});
+
+describe("apiFileName", () => {
+  it("ưu tiên tên UTF-8 và giữ nguyên dấu tiếng Việt", () => {
+    expect(apiFileName("attachment; filename=\"Bai giang.pdf\"; filename*=UTF-8''B%C3%A0i%20gi%E1%BA%A3ng.pdf")).toBe("Bài giảng.pdf");
+  });
+
+  it("dùng filename tương thích khi máy chủ không gửi filename*", () => {
+    expect(apiFileName('attachment; filename="tai-lieu.docx"')).toBe("tai-lieu.docx");
   });
 });

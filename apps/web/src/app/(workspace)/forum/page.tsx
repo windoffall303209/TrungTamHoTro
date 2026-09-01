@@ -6,7 +6,7 @@ import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type {
   ContentReport,
@@ -60,6 +60,8 @@ export default function ForumPage() {
     tags: "",
     isPinned: false,
   });
+  const topicPagination = usePagination(topics);
+  const postPagination = usePagination(posts);
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -370,7 +372,7 @@ export default function ForumPage() {
       <SectionState loading={loading} empty={topics.length === 0}>
         <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
           <div className="overflow-hidden border-y border-[#a9bac1] bg-[#fffdfa]/65">
-            {topics.map((topic) => (
+            {topicPagination.pageItems.map((topic) => (
               <article className={`data-row border-b border-[#d5dfe2] last:border-b-0 ${selected?.id === topic.id ? "bg-[#f8ece6]" : "bg-transparent"}`} key={topic.id}>
               <button
                 aria-pressed={selected?.id === topic.id}
@@ -395,6 +397,7 @@ export default function ForumPage() {
               {learner ? <button className="action-link mb-3 ml-3" onClick={() => setReportTarget(topic)} type="button"><Flag size={13} />Báo cáo</button> : null}
               </article>
             ))}
+            <Pagination className="mx-4 mb-4" itemLabel="chủ đề" onPageChange={topicPagination.setPage} onPageSizeChange={topicPagination.setPageSize} page={topicPagination.page} pageSize={topicPagination.pageSize} totalItems={topicPagination.totalItems} />
           </div>
           <section className="min-h-80 border-y border-[#a9bac1] bg-[#fffdfa]/65 p-5">
             {selected ? (
@@ -413,7 +416,7 @@ export default function ForumPage() {
                 <div className="my-5 border-t border-slate-100" />
                 <div className="space-y-3">
                   {posts.length ? (
-                    posts.map((item) => (
+                    postPagination.pageItems.map((item) => (
                       <article className={`border-b border-[#d5dfe2] py-4 last:border-b-0 ${item.parentId ? "ml-6 border-t border-sky-200 pl-4" : ""}`} key={item.id}>
                         <p className="text-sm leading-6">{item.body}</p>
                         {item.mentionedUserIds.length ? (
@@ -441,6 +444,7 @@ export default function ForumPage() {
                     <p className="text-sm text-slate-400">Chưa có phản hồi.</p>
                   )}
                 </div>
+                <Pagination itemLabel="phản hồi" onPageChange={postPagination.setPage} onPageSizeChange={postPagination.setPageSize} page={postPagination.page} pageSize={postPagination.pageSize} totalItems={postPagination.totalItems} />
                 {learner ? (
                   <form className="mt-5" onSubmit={(e) => void createPost(e)}>
                     {replyTo ? <div className="mb-2 flex items-center justify-between rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800"><span>Đang trả lời: {replyTo.body.slice(0, 60)}</span><button className="action-link" onClick={() => setReplyTo(null)} type="button">Hủy</button></div> : null}

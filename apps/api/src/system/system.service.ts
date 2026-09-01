@@ -5,6 +5,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
 import { DatabaseBackupService } from "../infrastructure/database-backup.service.js";
 import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
+import { DEFAULT_MATERIAL_MIME_TYPES, includeSupportedDocumentMimeTypes } from "../infrastructure/file-transfer.js";
 
 export interface SystemSettings { centerName: string; timezone: string; locale: string; retentionDays: number; maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[]; moderationEnabled: boolean; notificationSender: string; maintenanceMode: boolean; version: number; effectiveAt: string; updatedBy: string; updatedAt: string }
 export interface SystemSettingRevision extends SystemSettings { id: string; key: string }
@@ -38,7 +39,7 @@ const defaultSettings = (): SystemSettings => ({
   retentionDays: 365,
   maxFileSizeMb: 50,
   storageQuotaMb: 10_240,
-  allowedMimeTypes: ["application/pdf", "video/mp4", "image/png", "image/jpeg"],
+  allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
   moderationEnabled: true,
   notificationSender: "Wind EDU",
   maintenanceMode: false,
@@ -613,7 +614,7 @@ export class SystemService {
       retentionDays: this.numberValue(record.retentionDays, fallback.retentionDays),
       maxFileSizeMb: this.numberValue(record.maxFileSizeMb, fallback.maxFileSizeMb),
       storageQuotaMb: this.numberValue(record.storageQuotaMb, fallback.storageQuotaMb),
-      allowedMimeTypes: this.stringArray(record.allowedMimeTypes, fallback.allowedMimeTypes),
+      allowedMimeTypes: includeSupportedDocumentMimeTypes(this.stringArray(record.allowedMimeTypes, fallback.allowedMimeTypes)),
       moderationEnabled: this.booleanValue(record.moderationEnabled, fallback.moderationEnabled),
       notificationSender: this.stringValue(record.notificationSender, fallback.notificationSender),
       maintenanceMode: this.booleanValue(record.maintenanceMode, fallback.maintenanceMode),

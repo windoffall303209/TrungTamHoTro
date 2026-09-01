@@ -4,7 +4,7 @@ import { Clock3, ExternalLink, History, Video } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -25,6 +25,7 @@ export default function LearningHistoryPage() {
   const [summaries, setSummaries] = useState<Record<string, Summary>>({});
   const [appealSession, setAppealSession] = useState<LiveSession | null>(null);
   const [appealReason, setAppealReason] = useState("");
+  const pagination = usePagination(items);
   const load = useCallback(async () => {
     if (session.roleCode !== "LEARNER") return;
     try {
@@ -113,7 +114,7 @@ export default function LearningHistoryPage() {
         description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
       />
       <div className="section-ledger mt-7">
-        {items.length ? items.map((item) => {
+        {items.length ? pagination.pageItems.map((item) => {
           const summary = summaries[item.id];
           return (
             <article
@@ -202,6 +203,7 @@ export default function LearningHistoryPage() {
           );
         }) : <p className="empty-copy">Chưa có buổi học nào trong lịch sử.</p>}
       </div>
+      <Pagination itemLabel="buổi học" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
       <Modal
         open={Boolean(appealSession)}
         onClose={() => setAppealSession(null)}

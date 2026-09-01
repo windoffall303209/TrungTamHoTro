@@ -6,7 +6,7 @@ const apiRequest = vi.fn();
 const notify = vi.fn();
 const useApp = vi.fn();
 
-vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args) }));
+vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args), publicApiUrl: (path: string) => `http://localhost:4000/api/v1${path}` }));
 vi.mock("@/providers/app-provider", () => ({
   useApp: () => useApp(),
 }));
@@ -38,6 +38,21 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: /Đọc tất cả/i }));
     await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/notifications/notice-1/read", { method: "PATCH", roleCode: "LEARNER" }));
     await waitFor(() => expect(screen.getByText("Đã đọc tất cả")).toBeInTheDocument());
+  });
+
+  it("đưa thông tin người dùng lên header và mở menu tài khoản khi rê chuột", async () => {
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" });
+
+    const trigger = screen.getByRole("button", { name: "Mở menu tài khoản" });
+    expect(screen.getByText("Lê Hoàng Nam")).toBeInTheDocument();
+    fireEvent.mouseEnter(trigger.parentElement!);
+
+    expect(screen.getByRole("menuitem", { name: "Thông tin" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("menuitem", { name: "Đăng xuất" })).toBeInTheDocument();
+    fireEvent.mouseLeave(trigger.parentElement!);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: "Thông tin" })).toBeInTheDocument();
   });
 
   it("giữ toàn bộ quyền giám sát chung cho quản trị hệ thống nhưng không trộn không gian cá nhân", async () => {

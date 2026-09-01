@@ -5,7 +5,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { AttendanceAppeal, AttendanceSessionReview, LiveSession } from "@/lib/learning-types";
@@ -24,6 +24,7 @@ export default function AttendancePage() {
   const [syncing, setSyncing] = useState(false);
   const [resolving, setResolving] = useState<AttendanceAppeal | null>(null);
   const [appealForm, setAppealForm] = useState({ decision: "APPROVE" as AppealDecision, resolution: "", status: "PRESENT", attendedMinutes: 0 });
+  const recordPagination = usePagination(review?.records ?? []);
 
   const loadReview = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
@@ -173,12 +174,13 @@ export default function AttendancePage() {
             <table className="w-full min-w-[620px] text-left text-sm">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Tham dự</th><th className="px-5 py-3">Trạng thái</th><th className="px-5 py-3">Nguồn</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {review?.records.map((item) => <tr key={item.learnerId}><td className="px-5 py-4 font-bold">{item.learnerId}</td><td className="px-5 py-4">{item.attendedMinutes} phút</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td><td className="px-5 py-4 text-xs text-slate-500">{item.providerParticipantId ?? "Điều chỉnh thủ công"}</td></tr>)}
+                {recordPagination.pageItems.map((item) => <tr key={item.learnerId}><td className="px-5 py-4 font-bold">{item.learnerId}</td><td className="px-5 py-4">{item.attendedMinutes} phút</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td><td className="px-5 py-4 text-xs text-slate-500">{item.providerParticipantId ?? "Điều chỉnh thủ công"}</td></tr>)}
               </tbody>
             </table>
             {!loading && !review?.records.length ? <p className="p-10 text-center text-sm text-slate-400">Chưa có dữ liệu điểm danh.</p> : null}
             {loading ? <p className="p-10 text-center text-sm text-slate-400">Đang tải dữ liệu…</p> : null}
           </div>
+          <Pagination className="mx-5 mb-5" itemLabel="bản ghi điểm danh" onPageChange={recordPagination.setPage} onPageSizeChange={recordPagination.setPageSize} page={recordPagination.page} pageSize={recordPagination.pageSize} totalItems={recordPagination.totalItems} />
         </section>
       </div>
 
