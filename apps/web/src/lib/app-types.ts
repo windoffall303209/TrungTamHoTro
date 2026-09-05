@@ -1,3 +1,4 @@
+/** Hợp đồng phiên, vai trò và quyền dùng chung cho RBAC phía giao diện. */
 export type RoleCode = "SYSTEM_ADMIN" | "CENTER_MANAGER" | "INSTRUCTOR" | "LEARNER";
 
 export type PermissionCode =

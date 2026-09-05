@@ -102,6 +102,7 @@ const settingsSections: Array<{ id: SettingsSection; title: string; description:
   { id: "history", title: "Lịch sử cấu hình", description: "Tra cứu phiên bản, thời điểm hiệu lực và người cập nhật.", icon: History },
 ];
 
+/** Hiển thị danh mục cấu hình và từng màn hình con cho vận hành, tích hợp, duyệt và AI. */
 export default function SettingsPage() {
   const { session, notify } = useApp();
   const router = useRouter();
@@ -125,6 +126,7 @@ export default function SettingsPage() {
     credentialReference: "",
     webhookUrl: "",
   });
+  /** Nạp cấu hình hệ thống, tích hợp và nhà cung cấp AI theo quyền quản trị. */
   const load = useCallback(async () => {
     if (!canConfigure) return;
     try {
@@ -167,6 +169,7 @@ export default function SettingsPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Lưu quy định vận hành chung sau khi chuẩn hóa các trường danh sách và giới hạn. */
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!settings) return;
@@ -209,6 +212,7 @@ export default function SettingsPage() {
       setSaving(false);
     }
   };
+  /** Bật/tắt một tích hợp hiện có và tải lại trạng thái thực từ API. */
   const toggle = async (item: Integration) => {
     try {
       await apiRequest(`/system/integrations/${item.id}`, {
@@ -227,6 +231,7 @@ export default function SettingsPage() {
       );
     }
   };
+  /** Lưu thông tin kết nối; bí mật chỉ được gửi khi người dùng nhập giá trị mới. */
   const configure = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!configuring) return;
@@ -252,6 +257,7 @@ export default function SettingsPage() {
       );
     }
   };
+  /** Yêu cầu máy chủ kiểm tra kết nối tích hợp mà không thay đổi cấu hình. */
   const testIntegration = async (item: Integration) => {
     try {
       await apiRequest(`/system/integrations/${item.id}/test`, {
@@ -268,6 +274,7 @@ export default function SettingsPage() {
       await load();
     }
   };
+  /** Đặt tích hợp làm lựa chọn mặc định duy nhất cho loại dịch vụ tương ứng. */
   const setDefault = async (item: Integration) => {
     try {
       await apiRequest(`/system/integrations/${item.id}/default`, {
@@ -285,6 +292,7 @@ export default function SettingsPage() {
       );
     }
   };
+  /** Tạo cuộc họp thử để xác minh cả xác thực và quyền của nhà cung cấp. */
   const testMeeting = async (item: Integration) => {
     try {
       const result = await apiRequest<{ attendeeUrl: string }>(
@@ -299,6 +307,7 @@ export default function SettingsPage() {
       );
     }
   };
+  /** Khởi chạy sao lưu thủ công và hiển thị kết quả cho quản trị viên. */
   const backup = async () => {
     try {
       await apiRequest("/system/backups", {
@@ -315,6 +324,7 @@ export default function SettingsPage() {
       );
     }
   };
+  /** Chuyển giữa tự động duyệt và duyệt tay cho đề thi ở cấp hệ thống. */
   const saveExamApprovalMode = async (mode: Settings["examApprovalMode"]) => {
     if (!settings || settings.examApprovalMode === mode) return;
     setSaving(true);
@@ -333,6 +343,7 @@ export default function SettingsPage() {
       setSaving(false);
     }
   };
+  /** Chuyển giữa tự động duyệt và duyệt tay cho câu hỏi trong ngân hàng. */
   const saveQuestionApprovalMode = async (mode: Settings["questionApprovalMode"]) => {
     if (!settings || settings.questionApprovalMode === mode) return;
     setSaving(true);
@@ -351,12 +362,14 @@ export default function SettingsPage() {
       setSaving(false);
     }
   };
+  /** Mở editor với cấu hình đã che bí mật hoặc mẫu mặc định của nhà cung cấp mới. */
   const openAiEditor = (item?: AiProvider, provider: AiProviderType = "CUSTOM") => {
     const target = item ?? null;
     setEditingAi(target);
     setAiEditorOpen(true);
     setAiForm({ provider: target?.provider ?? provider, name: target?.provider === "CUSTOM" ? target.name : "", model: target?.model ?? (provider === "GEMINI" ? "gemini-2.5-flash" : provider === "NVIDIA_NIM" ? "meta/llama-3.2-90b-vision-instruct" : provider === "OPENAI" ? "gpt-5.4-mini" : ""), baseUrl: target?.baseUrl ?? "", apiKey: "", enabled: target?.enabled ?? true, isDefault: target?.isDefault ?? false });
   };
+  /** Lưu nhà cung cấp AI và chỉ thay API key khi quản trị viên nhập khóa mới. */
   const saveAiProvider = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true);
     try {
@@ -365,11 +378,13 @@ export default function SettingsPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được cấu hình AI.", "error"); }
     finally { setSaving(false); }
   };
+  /** Gọi phép thử ngắn để xác nhận endpoint, model và khóa AI hoạt động. */
   const testAiProvider = async (item: AiProvider) => {
     try { await apiRequest(`/system/ai-providers/${item.id}/test`, { method: "POST", roleCode: session.roleCode }); notify(`Kết nối ${item.name} hoạt động.`); }
     catch (error) { notify(error instanceof Error ? error.message : "Kiểm tra kết nối AI thất bại.", "error"); }
     finally { await load(); }
   };
+  /** Xóa cấu hình nhà cung cấp AI sau xác nhận và làm mới danh sách. */
   const removeAiProvider = async (item: AiProvider) => {
     try { await apiRequest(`/system/ai-providers/${item.id}`, { method: "DELETE", roleCode: session.roleCode }); notify(`Đã xóa cấu hình ${item.name}.`); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không xóa được cấu hình AI.", "error"); }

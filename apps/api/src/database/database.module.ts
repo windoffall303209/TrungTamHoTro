@@ -6,5 +6,6 @@ import { PrismaService } from "./prisma.service.js";
   providers: [PrismaService],
   exports: [PrismaService],
 })
+/** Cung cấp một PrismaService dùng chung cho toàn bộ module nghiệp vụ. */
 export class DatabaseModule {}
 

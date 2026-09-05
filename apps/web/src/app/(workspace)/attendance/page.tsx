@@ -13,6 +13,7 @@ import { useApp } from "@/providers/app-provider";
 
 type AppealDecision = "APPROVE" | "REJECT";
 
+/** Cung cấp màn hình đối soát điểm danh, khóa dữ liệu và xử lý khiếu nại. */
 export default function AttendancePage() {
   const { session, notify } = useApp();
   const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
@@ -26,6 +27,7 @@ export default function AttendancePage() {
   const [appealForm, setAppealForm] = useState({ decision: "APPROVE" as AppealDecision, resolution: "", status: "PRESENT", attendedMinutes: 0 });
   const recordPagination = usePagination(review?.records ?? []);
 
+  /** Nạp bản đối soát chi tiết của một buổi học cùng các sai lệch cần xử lý. */
   const loadReview = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
     setLoading(true);
@@ -38,6 +40,7 @@ export default function AttendancePage() {
     }
   }, [notify, session.roleCode]);
 
+  /** Nạp danh sách buổi có quyền quản lý và giữ lựa chọn hiện tại nếu còn hợp lệ. */
   const loadSessions = useCallback(async () => {
     if (!canManage) return;
     try {
@@ -56,6 +59,7 @@ export default function AttendancePage() {
     return () => window.clearTimeout(timer);
   }, [loadSessions]);
 
+  /** Tổng hợp nhanh trạng thái điểm danh để trình bày KPI của buổi đang xem. */
   const statistics = useMemo(() => {
     const records = review?.records ?? [];
     return {
@@ -66,6 +70,7 @@ export default function AttendancePage() {
     };
   }, [review]);
 
+  /** Đồng bộ dữ liệu tham dự từ nhà cung cấp họp trực tuyến vào bản điểm danh. */
   const syncProvider = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedId) return;
@@ -94,6 +99,7 @@ export default function AttendancePage() {
     }
   };
 
+  /** Khóa bảng điểm danh sau đối soát để ngăn chỉnh sửa ngoài quy trình khiếu nại. */
   const lockAttendance = async () => {
     if (!selectedId || !window.confirm("Khóa kỳ điểm danh? Sau khi khóa, mọi đồng bộ và điều chỉnh sẽ bị từ chối.")) return;
     try {
@@ -105,12 +111,14 @@ export default function AttendancePage() {
     }
   };
 
+  /** Mở biểu mẫu xử lý khiếu nại với trạng thái hiện tại của bản ghi tương ứng. */
   const openAppeal = (appeal: AttendanceAppeal) => {
     const current = review?.records.find((item) => item.learnerId === appeal.learnerId);
     setResolving(appeal);
     setAppealForm({ decision: "APPROVE", resolution: "", status: current?.status ?? "PRESENT", attendedMinutes: current?.attendedMinutes ?? 0 });
   };
 
+  /** Chấp nhận hoặc từ chối khiếu nại và cập nhật bản ghi điểm danh liên quan. */
   const resolveAppeal = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!resolving) return;

@@ -12,6 +12,7 @@ import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+/** Quản lý lịch, trạng thái tham gia và vòng đời của các buổi học trực tuyến. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
@@ -34,6 +35,7 @@ export default function LiveClassesPage() {
     provider: "GOOGLE_MEET",
     reason: "",
   });
+  /** Nạp lớp và buổi trực tuyến theo phạm vi vai trò, đồng thời giữ bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -58,11 +60,13 @@ export default function LiveClassesPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
   useEffect(() => {
+    /** Cập nhật mốc thời gian dùng để tính trạng thái sắp diễn ra/đang học trên giao diện. */
     const updateClock = () => setClock(Date.now());
     updateClock();
     const timer = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  /** Tạo buổi học trực tuyến mới sau khi chuẩn hóa mốc thời gian sang ISO. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -86,9 +90,13 @@ export default function LiveClassesPage() {
       );
     }
   };
+  /** Chuẩn hóa dữ liệu buổi học vào input datetime-local và mở editor đổi lịch. */
   const openEdit = (item: LiveSession) => { setEditing(item); setForm({ classId: item.classId, title: item.title, startsAt: new Date(item.startsAt).toISOString().slice(0, 16), endsAt: new Date(item.endsAt).toISOString().slice(0, 16), provider: item.provider, reason: "" }); setOpen(true); };
+  /** Đổi lịch buổi học, ghi nhận lý do và để máy chủ phát thông báo cho lớp. */
   const update = async (event: React.FormEvent) => { event.preventDefault(); if (!editing) return; try { await apiRequest(`/manager/sessions/${editing.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ title: form.title, startsAt: new Date(form.startsAt).toISOString(), endsAt: new Date(form.endsAt).toISOString(), provider: form.provider, reason: form.reason }) }); notify("Đã đổi lịch và gửi thông báo cho lớp."); setOpen(false); setEditing(null); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không đổi được lịch.", "error"); } };
+  /** Hủy buổi học với lý do bắt buộc và làm mới lịch sau khi API gửi thông báo. */
   const cancel = async (item: LiveSession) => { const reason = window.prompt("Lý do hủy buổi học"); if (!reason) return; try { await apiRequest(`/manager/sessions/${item.id}/cancel`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason }) }); notify("Đã hủy buổi học và gửi thông báo."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không hủy được buổi học.", "error"); } };
+  /** Chuyển trạng thái vận hành của buổi học qua endpoint hành động tương ứng. */
   const transition = async (
     item: LiveSession,
     status: "LIVE" | "COMPLETED" | "CANCELLED",
@@ -108,6 +116,7 @@ export default function LiveClassesPage() {
       );
     }
   };
+  /** Ghi nhận tham gia và mở liên kết phòng học được máy chủ cấp. */
   const join = async (item: LiveSession) => {
     try {
       const result = await apiRequest<{ attendeeUrl: string; joinedAt: string }>(
@@ -124,6 +133,7 @@ export default function LiveClassesPage() {
       );
     }
   };
+  /** Ghi nhận thời điểm rời phòng để phục vụ đối soát điểm danh. */
   const leave = async (item: LiveSession) => {
     try {
       const result = await apiRequest<{ attendedMinutes: number }>(`/learner/sessions/${item.id}/leave`, { method: "POST", roleCode: session.roleCode });

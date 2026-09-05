@@ -10,4 +10,5 @@ import { CsrfGuard } from "./csrf.guard.js";
   providers: [AuthService, { provide: APP_GUARD, useClass: PermissionGuard }, { provide: APP_GUARD, useClass: CsrfGuard }],
   exports: [AuthService],
 })
+/** Đăng ký API phiên/tài khoản và áp dụng guard phân quyền, CSRF trên toàn ứng dụng. */
 export class AuthModule {}

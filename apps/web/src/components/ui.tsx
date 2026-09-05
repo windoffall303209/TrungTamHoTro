@@ -7,11 +7,13 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
+/** Nút dùng chung với biến thể màu, trạng thái loading và hành vi disabled nhất quán. */
 export function Button({ children, variant = "primary", loading = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost"; loading?: boolean }) {
   const styles = { primary: "bg-[var(--action)] text-[var(--action-ink)] hover:bg-[var(--accent)]", secondary: "border border-[var(--rule-strong)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--action)]", danger: "bg-[var(--danger-fill)] text-[var(--status-on-fill)] hover:bg-[var(--danger-hover)]", ghost: "text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" };
   return <button aria-busy={loading || undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform] duration-200 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} /> : null}{children}</button>;
 }
 
+/** Ghép nhãn, control và lỗi trường thành một khối form thống nhất. */
 export function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return <label className="block text-sm font-bold text-[var(--ink)]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[var(--danger)]">{error}</span> : null}</label>;
 }
@@ -20,6 +22,7 @@ export const inputClass = "min-h-11 w-full rounded-xl border border-[var(--rule-
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
+/** Thanh tab có count, ARIA và hỗ trợ chuyển focus bằng phím mũi tên. */
 export function Tabs<T extends string>({ items, value, onChange, label, className = "" }: {
   items: Array<{ value: T; label: string; count?: number }>;
   value: T;
@@ -28,6 +31,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   className?: string;
 }) {
   const baseId = useId();
+  /** Chuyển tab vòng tròn và đưa focus tới tab vừa chọn. */
   const moveFocus = (currentIndex: number, direction: -1 | 1) => {
     const nextIndex = (currentIndex + direction + items.length) % items.length;
     const next = items[nextIndex];
@@ -61,6 +65,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   );
 }
 
+/** Quản lý phân trang phía client, ép page size vào tập 10/20/30/40/50 và tự chặn trang vượt giới hạn. */
 export function usePagination<T>(items: readonly T[], initialPageSize = 10) {
   const safeInitialSize = PAGE_SIZE_OPTIONS.includes(initialPageSize as (typeof PAGE_SIZE_OPTIONS)[number]) ? initialPageSize : 10;
   const [requestedPage, setRequestedPage] = useState(1);
@@ -86,6 +91,7 @@ export function usePagination<T>(items: readonly T[], initialPageSize = 10) {
   };
 }
 
+/** Rút gọn danh sách nút trang quanh trang hiện tại và chèn ellipsis khi có khoảng cách. */
 function visiblePages(page: number, totalPages: number) {
   const pages = new Set([1, totalPages, page - 1, page, page + 1]);
   const ordered = [...pages].filter((item) => item >= 1 && item <= totalPages).sort((a, b) => a - b);
@@ -95,6 +101,7 @@ function visiblePages(page: number, totalPages: number) {
   });
 }
 
+/** Điều khiển phân trang accessible, hiển thị phạm vi hiện tại và selector số dòng. */
 export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSizeChange, itemLabel = "mục", className = "" }: {
   totalItems: number;
   page: number;
@@ -132,6 +139,7 @@ export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSiz
   );
 }
 
+/** Hộp thoại khóa cuộn, giữ focus bên trong, đóng bằng Escape và trả focus về phần tử trước. */
 export function Modal({ open, title, description, onClose, children, size = "md" }: { open: boolean; title: string; description?: string; onClose: () => void; children: React.ReactNode; size?: "md" | "xl" }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -149,6 +157,7 @@ export function Modal({ open, title, description, onClose, children, size = "md"
     const focusable = dialog?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
     window.requestAnimationFrame(() => focusable?.focus());
 
+    /** Đóng modal bằng Escape trong khi vẫn để trình duyệt xử lý các phím khác. */
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -176,6 +185,7 @@ export function Modal({ open, title, description, onClose, children, size = "md"
   return <div className="fixed inset-0 z-[70] grid place-items-center p-4"><button aria-label="Đóng hộp thoại" className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm" onClick={onClose} tabIndex={-1} type="button" /><section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-2xl border border-[var(--rule)] bg-[var(--surface)] p-5 shadow-[var(--dialog-shadow)] md:p-7 ${size === "xl" ? "max-w-6xl" : "max-w-xl"}`} ref={dialogRef} role="dialog"><button aria-label="Đóng" className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" onClick={onClose} type="button"><X size={19} /></button><h2 className="pr-12 font-heading text-2xl font-bold tracking-[-0.025em] text-[var(--ink)]" id={titleId}>{title}</h2>{description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-soft)]" id={descriptionId}>{description}</p> : null}<div className="mt-6">{children}</div></section></div>;
 }
 
+/** Render Markdown/GFM và công thức LaTeX qua KaTeX cho nội dung đa môn. */
 export function RichText({ children, className = "" }: { children: string; className?: string }) {
   return (
     <div className={`rich-content min-w-0 text-[var(--ink)] ${className}`}>
@@ -188,6 +198,7 @@ export function RichText({ children, className = "" }: { children: string; class
 
 type FormatAction = "bold" | "italic" | "inline-math" | "block-math";
 
+/** Textarea có toolbar chèn Markdown in đậm/nghiêng và LaTeX vào vùng đang chọn. */
 export function FormattedTextarea({ value, onChange, label, rows = 5, required = false, minLength, placeholder, error, disabled = false, compact = false }: {
   value: string;
   onChange: (value: string) => void;
@@ -203,6 +214,7 @@ export function FormattedTextarea({ value, onChange, label, rows = 5, required =
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const errorId = useId();
 
+  /** Bao vùng chọn bằng cú pháp định dạng rồi khôi phục focus/selection sau render. */
   const applyFormat = (action: FormatAction) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -251,6 +263,7 @@ export function FormattedTextarea({ value, onChange, label, rows = 5, required =
   );
 }
 
+/** Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt và màu ngữ nghĩa. */
 export function StatusBadge({ status }: { status: string }) {
   const style = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED"].includes(status)
     ? "border-[var(--success)]/25 bg-[var(--success)]/10 text-[var(--success-deep)]"

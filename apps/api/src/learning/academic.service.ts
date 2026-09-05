@@ -16,6 +16,7 @@ export interface ClassAnnouncementView { id: string; classId: string; classCode:
 export interface GradebookRow { learnerId: string; learnerName: string; learnerEmail: string; examEarned: number; examPossible: number; assignmentEarned: number; assignmentPossible: number; totalPercent: number }
 
 @Injectable()
+/** Thực thi nghiệp vụ bài tập, tệp bài nộp, sổ điểm, lịch và thông báo trên Prisma. */
 export class AcademicService {
   constructor(
     private readonly prisma: PrismaService,
@@ -23,6 +24,7 @@ export class AcademicService {
     private readonly antivirus: AntivirusService,
   ) {}
 
+  /** Lọc bài tập theo lớp truy cập được và chỉ gắn bài nộp của chính học viên. */
   async listAssignments(session: AuthenticatedSession, classId?: string): Promise<AssignmentView[]> {
     const classIds = await this.accessibleClassIds(session);
     if (classId && !classIds.includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
@@ -34,6 +36,7 @@ export class AcademicService {
     return rows.map((row) => this.mapAssignment(row, row.submissions[0]));
   }
 
+  /** Kiểm tra quyền dạy, đối chiếu tổng rubric và tạo bài tập ở trạng thái nháp. */
   async createAssignment(classId: string, input: { title: string; description: string; instructions: string; dueAt: string; maxScore: number; rubric: Array<{ title: string; description: string; maxPoints: number }> }, session: AuthenticatedSession): Promise<AssignmentView> {
     await this.requireTeachingAccess(classId, session);
     const dueAt = new Date(input.dueAt);
@@ -45,6 +48,7 @@ export class AcademicService {
     return this.mapAssignment(row);
   }
 
+  /** Chuyển bài tập sang PUBLISHED sau khi xác nhận quyền phụ trách lớp. */
   async publishAssignment(assignmentId: string, session: AuthenticatedSession): Promise<AssignmentView> {
     const current = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
     if (!current) throw new NotFoundException("Không tìm thấy bài tập.");
@@ -59,6 +63,7 @@ export class AcademicService {
     return this.mapAssignment(row);
   }
 
+  /** Quét/lưu tệp trước khi upsert bài nộp và dọn object mới nếu transaction thất bại. */
   async submitAssignment(assignmentId: string, content: string | undefined, session: AuthenticatedSession, files: UploadedAssignmentFile[] = []): Promise<AssignmentSubmissionView> {
     if (session.roleCode !== "LEARNER") throw new ForbiddenException("Chỉ học viên được nộp bài.");
     this.validateAssignmentFiles(files);
@@ -95,6 +100,7 @@ export class AcademicService {
     }
   }
 
+  /** Bổ sung tệp bằng cách dùng lại luồng submit và giữ nội dung hiện có. */
   async addSubmissionAttachments(submissionId: string, files: UploadedAssignmentFile[], session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
     if (!files.length) throw new BadRequestException("Cần chọn ít nhất một tệp.");
     const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId } });
@@ -102,6 +108,7 @@ export class AcademicService {
     return this.submitAssignment(submission.assignmentId, undefined, session, files);
   }
 
+  /** Kiểm tra chủ sở hữu, xóa bản ghi tệp rồi dọn object khỏi storage. */
   async removeSubmissionAttachment(submissionId: string, attachmentId: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
     if (session.roleCode !== "LEARNER") throw new ForbiddenException("Chỉ học viên được sửa tệp bài nộp.");
     const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: true } });
@@ -116,6 +123,7 @@ export class AcademicService {
     return this.mapSubmission(row);
   }
 
+  /** Cho học viên sở hữu hoặc người dạy lớp đọc tệp bài nộp. */
   async readSubmissionAttachment(submissionId: string, attachmentId: string, session: AuthenticatedSession): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
     const attachment = await this.prisma.assignmentSubmissionAttachment.findFirst({ where: { id: attachmentId, submissionId }, include: { submission: { include: { assignment: true } } } });
     if (!attachment) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
@@ -127,6 +135,7 @@ export class AcademicService {
     return { buffer: await this.objectStorage.get(attachment.objectKey), fileName: attachment.originalName, mimeType: attachment.mimeType };
   }
 
+  /** Liệt kê mọi bài nộp sau khi kiểm tra quyền giảng dạy. */
   async listSubmissions(assignmentId: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView[]> {
     const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
     if (!assignment) throw new NotFoundException("Không tìm thấy bài tập.");
@@ -135,6 +144,7 @@ export class AcademicService {
     return rows.map((row) => this.mapSubmission(row));
   }
 
+  /** Kiểm tra điểm từng rubric không vượt trần rồi lưu kết quả và thời điểm chấm. */
   async gradeSubmission(submissionId: string, rubricScores: Array<{ criterionId: string; score: number }>, feedback: string, session: AuthenticatedSession): Promise<AssignmentSubmissionView> {
     const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true } });
     if (!submission) throw new NotFoundException("Không tìm thấy bài nộp.");
@@ -155,6 +165,7 @@ export class AcademicService {
     return this.mapSubmission(row);
   }
 
+  /** Tổng hợp điểm thi và bài tập đã chấm thành tỷ lệ chung cho từng học viên. */
   async gradebook(classId: string, session: AuthenticatedSession): Promise<GradebookRow[]> {
     await this.requireTeachingAccess(classId, session);
     const classItem = await this.prisma.learningClass.findUnique({ where: { id: classId }, include: {
@@ -173,6 +184,7 @@ export class AcademicService {
     });
   }
 
+  /** Hợp nhất các mốc lớp, buổi học, đề thi và bài tập rồi sắp xếp theo thời gian. */
   async calendar(session: AuthenticatedSession, classId?: string): Promise<AcademicCalendarEvent[]> {
     const classIds = await this.accessibleClassIds(session);
     if (classId && !classIds.includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
@@ -187,6 +199,7 @@ export class AcademicService {
     return events.sort((a, b) => a.startAt.localeCompare(b.startAt));
   }
 
+  /** Trả thông báo mới nhất trong phạm vi lớp của người dùng. */
   async listAnnouncements(session: AuthenticatedSession, classId?: string): Promise<ClassAnnouncementView[]> {
     const classIds = await this.accessibleClassIds(session);
     if (classId && !classIds.includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
@@ -194,6 +207,7 @@ export class AcademicService {
     return rows.map((row) => ({ id: row.id, classId: row.classId, classCode: row.class.code, title: row.title, body: row.body, authorName: row.author.displayName, publishedAt: row.publishedAt.toISOString() }));
   }
 
+  /** Kiểm tra quyền dạy rồi tạo thông báo gắn với tác giả hiện tại. */
   async createAnnouncement(classId: string, title: string, body: string, session: AuthenticatedSession): Promise<ClassAnnouncementView> {
     await this.requireTeachingAccess(classId, session);
     return this.prisma.$transaction(async (transaction) => {
@@ -205,25 +219,30 @@ export class AcademicService {
     });
   }
 
+  /** Tính lớp truy cập được theo vai trò quản trị, phân công giảng viên hoặc ghi danh học viên. */
   private async accessibleClassIds(session: AuthenticatedSession): Promise<string[]> {
     if (session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN") return (await this.prisma.learningClass.findMany({ select: { id: true } })).map((item) => item.id);
     if (session.roleCode === "INSTRUCTOR") return (await this.prisma.classInstructor.findMany({ where: { instructorId: session.user.id }, select: { classId: true } })).map((item) => item.classId);
     return (await this.prisma.classEnrollment.findMany({ where: { learnerId: session.user.id, status: "ACTIVE" }, select: { classId: true } })).map((item) => item.classId);
   }
 
+  /** Cho quản trị hoặc giảng viên được phân công tiếp tục và từ chối các phiên còn lại. */
   private async requireTeachingAccess(classId: string, session: AuthenticatedSession): Promise<void> {
     if (session.roleCode !== "INSTRUCTOR") throw new ForbiddenException("Nghiệp vụ học thuật chỉ dành cho giảng viên được phân công.");
     if (!session.permissions.includes("exam:manage") || !(await this.accessibleClassIds(session)).includes(classId)) throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
   }
 
+  /** Ánh xạ assignment Prisma và submission tùy chọn sang view model học vụ. */
   private mapAssignment(row: Prisma.AssignmentGetPayload<{ include: { class: { select: { code: true } }; submissions: { include: { learner: { select: { displayName: true; email: true } }; attachments: true } } } }>, submission?: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } }; attachments: true } }>): AssignmentView {
     return { id: row.id, classId: row.classId, classCode: row.class.code, title: row.title, description: row.description, instructions: row.instructions, dueAt: row.dueAt.toISOString(), maxScore: Number(row.maxScore), rubric: this.rubric(row.rubric), status: row.status, createdById: row.createdById, submission: submission ? this.mapSubmission(submission) : undefined, createdAt: row.createdAt.toISOString() };
   }
 
+  /** Chuyển bài nộp và tệp đính kèm sang dữ liệu trả cho giao diện. */
   private mapSubmission(row: Prisma.AssignmentSubmissionGetPayload<{ include: { learner: { select: { displayName: true; email: true } }; attachments: true } }>): AssignmentSubmissionView {
     return { id: row.id, assignmentId: row.assignmentId, learnerId: row.learnerId, learnerName: row.learner.displayName, learnerEmail: row.learner.email, content: row.content, attachments: row.attachments.map((item) => ({ id: item.id, originalName: item.originalName, mimeType: item.mimeType, sizeBytes: Number(item.sizeBytes), createdAt: item.createdAt.toISOString(), canPreview: item.mimeType === "application/pdf" || item.mimeType.startsWith("image/") })), status: row.status, submittedAt: row.submittedAt.toISOString(), score: row.score === null ? undefined : Number(row.score), rubricScores: this.rubricScores(row.rubricScores), feedback: row.feedback ?? undefined, gradedAt: row.gradedAt?.toISOString() };
   }
 
+  /** Giới hạn số lượng, kích thước, MIME và magic bytes của tệp bài nộp. */
   private validateAssignmentFiles(files: UploadedAssignmentFile[]): void {
     if (files.length > 5) throw new BadRequestException("Mỗi lần chỉ được chọn tối đa 5 tệp.");
     const mimeByExtension: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf", doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", txt: "text/plain" };
@@ -245,11 +264,13 @@ export class AcademicService {
     }
   }
 
+  /** Thu hẹp JSON rubric đã lưu về cấu trúc tiêu chí ứng dụng sử dụng. */
   private rubric(value: Prisma.JsonValue): RubricCriterion[] {
     if (!Array.isArray(value)) throw new BadRequestException("Rubric lưu trữ không hợp lệ.");
     return value.map((item) => { const row = item as Record<string, unknown>; return { id: String(row.id), title: String(row.title), description: String(row.description), maxPoints: Number(row.maxPoints) }; });
   }
 
+  /** Thu hẹp JSON điểm rubric, trả mảng rỗng khi dữ liệu không phải danh sách. */
   private rubricScores(value: Prisma.JsonValue | null): Array<{ criterionId: string; score: number }> {
     if (!Array.isArray(value)) return [];
     return value.map((item) => { const row = item as Record<string, unknown>; return { criterionId: String(row.criterionId), score: Number(row.score) }; });

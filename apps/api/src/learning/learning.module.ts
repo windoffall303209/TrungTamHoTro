@@ -14,4 +14,5 @@ import { SystemModule } from "../system/system.module.js";
   providers: [LearningService, AcademicService, ExamAttemptReconciliationService],
   exports: [LearningService],
 })
+/** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */
 export class LearningModule {}

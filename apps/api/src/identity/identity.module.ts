@@ -7,5 +7,6 @@ import { IdentityService } from "./identity.service.js";
   providers: [IdentityService],
   exports: [IdentityService],
 })
+/** Đóng gói API và nghiệp vụ quản trị người dùng, vai trò, quyền và audit danh tính. */
 export class IdentityModule {}
 

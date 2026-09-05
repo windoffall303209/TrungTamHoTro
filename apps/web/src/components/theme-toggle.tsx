@@ -8,11 +8,14 @@ type Theme = "light" | "dark";
 const storageKey = "wind-edu-theme";
 const themeEvent = "wind-edu-theme-change";
 
+/** Đọc theme đã áp dụng trực tiếp trên document root. */
 function activeTheme(): Theme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
+/** Đồng bộ theme giữa component và các tab trình duyệt qua custom/storage event. */
 function subscribe(callback: () => void): () => void {
+  /** Đồng bộ lựa chọn giao diện khi một tab khác thay đổi localStorage. */
   const syncStoredTheme = (event: StorageEvent) => {
     if (event.key !== storageKey || (event.newValue !== "light" && event.newValue !== "dark")) return;
     document.documentElement.dataset.theme = event.newValue;
@@ -28,9 +31,11 @@ function subscribe(callback: () => void): () => void {
   };
 }
 
+/** Nút chuyển sáng/tối, lưu lựa chọn và cập nhật màu chrome trình duyệt. */
 export function ThemeToggle() {
   const theme = useSyncExternalStore(subscribe, activeTheme, () => "light");
 
+  /** Áp dụng theme mới tức thời và bật lớp chuyển màu ngắn để giao diện không giật. */
   function toggleTheme(): void {
     const root = document.documentElement;
     const nextTheme: Theme = activeTheme() === "dark" ? "light" : "dark";

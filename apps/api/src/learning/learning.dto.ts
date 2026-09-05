@@ -5,6 +5,7 @@ import {
 import { Type } from "class-transformer";
 import type { LearningQuestion } from "./learning.types.js";
 
+/** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */
 export class CreateCourseDto {
   @IsString() @MinLength(2) @MaxLength(50) code!: string;
   @IsString() @MinLength(3) @MaxLength(200) name!: string;
@@ -20,6 +21,7 @@ export class UpdateCourseDto {
 
 export class ArchiveCourseDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string; }
 
+/** Dữ liệu mở lớp từ một phiên bản khóa học cùng quy mô và lịch vận hành. */
 export class CreateClassDto {
   @IsString() courseId!: string;
   @IsString() @MinLength(2) code!: string;
@@ -67,6 +69,7 @@ export class CreateMaterialDto {
   @IsArray() @IsString({ each: true }) tags!: string[];
 }
 
+/** Metadata đi kèm file upload học liệu; nội dung binary do interceptor cung cấp. */
 export class UploadMaterialDto {
   @IsString() folder!: string;
   @IsOptional() @IsString() tags = "";
@@ -83,6 +86,7 @@ export class ReviewMaterialDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
+/** Nội dung câu hỏi đa môn, hỗ trợ rich text/LaTeX, đáp án, độ khó và ảnh tùy chọn. */
 export class CreateQuestionDto {
   @IsString() @IsNotEmpty() @MaxLength(191) courseId!: string;
   @IsIn(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"]) type!: LearningQuestion["type"];
@@ -101,6 +105,7 @@ export class ImportQuestionsDto {
   questions!: CreateQuestionDto[];
 }
 
+/** Cấu hình đề thi, danh sách câu theo thứ tự gốc và quy tắc mở/đóng/xáo trộn. */
 export class CreateExamDto {
   @IsString() classId!: string;
   @IsString() @MinLength(3) title!: string;
@@ -124,6 +129,7 @@ export class ReviewQuestionDto {
   @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
 }
 
+/** Đáp án tạm thời của một câu trong lượt thi đang làm. */
 export class SaveAnswerDto {
   @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
   @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(20_000, { each: true }) answers!: string[];
@@ -177,6 +183,7 @@ export class AppealReportDto {
   @IsString() @MinLength(10) reason!: string;
 }
 
+/** Dữ liệu lên lịch buổi học trực tuyến và nhà cung cấp phòng họp. */
 export class CreateSessionDto {
   @IsString() @MinLength(3) title!: string;
   @IsDateString() startsAt!: string;
@@ -192,6 +199,7 @@ export class CancelSessionDto { @IsString() @MinLength(5) @MaxLength(500) reason
 
 export class TransitionSessionDto { @IsIn(["LIVE", "COMPLETED", "CANCELLED"]) status!: "LIVE" | "COMPLETED" | "CANCELLED"; }
 
+/** Điều chỉnh điểm danh thủ công kèm lý do để phục vụ audit. */
 export class UpdateAttendanceDto {
   @IsString() learnerId!: string;
   @IsIn(["PRESENT", "LATE", "ABSENT", "EXCUSED"]) status!: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
@@ -228,6 +236,7 @@ export class ResolveAttendanceAppealDto {
   @IsOptional() @IsInt() @Min(0) attendedMinutes?: number;
 }
 
+/** Bộ ngưỡng lọc dùng khi tổng hợp tiến độ lớp và phát hiện học viên cần hỗ trợ. */
 export class ProgressQueryDto {
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
@@ -257,6 +266,7 @@ export class CreateReportExportDto {
   @IsIn(["CSV"]) format!: "CSV";
 }
 
+/** Nội dung phiếu hỗ trợ và mức ưu tiên do người dùng gửi. */
 export class CreateTicketDto {
   @IsString() category!: string;
   @IsIn(["P0", "P1", "P2", "P3"]) severity!: "P0" | "P1" | "P2" | "P3";

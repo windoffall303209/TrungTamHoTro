@@ -14,6 +14,7 @@ import { useApp } from "@/providers/app-provider";
 
 type ReviewDecision = "APPROVE" | "RETURN";
 
+/** Tập trung thao tác nhân sự lớp, ghi danh và duyệt nội dung/đề thi. */
 export default function ClassOperationsPage() {
   const { session, notify } = useApp();
   const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
@@ -30,6 +31,7 @@ export default function ClassOperationsPage() {
   const [reviewing, setReviewing] = useState(false);
   const [activeTab, setActiveTab] = useState<"members" | "materials" | "exams">("members");
 
+  /** Nạp song song lớp, người dùng và các hàng đợi duyệt theo quyền hiện tại. */
   const load = useCallback(async () => {
     if (!canManage) return;
     try {
@@ -47,6 +49,7 @@ export default function ClassOperationsPage() {
     }
   }, [canManage, notify, session.roleCode]);
 
+  /** Nạp giảng viên và học viên của lớp để hiển thị, phân công hoặc gỡ thành viên. */
   const loadRoster = useCallback(async (classId: string) => {
     if (!classId || !canManage) return;
     try { setRoster(await apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, { roleCode: session.roleCode })); }
@@ -60,6 +63,7 @@ export default function ClassOperationsPage() {
 
   useEffect(() => { const timer = window.setTimeout(() => void loadRoster(member.classId), 0); return () => window.clearTimeout(timer); }, [loadRoster, member.classId]);
 
+  /** Gọi đúng endpoint để phân công giảng viên hoặc ghi danh học viên đã chọn. */
   const assign = async (kind: "instructors" | "enrollments") => {
     const userId = kind === "instructors" ? member.instructorId : member.learnerId;
     if (!member.classId || !userId.trim()) return;
@@ -78,6 +82,7 @@ export default function ClassOperationsPage() {
     }
   };
 
+  /** Ghi danh hàng loạt từ danh sách tài khoản nhập vào và hiển thị kết quả từng dòng. */
   const importEnrollments = async () => {
     const userIds = bulkLearners.split(/[\n,;]+/).map((value) => value.trim()).filter(Boolean);
     if (!member.classId || !userIds.length) return;
@@ -85,6 +90,7 @@ export default function ClassOperationsPage() {
     catch (error) { notify(error instanceof Error ? error.message : "Không nhập được danh sách.", "error"); }
   };
 
+  /** Gỡ thành viên khỏi đúng nhóm nhân sự của lớp rồi tải lại roster. */
   const removeMember = async (kind: "instructors" | "enrollments", userId: string) => {
     const reason = window.prompt(kind === "instructors" ? "Lý do gỡ phân công giảng viên" : "Lý do gỡ học viên khỏi lớp");
     if (!reason) return;
@@ -92,6 +98,7 @@ export default function ClassOperationsPage() {
     catch (error) { notify(error instanceof Error ? error.message : "Không gỡ được thành viên.", "error"); }
   };
 
+  /** Duyệt hoặc từ chối học liệu đang chờ theo quyết định nhập từ giao diện. */
   const reviewMaterial = async (item: Material) => {
     try {
       await apiRequest(`/manager/materials/${item.id}/review`, {
@@ -106,12 +113,14 @@ export default function ClassOperationsPage() {
     }
   };
 
+  /** Mở hộp thoại duyệt và đặt lại quyết định/ghi chú cho đúng đề thi. */
   const openExamReview = (item: Exam) => {
     setReviewingExam(item);
     setDecision("APPROVE");
     setReviewNote("");
   };
 
+  /** Gửi quyết định duyệt đề thi và làm mới hàng đợi sau khi thành công. */
   const submitExamReview = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!reviewingExam) return;

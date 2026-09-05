@@ -10,9 +10,15 @@ import type { Request, Response } from "express";
 import type { RequestWithId } from "./request-context.js";
 
 @Catch()
+/** Chuẩn hóa mọi exception thành error envelope có request ID để truy vết. */
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  /**
+   * Chuyển exception thành HTTP response an toàn.
+   * Lỗi phía server được ghi kèm stack nhưng không trả chi tiết nội bộ cho client;
+   * lỗi 4xx giữ phần details để giao diện có thể hiển thị nguyên nhân hợp lệ.
+   */
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
@@ -38,6 +44,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     });
   }
 
+  /** Rút thông báo ổn định từ các dạng payload mà HttpException có thể mang theo. */
   private resolveMessage(raw: string | object | undefined, exception: unknown): string {
     if (typeof raw === "string") return raw;
     if (raw && "message" in raw) {

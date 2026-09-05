@@ -53,6 +53,7 @@ const defaultSettings = (): SystemSettings => ({
 });
 
 @Injectable()
+/** Quản lý cấu hình và vận hành hệ thống, đồng thời hỗ trợ fallback in-memory khi DB bị tắt. */
 export class SystemService {
   private settings: SystemSettings = defaultSettings();
   private integrations: IntegrationConfig[] = ["GOOGLE_MEET", "ZOOM", "JITSI"].map((provider, index) => ({ id: `int-${index + 1}`, provider: provider as IntegrationConfig["provider"], enabled: provider === "JITSI", isDefault: provider === "JITSI", healthStatus: provider === "JITSI" ? "HEALTHY" : "UNKNOWN", maskedCredential: provider === "JITSI" ? "Không yêu cầu" : "Chưa cấu hình", webhookConfigured: false, lastCheckedAt: provider === "JITSI" ? new Date().toISOString() : undefined, updatedAt: new Date().toISOString() }));
@@ -75,6 +76,7 @@ export class SystemService {
     @Optional() private readonly objectStorage?: ObjectStorageService,
   ) {}
 
+  /** Đọc cấu hình mới nhất và áp dụng schema/mặc định qua mapSettings. */
   async getSettings(): Promise<SystemSettings> {
     const prisma = this.database();
     if (prisma) {
@@ -88,6 +90,7 @@ export class SystemService {
     return structuredClone(active ?? this.settings);
   }
 
+  /** Liệt kê lịch sử revision cấu hình theo version mới nhất trước. */
   async listSettingRevisions(): Promise<SystemSettingRevision[]> {
     const prisma = this.database();
     if (prisma) {
@@ -97,6 +100,7 @@ export class SystemService {
     return structuredClone([...this.settingRevisions].sort((a, b) => b.version - a.version));
   }
 
+  /** Hợp nhất cấu hình, kiểm tra quota/MIME/thời điểm hiệu lực, tăng version và ghi audit. */
   async updateSettings(input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>, actorId = "usr-admin"): Promise<SystemSettings> {
     if (input.retentionDays !== undefined && (input.retentionDays < 30 || input.retentionDays > 3650)) throw new BadRequestException("Thời gian lưu trữ phải từ 30 đến 3650 ngày.");
     if (input.maxFileSizeMb !== undefined && (input.maxFileSizeMb < 1 || input.maxFileSizeMb > 500)) throw new BadRequestException("Giới hạn tệp phải từ 1 đến 500 MB.");
@@ -127,6 +131,7 @@ export class SystemService {
     return structuredClone(revision);
   }
 
+  /** Liệt kê provider phòng học đã cấu hình và trạng thái health. */
   async listIntegrations(): Promise<IntegrationConfig[]> {
     const prisma = this.database();
     if (prisma) {
@@ -136,6 +141,7 @@ export class SystemService {
     return structuredClone(this.integrations);
   }
 
+  /** Bật/tắt tích hợp, không cho bật provider thiếu credential cần thiết và ghi audit. */
   async updateIntegration(integrationId: string, enabled: boolean, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
@@ -158,6 +164,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Tạo/cập nhật cấu hình provider bằng tham chiếu credential, không lưu secret thô. */
   async configureIntegration(input: { provider: IntegrationConfig["provider"]; credentialReference?: string; webhookUrl?: string }, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const credentialReference = input.credentialReference?.trim();
     if (input.provider !== "JITSI" && !credentialReference) throw new BadRequestException("Provider này cần tham chiếu credential trong kho bí mật.");
@@ -184,6 +191,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Kiểm tra điều kiện kết nối và cập nhật trạng thái/lần kiểm tra của tích hợp. */
   async testIntegration(integrationId: string, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
@@ -206,6 +214,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Đặt một provider enabled làm mặc định và gỡ cờ mặc định của các provider khác nguyên tử. */
   async setDefaultIntegration(integrationId: string, actorId = "usr-admin"): Promise<IntegrationConfig> {
     const prisma = this.database();
     if (prisma) {
@@ -225,6 +234,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Tạo URL phòng thử ngắn hạn sau khi integration vượt kiểm tra readiness. */
   async createTestMeeting(integrationId: string, actorId = "usr-admin"): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
     const integrations = await this.listIntegrations();
     const item = integrations.find((entry) => entry.id === integrationId);
@@ -236,6 +246,7 @@ export class SystemService {
     return { provider: item.provider, attendeeUrl: item.provider === "JITSI" ? `https://meet.jit.si/${roomId}` : `https://meeting.local/${item.provider.toLowerCase()}/${roomId}`, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
   }
 
+  /** Liệt kê các job sao lưu từ DB hoặc dữ liệu nhớ demo. */
   async listBackups(): Promise<BackupRun[]> {
     const prisma = this.database();
     if (prisma) {
@@ -245,6 +256,7 @@ export class SystemService {
     return structuredClone(this.backups);
   }
 
+  /** Tạo job, gọi DatabaseBackupService và chốt trạng thái/checksum hoặc lỗi. */
   async runBackup(type: BackupRun["type"], actorId = "usr-admin"): Promise<BackupRun> {
     if (type === "INCREMENTAL") throw new BadRequestException("Sao lưu gia tăng cần binary log và điểm khôi phục liên tục; hệ thống hiện chỉ cho phép FULL để bảo đảm khôi phục được.");
     const prisma = this.database();
@@ -266,6 +278,7 @@ export class SystemService {
     }
   }
 
+  /** Yêu cầu tách người thao tác/phê duyệt, phục hồi vào DB tạm để kiểm tra trước khi ghi trạng thái. */
   async restoreBackup(backupId: string, approvedBy: string, actorId = "usr-admin"): Promise<RestoreRun> {
     if (approvedBy.trim().length < 3) throw new BadRequestException("Cần người phê duyệt khôi phục.");
     const prisma = this.database();
@@ -293,6 +306,7 @@ export class SystemService {
     throw new ServiceUnavailableException("Khôi phục thật yêu cầu kết nối database.");
   }
 
+  /** Liệt kê lịch sử kiểm tra phục hồi sao lưu. */
   async listRestores(): Promise<RestoreRun[]> {
     const prisma = this.database();
     if (prisma) {
@@ -302,6 +316,7 @@ export class SystemService {
     return structuredClone(this.restores);
   }
 
+  /** Tính cutoff và số bản ghi sẽ tác động, đồng thời phản ánh legal hold hiện tại. */
   async previewRetention(categoryInput: string): Promise<RetentionPreview> {
     const category = categoryInput.trim().toUpperCase();
     if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
@@ -317,12 +332,14 @@ export class SystemService {
     return { category, retentionDays, action, estimatedRows, legalHoldRows, deletableRows: estimatedRows - legalHoldRows, cutoffAt: cutoffAt.toISOString() };
   }
 
+  /** Liệt kê mọi phiên bản chính sách lưu giữ. */
   async listRetentionPolicies(): Promise<RetentionPolicyView[]> {
     const prisma = this.database();
     if (prisma) return (await prisma.retentionPolicy.findMany({ orderBy: [{ category: "asc" }, { version: "desc" }] })).map((row) => this.mapRetentionPolicy(row));
     return structuredClone([...this.retentionPolicies].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
   }
 
+  /** Validate phê duyệt/ngày hiệu lực, tạo version kế tiếp và ghi audit chính sách. */
   async createRetentionPolicy(input: { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt?: string }, actorId = "usr-admin"): Promise<RetentionPolicyView> {
     const category = input.category.trim().toUpperCase(); const approvedBy = input.approvedBy.trim();
     if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
@@ -343,6 +360,7 @@ export class SystemService {
     this.retentionPolicies.unshift(item); this.log(actorId, "RETENTION_POLICY_PUBLISHED", item.id, `${category} · ${input.action} · ${input.retentionDays} ngày.`); return structuredClone(item);
   }
 
+  /** Đặt legal hold đang hoạt động cho danh mục để chặn retention job. */
   async createLegalHold(categoryInput: string, reasonInput: string, actorId = "usr-admin"): Promise<object> {
     const category = categoryInput.trim().toUpperCase(); const reason = reasonInput.trim(); if (!category || reason.length < 5) throw new BadRequestException("Loại dữ liệu và lý do legal hold là bắt buộc.");
     const prisma = this.database();
@@ -357,6 +375,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Thực thi policy với nguyên tắc bốn mắt, legal-hold check và audit kết quả. */
   async runRetention(policyId: string, requestedBy: string, approvedBy: string): Promise<RetentionJobView> {
     if (!requestedBy.trim() || !approvedBy.trim()) throw new BadRequestException("Cần người yêu cầu và người phê duyệt.");
     if (requestedBy.trim().toLowerCase() === approvedBy.trim().toLowerCase()) throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
@@ -387,10 +406,12 @@ export class SystemService {
     this.retentionJobs.unshift(item); this.log(requestedBy, "RETENTION_JOB_COMPLETED", item.id, `${item.affectedRows} bản ghi xử lý; ${item.skippedRows} bản ghi được giữ.`); return structuredClone(item);
   }
 
+  /** Liệt kê các lần chạy retention cùng số bản ghi đã xử lý. */
   async listRetentionJobs(): Promise<RetentionJobView[]> {
     const prisma = this.database(); if (prisma) return (await prisma.retentionJob.findMany({ orderBy: { createdAt: "desc" } })).map((row) => this.mapRetentionJob(row)); return structuredClone(this.retentionJobs);
   }
 
+  /** Tạo export job, đếm dữ liệu, sinh checksum/URL và ghi trạng thái hoàn thành. */
   async runExport(category: string, format: DataExport["format"], actorId = "usr-admin"): Promise<DataExport> {
     const prisma = this.database();
     if (prisma) {
@@ -414,6 +435,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Liệt kê các lần xuất dữ liệu hệ thống. */
   async listExports(): Promise<DataExport[]> {
     const prisma = this.database();
     if (prisma) {
@@ -423,6 +445,7 @@ export class SystemService {
     return structuredClone(this.exports);
   }
 
+  /** Liệt kê phiên bản mẫu thông báo và trạng thái hiện hành. */
   async listTemplates(): Promise<NotificationTemplate[]> {
     const prisma = this.database();
     if (prisma) {
@@ -442,6 +465,7 @@ export class SystemService {
     return structuredClone([...latest.values()]);
   }
 
+  /** Validate biến mẫu, tạo version mới và ngừng dùng version trước cùng event/locale. */
   async saveTemplate(input: Omit<NotificationTemplate, "id" | "version" | "status" | "updatedAt">, actorId = "usr-admin"): Promise<NotificationTemplate> {
     if (/<script|javascript:/i.test(`${input.subject} ${input.body}`)) throw new BadRequestException("Mẫu thông báo chứa nội dung không an toàn.");
     const eventCode = input.eventCode.trim().toUpperCase();
@@ -471,6 +495,7 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Thay thế placeholder bằng dữ liệu thử và báo các biến còn thiếu. */
   async previewTemplate(templateId: string, variables: Record<string, string>): Promise<object> {
     const prisma = this.database();
     let template: NotificationTemplate | undefined;
@@ -485,6 +510,7 @@ export class SystemService {
     return { subject, body, unresolvedVariables: [...new Set([...subject.matchAll(/\[([^\]]+)\]/g), ...body.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]))] };
   }
 
+  /** Render và gửi email thử, lưu kết quả giao hàng cùng actor nhưng không lưu nội dung nhạy cảm. */
   async sendTemplateTest(templateId: string, recipient: string, variables: Record<string, string>, actorId = "usr-admin"): Promise<TemplateTestDelivery> {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new BadRequestException("Email nhận bản thử không hợp lệ.");
     const preview = await this.previewTemplate(templateId, variables) as { subject: string; body: string; unresolvedVariables: string[] };
@@ -511,6 +537,7 @@ export class SystemService {
     return delivery;
   }
 
+  /** Đọc chính sách kiểm duyệt mới nhất hoặc cấu hình mặc định. */
   async getModerationPolicy(): Promise<ModerationPolicy> {
     const prisma = this.database();
     if (prisma) {
@@ -520,6 +547,7 @@ export class SystemService {
     return structuredClone(this.moderation);
   }
 
+  /** Chuẩn hóa từ cấm, kiểm tra rate limit và tạo version chính sách mới. */
   async updateModerationPolicy(input: Omit<ModerationPolicy, "version" | "updatedAt">, actorId = "usr-admin"): Promise<ModerationPolicy> {
     const prohibitedTerms = [...new Set(input.prohibitedTerms.map((term) => term.trim().toLowerCase()).filter(Boolean))];
     const prisma = this.database();
@@ -541,6 +569,7 @@ export class SystemService {
     return structuredClone(this.moderation);
   }
 
+  /** Lọc audit theo nhiều tiêu chí và che token/secret trong phần detail trước khi trả. */
   async listAudit(filter: AuditFilter = {}): Promise<AuditEvent[]> {
     const normalized = filter.query?.trim().toLowerCase() ?? "";
     const from = filter.from ? new Date(filter.from) : undefined; const to = filter.to ? new Date(filter.to) : undefined;
@@ -555,6 +584,7 @@ export class SystemService {
     return structuredClone(this.audit.filter((item) => (!normalized || `${item.actor} ${item.action} ${item.target} ${item.detail}`.toLowerCase().includes(normalized)) && (!filter.actor || item.actor.includes(filter.actor)) && (!filter.action || item.action.includes(filter.action)) && (!filter.target || item.target.includes(filter.target)) && (!from || new Date(item.createdAt) >= from) && (!to || new Date(item.createdAt) <= to)).slice(0, limit));
   }
 
+  /** Tổng hợp health DB/integration/storage và tạo hoặc phục hồi cảnh báo theo ngưỡng. */
   async healthOverview(): Promise<object> {
     const prisma = this.database();
     if (!prisma) { await this.recordAlert("database:disabled", "database", "CRITICAL", "Kết nối cơ sở dữ liệu đang tắt."); return { status: "degraded", database: "disabled", apiLatencyMs: 0, storageUsagePercent: 0, queueDepth: 0, checkedAt: new Date().toISOString() }; }
@@ -574,10 +604,12 @@ export class SystemService {
     return { status: storage.usagePercent >= 90 ? "warning" : "healthy", database: "connected", apiLatencyMs, storageUsagePercent: storage.usagePercent, queueDepth: totalQueueDepth, checkedAt: new Date().toISOString() };
   }
 
+  /** Liệt kê cảnh báo hệ thống mới nhất trước. */
   async listAlerts(): Promise<SystemAlertView[]> {
     const prisma = this.database(); if (prisma) return (await prisma.systemAlert.findMany({ orderBy: { detectedAt: "desc" }, take: 200 })).map((row) => this.mapAlert(row)); return structuredClone(this.alerts);
   }
 
+  /** Áp dụng thao tác vận hành lên cảnh báo và ghi nhận actor/thời hạn mute. */
   async updateAlert(alertId: string, action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE", actorId = "usr-admin", muteMinutes = 60): Promise<SystemAlertView> {
     const prisma = this.database();
     const data = action === "ACKNOWLEDGE" ? { status: "ACKNOWLEDGED", acknowledgedBy: actorId } : action === "MUTE" ? { status: "MUTED", acknowledgedBy: actorId, mutedUntil: new Date(Date.now() + Math.min(1440, Math.max(5, muteMinutes)) * 60_000) } : { status: "RESOLVED", recoveredAt: new Date(), acknowledgedBy: actorId };
@@ -585,6 +617,7 @@ export class SystemService {
     const item = this.alerts.find((row) => row.id === alertId); if (!item) throw new NotFoundException("Không tìm thấy cảnh báo."); Object.assign(item, { ...data, mutedUntil: data.mutedUntil?.toISOString(), recoveredAt: data.recoveredAt?.toISOString(), updatedAt: new Date().toISOString() }); this.log(actorId, `ALERT_${action}`, alertId, item.summary); return structuredClone(item);
   }
 
+  /** Tổng hợp byte lưu trữ theo MIME, so sánh quota và phát cảnh báo khi gần đầy. */
   async getStorageOverview(): Promise<StorageOverview> {
     const settings = await this.getSettings();
     const quotaBytes = settings.storageQuotaMb * 1_000_000;
@@ -603,10 +636,12 @@ export class SystemService {
     return { quotaBytes, usedBytes, usagePercent: quotaBytes ? Math.min(100, Math.round((usedBytes / quotaBytes) * 10_000) / 100) : 100, maxFileSizeMb: settings.maxFileSizeMb, allowedMimeTypes: settings.allowedMimeTypes, byClass };
   }
 
+  /** Chọn Prisma khi DB được bật, nếu không dùng state in-memory của service. */
   private database(): PrismaService | undefined {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
   }
 
+  /** Thu hẹp JSON cấu hình theo từng kiểu và áp dụng giá trị mặc định an toàn. */
   private mapSettings(value: Prisma.JsonValue, updatedAt: Date, version = 1, effectiveAt = updatedAt, updatedBy = "system"): SystemSettings {
     const fallback = defaultSettings();
     const record = this.asRecord(value);
@@ -630,12 +665,14 @@ export class SystemService {
     };
   }
 
+  /** Ánh xạ integration Prisma và xác minh provider thuộc danh mục hỗ trợ. */
   private mapIntegration(row: Prisma.IntegrationProviderGetPayload<Record<string, never>>): IntegrationConfig {
     if (!this.isProvider(row.provider)) throw new BadRequestException(`Nhà cung cấp ${row.provider} không được hỗ trợ.`);
     const healthStatus = row.healthStatus === "HEALTHY" || row.healthStatus === "ERROR" ? row.healthStatus : "UNKNOWN";
     return { id: row.id, provider: row.provider, enabled: row.enabled, isDefault: row.isDefault, healthStatus, maskedCredential: row.provider === "JITSI" ? "Không yêu cầu" : row.credentialRef ? "••••••••" : "Chưa cấu hình", webhookConfigured: Boolean(row.webhookUrl), lastCheckedAt: row.lastCheckedAt?.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
+  /** Ánh xạ job sao lưu, bao gồm metadata và thông tin lỗi đã lưu. */
   private mapBackup(row: Prisma.BackupJobGetPayload<Record<string, never>>): BackupRun {
     return {
       id: row.id,
@@ -647,10 +684,12 @@ export class SystemService {
     };
   }
 
+  /** Ánh xạ job phục hồi và kết quả xác minh DB tạm. */
   private mapRestore(row: Prisma.RestoreJobGetPayload<Record<string, never>>): RestoreRun {
     return { id: row.id, backupId: row.backupId, status: row.status, approvedBy: row.approvedBy, createdAt: row.createdAt.toISOString(), verification: row.verification ?? "" };
   }
 
+  /** Ánh xạ job xuất dữ liệu và URL/checksum khi hoàn thành. */
   private mapExport(row: Prisma.DataExportJobGetPayload<Record<string, never>>): DataExport {
     return {
       id: row.id,
@@ -663,39 +702,47 @@ export class SystemService {
     };
   }
 
+  /** Ánh xạ mẫu thông báo Prisma sang hợp đồng quản trị. */
   private mapTemplate(row: Prisma.NotificationTemplateGetPayload<Record<string, never>>): NotificationTemplate {
     return { id: row.id, eventCode: row.eventCode, locale: row.locale, subject: row.subject, body: row.body, version: row.version, status: row.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT", updatedAt: row.updatedAt.toISOString() };
   }
 
+  /** Ánh xạ JSON từ cấm và tham số kiểm duyệt sang policy. */
   private mapModeration(row: Prisma.ModerationPolicyGetPayload<Record<string, never>>): ModerationPolicy {
     if (row.action !== "FLAG" && row.action !== "HIDE_PENDING_REVIEW") throw new BadRequestException("Hành động kiểm duyệt không hợp lệ.");
     return { version: row.version, prohibitedTerms: this.stringArray(row.prohibitedTerms, []), maxPostsPerMinute: row.maxPostsPerMinute, action: row.action, updatedAt: row.createdAt.toISOString() };
   }
 
+  /** Ánh xạ audit log và che chuỗi nhạy cảm trong detail. */
   private mapAudit(row: Prisma.AuditLogGetPayload<Record<string, never>>): AuditEvent {
     const context = this.asRecord(row.context);
     return { id: row.id.toString(), actor: row.actorId ?? "system", action: row.action, target: row.entityId ?? row.entityType, detail: this.redactSensitive(this.stringValue(context.detail ?? context.summary, row.action)), createdAt: row.createdAt.toISOString() };
   }
 
+  /** Ánh xạ chính sách lưu giữ và mốc hiệu lực sang view model. */
   private mapRetentionPolicy(row: Prisma.RetentionPolicyGetPayload<Record<string, never>>): RetentionPolicyView {
     if (row.action !== "ARCHIVE" && row.action !== "DELETE") throw new BadRequestException("Hành động retention không hợp lệ.");
     return { id: row.id, category: row.category, version: row.version, retentionDays: row.retentionDays, action: row.action, approvedBy: row.approvedBy, effectiveAt: row.effectiveAt.toISOString(), createdAt: row.createdAt.toISOString() };
   }
 
+  /** Ánh xạ job retention cùng số bản ghi xử lý và lỗi. */
   private mapRetentionJob(row: Prisma.RetentionJobGetPayload<Record<string, never>>): RetentionJobView {
     return { id: row.id, policyId: row.policyId, status: row.status, affectedRows: row.affectedRows, skippedRows: row.skippedRows, requestedBy: row.requestedBy, approvedBy: row.approvedBy, evidence: this.asRecord(row.evidence), createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString() };
   }
 
+  /** Ánh xạ cảnh báo và các mốc acknowledge/mute/resolve. */
   private mapAlert(row: Prisma.SystemAlertGetPayload<Record<string, never>>): SystemAlertView {
     const severity = row.severity === "CRITICAL" ? "CRITICAL" : "WARNING"; const status = ["OPEN", "ACKNOWLEDGED", "MUTED", "RESOLVED"].includes(row.status) ? row.status as SystemAlertView["status"] : "OPEN";
     return { id: row.id, fingerprint: row.fingerprint, serviceName: row.serviceName, severity, status, summary: row.summary, metricValue: row.metricValue ?? undefined, threshold: row.threshold ?? undefined, detectedAt: row.detectedAt.toISOString(), acknowledgedBy: row.acknowledgedBy ?? undefined, mutedUntil: row.mutedUntil?.toISOString(), recoveredAt: row.recoveredAt?.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
+  /** Lấy policy đã có hiệu lực mới nhất cho danh mục. */
   private async getLatestRetentionPolicy(category: string): Promise<RetentionPolicyView | undefined> {
     const prisma = this.database(); if (prisma) { const row = await prisma.retentionPolicy.findFirst({ where: { category, effectiveAt: { lte: new Date() } }, orderBy: { version: "desc" } }); return row ? this.mapRetentionPolicy(row) : undefined; }
     return this.retentionPolicies.filter((item) => item.category === category && new Date(item.effectiveAt) <= new Date()).sort((a, b) => b.version - a.version)[0];
   }
 
+  /** Đếm bản ghi cũ hơn cutoff theo danh mục trước khi chạy retention. */
   private async countRetentionRows(prisma: PrismaService, category: string, cutoffAt: Date): Promise<number> {
     if (category === "AUDIT") return prisma.auditLog.count({ where: { createdAt: { lt: cutoffAt } } });
     if (category === "SUPPORT") return prisma.supportTicket.count({ where: { createdAt: { lt: cutoffAt }, status: "CLOSED" } });
@@ -703,6 +750,7 @@ export class SystemService {
     return 0;
   }
 
+  /** Thực thi archive/delete theo category trong transaction và trả số dòng ảnh hưởng. */
   private async executeRetention(
     prisma: PrismaService,
     category: string,
@@ -762,6 +810,7 @@ export class SystemService {
     return { affectedRows: records.length, archiveObjectKey, archiveChecksum, removedObjects, objectCleanupFailures };
   }
 
+  /** Upsert cảnh báo theo fingerprint để cùng sự cố không sinh bản ghi trùng. */
   private async recordAlert(fingerprint: string, serviceName: string, severity: SystemAlertView["severity"], summary: string, metricValue?: number, threshold?: number): Promise<void> {
     const prisma = this.database();
     if (prisma) { const current = await prisma.systemAlert.findUnique({ where: { fingerprint } }); if (current?.status === "MUTED" && current.mutedUntil && current.mutedUntil > new Date()) return; await prisma.systemAlert.upsert({ where: { fingerprint }, update: { serviceName, severity, summary, metricValue, threshold, status: current?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "OPEN", recoveredAt: null }, create: { id: `alert-${randomUUID()}`, fingerprint, serviceName, severity, summary, metricValue, threshold } }); return; }
@@ -770,11 +819,13 @@ export class SystemService {
     else { const timestamp = new Date().toISOString(); this.alerts.unshift({ id: `alert-${randomUUID()}`, fingerprint, serviceName, severity, status: "OPEN", summary, metricValue, threshold, detectedAt: timestamp, updatedAt: timestamp }); }
   }
 
+  /** Tự động giải quyết cảnh báo đang mở khi metric trở lại bình thường. */
   private async recoverAlert(fingerprint: string): Promise<void> {
     const prisma = this.database(); if (prisma) { await prisma.systemAlert.updateMany({ where: { fingerprint, status: { not: "RESOLVED" } }, data: { status: "RESOLVED", recoveredAt: new Date() } }); return; }
     const current = this.alerts.find((item) => item.fingerprint === fingerprint && item.status !== "RESOLVED"); if (current) Object.assign(current, { status: "RESOLVED", recoveredAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   }
 
+  /** Đếm số bản ghi thuộc danh mục để ghi metadata export. */
   private async countExportRows(prisma: PrismaService, category: string): Promise<number> {
     if (category === "AUDIT") return prisma.auditLog.count();
     if (category === "LEARNING") {
@@ -784,20 +835,30 @@ export class SystemService {
     return prisma.user.count();
   }
 
+  /** Ghi audit vào DB và che dữ liệu nhạy cảm trước khi lưu. */
   private async logDatabase(database: PrismaService | Prisma.TransactionClient, actorId: string, action: string, target: string, detail: string): Promise<void> {
     await database.auditLog.create({ data: { actorId, action, entityType: "system", entityId: target, context: { detail } } });
   }
 
+  /** Thu hẹp Prisma JSON thành object để đọc cấu hình an toàn. */
   private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
   }
 
+  /** Đọc chuỗi từ JSON hoặc dùng fallback. */
   private stringValue(value: unknown, fallback: string): string { return typeof value === "string" ? value : fallback; }
+  /** Đọc số hữu hạn từ JSON hoặc dùng fallback. */
   private numberValue(value: unknown, fallback: number): number { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
+  /** Đọc boolean từ JSON hoặc dùng fallback. */
   private booleanValue(value: unknown, fallback: boolean): boolean { return typeof value === "boolean" ? value : fallback; }
+  /** Đọc mảng chuỗi từ JSON và sao chép fallback để tránh mutation. */
   private stringArray(value: unknown, fallback: string[]): string[] { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [...fallback]; }
+  /** Trích danh sách placeholder {{name}} duy nhất từ subject/body mẫu. */
   private extractTemplateVariables(value: string): string[] { return [...new Set([...value.matchAll(/{{([a-zA-Z0-9_]+)}}/g)].map((match) => match[1] ?? "").filter(Boolean))]; }
+  /** Che giá trị password/token/secret/credential trong chuỗi audit. */
   private redactSensitive(value: string): string { return value.replace(/(password|token|secret|credential|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]"); }
+  /** Type guard cho danh mục provider phòng học được hỗ trợ. */
   private isProvider(value: string): value is IntegrationConfig["provider"] { return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI"; }
+  /** Ghi audit vào đầu state in-memory cho chế độ không kết nối DB. */
   private log(actorId: string, action: string, target: string, detail: string): void { this.audit.unshift({ id: `audit-${randomUUID()}`, actor: actorId, action, target, detail, createdAt: new Date().toISOString() }); }
 }

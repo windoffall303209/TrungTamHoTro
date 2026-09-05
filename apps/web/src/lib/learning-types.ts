@@ -1,3 +1,4 @@
+/** Các view model đào tạo mà trang web nhận từ API, tách khỏi cấu trúc lưu trữ nội bộ. */
 export type PublishStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
 export interface Course {

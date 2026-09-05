@@ -20,8 +20,10 @@ interface SearchableSelectProps {
   value: string;
 }
 
+/** Chuẩn hóa chữ thường và bỏ dấu để tìm tiếng Việt không phụ thuộc cách gõ. */
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("vi-VN");
 
+/** Combobox có lọc text, điều hướng bàn phím và ngữ nghĩa ARIA cho danh sách dài. */
 export function SearchableSelect({
   "aria-label": ariaLabel,
   disabled,
@@ -42,6 +44,7 @@ export function SearchableSelect({
     return options.filter((option) => normalize(`${option.label} ${option.description ?? ""} ${option.keywords ?? ""}`).includes(needle));
   }, [options, query]);
 
+  /** Chốt lựa chọn, đóng listbox và đặt lại trạng thái tìm kiếm. */
   const choose = (option: SearchableSelectOption) => {
     onChange(option.value);
     setQuery("");

@@ -46,6 +46,7 @@ const navItems: NavigationItem[] = [
   { href: "/admin/operations", label: "Vận hành & tuân thủ", icon: ShieldEllipsis, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
 ];
 
+/** Lọc mục điều hướng theo vai trò/quyền và đánh dấu route đang hoạt động. */
 function Sidebar({ close }: { close?: () => void }) {
   const pathname = usePathname();
   const { session } = useApp();
@@ -79,6 +80,7 @@ function Sidebar({ close }: { close?: () => void }) {
   );
 }
 
+/** Khung workspace responsive chứa sidebar, header, theme, thông báo và menu tài khoản. */
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -90,6 +92,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const { session, setRole, logout, notify } = useApp();
   const unreadCount = notifications.filter((item) => !item.readAt).length;
 
+  /** Tải lại thông báo theo vai trò hiện tại và quản lý trạng thái lỗi/loading. */
   const loadNotifications = useCallback(async () => {
     setNotificationLoading(true);
     setNotificationError("");
@@ -103,6 +106,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }, [session.roleCode]);
 
+  // Đóng mọi overlay bằng Escape và khóa cuộn nền khi menu mobile mở.
   useEffect(() => {
     window.queueMicrotask(() => { void loadNotifications(); });
   }, [loadNotifications]);
@@ -111,6 +115,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     if (!menuOpen && !notificationOpen && !profileOpen) return;
     const previousOverflow = document.body.style.overflow;
     if (menuOpen) document.body.style.overflow = "hidden";
+    /** Đóng các lớp nổi trên cùng bằng Escape để bảo đảm thao tác bàn phím nhất quán. */
     const closeOverlay = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setMenuOpen(false);
@@ -124,6 +129,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     };
   }, [menuOpen, notificationOpen, profileOpen]);
 
+  /** Đánh dấu một thông báo chưa đọc rồi thay đúng item trong state. */
   async function markRead(item: LearningNotification): Promise<void> {
     if (item.readAt) return;
     try {
@@ -134,6 +140,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /** Đánh dấu song song toàn bộ thông báo chưa đọc và hợp nhất kết quả theo id. */
   async function markAllRead(): Promise<void> {
     const unread = notifications.filter((item) => !item.readAt);
     if (!unread.length) return;
@@ -146,6 +153,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /** Ánh xạ loại thông báo sang phân hệ phù hợp để điều hướng. */
   function notificationHref(item: LearningNotification): string {
     if (item.type.includes("SUPPORT")) return "/support";
     if (item.type.includes("FORUM") || item.type.includes("MENTION") || item.type.includes("REPORT")) return "/forum";
@@ -155,6 +163,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return "/dashboard";
   }
 
+  /** Thu hồi phiên rồi thay route hiện tại bằng màn hình đăng nhập. */
   async function signOut(): Promise<void> {
     await logout();
     router.replace("/login");

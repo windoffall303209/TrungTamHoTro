@@ -22,6 +22,7 @@ const roleLabel = Object.fromEntries(roles.map((role) => [role.code, role.label]
 interface UserForm { username: string; displayName: string; email: string; roleCode: RoleCode; initialPassword: string }
 const emptyForm: UserForm = { username: "", displayName: "", email: "", roleCode: "LEARNER", initialPassword: "" };
 
+/** Quản lý danh tính người dùng, vai trò và trạng thái khóa tài khoản. */
 export default function UsersPage() {
   const { session, notify } = useApp();
   const canView = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "user:view");
@@ -37,6 +38,7 @@ export default function UsersPage() {
   const [form, setForm] = useState<UserForm>(emptyForm);
   const pagination = usePagination(users);
 
+  /** Nạp danh sách người dùng theo truy vấn tìm kiếm hiện tại. */
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
@@ -51,9 +53,12 @@ export default function UsersPage() {
 
   const totals = useMemo(() => ({ active: users.filter((user) => user.status === "ACTIVE").length, locked: users.filter((user) => user.status === "LOCKED").length }), [users]);
 
+  /** Mở hộp thoại tạo với biểu mẫu người dùng rỗng. */
   const openCreate = () => { setForm(emptyForm); setCreateOpen(true); };
+  /** Sao chép thông tin tài khoản đã chọn vào biểu mẫu chỉnh sửa. */
   const openEdit = (user: IdentityUser) => { setEditing(user); setForm({ username: user.username, displayName: user.displayName, email: user.email, roleCode: user.roleCode, initialPassword: "" }); };
 
+  /** Tạo tài khoản cùng vai trò ban đầu và mật khẩu khởi tạo. */
   const createUser = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true);
     try {
@@ -63,6 +68,7 @@ export default function UsersPage() {
     finally { setSaving(false); }
   };
 
+  /** Cập nhật thông tin và vai trò của tài khoản đang chọn. */
   const updateUser = async (event: React.FormEvent) => {
     event.preventDefault(); if (!editing) return; setSaving(true);
     try {
@@ -72,6 +78,7 @@ export default function UsersPage() {
     finally { setSaving(false); }
   };
 
+  /** Khóa hoặc mở khóa tài khoản theo trạng thái hiện tại rồi tải lại danh sách. */
   const toggleLock = async (user: IdentityUser) => {
     const nextStatus = user.status === "LOCKED" ? "ACTIVE" : "LOCKED";
     try {
@@ -80,6 +87,7 @@ export default function UsersPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể đổi trạng thái.", "error"); }
   };
 
+  /** Dùng chung biểu mẫu tạo/sửa và điều chỉnh các trường theo ngữ cảnh. */
   const formContent = (submit: (event: React.FormEvent) => Promise<void>, includeEmail: boolean) => <form className="space-y-5" onSubmit={(event) => void submit(event)}>
     {includeEmail ? <Field label="Tài khoản"><input autoCapitalize="none" autoComplete="username" className={inputClass} maxLength={32} minLength={4} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value.toLowerCase() }))} pattern="[A-Za-z0-9][A-Za-z0-9._\-]{3,31}" required spellCheck={false} value={form.username} /><p className="mt-2 text-xs leading-5 text-slate-500">Dùng để đăng nhập; không thể thay đổi sau khi tạo.</p></Field> : null}
     <Field label="Họ và tên"><input className={inputClass} minLength={2} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} required value={form.displayName} /></Field>

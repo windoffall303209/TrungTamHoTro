@@ -13,8 +13,10 @@ import { hasPermission } from "@/lib/access-control";
 
 interface ClassReport { classId: string; classCode: string; className: string; learners: number; instructors: number; publishedMaterials: number; exams: number; submittedAttempts: number; averageScore: number; sessions: number; attendanceRate: number; status: string }
 
+/** Chuyển Date thành YYYY-MM-DD ổn định cho input ngày theo múi giờ cục bộ. */
 const dateInput = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
+/** Tổng hợp báo cáo vận hành, phân tích kết quả và các can thiệp theo khoảng thời gian. */
 export default function ReportsPage() {
   const { session, notify } = useApp();
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
@@ -35,6 +37,7 @@ export default function ReportsPage() {
 
   const query = useMemo(() => new URLSearchParams({ from: new Date(`${filters.from}T00:00:00+07:00`).toISOString(), to: new Date(`${filters.to}T23:59:59+07:00`).toISOString() }).toString(), [filters.from, filters.to]);
 
+  /** Nạp các chỉ số tổng quan theo bộ lọc ngày và ngưỡng cảnh báo hiện tại. */
   const loadOverview = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -55,6 +58,7 @@ export default function ReportsPage() {
     }
   }, [allowed, manager, notify, query, session.roleCode]);
 
+  /** Nạp tiến độ học tập chi tiết để tìm các trường hợp cần hỗ trợ. */
   const loadProgress = useCallback(async () => {
     if (!manager || !selectedClassId) return;
     try {
@@ -64,6 +68,7 @@ export default function ReportsPage() {
       notify(error instanceof Error ? error.message : "Không tải được tiến độ lớp.", "error");
     }
   }, [filters.attendanceBelow, filters.completionBelow, filters.scoreBelow, manager, notify, query, selectedClassId, session.roleCode]);
+  /** Nạp thống kê đề thi và phân phối kết quả trong phạm vi báo cáo. */
   const loadExamAnalytics = useCallback(async () => {
     if (!instructor) return;
     try { const params = new URLSearchParams(query); if (selectedClassId) params.set("classId", selectedClassId); setExamAnalytics(await apiRequest<ExamAnalytics>(`/instructor/analytics/exams?${params}`, { roleCode: session.roleCode })); }
@@ -88,6 +93,7 @@ export default function ReportsPage() {
     { label: "Phiếu hỗ trợ mở", value: report.openTickets },
   ] : [];
 
+  /** Tạo tác vụ xuất CSV theo bộ lọc hiện tại và tải kết quả khi sẵn sàng. */
   const createExport = async () => {
     try {
       setSubmitting(true);
@@ -102,6 +108,7 @@ export default function ReportsPage() {
     }
   };
 
+  /** Tạo phiếu can thiệp cho người học có chỉ số rủi ro. */
   const createIntervention = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!interventionLearnerId || !selectedClassId) return;
@@ -118,6 +125,7 @@ export default function ReportsPage() {
     }
   };
 
+  /** Đánh dấu phiếu can thiệp hoàn tất và làm mới dữ liệu báo cáo. */
   const completeIntervention = async (interventionId: string) => {
     try {
       await apiRequest(`/manager/progress/interventions/${interventionId}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ status: "DONE" }) });

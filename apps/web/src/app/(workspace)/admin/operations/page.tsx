@@ -97,6 +97,7 @@ interface SystemAlert {
   recoveredAt?: string;
 }
 
+/** Trung tâm vận hành cho sao lưu, lưu trữ dữ liệu, cảnh báo, email và nhật ký kiểm toán. */
 export default function OperationsPage() {
   const { session, notify } = useApp();
   const canConfigure = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
@@ -136,6 +137,7 @@ export default function OperationsPage() {
     subject: "",
     body: "",
   });
+  /** Nạp song song toàn bộ dữ liệu vận hành để tránh chuỗi request tuần tự không cần thiết. */
   const load = useCallback(async () => {
     if (!canConfigure) return;
     try {
@@ -201,6 +203,7 @@ export default function OperationsPage() {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Khôi phục bản sao lưu đã chọn sau khi người quản trị xác nhận rõ thao tác. */
   const restore = async () => {
     const backup = backups[0];
     if (!backup) return;
@@ -222,6 +225,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Tạo gói xuất dữ liệu theo phạm vi và định dạng quản trị viên lựa chọn. */
   const exportData = async () => {
     try {
       await apiRequest("/system/exports", {
@@ -238,6 +242,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Xuất nhật ký kiểm toán theo bộ lọc hiện tại để phục vụ đối soát ngoại tuyến. */
   const exportAudit = async () => {
     try {
       await apiRequest("/system/exports", {
@@ -254,6 +259,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Chạy thử chính sách lưu trữ và hiển thị số bản ghi sẽ bị tác động mà chưa xóa dữ liệu. */
   const previewRetention = async () => {
     try {
       setRetentionPreview(
@@ -271,6 +277,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Lưu cấu hình vòng đời dữ liệu sau khi kiểm tra các ngưỡng trên biểu mẫu. */
   const saveRetention = async () => {
     try {
       await apiRequest("/system/retention-policies", {
@@ -287,6 +294,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Thực thi chính sách lưu trữ cụ thể và làm mới lịch sử chạy. */
   const runRetention = async (item: RetentionPolicy) => {
     const approvedBy = window.prompt(
       "Người phê duyệt thực thi (phải khác người yêu cầu)",
@@ -312,6 +320,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Ghi nhận hành động xác nhận/đóng cảnh báo cùng ghi chú của người vận hành. */
   const actOnAlert = async (
     item: SystemAlert,
     action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE",
@@ -336,6 +345,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Tạo hoặc cập nhật mẫu email mà không làm mất phiên bản đang chỉnh sửa. */
   const saveTemplate = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -354,6 +364,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Gửi thử mẫu email bằng dữ liệu mẫu để kiểm tra nội dung và cấu hình gửi. */
   const testTemplate = async (item: Template) => {
     try {
       const variables = Object.fromEntries(
@@ -377,6 +388,7 @@ export default function OperationsPage() {
       );
     }
   };
+  /** Lưu các ngưỡng cảnh báo vận hành dùng bởi dịch vụ giám sát. */
   const savePolicy = async () => {
     if (!policy) return;
     try {

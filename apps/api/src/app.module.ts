@@ -41,7 +41,9 @@ import { ObservabilityModule } from "./observability/observability.module.js";
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
+/** Module gốc ghép cấu hình, hạ tầng và các miền nghiệp vụ của API. */
 export class AppModule implements NestModule {
+  /** Gắn request ID cho mọi route trước khi request đi qua guard/interceptor. */
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes("{*path}");
   }

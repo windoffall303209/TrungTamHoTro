@@ -8,10 +8,12 @@ interface BackupTable { name: string; createSql: string; columns: string[]; rows
 interface BackupBundle { format: "wind-edu-mariadb-backup"; version: 1; database: string; createdAt: string; tables: BackupTable[] }
 
 @Injectable()
+/** Tạo và kiểm chứng backup MariaDB ở định dạng JSON độc lập với công cụ hệ thống. */
 export class DatabaseBackupService {
   private readonly connection: ConnectionConfig;
   private readonly databaseName: string;
 
+  /** Lưu cấu hình kết nối nhưng không mở connection cho tới lúc chạy tác vụ backup. */
   constructor(config: ConfigService<Environment, true>) {
     this.databaseName = config.get("DB_NAME", { infer: true });
     this.connection = {
@@ -24,6 +26,10 @@ export class DatabaseBackupService {
     };
   }
 
+  /**
+   * Chụp schema và dữ liệu của mọi bảng trong một transaction repeatable-read.
+   * Giá trị đặc biệt được encode để JSON không làm mất BigInt, Buffer hoặc Date.
+   */
   async createFullBackup(): Promise<Buffer> {
     const connection = await this.open(this.databaseName);
     try {
@@ -56,6 +62,10 @@ export class DatabaseBackupService {
     }
   }
 
+  /**
+   * Phục hồi bundle vào database tạm để xác nhận schema và dữ liệu có thể đọc lại.
+   * Database thử nghiệm luôn bị xóa trong `finally`, kể cả khi validation hay restore lỗi.
+   */
   async verifyRestore(buffer: Buffer): Promise<{ database: string; tableCount: number; rowCount: number }> {
     const bundle = this.parseBundle(buffer);
     const temporaryDatabase = `wind_restore_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
@@ -86,6 +96,7 @@ export class DatabaseBackupService {
     }
   }
 
+  /** Chèn dữ liệu theo batch 200 dòng để giới hạn kích thước mỗi câu lệnh MariaDB. */
   private async restoreRows(connection: Connection, table: BackupTable): Promise<void> {
     if (!table.rows.length) return;
     const columns = table.columns.map((column) => this.quoteIdentifier(column)).join(", ");
@@ -97,11 +108,13 @@ export class DatabaseBackupService {
     }
   }
 
+  /** Đọc tên cột cho bảng rỗng vì `SELECT *` không cung cấp metadata qua object row. */
   private async tableColumns(connection: Connection, table: string): Promise<string[]> {
     const rows = await connection.query<Array<{ Field: string }>>(`SHOW COLUMNS FROM ${this.quoteIdentifier(table)}`);
     return rows.map((row) => row.Field);
   }
 
+  /** Parse và xác nhận version bao ngoài trước khi dữ liệu được dùng để tạo database. */
   private parseBundle(buffer: Buffer): BackupBundle {
     try {
       const value = JSON.parse(buffer.toString("utf8")) as Partial<BackupBundle>;
@@ -112,6 +125,7 @@ export class DatabaseBackupService {
     }
   }
 
+  /** Kiểm tra cấu trúc từng bảng và độ rộng row trước khi thực thi SQL từ bundle. */
   private validateTable(table: BackupTable): void {
     this.assertIdentifier(table.name);
     if (!Array.isArray(table.columns) || !Array.isArray(table.rows) || !table.createSql.startsWith("CREATE TABLE")) throw new BadRequestException("Nội dung bảng trong bản sao lưu không hợp lệ.");
@@ -119,6 +133,7 @@ export class DatabaseBackupService {
     if (table.rows.some((row) => row.length !== table.columns.length)) throw new BadRequestException("Số cột bản sao lưu không đồng nhất.");
   }
 
+  /** Chuyển giá trị MariaDB không biểu diễn trực tiếp được trong JSON sang dạng có type. */
   private encode(value: unknown): EncodedValue {
     if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
     if (typeof value === "bigint") return { type: "bigint", value: value.toString() };
@@ -127,6 +142,7 @@ export class DatabaseBackupService {
     return { type: "json", value: JSON.stringify(value) };
   }
 
+  /** Khôi phục giá trị đã encode về kiểu mà MariaDB driver chấp nhận khi insert. */
   private decode(value: EncodedValue): unknown {
     if (value === null || typeof value !== "object") return value;
     if (value.type === "buffer") return Buffer.from(value.value, "base64");
@@ -135,15 +151,18 @@ export class DatabaseBackupService {
     return JSON.parse(value.value) as unknown;
   }
 
+  /** Mở connection quản trị hoặc connection trỏ tới database cụ thể và chuẩn hóa lỗi. */
   private async open(database?: string): Promise<Connection> {
     try { return await mariadb.createConnection({ ...this.connection, database }); }
     catch { throw new ServiceUnavailableException("Không thể kết nối MariaDB để sao lưu hoặc phục hồi."); }
   }
 
+  /** Chặn identifier chứa ký tự có thể thoát khỏi ngữ cảnh tên database/bảng/cột. */
   private assertIdentifier(value: string): void {
     if (!/^[a-zA-Z0-9_]+$/.test(value)) throw new BadRequestException("Định danh database không hợp lệ.");
   }
 
+  /** Quote identifier chỉ sau khi đã xác thực whitelist ký tự. */
   private quoteIdentifier(value: string): string {
     this.assertIdentifier(value);
     return `\`${value}\``;

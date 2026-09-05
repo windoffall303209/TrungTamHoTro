@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/api-client";
 import type { LearningNotification, Ticket, TicketComment } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
+/** Quản lý phiếu hỗ trợ và hội thoại giữa người gửi với bộ phận xử lý. */
 export default function SupportPage() {
   const { session, notify } = useApp();
   const admin = session.roleCode === "SYSTEM_ADMIN";
@@ -27,6 +28,7 @@ export default function SupportPage() {
     contextId: "",
     description: "",
   });
+  /** Nạp danh sách phiếu theo vai trò và cập nhật hội thoại đang mở nếu cần. */
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -51,6 +53,7 @@ export default function SupportPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Tạo phiếu hỗ trợ mới với loại, mức ưu tiên và nội dung người dùng nhập. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -80,6 +83,7 @@ export default function SupportPage() {
       );
     }
   };
+  /** Đánh dấu phiếu đã xử lý và lưu kết luận của nhân sự hỗ trợ. */
   const resolve = async (item: Ticket) => {
     try {
       await apiRequest(`/admin/support/tickets/${item.id}`, {
@@ -101,6 +105,7 @@ export default function SupportPage() {
       );
     }
   };
+  /** Cho phép người gửi đóng phiếu sau khi xác nhận kết quả xử lý. */
   const closeResolved = async (item: Ticket) => {
     try {
       await apiRequest(`/support/tickets/${item.id}/close`, {
@@ -113,6 +118,7 @@ export default function SupportPage() {
       notify(error instanceof Error ? error.message : "Không đóng được yêu cầu.", "error");
     }
   };
+  /** Chọn phiếu và nạp lịch sử trao đổi đầy đủ của phiếu đó. */
   const openConversation = async (item: Ticket) => {
     try {
       setSelected(item);
@@ -121,6 +127,7 @@ export default function SupportPage() {
       notify(error instanceof Error ? error.message : "Không tải được trao đổi.", "error");
     }
   };
+  /** Thêm phản hồi vào phiếu đang mở rồi làm mới hội thoại và danh sách. */
   const addComment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected) return;

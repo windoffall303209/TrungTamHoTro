@@ -10,6 +10,12 @@ import { HttpExceptionFilter } from "./common/http-exception.filter.js";
 import { ResponseInterceptor } from "./common/response.interceptor.js";
 import type { Environment } from "./config/environment.js";
 
+/**
+ * Khởi tạo HTTP API và lắp toàn bộ pipeline dùng chung của NestJS.
+ *
+ * Hàm đọc cấu hình đã được kiểm tra từ ConfigService, bật CORS/các middleware
+ * bảo vệ, chuẩn hóa validation và response, dựng Swagger rồi mới mở cổng nghe.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService<Environment, true>);

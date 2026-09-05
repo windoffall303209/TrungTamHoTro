@@ -15,6 +15,7 @@ interface UserPickerProps {
   value: string;
 }
 
+/** Tìm người dùng theo vai trò với debounce/abort và trả userId cho form phân công hoặc ghi danh. */
 export function UserPicker({ classId, disabled, label, onChange, role, value }: UserPickerProps) {
   const { session } = useApp();
   const listboxId = useId();
@@ -24,6 +25,7 @@ export function UserPicker({ classId, disabled, label, onChange, role, value }: 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Hủy request cũ khi từ khóa đổi để kết quả chậm không ghi đè danh sách mới.
   useEffect(() => {
     if (!open || disabled) return;
     const controller = new AbortController();
@@ -37,6 +39,7 @@ export function UserPicker({ classId, disabled, label, onChange, role, value }: 
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [classId, disabled, open, query, role, session.roleCode]);
 
+  /** Chốt người dùng, đóng danh sách và báo userId về form cha. */
   function choose(user: DirectoryUser): void {
     setSelected(user); setQuery(""); setOpen(false); onChange(user.id);
   }
