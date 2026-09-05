@@ -44,6 +44,7 @@ interface LearnerExam extends Exam {
   remainingAttempts?: number;
   serverTime?: string;
 }
+/** Điều phối toàn bộ vòng đời đề thi cho quản lý, giảng viên và học viên theo quyền. */
 export default function ExamsPage() {
   const { session, notify } = useApp();
   const searchParams = useSearchParams();
@@ -82,11 +83,13 @@ export default function ExamsPage() {
     () => eligibleExamQuestions(questions, classes, form.classId),
     [classes, form.classId, questions],
   );
+  /** Lọc câu hỏi theo từ khóa nhưng giữ nguyên các mục đã chọn để người dùng không mất lựa chọn. */
   const filteredSelectableQuestions = useMemo(() => {
     const needle = questionQuery.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("vi-VN");
     if (!needle) return selectableQuestions;
     return selectableQuestions.filter((question) => `${question.content} ${question.tags.join(" ")} ${question.type}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("vi-VN").includes(needle));
   }, [questionQuery, selectableQuestions]);
+  /** Nạp lớp, đề thi và dữ liệu kết quả phù hợp với vai trò cùng bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -133,6 +136,7 @@ export default function ExamsPage() {
       if (classItem && selectedQuestions.length) { setForm({ ...blank, classId: classItem.id, questionIds: selectedQuestions.map((item) => item.id) }); setOpen(true); notify(`Đã đưa ${selectedQuestions.length} câu vừa quét vào đề mới.`, "info"); }
     } finally { sessionStorage.removeItem("wind-scan-question-ids"); }
   }, [classes, notify, questions, searchParams]);
+  /** Tạo đề từ các câu hỏi đã chọn, giữ thứ tự gốc và cấu hình xáo trộn riêng. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -159,6 +163,7 @@ export default function ExamsPage() {
       setSaving(false);
     }
   };
+  /** Gửi đề vào quy trình duyệt hoặc tự xuất bản tùy cấu hình phê duyệt của hệ thống. */
   const publish = async (item: Exam) => {
     try {
       const updated = await apiRequest<Exam>(`/instructor/exams/${item.id}/publish`, {
@@ -174,12 +179,14 @@ export default function ExamsPage() {
       );
     }
   };
+  /** Nạp bản xem đề theo thứ tự tác giả để giảng viên không bị ảnh hưởng bởi xáo trộn. */
   const preview = async (item: LearnerExam) => {
     setPreviewExam(item); setPreviewQuestions([]); setPreviewLoading(true);
     try { setPreviewQuestions(await apiRequest<Question[]>(`/instructor/exams/${item.id}/preview`, { roleCode: session.roleCode })); }
     catch (error) { setPreviewExam(null); notify(error instanceof Error ? error.message : "Không tải được bản xem đề thi.", "error"); }
     finally { setPreviewLoading(false); }
   };
+  /** Gửi quyết định duyệt hoặc trả lại đề cùng ghi chú của người kiểm duyệt. */
   const review = async (item: LearnerExam, decision: "APPROVE" | "RETURN", reviewNote?: string) => {
     setReviewingId(item.id);
     try {
@@ -198,6 +205,7 @@ export default function ExamsPage() {
       setReviewingId(null);
     }
   };
+  /** Bắt đầu lượt thi, nhận snapshot câu hỏi đã xáo trộn và khởi tạo đồng hồ đếm ngược. */
   const start = async (item: LearnerExam) => {
     try {
       const data = await apiRequest<ExamAttempt>(
@@ -230,10 +238,12 @@ export default function ExamsPage() {
       );
     }
   };
+  /** Lưu tức thời đáp án khách quan của một câu vào lượt thi đang hoạt động. */
   const answer = async (questionId: string, answers: string[]) => {
     if (!attempt) return;
     const previousAttempt = attempt;
     setAttempt({ ...attempt, answers: { ...attempt.answers, [questionId]: answers } });
+    /** Gói thao tác lưu để cơ chế retry có thể gọi lại cùng payload một cách nhất quán. */
     const request = () =>
       apiRequest<ExamAttempt>(`/learner/exam-attempts/${attempt.id}/answers`, {
         method: "PATCH",
@@ -262,10 +272,12 @@ export default function ExamsPage() {
       );
     }
   };
+  /** Chuyển nội dung tự luận đang gõ thành mảng đáp án và dùng chung cơ chế lưu câu trả lời. */
   const saveTextAnswer = (questionId: string) => {
     const value = answerDrafts[questionId]?.trim();
     void answer(questionId, value ? [value] : []);
   };
+  /** Nộp lượt thi thủ công hoặc tự động khi hết giờ, có khóa chống gửi lặp. */
   const submit = useCallback(async (automatic = false) => {
     if (!attempt || attempt.status !== "IN_PROGRESS") return;
     try {
@@ -286,6 +298,7 @@ export default function ExamsPage() {
       );
     }
   }, [attempt, load, notify, session.roleCode]);
+  /** Tạo yêu cầu phúc khảo cho kết quả thi và lý do người học cung cấp. */
   const requestRegrade = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedResult) return;

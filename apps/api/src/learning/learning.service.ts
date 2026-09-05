@@ -37,6 +37,7 @@ type MemoryMaterialVersion = MaterialVersionSnapshot & { objectKey?: string; che
 type MemoryQuestionImage = { objectKey: string; fileName: string; mimeType: string; sizeBytes: number; checksum: string; buffer: Buffer };
 
 @Injectable()
+/** Điều phối toàn bộ nghiệp vụ đào tạo, có đường chạy Prisma và fallback in-memory cho môi trường demo. */
 export class LearningService {
   private readonly courses: LearningCourse[] = [
     { id: "course-web", code: "WEB-FULLSTACK", name: "Phát triển Web Full-stack", description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.", outcomes: ["Thiết kế giao diện responsive", "Xây dựng REST API", "Thiết kế cơ sở dữ liệu"], status: "PUBLISHED", version: 1, createdAt: now(), updatedAt: now() },
@@ -104,6 +105,7 @@ export class LearningService {
     @Optional() private readonly system?: SystemService,
   ) {}
 
+  /** Liệt kê khóa học từ DB hoặc trả bản sao dữ liệu nhớ để tránh mutation ngoài service. */
   async listCourses(): Promise<LearningCourse[]> {
     const prisma = this.database();
     if (prisma) {
@@ -113,6 +115,7 @@ export class LearningService {
     return this.courses.map((item) => ({ ...item, outcomes: [...item.outcomes] }));
   }
 
+  /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
   async createCourse(input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes">, actorId = "usr-manager"): Promise<LearningCourse> {
     const code = input.code.trim().toUpperCase();
     const prisma = this.database();
@@ -140,6 +143,7 @@ export class LearningService {
     this.courses.unshift(course); return { ...course, outcomes: [...course.outcomes] };
   }
 
+  /** Cập nhật nội dung khóa học; khóa học đã xuất bản sẽ tăng version theo quy tắc lưu lịch sử. */
   async updateCourse(courseId: string, input: Pick<LearningCourse, "name" | "description" | "outcomes">, actorId = "usr-manager"): Promise<LearningCourse> {
     const name = input.name.trim();
     const description = input.description.trim();
@@ -162,6 +166,7 @@ export class LearningService {
     return { ...current, outcomes: [...current.outcomes] };
   }
 
+  /** Liệt kê snapshot xuất bản của khóa học theo thứ tự phiên bản. */
   async listCourseVersions(courseId: string): Promise<CourseVersionSnapshot[]> {
     const prisma = this.database();
     if (prisma) {
@@ -173,6 +178,7 @@ export class LearningService {
     return this.courseVersions.filter((item) => item.courseId === courseId).sort((a, b) => b.version - a.version).map((item) => ({ ...item, outcomes: [...item.outcomes] }));
   }
 
+  /** Xuất bản khóa học và chụp snapshot bất biến của phiên bản hiện tại trong transaction. */
   async publishCourse(courseId: string, actorId = "usr-manager"): Promise<LearningCourse> {
     const prisma = this.database();
     if (prisma) {
@@ -202,6 +208,7 @@ export class LearningService {
     return { ...course, outcomes: [...course.outcomes] };
   }
 
+  /** Chuyển khóa học sang ARCHIVED sau khi kiểm tra ràng buộc sử dụng và lưu lý do audit. */
   async archiveCourse(courseId: string, reason: string, actorId = "usr-manager"): Promise<LearningCourse> {
     const normalizedReason = reason.trim();
     if (normalizedReason.length < 5) throw new BadRequestException("Lý do ngừng sử dụng cần ít nhất 5 ký tự.");
@@ -223,6 +230,7 @@ export class LearningService {
     return { ...current, outcomes: [...current.outcomes] };
   }
 
+  /** Lọc lớp theo vai trò: quản trị xem tất cả, giảng viên/học viên theo quan hệ thành viên. */
   async listClasses(role: string, actorId = this.userIdForRole(role)): Promise<LearningClass[]> {
     const prisma = this.database();
     if (prisma) {
@@ -240,6 +248,7 @@ export class LearningService {
     return this.classes.filter((item) => role === "LEARNER" ? item.learnerIds.includes(actorId) : role === "INSTRUCTOR" ? item.instructorIds.includes(actorId) : true).map((item) => ({ ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] }));
   }
 
+  /** Tạo lớp nháp từ phiên bản khóa học hợp lệ và kiểm tra lịch, sức chứa, múi giờ. */
   async createClass(input: Pick<LearningClass, "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"> & Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment">>, actorId = "usr-manager"): Promise<LearningClass> {
     const code = input.code.trim().toUpperCase();
     const term = input.term.trim();
@@ -272,6 +281,7 @@ export class LearningService {
     const course = this.findCourse(input.courseId);
     const item: LearningClass = { ...input, courseVersion: course.version, code, term, timezone, allowLateEnrollment: input.allowLateEnrollment ?? false, id: id("class"), status: "DRAFT", instructorIds: [], learnerIds: [] }; this.classes.unshift(item); return { ...item, instructorIds: [], learnerIds: [] };
   }
+  /** Gán giảng viên đúng role, bảo đảm người dùng có vai trò INSTRUCTOR và ghi lịch sử thành viên. */
   async assignInstructor(classId: string, instructorId: string, requestedRole?: InstructorRole, actorId = "usr-manager"): Promise<LearningClass> {
     const prisma = this.database();
     if (prisma) {
@@ -305,6 +315,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Gỡ phân công giảng viên, bảo vệ điều kiện giảng viên chính và lưu lý do lịch sử. */
   async removeInstructor(classId: string, instructorId: string, reason: string, actorId = "usr-manager"): Promise<LearningClass> {
     const normalizedReason = reason.trim();
     if (normalizedReason.length < 5) throw new BadRequestException("Lý do gỡ phân công cần ít nhất 5 ký tự.");
@@ -329,6 +340,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Ghi danh học viên sau khi kiểm tra vai trò, trạng thái lớp, thời hạn và sức chứa. */
   async enrollLearner(classId: string, learnerId: string, actorId = "usr-manager"): Promise<LearningClass> {
     const prisma = this.database();
     if (prisma) {
@@ -361,6 +373,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Ghi danh lần lượt danh sách userId và cô lập lỗi để trả kết quả trên từng học viên. */
   async importEnrollments(classId: string, userIds: string[], actorId = "usr-manager"): Promise<EnrollmentImportResult[]> {
     const normalized = userIds.map((value) => value.trim()).filter(Boolean);
     const seen = new Set<string>(); const results: EnrollmentImportResult[] = [];
@@ -379,6 +392,7 @@ export class LearningService {
     return results;
   }
 
+  /** Hủy ghi danh theo kiểu lưu lịch sử, thay vì xóa mất dấu vết thành viên. */
   async removeEnrollment(classId: string, learnerId: string, reason: string, actorId = "usr-manager"): Promise<LearningClass> {
     const normalizedReason = reason.trim(); if (normalizedReason.length < 5) throw new BadRequestException("Lý do gỡ học viên cần ít nhất 5 ký tự.");
     const prisma = this.database();
@@ -397,6 +411,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Tổng hợp giảng viên, ghi danh đang/cũ và lịch sử thao tác thành roster chi tiết. */
   async getClassRoster(classId: string): Promise<ClassRoster> {
     const prisma = this.database();
     if (prisma) {
@@ -408,6 +423,7 @@ export class LearningService {
     return { classId, instructors: item.instructorIds.map((instructorId) => ({ instructorId, role: this.instructorRoles.get(`${classId}:${instructorId}`) ?? "CO_INSTRUCTOR", assignedAt: now() })), enrollments: item.learnerIds.map((learnerId) => ({ learnerId, status: "ACTIVE", source: "MANUAL", joinedAt: now() })), history: this.classMemberHistory.filter((row) => row.id.startsWith(`${classId}:`)).map((row) => ({ ...row })) };
   }
 
+  /** Kích hoạt lớp khi khóa học đã xuất bản, lịch hợp lệ và có giảng viên chính. */
   async activateClass(classId: string, actorId = "usr-manager"): Promise<LearningClass> {
     const prisma = this.database();
     if (prisma) {
@@ -433,6 +449,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Đếm các nghiệp vụ còn mở để xác định lớp có thể đóng hay chưa. */
   async getClassClosureReadiness(classId: string): Promise<ClassClosureReadiness> {
     const prisma = this.database();
     if (prisma) {
@@ -459,6 +476,7 @@ export class LearningService {
     });
   }
 
+  /** Đóng lớp chỉ khi readiness không còn blocker và lưu chính sách lưu trữ. */
   async closeClass(classId: string, closeReason: string, archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION", actorId = "usr-manager"): Promise<LearningClass> {
     const reason = closeReason.trim();
     if (reason.length < 5) throw new BadRequestException("Lý do đóng lớp cần ít nhất 5 ký tự.");
@@ -485,6 +503,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Mở lại lớp đã đóng, xóa thông tin đóng và ghi lý do vào audit. */
   async reopenClass(classId: string, rawReason: string, actorId = "usr-manager"): Promise<LearningClass> {
     const reason = rawReason.trim();
     if (reason.length < 5) throw new BadRequestException("Lý do mở lại lớp cần ít nhất 5 ký tự.");
@@ -509,6 +528,7 @@ export class LearningService {
     return { ...item, instructorIds: [...item.instructorIds], learnerIds: [...item.learnerIds] };
   }
 
+  /** Liệt kê học liệu theo lớp/phân quyền, ẩn bản nháp hoặc cách ly khỏi người không quản lý. */
   async listMaterials(role: string, query?: string, actorId = this.userIdForRole(role)): Promise<LearningMaterial[]> {
     const normalized = query?.toLowerCase() ?? "";
     const prisma = this.database();
@@ -529,6 +549,7 @@ export class LearningService {
       .map((item) => ({ ...item, tags: [...item.tags] }));
   }
 
+  /** Tìm học liệu đã công bố của học viên bằng bộ lọc và phân trang có giới hạn. */
   async searchAccessibleMaterials(input: {
     query?: string;
     classId?: string;
@@ -571,6 +592,7 @@ export class LearningService {
     return { items, total: filtered.length, page, pageSize, totalPages: Math.max(1, Math.ceil(filtered.length / pageSize)) };
   }
 
+  /** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên. */
   async createMaterial(
     classId: string,
     input: Pick<LearningMaterial, "name" | "mimeType" | "sizeBytes" | "folder" | "tags">,
@@ -629,6 +651,7 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
+  /** Phát URL truy cập học liệu ký HMAC có thời hạn sau khi kiểm tra quyền. */
   async createMaterialAccess(materialId: string, role: string, action: MaterialAccessAction = "DOWNLOAD", actorId = this.userIdForRole(role)): Promise<{ url: string; expiresAt: string }> {
     const prisma = this.database();
     if (prisma) {
@@ -660,6 +683,7 @@ export class LearningService {
     return { url: `/materials/${materialId}/download?expires=${expires}&action=${action}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
   }
 
+  /** Xác minh chữ ký/quyền, tải object và ghi audit lượt xem hoặc tải xuống. */
   async readMaterialDownload(
     materialId: string,
     expires: number,
@@ -722,6 +746,7 @@ export class LearningService {
     return { fileName, mimeType, buffer };
   }
 
+  /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
   async updateMaterial(materialId: string, input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>, actorId = "usr-instructor"): Promise<LearningMaterial> {
     const prisma = this.database();
     if (prisma) {
@@ -746,6 +771,7 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
+  /** Xác minh giảng viên phụ trách rồi trả học viên đang ghi danh trong lớp. */
   async listInstructorClassLearners(classId: string, instructorId: string): Promise<DirectoryUser[]> {
     const prisma = this.database();
     if (prisma) {
@@ -761,6 +787,7 @@ export class LearningService {
     return classItem.learnerIds.map((learnerId) => ({ id: learnerId, displayName: learnerId, email: "", roleCode: "LEARNER" }));
   }
 
+  /** Tìm người dùng theo vai trò và tùy chọn loại các thành viên đã thuộc lớp. */
   async searchDirectory(roleCode: "INSTRUCTOR" | "LEARNER", query = "", classId?: string): Promise<DirectoryUser[]> {
     const prisma = this.database();
     if (!prisma) return [];
@@ -780,6 +807,7 @@ export class LearningService {
     return users.map((user) => ({ ...user, roleCode }));
   }
 
+  /** Liệt kê lịch sử phiên bản sau khi kiểm tra quyền truy cập học liệu cha. */
   async listMaterialVersions(materialId: string, role: string, actorId = this.userIdForRole(role)): Promise<MaterialVersionSnapshot[]> {
     const prisma = this.database();
     if (prisma) {
@@ -795,6 +823,7 @@ export class LearningService {
     return this.materialVersions.filter((item) => item.materialId === materialId && (role !== "LEARNER" || item.visibility === "PUBLISHED")).sort((a, b) => b.version - a.version).map((item) => ({ id: item.id, materialId: item.materialId, version: item.version, name: normalizeMultipartFileName(item.name), mimeType: item.mimeType, sizeBytes: item.sizeBytes, folder: item.folder, tags: [...item.tags], visibility: item.visibility, createdBy: item.createdBy, createdAt: item.createdAt }));
   }
 
+  /** Phát URL ký cho một version cụ thể và ràng buộc chữ ký với hành động xem/tải. */
   async createMaterialVersionAccess(materialId: string, version: number, role: string, action: MaterialAccessAction = "DOWNLOAD", actorId = this.userIdForRole(role)): Promise<{ url: string; expiresAt: string }> {
     const prisma = this.database();
     if (prisma) {
@@ -814,6 +843,7 @@ export class LearningService {
     return { url: `/materials/${materialId}/versions/${version}/download?expires=${expires}&action=${action}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
   }
 
+  /** Xác minh quyền/chữ ký version rồi đọc object tương ứng từ storage. */
   async readMaterialVersionDownload(materialId: string, version: number, expires: number, signature: string, role: string, action: MaterialAccessAction = "DOWNLOAD", actorId = this.userIdForRole(role)): Promise<MaterialDownload> {
     this.verifyMaterialAccess(`${materialId}:${version}`, expires, signature, action);
     const prisma = this.database();
@@ -838,6 +868,7 @@ export class LearningService {
     return { fileName, mimeType, buffer };
   }
 
+  /** Quét và lưu tệp mới, tăng version nguyên tử, giữ snapshot cũ và dọn object khi lỗi. */
   async replaceMaterialVersion(materialId: string, input: Pick<LearningMaterial, "folder" | "tags">, upload: UploadedMaterialFile, actorId = "usr-instructor"): Promise<LearningMaterial> {
     const prisma = this.database();
     const policy = prisma ? await this.getStoragePolicy(prisma) : { maxFileSizeMb: 50, storageQuotaMb: 10_240, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
@@ -873,6 +904,7 @@ export class LearningService {
     return { ...current, tags: [...current.tags] };
   }
 
+  /** Áp dụng quyết định kiểm duyệt học liệu, cập nhật cách ly/visibility và ghi lịch sử. */
   async reviewClassMaterial(
     materialId: string,
     action: FileReviewRecord["action"],
@@ -912,6 +944,7 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
+  /** Liệt kê các quyết định kiểm duyệt học liệu mới nhất trước. */
   async listMaterialReviews(materialId: string): Promise<FileReviewRecord[]> {
     const prisma = this.database();
     if (prisma) {
@@ -923,6 +956,7 @@ export class LearningService {
     return this.materialReviews.filter((review) => review.materialId === materialId).map((review) => ({ ...review }));
   }
 
+  /** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
   async listQuestions(filters: string | { query?: string; courseId?: string; type?: string; difficulty?: number; tag?: string; status?: LearningQuestion["status"] } = {}): Promise<LearningQuestion[]> {
     const input = typeof filters === "string" ? { query: filters } : filters;
     const normalized = input.query?.trim().toLowerCase() ?? "";
@@ -942,6 +976,7 @@ export class LearningService {
     return this.latestQuestionVersions(candidates).filter(matches).map((item) => this.cloneQuestion(item));
   }
 
+  /** Validate nội dung/đáp án, tạo family câu hỏi và chọn trạng thái theo chế độ duyệt cấu hình. */
   async createQuestion(input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
     const normalized = this.validateQuestionInput(input);
     const contentHash = this.questionContentHash(normalized.content);
@@ -967,6 +1002,7 @@ export class LearningService {
     return this.cloneQuestion(item);
   }
 
+  /** Tạo version kế tiếp của câu hỏi thay vì sửa bản đã dùng, đồng thời chống nội dung trùng. */
   async updateQuestion(questionId: string, input: Omit<LearningQuestion, "id" | "status" | "version">, authorId = "usr-instructor"): Promise<LearningQuestion> {
     const normalized = this.validateQuestionInput(input);
     const contentHash = this.questionContentHash(normalized.content);
@@ -1004,6 +1040,7 @@ export class LearningService {
     return this.cloneQuestion(next);
   }
 
+  /** Kiểm tra ảnh thật, lưu object mới và dọn ảnh cũ khi không còn version nào tham chiếu. */
   async uploadQuestionImage(questionId: string, upload: UploadedMaterialFile): Promise<LearningQuestion> {
     await this.validateQuestionImage(upload);
     const fileName = normalizeMultipartFileName(upload.originalName);
@@ -1034,6 +1071,7 @@ export class LearningService {
     return this.cloneQuestion(current);
   }
 
+  /** Xóa liên kết ảnh của câu hỏi rồi dọn object nếu không còn tham chiếu. */
   async removeQuestionImage(questionId: string): Promise<LearningQuestion> {
     const prisma = this.database();
     if (prisma) {
@@ -1053,6 +1091,7 @@ export class LearningService {
     return this.cloneQuestion(current);
   }
 
+  /** Cho người quản lý hoặc thành viên đề/lớp hợp lệ đọc ảnh câu hỏi mà không lộ object key. */
   async readQuestionImage(questionId: string, role: string, actorId: string): Promise<MaterialDownload> {
     const prisma = this.database();
     if (prisma) {
@@ -1074,6 +1113,7 @@ export class LearningService {
     return { fileName: image.fileName, mimeType: image.mimeType, buffer: Buffer.from(image.buffer) };
   }
 
+  /** Xuất bản ngay hoặc chuyển PENDING_REVIEW tùy chế độ phê duyệt câu hỏi. */
   async publishQuestion(questionId: string, actorId = "usr-instructor"): Promise<LearningQuestion> {
     const approvalMode = await this.getQuestionApprovalMode();
     const nextStatus: LearningQuestion["status"] = approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
@@ -1104,6 +1144,7 @@ export class LearningService {
     return this.cloneQuestion(current);
   }
 
+  /** Áp dụng quyết định duyệt tay, bắt buộc ghi chú khi trả lại và lưu audit. */
   async reviewQuestion(questionId: string, decision: "APPROVE" | "RETURN", rawNote?: string, reviewerId = "usr-admin"): Promise<LearningQuestion> {
     const reviewNote = rawNote?.trim();
     if (decision === "RETURN" && (!reviewNote || reviewNote.length < 5)) throw new BadRequestException("Cần lý do ít nhất 5 ký tự khi trả lại câu hỏi.");
@@ -1128,6 +1169,7 @@ export class LearningService {
     return this.cloneQuestion(current);
   }
 
+  /** Nhập từng câu độc lập để lỗi một mục không hủy toàn bộ lô. */
   async importQuestions(inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>, authorId = "usr-instructor"): Promise<QuestionImportResult[]> {
     const results: QuestionImportResult[] = [];
     for (const [index, input] of inputs.entries()) {
@@ -1142,6 +1184,7 @@ export class LearningService {
     return results;
   }
 
+  /** Liệt kê đề theo vai trò và quan hệ lớp, không trả đề ngoài phạm vi giảng dạy/ghi danh. */
   async listExams(role: string, actorId = this.userIdForRole(role)): Promise<LearningExam[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1163,6 +1206,7 @@ export class LearningService {
     }).map((item) => ({ ...item, questionIds: [...item.questionIds] }));
   }
 
+  /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
   async listLearnerExamSummaries(classId?: string, learnerId = "usr-learner"): Promise<LearnerExamSummary[]> {
     const timestamp = new Date();
     const prisma = this.database();
@@ -1205,6 +1249,7 @@ export class LearningService {
       });
   }
 
+  /** Trả câu hỏi cho học viên theo thứ tự seed nếu xáo trộn và loại dữ liệu đáp án đúng. */
   async getExamQuestions(examId: string, learnerId = "usr-learner"): Promise<LearningQuestion[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1249,6 +1294,7 @@ export class LearningService {
     });
   }
 
+  /** Xác minh giảng viên phụ trách rồi trả câu hỏi theo đúng thứ tự gốc của đề. */
   async getInstructorExamPreview(examId: string, instructorId = "usr-instructor"): Promise<LearningQuestion[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1268,6 +1314,7 @@ export class LearningService {
     });
   }
 
+  /** Validate lịch/thang điểm/câu hỏi, giữ thứ tự chọn và tạo đề nháp cho lớp phụ trách. */
   async createExam(input: Omit<LearningExam, "id" | "status" | "version">, actorId = "usr-instructor"): Promise<LearningExam> {
     if (new Date(input.closeAt) <= new Date(input.openAt)) throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
     if (!input.questionIds.length) throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
@@ -1306,6 +1353,7 @@ export class LearningService {
     return { ...item, questionIds: [...item.questionIds] };
   }
 
+  /** Kiểm tra đề hoàn chỉnh rồi tự công bố hoặc đưa vào hàng đợi duyệt theo cấu hình. */
   async submitExamForReview(examId: string, actorId = "usr-instructor"): Promise<LearningExam> {
     const approvalMode = await this.getExamApprovalMode();
     const nextStatus: LearningExam["status"] = approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
@@ -1334,6 +1382,7 @@ export class LearningService {
     return { ...item, questionIds: [...item.questionIds] };
   }
 
+  /** Chốt duyệt/từ chối đề, lưu approval record và thông báo cho người tạo. */
   async reviewExam(examId: string, decision: ExamApprovalRecord["decision"], rawNote?: string, reviewerId = "usr-manager"): Promise<LearningExam> {
     const reviewNote = rawNote?.trim();
     if (decision === "RETURN" && (!reviewNote || reviewNote.length < 5)) throw new BadRequestException("Cần lý do ít nhất 5 ký tự khi trả lại đề.");
@@ -1361,6 +1410,7 @@ export class LearningService {
     return { ...item, questionIds: [...item.questionIds] };
   }
 
+  /** Liệt kê lịch sử phê duyệt của một đề thi. */
   async listExamApprovals(examId: string): Promise<ExamApprovalRecord[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1370,6 +1420,7 @@ export class LearningService {
     return this.examApprovals.filter((item) => item.examId === examId).map((item) => ({ ...item }));
   }
 
+  /** Kiểm tra ghi danh, cửa sổ thi, giới hạn lượt rồi tạo hoặc tiếp tục lượt đang làm. */
   async startAttempt(examId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
@@ -1418,6 +1469,7 @@ export class LearningService {
     return { ...item, answers: {} };
   }
 
+  /** Validate đáp án thuộc đề và upsert câu trả lời khi lượt thi còn trong hạn. */
   async saveAnswer(attemptId: string, questionId: string, answers: string[], learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
@@ -1447,6 +1499,7 @@ export class LearningService {
     return { ...item, answers: { ...item.answers }, serverTime: now() };
   }
 
+  /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */
   async submitAttempt(attemptId: string, learnerId = "usr-learner"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
@@ -1510,6 +1563,7 @@ export class LearningService {
     return { ...item, answers: { ...item.answers } };
   }
 
+  /** Tìm lượt IN_PROGRESS quá hạn theo lô và nộp tự động bằng cùng logic submit. */
   async reconcileExpiredAttempts(limit = 100): Promise<number> {
     const boundedLimit = Math.max(1, Math.min(limit, 500));
     const prisma = this.database();
@@ -1529,6 +1583,7 @@ export class LearningService {
     return expired.length;
   }
 
+  /** Đọc một lượt thi và ánh xạ đáp án từ Prisma hoặc kho nhớ. */
   async getAttempt(attemptId: string): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) return this.getDatabaseAttempt(prisma, attemptId);
@@ -1536,6 +1591,7 @@ export class LearningService {
     return { ...item, answers: { ...item.answers } };
   }
 
+  /** Liệt kê kết quả đã nộp/chấm của học viên cùng trạng thái phúc khảo. */
   async listLearnerResults(learnerId = "usr-learner"): Promise<LearnerResult[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1585,12 +1641,14 @@ export class LearningService {
       });
   }
 
+  /** Trả đúng kết quả thuộc học viên, từ chối truy cập chéo lượt thi. */
   async getLearnerResult(attemptId: string, learnerId = "usr-learner"): Promise<LearnerResult> {
     const result = (await this.listLearnerResults(learnerId)).find((item) => item.attempt.id === attemptId);
     if (!result) throw new NotFoundException("Kết quả chưa được công bố hoặc không thuộc học viên hiện tại.");
     return result;
   }
 
+  /** Mở yêu cầu phúc khảo duy nhất cho lượt đã chấm và thông báo giảng viên. */
   async requestRegrade(attemptId: string, reason: string, learnerId = "usr-learner"): Promise<RegradeRequest> {
     const normalizedReason = reason.trim();
     if (normalizedReason.length < 10) throw new BadRequestException("Lý do phúc khảo cần ít nhất 10 ký tự.");
@@ -1616,6 +1674,7 @@ export class LearningService {
     return { ...request };
   }
 
+  /** Liệt kê lượt thi trong phạm vi lớp giảng viên phụ trách. */
   async listAttempts(examId?: string, actorId = "usr-instructor"): Promise<ExamAttempt[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1627,6 +1686,7 @@ export class LearningService {
     return this.attempts.filter((item) => (!examId || item.examId === examId) && this.findClass(this.findExam(item.examId).classId).instructorIds.includes(actorId)).map((item) => ({ ...item, answers: { ...item.answers } }));
   }
 
+  /** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và lưu grade history. */
   async gradeAttempt(attemptId: string, score: number, feedback: string, correctionReason?: string, graderId = "usr-instructor"): Promise<ExamAttempt> {
     const prisma = this.database();
     if (prisma) {
@@ -1654,6 +1714,7 @@ export class LearningService {
     return { ...item, answers: { ...item.answers } };
   }
 
+  /** Kiểm tra phạm vi giảng dạy rồi trả lịch sử các lần thay đổi điểm. */
   async listGradeHistory(attemptId: string, actorId = "usr-instructor"): Promise<GradeHistoryRecord[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1667,6 +1728,7 @@ export class LearningService {
     return this.gradeHistory.filter((item) => item.attemptId === attemptId).map((item) => ({ ...item }));
   }
 
+  /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
   async listTopics(role = "LEARNER", actorId = this.userIdForRole(role)): Promise<ForumTopic[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1688,6 +1750,7 @@ export class LearningService {
     }).map((item) => ({ ...item, tags: [...item.tags] }));
   }
 
+  /** Kiểm tra thành viên/chính sách nội dung rồi tạo chủ đề và thông báo thành viên lớp. */
   async createTopic(
     classId: string,
     input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">,
@@ -1726,6 +1789,7 @@ export class LearningService {
     return { ...item, tags: [...item.tags] };
   }
 
+  /** Ghim hoặc khóa chủ đề với lý do bắt buộc và ghi audit người điều phối. */
   async moderateTopic(topicId: string, input: { isLocked?: boolean; isPinned?: boolean; reason: string }, actorId = "usr-instructor"): Promise<ForumTopic> {
     const reason = input.reason.trim();
     if (reason.length < 5) throw new BadRequestException("Lý do điều phối cần ít nhất 5 ký tự.");
@@ -1747,6 +1811,7 @@ export class LearningService {
     return { ...current, tags: [...current.tags] };
   }
 
+  /** Kiểm tra quyền lớp rồi trả cây bài viết, ẩn nội dung đã xóa/kiểm duyệt phù hợp. */
   async listPosts(topicId: string, role = "LEARNER", actorId = this.userIdForRole(role)): Promise<ForumPost[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1768,6 +1833,7 @@ export class LearningService {
     }));
   }
 
+  /** Validate nội dung, chủ đề chưa khóa, parent/tệp/mention hợp lệ rồi tạo post và thông báo. */
   async createPost(
     topicId: string,
     body: string,
@@ -1866,6 +1932,7 @@ export class LearningService {
     return { ...item, attachmentIds: [...item.attachmentIds], mentionedUserIds: [...item.mentionedUserIds] };
   }
 
+  /** Cho đúng tác giả sửa bài chưa bị xóa/ẩn và chạy lại chính sách nội dung. */
   async updatePost(postId: string, body: string, authorId = "usr-learner"): Promise<ForumPost> {
     const safeBody = this.validateForumContent(body, "Nội dung phản hồi");
     const prisma = this.database();
@@ -1885,6 +1952,7 @@ export class LearningService {
     return { ...current, attachmentIds: [...current.attachmentIds], mentionedUserIds: [...current.mentionedUserIds] };
   }
 
+  /** Xóa mềm bài viết của tác giả để giữ tính toàn vẹn chuỗi thảo luận. */
   async deletePost(postId: string, authorId = "usr-learner"): Promise<ForumPost> {
     const prisma = this.database();
     if (prisma) {
@@ -1901,6 +1969,7 @@ export class LearningService {
     return { ...current, body: "[Nội dung đã bị xóa]", attachmentIds: [], mentionedUserIds: [] };
   }
 
+  /** Ẩn bài vi phạm, lưu lý do kiểm duyệt và thông báo tác giả. */
   async hidePost(postId: string, rawReason: string, actorId = "usr-instructor"): Promise<ForumPost> {
     const reason = rawReason.trim();
     if (reason.length < 5) throw new BadRequestException("Lý do ẩn cần ít nhất 5 ký tự.");
@@ -1920,6 +1989,7 @@ export class LearningService {
     return { ...current, body: "[Nội dung đã bị ẩn]", attachmentIds: [], mentionedUserIds: [] };
   }
 
+  /** Liệt kê thông báo của đúng người nhận theo thời gian mới nhất. */
   async listNotifications(recipientId = "usr-learner"): Promise<LearningNotification[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1929,6 +1999,7 @@ export class LearningService {
     return this.notifications.filter((item) => item.recipientId === recipientId).map((item) => ({ ...item }));
   }
 
+  /** Đánh dấu đã đọc bằng điều kiện recipientId để ngăn sửa thông báo người khác. */
   async markNotificationRead(notificationId: string, recipientId = "usr-learner"): Promise<LearningNotification> {
     const prisma = this.database();
     if (prisma) {
@@ -1943,6 +2014,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Kiểm tra đối tượng tồn tại và tạo báo cáo tránh trùng đang mở từ cùng người gửi. */
   async reportContent(input: Pick<ContentReport, "targetType" | "targetId" | "reporterId" | "reason" | "details">): Promise<ContentReport> {
     const prisma = this.database();
     if (prisma) {
@@ -1970,6 +2042,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Liệt kê hàng đợi kiểm duyệt cùng lịch sử hành động. */
   async listReports(): Promise<ContentReport[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1979,6 +2052,7 @@ export class LearningService {
     return this.reports.map((item) => ({ ...item }));
   }
 
+  /** Liệt kê báo cáo và kết quả xử lý thuộc người học. */
   async listLearnerReports(learnerId = "usr-learner"): Promise<ContentReport[]> {
     const prisma = this.database();
     if (prisma) {
@@ -1988,6 +2062,7 @@ export class LearningService {
     return this.reports.filter((item) => item.reporterId === learnerId).map((item) => ({ ...item }));
   }
 
+  /** Ghép báo cáo với nội dung đích và ngữ cảnh lân cận để ra quyết định. */
   async getReportContext(reportId: string): Promise<ModerationContext> {
     const prisma = this.database();
     if (prisma) {
@@ -2008,6 +2083,7 @@ export class LearningService {
     return { report: { ...report, actions: report.actions.map((action) => ({ ...action })) }, classId: topic.classId, topicTitle: topic.title, targetAuthorId: target.authorId, targetBody: target.body, surroundingPosts: this.posts.filter((post) => post.topicId === topic.id).map((post) => ({ id: post.id, authorId: post.authorId, body: post.body, createdAt: post.createdAt })) };
   }
 
+  /** Nhận quyền xử lý báo cáo bằng cập nhật có điều kiện để tránh claim đồng thời. */
   async claimReport(reportId: string, moderatorId = "usr-manager"): Promise<ContentReport> {
     const prisma = this.database();
     if (prisma) {
@@ -2029,6 +2105,7 @@ export class LearningService {
     return { ...current, actions: current.actions.map((action) => ({ ...action })) };
   }
 
+  /** Áp dụng hành động kiểm duyệt, ghi action history và thông báo các bên liên quan. */
   async resolveReport(reportId: string, action: "HIDE_CONTENT" | "KEEP_CONTENT" | "ESCALATE_ADMIN", resolution: string, moderatorId = "usr-manager"): Promise<ContentReport> {
     const normalizedResolution = resolution.trim();
     if (normalizedResolution.length < 3) throw new BadRequestException("Lý do xử lý phải có ít nhất 3 ký tự.");
@@ -2079,6 +2156,7 @@ export class LearningService {
     return { ...item, actions: item.actions.map((record) => ({ ...record })) };
   }
 
+  /** Mở khiếu nại một lần cho báo cáo đã xử lý thuộc người gửi và đưa lại vào hàng đợi. */
   async appealReport(reportId: string, reason: string, learnerId = "usr-learner"): Promise<ContentReport> {
     const normalizedReason = reason.trim();
     if (normalizedReason.length < 10) throw new BadRequestException("Lý do kháng nghị phải có ít nhất 10 ký tự.");
@@ -2109,6 +2187,7 @@ export class LearningService {
     return { ...item, actions: item.actions.map((record) => ({ ...record })) };
   }
 
+  /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
   async listSessions(role = "LEARNER", actorId = this.userIdForRole(role)): Promise<LiveSession[]> {
     const prisma = this.database();
     if (prisma) {
@@ -2130,6 +2209,7 @@ export class LearningService {
     }).map((item) => role === "LEARNER" ? { ...item, hostUrl: "" } : { ...item });
   }
 
+  /** Validate lịch/quyền lớp, cấp phòng từ provider có fallback rồi thông báo thành viên. */
   async createSession(classId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">, actorId = "usr-instructor", actorRole = "INSTRUCTOR"): Promise<LiveSession> {
     if (new Date(input.endsAt) <= new Date(input.startsAt)) throw new BadRequestException("Thời gian kết thúc phải sau thời gian bắt đầu.");
     const prisma = this.database();
@@ -2171,6 +2251,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Cập nhật lịch/provider trước khi buổi học diễn ra và lưu lý do audit. */
   async updateSession(sessionId: string, input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & { reason: string }, actorId = "usr-manager"): Promise<LiveSession> {
     const reason = input.reason.trim(); if (reason.length < 5) throw new BadRequestException("Lý do đổi lịch cần ít nhất 5 ký tự.");
     const startsAt = new Date(input.startsAt); const endsAt = new Date(input.endsAt);
@@ -2196,6 +2277,7 @@ export class LearningService {
     Object.assign(item, input, { provider: provisioned.provider, requestedProvider: input.provider, fallbackUsed: provisioned.fallbackUsed, provisioningAttempts: provisioned.attempts, changeReason: reason, hostUrl: provisioned.hostUrl, attendeeUrl: provisioned.attendeeUrl }); return { ...item };
   }
 
+  /** Hủy buổi chưa hoàn tất, ghi lý do và gửi thông báo tới lớp. */
   async cancelSession(sessionId: string, reason: string, actorId = "usr-manager"): Promise<LiveSession> {
     const normalized = reason.trim(); if (normalized.length < 5) throw new BadRequestException("Lý do hủy cần ít nhất 5 ký tự.");
     const prisma = this.database();
@@ -2212,6 +2294,7 @@ export class LearningService {
     item.status = "CANCELLED"; item.cancellationReason = normalized; return { ...item };
   }
 
+  /** Kiểm soát chuyển trạng thái buổi học và cập nhật mốc vận hành liên quan. */
   async transitionSession(sessionId: string, status: LiveSession["status"], actorId = "usr-instructor"): Promise<LiveSession> {
     const allowed: Record<LiveSession["status"], LiveSession["status"][]> = { SCHEDULED: ["LIVE"], LIVE: ["COMPLETED"], COMPLETED: [], CANCELLED: [] };
     const prisma = this.database();
@@ -2228,6 +2311,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Xác minh ghi danh/cửa sổ tham dự, mở bản ghi attendance và trả URL người học. */
   async joinSession(sessionId: string, learnerId = "usr-learner"): Promise<{ attendeeUrl: string; joinedAt: string }> {
     const prisma = this.database();
     if (prisma) {
@@ -2263,6 +2347,7 @@ export class LearningService {
     return { attendeeUrl: item.attendeeUrl, joinedAt };
   }
 
+  /** Đóng lần tham dự và tính phút có mặt trong giới hạn thời gian buổi học. */
   async leaveSession(sessionId: string, learnerId = "usr-learner"): Promise<AttendanceRecord> {
     const prisma = this.database();
     if (prisma) {
@@ -2281,6 +2366,7 @@ export class LearningService {
     return { ...attendance };
   }
 
+  /** Điều chỉnh điểm danh thủ công sau validation và ghi lịch sử trước/sau. */
   async updateAttendance(sessionId: string, learnerId: string, status: AttendanceRecord["status"], attendedMinutes: number, adjustmentReason: string, actorId = "usr-instructor"): Promise<AttendanceRecord> {
     const normalizedReason = adjustmentReason.trim();
     if (normalizedReason.length < 3) throw new BadRequestException("Lý do điều chỉnh cần ít nhất 3 ký tự.");
@@ -2314,6 +2400,7 @@ export class LearningService {
     return { ...record };
   }
 
+  /** Tổng hợp bản ghi điểm danh, lần đồng bộ và khiếu nại của buổi học. */
   async getAttendanceReview(sessionId: string): Promise<AttendanceSessionReview> {
     const prisma = this.database();
     if (prisma) {
@@ -2342,6 +2429,7 @@ export class LearningService {
     };
   }
 
+  /** Chuẩn hóa dữ liệu provider, bỏ user ngoài lớp và upsert attendance trong transaction. */
   async syncAttendance(sessionId: string, inputRecords: ProviderAttendanceInput[], actorId = "usr-manager"): Promise<{ review: AttendanceSessionReview; skippedLearnerIds: string[] }> {
     this.validateProviderAttendanceInput(inputRecords);
     const prisma = this.database();
@@ -2406,6 +2494,7 @@ export class LearningService {
     return { review: await this.getAttendanceReview(sessionId), skippedLearnerIds };
   }
 
+  /** Khóa điểm danh sau khi buổi kết thúc và không còn dữ liệu cần đối soát. */
   async lockAttendance(sessionId: string, actorId = "usr-manager"): Promise<LiveSession> {
     const prisma = this.database();
     if (prisma) {
@@ -2429,6 +2518,7 @@ export class LearningService {
     return { ...session };
   }
 
+  /** Giải quyết khiếu nại và nếu duyệt thì cập nhật điểm danh cùng audit nguyên tử. */
   async resolveAttendanceAppeal(appealId: string, decision: "APPROVE" | "REJECT", resolution: string, status?: AttendanceRecord["status"], attendedMinutes?: number, actorId = "usr-manager"): Promise<AttendanceAppeal> {
     const normalizedResolution = resolution.trim();
     if (normalizedResolution.length < 5) throw new BadRequestException("Kết luận xử lý cần ít nhất 5 ký tự.");
@@ -2467,6 +2557,7 @@ export class LearningService {
     return { ...appeal };
   }
 
+  /** Gắn nguồn bản ghi cho buổi đã hoàn tất và chuyển sang trạng thái xử lý. */
   async attachRecording(sessionId: string, recordingUrl: string, actorId = "usr-instructor"): Promise<LiveSession> {
     const prisma = this.database();
     if (prisma) {
@@ -2489,6 +2580,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Chốt xử lý bản ghi, tính ngày hết hạn hoặc lưu lỗi và thông báo học viên khi sẵn sàng. */
   async completeRecording(sessionId: string, status: "READY" | "FAILED", retentionDays = 90, errorMessage?: string, actorId = "usr-instructor"): Promise<LiveSession> {
     const normalizedError = errorMessage?.trim();
     if (status === "FAILED" && (!normalizedError || normalizedError.length < 5)) throw new BadRequestException("Cần mô tả lỗi xử lý bản ghi ít nhất 5 ký tự.");
@@ -2521,10 +2613,12 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Kiểm tra bản ghi READY, có URL và chưa vượt thời hạn lưu giữ. */
   private isRecordingAvailable(session: Pick<LiveSession, "recordingUrl" | "recordingStatus" | "recordingExpiresAt">): boolean {
     return Boolean(session.recordingUrl && session.recordingStatus === "READY" && session.recordingExpiresAt && new Date(session.recordingExpiresAt) > new Date());
   }
 
+  /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
   async getSessionSummary(sessionId: string, learnerId = "usr-learner"): Promise<object> {
     const prisma = this.database();
     if (prisma) {
@@ -2542,6 +2636,7 @@ export class LearningService {
     return { session: { ...session, hostUrl: "", attendeeUrl: "", recordingUrl: undefined }, recordingAvailable: this.isRecordingAvailable(session), attendance: this.attendance.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" }, appeal: this.attendanceAppeals.find((item) => item.sessionId === sessionId && item.learnerId === learnerId) };
   }
 
+  /** Phát URL nội bộ ký theo session, learner và hạn để bảo vệ bản ghi. */
   async createRecordingAccess(sessionId: string, learnerId = "usr-learner"): Promise<{ url: string; expiresAt: string }> {
     const prisma = this.database();
     if (prisma) {
@@ -2556,6 +2651,7 @@ export class LearningService {
     return { url: `/learner/sessions/${sessionId}/recording?expires=${expires}&signature=${encodeURIComponent(signature)}`, expiresAt: new Date(expires * 1000).toISOString() };
   }
 
+  /** Xác minh chữ ký/hạn/quyền học viên rồi mới trả URL provider thực. */
   async resolveRecordingAccess(sessionId: string, expires: number, signature: string, learnerId = "usr-learner"): Promise<{ recordingUrl: string }> {
     this.verifyExpiringSignature(this.signRecordingAccess(sessionId, expires, learnerId), expires, signature, "Chữ ký bản ghi không hợp lệ.");
     const prisma = this.database();
@@ -2569,6 +2665,7 @@ export class LearningService {
     return { recordingUrl: session.recordingUrl! };
   }
 
+  /** Tạo khiếu nại điểm danh duy nhất cho học viên đã tham dự buổi học. */
   async requestAttendanceAppeal(sessionId: string, reason: string, learnerId = "usr-learner"): Promise<AttendanceAppeal> {
     const normalized = reason.trim();
     if (normalized.length < 10) throw new BadRequestException("Lý do điều chỉnh cần ít nhất 10 ký tự.");
@@ -2589,6 +2686,7 @@ export class LearningService {
     return { ...appeal };
   }
 
+  /** Liệt kê tất cả phiếu cho nhân sự hỗ trợ hoặc chỉ phiếu của người gửi. */
   async listTickets(role: string, actorId = this.userIdForRole(role)): Promise<SupportTicket[]> {
     const canManage = this.canManageSupport(role);
     const prisma = this.database();
@@ -2603,6 +2701,7 @@ export class LearningService {
     return this.tickets.filter((item) => canManage || item.reporterId === actorId).map((item) => ({ ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) }));
   }
 
+  /** Validate nội dung, chống phiếu trùng đang mở và tạo SLA theo mức độ nghiêm trọng. */
   async createTicket(input: Pick<SupportTicket, "category" | "severity" | "description" | "contextId">, reporterId = "usr-learner"): Promise<SupportTicket> {
     const slaHours: Record<SupportTicket["severity"], number> = { P0: 4, P1: 24, P2: 72, P3: 120 };
     const description = this.validateSupportText(input.description, "Mô tả yêu cầu");
@@ -2651,14 +2750,17 @@ export class LearningService {
     return { ...item, attachments: [] };
   }
 
+  /** Adapter tương thích cũ ánh xạ vai trò demo sang userId để đọc thông báo. */
   listRoleNotifications(role: string): Promise<LearningNotification[]> {
     return this.listNotifications(this.userIdForRole(role));
   }
 
+  /** Adapter tương thích cũ đánh dấu thông báo theo userId mặc định của vai trò. */
   markRoleNotificationRead(notificationId: string, role: string): Promise<LearningNotification> {
     return this.markNotificationRead(notificationId, this.userIdForRole(role));
   }
 
+  /** Kiểm tra quyền phiếu, magic bytes/virus rồi lưu tệp bằng chứng và metadata. */
   async addSupportAttachment(
     ticketId: string,
     upload: UploadedMaterialFile,
@@ -2696,6 +2798,7 @@ export class LearningService {
     return { ...attachment };
   }
 
+  /** Cập nhật người phụ trách/trạng thái/kết quả và ghi audit chuyển trạng thái. */
   async updateTicket(ticketId: string, input: Partial<Pick<SupportTicket, "status" | "assigneeId" | "resolution">>, actorId = "usr-admin"): Promise<SupportTicket> {
     if ((input.status === "RESOLVED" || input.status === "CLOSED") && !input.resolution) throw new BadRequestException("Cần ghi nội dung xử lý trước khi đóng.");
     const prisma = this.database();
@@ -2721,6 +2824,7 @@ export class LearningService {
     return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
   }
 
+  /** Cho đúng người gửi đóng phiếu chưa hoàn tất và ghi mốc đóng. */
   async closeTicketByReporter(ticketId: string, reporterId = "usr-learner"): Promise<SupportTicket> {
     const prisma = this.database();
     if (prisma) {
@@ -2740,6 +2844,7 @@ export class LearningService {
     return { ...item, attachments: item.attachments.map((attachment) => ({ ...attachment })) };
   }
 
+  /** Kiểm tra người gửi hoặc quyền hỗ trợ trước khi trả trao đổi của phiếu. */
   async listTicketComments(ticketId: string, role: string, actorId = this.userIdForRole(role)): Promise<TicketComment[]> {
     const canManage = this.canManageSupport(role);
     const prisma = this.database();
@@ -2754,6 +2859,7 @@ export class LearningService {
     return this.ticketComments.filter((item) => item.ticketId === ticketId).map((item) => ({ ...item }));
   }
 
+  /** Thêm trao đổi hợp lệ vào phiếu truy cập được và cập nhật thời gian hoạt động. */
   async addTicketComment(ticketId: string, body: string, role: string, authorId = this.userIdForRole(role)): Promise<TicketComment> {
     const normalized = this.validateSupportText(body, "Nội dung trao đổi");
     const canManage = this.canManageSupport(role);
@@ -2775,6 +2881,7 @@ export class LearningService {
     return { ...comment };
   }
 
+  /** Tổng hợp điểm danh, điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
   async getClassProgress(classId: string, input: { from?: string; to?: string } & Partial<RiskThresholds>): Promise<ClassProgressReport> {
     const { from, to } = this.reportingPeriod(input.from, input.to);
     const thresholds: RiskThresholds = {
@@ -2820,6 +2927,7 @@ export class LearningService {
     return { classId, classCode: classItem.code, from: from.toISOString(), to: to.toISOString(), thresholds, learners, generatedAt: now() };
   }
 
+  /** Tạo kế hoạch can thiệp cho học viên đang thuộc lớp và ghi người phụ trách. */
   async createProgressIntervention(classId: string, input: Pick<ProgressIntervention, "learnerId" | "title" | "notes" | "dueAt">, ownerId = "usr-manager"): Promise<ProgressIntervention> {
     const dueAt = new Date(input.dueAt);
     if (Number.isNaN(dueAt.getTime()) || dueAt <= new Date()) throw new BadRequestException("Hạn hành động hỗ trợ phải ở tương lai.");
@@ -2838,6 +2946,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Chốt hoặc hủy biện pháp can thiệp nếu người dùng là chủ sở hữu. */
   async updateProgressIntervention(interventionId: string, status: "DONE" | "CANCELLED", ownerId = "usr-manager"): Promise<ProgressIntervention> {
     const prisma = this.database();
     if (prisma) {
@@ -2856,6 +2965,7 @@ export class LearningService {
     return { ...item };
   }
 
+  /** Tạo snapshot báo cáo vận hành có checksum để các bản xuất dùng dữ liệu bất biến. */
   async runOperationalReport(fromInput: string, toInput: string, requestedById = "usr-manager"): Promise<ReportRun> {
     const { from, to } = this.reportingPeriod(fromInput, toInput);
     const result = await this.getOperationalReport(from.toISOString(), to.toISOString());
@@ -2870,6 +2980,7 @@ export class LearningService {
     return structuredClone(run);
   }
 
+  /** Kết xuất snapshot báo cáo thành CSV, lưu object và bản ghi trạng thái READY/FAILED. */
   async createReportExport(reportRunId: string, format: "CSV", requestedById = "usr-manager"): Promise<ReportExport> {
     const prisma = this.database();
     const run = prisma
@@ -2902,6 +3013,7 @@ export class LearningService {
     }
   }
 
+  /** Liệt kê bản xuất do người dùng yêu cầu theo thời gian mới nhất. */
   async listReportExports(requestedById = "usr-manager"): Promise<ReportExport[]> {
     const prisma = this.database();
     if (prisma) {
@@ -2911,6 +3023,7 @@ export class LearningService {
     return this.reportExports.filter((item) => item.requestedById === requestedById && item.status !== "EXPIRED").map((item) => ({ id: item.id, reportRunId: item.reportRunId, format: item.format, status: item.status, fileName: item.fileName, sizeBytes: item.sizeBytes, errorMessage: item.errorMessage, expiresAt: item.expiresAt, createdAt: item.createdAt }));
   }
 
+  /** Kiểm tra chủ sở hữu/trạng thái rồi đọc tệp báo cáo từ storage. */
   async downloadReportExport(exportId: string, requestedById = "usr-manager"): Promise<MaterialDownload> {
     const prisma = this.database();
     if (prisma) {
@@ -2927,6 +3040,7 @@ export class LearningService {
     return { fileName: item.fileName, mimeType: "text/csv; charset=utf-8", buffer: await this.readStoredFile(item.filePath) };
   }
 
+  /** Đối soát số liệu khóa/lớp/học liệu/thi/phiếu trong kỳ và gắn cảnh báo vận hành. */
   async getOperationalReport(fromInput?: string, toInput?: string): Promise<OperationalReport> {
     const { from, to } = this.reportingPeriod(fromInput, toInput);
     const createdAt = { gte: from, lte: to };
@@ -2967,6 +3081,7 @@ export class LearningService {
     return { courses: this.courses.length, classes, activeClasses: classes, learners: new Set(this.classes.flatMap((item) => item.learnerIds)).size, materials, publishedMaterials: materials, questions: this.questions.length, exams: this.exams.length, liveSessions: this.sessions.filter((item) => new Date(item.startsAt) >= from && new Date(item.startsAt) <= to).length, openReports: this.reports.filter((item) => ["OPEN", "IN_REVIEW", "ESCALATED"].includes(item.status) && new Date(item.createdAt) >= from && new Date(item.createdAt) <= to).length, openTickets: this.tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status) && new Date(item.createdAt) >= from && new Date(item.createdAt) <= to).length, generatedAt: now(), ...metadata };
   }
 
+  /** Tổng hợp quy mô, lịch, học liệu và điểm trung bình cho từng lớp. */
   async getClassReports(): Promise<object[]> {
     const prisma = this.database();
     if (prisma) {
@@ -3011,10 +3126,12 @@ export class LearningService {
     });
   }
 
+  /** Chọn Prisma khi DB được bật; nếu không các public method dùng dữ liệu nhớ demo. */
   private database(): PrismaService | undefined {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
   }
 
+  /** Đọc chế độ duyệt đề từ cấu hình DB và mặc định AUTO khi chưa có cấu hình. */
   private async getExamApprovalMode(): Promise<ExamApprovalMode> {
     // Các unit test khởi tạo service độc lập vẫn giữ quy trình thủ công cũ;
     // trong ứng dụng thực tế SystemService luôn được inject và mặc định là AUTO.
@@ -3022,11 +3139,13 @@ export class LearningService {
     return (await this.system.getSettings()).examApprovalMode;
   }
 
+  /** Đọc chế độ duyệt câu hỏi dùng chung kiểu AUTO/MANUAL với đề thi. */
   private async getQuestionApprovalMode(): Promise<ExamApprovalMode> {
     if (!this.system) return "AUTO";
     return (await this.system.getSettings()).questionApprovalMode;
   }
 
+  /** Ánh xạ Course Prisma, bao gồm JSON outcomes, sang hợp đồng API. */
   private mapCourse(row: Prisma.CourseGetPayload<Record<string, never>>): LearningCourse {
     return {
       id: row.id,
@@ -3041,6 +3160,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ lớp cùng thành viên hoạt động và metadata vòng đời. */
   private mapClass(row: ClassWithMembers): LearningClass {
     return {
       id: row.id,
@@ -3064,6 +3184,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ học liệu và chỉ công bố metadata cần thiết, không lộ object key. */
   private mapMaterial(row: Prisma.MaterialGetPayload<Record<string, never>>): LearningMaterial {
     const sizeBytes = Number(row.sizeBytes);
     if (!Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước học liệu vượt giới hạn số an toàn.");
@@ -3084,6 +3205,7 @@ export class LearningService {
     };
   }
 
+  /** Thu hẹp JSON options/answers/tags và ánh xạ version family của câu hỏi. */
   private mapQuestion(row: Prisma.QuestionGetPayload<Record<string, never>>): LearningQuestion {
     const imageSizeBytes = row.imageSizeBytes === null ? undefined : Number(row.imageSizeBytes);
     if (imageSizeBytes !== undefined && !Number.isSafeInteger(imageSizeBytes)) throw new BadRequestException("Kích thước ảnh câu hỏi vượt giới hạn số an toàn.");
@@ -3107,6 +3229,7 @@ export class LearningService {
     };
   }
 
+  /** Phân tích phân bố điểm, tỷ lệ hoàn thành và hiệu suất câu hỏi trong phạm vi giảng viên. */
   async getExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }, actorId = "usr-instructor"): Promise<ExamAnalytics> {
     const { from, to } = this.reportingPeriod(input.from, input.to);
     const metricDefinitions = { averagePercentage: "Trung bình điểm đã chấm chia tổng điểm đề, quy đổi phần trăm.", passRate: "Tỷ lệ bài đạt từ 50% tổng điểm trong các bài đã chấm.", correctRate: "Tỷ lệ lượt trả lời khớp toàn bộ đáp án chuẩn của câu hỏi sau khi đề đóng." };
@@ -3147,6 +3270,7 @@ export class LearningService {
     return { generatedAt: now(), filters: input, metricDefinitions, exams };
   }
 
+  /** Chuyển dữ liệu phân tích đề thi sang CSV có BOM để Excel đọc Unicode đúng. */
   async exportExamAnalytics(input: { classId?: string; examId?: string; from?: string; to?: string }, actorId = "usr-instructor"): Promise<Buffer> {
     const report = await this.getExamAnalytics(input, actorId);
     const escape = (value: string | number | boolean): string => `"${String(value).replaceAll('"', '""')}"`;
@@ -3154,16 +3278,19 @@ export class LearningService {
     return Buffer.from(`\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`, "utf8");
   }
 
+  /** Ánh xạ snapshot tệp học liệu sang thông tin version hiển thị. */
   private mapMaterialVersion(row: Prisma.MaterialVersionGetPayload<Record<string, never>>): MaterialVersionSnapshot {
     const sizeBytes = Number(row.sizeBytes);
     if (!Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước phiên bản học liệu vượt giới hạn số an toàn.");
     return { id: row.id, materialId: row.materialId, version: row.version, name: normalizeMultipartFileName(row.name), mimeType: row.mimeType, sizeBytes, folder: row.folder, tags: this.toStringArray(row.tags), visibility: row.visibility, createdBy: row.createdBy, createdAt: row.createdAt.toISOString() };
   }
 
+  /** Sao chép sâu các mảng câu hỏi in-memory để caller không sửa state nội bộ. */
   private cloneQuestion(item: LearningQuestion): LearningQuestion {
     return { ...item, options: [...item.options], correctAnswers: [...item.correctAnswers], tags: [...item.tags] };
   }
 
+  /** Chọn version cao nhất trong mỗi family câu hỏi. */
   private latestQuestionVersions(items: LearningQuestion[]): LearningQuestion[] {
     const latest = new Map<string, LearningQuestion>();
     for (const item of items) {
@@ -3174,10 +3301,12 @@ export class LearningService {
     return [...latest.values()].sort((a, b) => b.version - a.version);
   }
 
+  /** Chuẩn hóa nội dung rồi băm để phát hiện câu hỏi trùng. */
   private questionContentHash(content: string): string {
     return createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
   }
 
+  /** Chuẩn hóa rich text/đáp án/tag và kiểm tra quy tắc riêng cho từng loại câu hỏi. */
   private validateQuestionInput(input: Omit<LearningQuestion, "id" | "status" | "version">): Omit<LearningQuestion, "id" | "status" | "version" | "familyId" | "supersedesId"> {
     const content = input.content
       .replace(/\r\n?/g, "\n")
@@ -3200,6 +3329,7 @@ export class LearningService {
     return { courseId: input.courseId.trim(), type: input.type, content, options, correctAnswers, difficulty: input.difficulty, tags };
   }
 
+  /** Chuẩn hóa đáp án nộp và chặn lựa chọn không thuộc options của câu hỏi. */
   private validateSubmittedAnswers(question: LearningQuestion, answers: string[]): string[] {
     const normalized = answers.map((answer) => answer.trim()).filter(Boolean);
     if (new Set(normalized).size !== normalized.length) throw new BadRequestException("Câu trả lời không được chứa giá trị trùng.");
@@ -3209,6 +3339,7 @@ export class LearningService {
     return normalized;
   }
 
+  /** So sánh đáp án khách quan không phụ thuộc thứ tự lựa chọn. */
   private isQuestionAnswerCorrect(question: LearningQuestion, submitted: string[]): boolean {
     if (question.type === "SHORT_ANSWER") {
       const value = submitted[0]?.trim().toLocaleLowerCase("vi");
@@ -3217,6 +3348,7 @@ export class LearningService {
     return JSON.stringify([...submitted].sort()) === JSON.stringify([...question.correctAnswers].sort());
   }
 
+  /** Ánh xạ đề và giữ thứ tự câu hỏi theo trường order trong bảng nối. */
   private mapExam(row: ExamWithQuestions): LearningExam {
     return {
       id: row.id,
@@ -3235,6 +3367,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ lượt thi cùng câu trả lời và receipt sang hợp đồng API. */
   private mapAttempt(row: AttemptWithAnswers): ExamAttempt {
     return {
       id: row.id,
@@ -3253,10 +3386,12 @@ export class LearningService {
     };
   }
 
+  /** Tạo mã biên nhận ngắn có HMAC từ lượt thi và thời điểm nộp. */
   private submissionReceipt(attemptId: string, submittedAt: string): string {
     return `SUB-${createHash("sha256").update(`${attemptId}.${submittedAt}`).digest("hex").slice(0, 16).toUpperCase()}`;
   }
 
+  /** Ánh xạ yêu cầu phúc khảo và các mốc xử lý. */
   private mapRegradeRequest(row: Prisma.RegradeRequestGetPayload<Record<string, never>>): RegradeRequest {
     return {
       id: row.id,
@@ -3269,6 +3404,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ chủ đề diễn đàn và trạng thái điều phối. */
   private mapTopic(row: Prisma.ForumTopicGetPayload<Record<string, never>>): ForumTopic {
     return {
       id: row.id,
@@ -3284,6 +3420,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ bài viết, mentions và tệp đính kèm nếu relation đã được include. */
   private mapPost(row: Prisma.ForumPostGetPayload<Record<string, never>> | ForumPostWithRelations): ForumPost {
     return {
       id: row.id,
@@ -3301,6 +3438,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ báo cáo nội dung và lịch sử moderation action tùy relation. */
   private mapReport(row: Prisma.ContentReportGetPayload<Record<string, never>> | ContentReportWithActions): ContentReport {
     if (row.targetType !== "TOPIC" && row.targetType !== "POST") throw new BadRequestException("Loại nội dung báo cáo không hợp lệ.");
     return {
@@ -3332,16 +3470,19 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ biện pháp can thiệp tiến độ sang kiểu ngày ISO. */
   private mapProgressIntervention(row: Prisma.ProgressInterventionGetPayload<Record<string, never>>): ProgressIntervention {
     return { id: row.id, classId: row.classId, learnerId: row.learnerId, ownerId: row.ownerId, title: row.title, notes: row.notes ?? undefined, dueAt: row.dueAt.toISOString(), status: row.status, completedAt: row.completedAt?.toISOString(), createdAt: row.createdAt.toISOString() };
   }
 
+  /** Ánh xạ trạng thái bản xuất báo cáo mà không lộ object key lưu trữ. */
   private mapReportExport(row: Prisma.ReportExportGetPayload<Record<string, never>>): ReportExport {
     const sizeBytes = row.sizeBytes === null ? undefined : Number(row.sizeBytes);
     if (sizeBytes !== undefined && !Number.isSafeInteger(sizeBytes)) throw new BadRequestException("Kích thước tệp báo cáo vượt giới hạn an toàn.");
     return { id: row.id, reportRunId: row.reportRunId, format: row.format as "CSV", status: row.status, fileName: row.fileName, sizeBytes, errorMessage: row.errorMessage ?? undefined, expiresAt: row.expiresAt.toISOString(), createdAt: row.createdAt.toISOString() };
   }
 
+  /** Parse khoảng báo cáo, áp dụng mặc định và từ chối ngày đảo ngược/không hợp lệ. */
   private reportingPeriod(fromInput?: string, toInput?: string): { from: Date; to: Date } {
     const to = toInput ? new Date(toInput) : new Date();
     const from = fromInput ? new Date(fromInput) : new Date(to.getTime() - 365 * 86_400_000);
@@ -3351,10 +3492,12 @@ export class LearningService {
     return { from, to };
   }
 
+  /** Bảo đảm các ngưỡng rủi ro nằm trong miền phần trăm hợp lệ. */
   private validateRiskThresholds(thresholds: RiskThresholds): void {
     for (const [name, value] of Object.entries(thresholds)) if (!Number.isInteger(value) || value < 1 || value > 100) throw new BadRequestException(`Ngưỡng ${name} phải là số nguyên từ 1 đến 100.`);
   }
 
+  /** Dùng Intl kiểm tra tên múi giờ IANA trước khi lưu lớp. */
   private validateTimezone(timezone: string): void {
     try {
       new Intl.DateTimeFormat("vi-VN", { timeZone: timezone }).format(new Date());
@@ -3363,15 +3506,18 @@ export class LearningService {
     }
   }
 
+  /** Tính phần trăm làm tròn và tránh chia cho zero. */
   private percentage(numerator: number, denominator: number): number {
     return denominator > 0 ? Math.round(numerator / denominator * 10_000) / 100 : 0;
   }
 
+  /** Trả mốc ISO mới nhất hoặc undefined khi không có dữ liệu. */
   private latestDate(values: Date[]): string | undefined {
     if (!values.length) return undefined;
     return new Date(Math.max(...values.map((value) => value.getTime()))).toISOString();
   }
 
+  /** So sánh chỉ số học viên với ngưỡng để sinh mức và lý do rủi ro. */
   private buildLearnerProgress(input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & { thresholds: RiskThresholds }): LearnerProgress {
     const reasons: string[] = [];
     if (input.attendanceRate < input.thresholds.attendanceBelow) reasons.push(`Điểm danh ${input.attendanceRate}% thấp hơn ngưỡng ${input.thresholds.attendanceBelow}%.`);
@@ -3382,6 +3528,7 @@ export class LearningService {
     return { learnerId: input.learnerId, materialCompletionRate: input.materialCompletionRate, assessmentCompletionRate: input.assessmentCompletionRate, attendanceRate: input.attendanceRate, averageScore: input.averageScore, lastActivityAt: input.lastActivityAt, interventions: input.interventions, riskLevel, riskReasons: reasons };
   }
 
+  /** Chuyển snapshot vận hành sang CSV tiếng Việt có escape trường dữ liệu. */
   private operationalReportCsv(report: OperationalReport): string {
     const rows: Array<[string, string | number]> = [
       ["Phiên bản định nghĩa", report.definitionVersion], ["Múi giờ", report.timezone], ["Thời điểm tạo", report.generatedAt],
@@ -3393,6 +3540,7 @@ export class LearningService {
     return [["Chỉ số", "Giá trị"], ...rows].map((row) => row.map(escape).join(",")).join("\r\n");
   }
 
+  /** Ghi action kiểm duyệt và cập nhật báo cáo trong fallback in-memory. */
   private recordMemoryModeration(report: ContentReport, actorId: string, action: ModerationActionRecord["action"], reason: string, nextStatus: ContentReport["status"]): void {
     const timestamp = now();
     const record: ModerationActionRecord = { id: id("mod-action"), reportId: report.id, actorId, action, reason, previousStatus: report.status, nextStatus, createdAt: timestamp };
@@ -3402,19 +3550,23 @@ export class LearningService {
     report.updatedAt = timestamp;
   }
 
+  /** Thêm dấu vết thay đổi thành viên lớp vào lịch sử in-memory. */
   private recordMemberHistory(classId: string, memberId: string, memberType: ClassMemberHistory["memberType"], action: string, actorId: string, detail: { role?: InstructorRole; source?: string; reason?: string }): void {
     this.classMemberHistory.unshift({ id: `${classId}:${id("member-history")}`, memberId, memberType, action, actorId, createdAt: now(), ...detail });
   }
 
+  /** Dựng URL chủ phòng/người học cho provider demo bằng token phòng ngẫu nhiên. */
   private buildProviderUrls(provider: LiveSession["provider"], token: string): { hostUrl: string; attendeeUrl: string } {
     const base = provider === "ZOOM" ? "https://zoom.us/wc/join" : provider === "GOOGLE_MEET" ? "https://meet.google.com" : "https://meet.jit.si";
     return { hostUrl: `${base}/${token}?role=host`, attendeeUrl: `${base}/${token}` };
   }
 
+  /** Xáo trộn xác định theo seed để một học viên nhận thứ tự ổn định trong lượt thi. */
   private seededOrder(values: string[], seed: string): string[] {
     return [...values].sort((left, right) => createHash("sha256").update(`${seed}:${left}`).digest("hex").localeCompare(createHash("sha256").update(`${seed}:${right}`).digest("hex")) || left.localeCompare(right));
   }
 
+  /** Thử cấp phòng provider yêu cầu và chuyển sang fallback khi provider không khả dụng. */
   private provisionProviderMeeting(requested: LiveSession["provider"]): { provider: LiveSession["provider"]; hostUrl: string; attendeeUrl: string; fallbackUsed: boolean; attempts: number } {
     const retryLimit = this.config?.get("LIVE_PROVIDER_RETRY_LIMIT", { infer: true }) ?? 2;
     const rawOrder = this.config?.get("LIVE_PROVIDER_FALLBACK_ORDER", { infer: true }) ?? "GOOGLE_MEET,ZOOM,JITSI";
@@ -3433,6 +3585,7 @@ export class LearningService {
     throw new ServiceUnavailableException(`Không thể tạo phòng học sau ${attempts} lần thử. Vui lòng kiểm tra cấu hình provider hoặc thử lại sau.`);
   }
 
+  /** Truy vấn danh sách userId đang có một vai trò cụ thể để phát thông báo. */
   private async userIdsForRole(database: PrismaService | Prisma.TransactionClient, roleCode: string): Promise<string[]> {
     const rows = await database.user.findMany({
       where: { status: "ACTIVE", roles: { some: { role: { code: roleCode } } } },
@@ -3441,6 +3594,7 @@ export class LearningService {
     return rows.map(({ id: userId }) => userId);
   }
 
+  /** Tạo notification hàng loạt cho giảng viên và học viên hoạt động của lớp. */
   private async notifyClassMembers(database: PrismaService | Prisma.TransactionClient, classId: string, type: string, title: string, entityId: string): Promise<void> {
     const item = await database.learningClass.findUnique({ where: { id: classId }, include: { instructors: { select: { instructorId: true } }, enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } } } });
     if (!item) return;
@@ -3448,6 +3602,7 @@ export class LearningService {
     for (const recipientId of recipients) await database.notification.upsert({ where: { dedupKey: `${type}:${entityId}:${recipientId}` }, update: { title, readAt: null }, create: { id: id("notification"), recipientId, type, title, entityType: "LIVE_SESSION", entityId, dedupKey: `${type}:${entityId}:${recipientId}` } });
   }
 
+  /** Ánh xạ buổi học trực tuyến và metadata provider/recording sang API. */
   private mapSession(row: Prisma.LiveSessionGetPayload<Record<string, never>>): LiveSession {
     if (!this.isLiveProvider(row.provider)) throw new BadRequestException(`Nhà cung cấp lớp trực tuyến ${row.provider} không được hỗ trợ.`);
     return {
@@ -3477,6 +3632,7 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ bản ghi điểm danh và các mốc tham dự/điều chỉnh. */
   private mapAttendance(row: Prisma.AttendanceRecordGetPayload<Record<string, never>>): AttendanceRecord {
     return {
       sessionId: row.sessionId,
@@ -3493,10 +3649,12 @@ export class LearningService {
     };
   }
 
+  /** Ánh xạ khiếu nại điểm danh sang dữ liệu hiển thị. */
   private mapAttendanceAppeal(row: Prisma.AttendanceAppealGetPayload<Record<string, never>>): AttendanceAppeal {
     return { id: row.id, sessionId: row.sessionId, learnerId: row.learnerId, reason: row.reason, status: row.status, resolution: row.resolution ?? undefined, createdAt: row.createdAt.toISOString() };
   }
 
+  /** Ánh xạ phiếu hỗ trợ và tệp đính kèm khi relation đã được tải. */
   private mapTicket(row: Prisma.SupportTicketGetPayload<Record<string, never>> | SupportTicketWithAttachments): SupportTicket {
     return {
       id: row.id,
@@ -3523,10 +3681,12 @@ export class LearningService {
     };
   }
 
+  /** Type guard giới hạn provider vào danh mục phòng họp được hỗ trợ. */
   private isLiveProvider(value: string): value is LiveSession["provider"] {
     return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI";
   }
 
+  /** Kiểm tra số lượng, userId và mốc thời gian của dữ liệu điểm danh provider. */
   private validateProviderAttendanceInput(records: ProviderAttendanceInput[]): void {
     if (!records.length) throw new BadRequestException("Cần ít nhất một bản ghi từ nhà cung cấp.");
     const participantIds = new Set<string>();
@@ -3542,6 +3702,7 @@ export class LearningService {
     }
   }
 
+  /** Cắt khoảng tham dự theo biên buổi học rồi tính số phút hợp lệ. */
   private calculateProviderAttendanceMinutes(joinedAt: Date, leftAt: Date, startsAt: Date, endsAt: Date): number {
     if (joinedAt > new Date(endsAt.getTime() + 30 * 60_000) || leftAt < new Date(startsAt.getTime() - 15 * 60_000)) throw new BadRequestException("Khoảng tham dự nằm ngoài cửa sổ của buổi học.");
     const effectiveStart = new Date(Math.max(joinedAt.getTime(), startsAt.getTime()));
@@ -3549,16 +3710,19 @@ export class LearningService {
     return Math.max(0, Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / 60_000));
   }
 
+  /** Suy ra PRESENT/LATE/ABSENT từ giờ vào và tổng phút provider ghi nhận. */
   private deriveProviderAttendanceStatus(joinedAt: Date, attendedMinutes: number, startsAt: Date): AttendanceRecord["status"] {
     if (attendedMinutes === 0) return "ABSENT";
     return joinedAt.getTime() > startsAt.getTime() + 10 * 60_000 ? "LATE" : "PRESENT";
   }
 
+  /** Chặn số phút âm hoặc vượt quá độ dài buổi học. */
   private validateAttendanceMinutes(attendedMinutes: number, startsAt: Date, endsAt: Date): void {
     const maximum = Math.max(0, Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000) + 30);
     if (!Number.isInteger(attendedMinutes) || attendedMinutes < 0 || attendedMinutes > maximum) throw new BadRequestException(`Số phút tham dự phải từ 0 đến ${maximum}.`);
   }
 
+  /** Chuyển các bộ đếm nghiệp vụ còn mở thành danh sách blocker đóng lớp. */
   private buildClassClosureReadiness(
     status: LearningClass["status"],
     endAt: Date,
@@ -3575,11 +3739,13 @@ export class LearningService {
     return { eligible: blockers.length === 0, blockers, ...counts };
   }
 
+  /** Thu hẹp action lưu trong DB về tập hành động kiểm duyệt tệp hỗ trợ. */
   private fileReviewAction(value: string): FileReviewRecord["action"] {
     if (value === "APPROVE" || value === "HIDE" || value === "REQUEST_CHANGES") return value;
     throw new BadRequestException("Hành động kiểm duyệt học liệu không hợp lệ.");
   }
 
+  /** Tải lớp cùng thành viên và ném 404 nhất quán nếu không tồn tại. */
   private async getDatabaseClass(
     database: PrismaService | Prisma.TransactionClient,
     classId: string,
@@ -3592,6 +3758,7 @@ export class LearningService {
     return this.mapClass(row);
   }
 
+  /** Tải đề cùng câu hỏi theo thứ tự để dùng chung giữa các luồng thi. */
   private async getDatabaseExam(
     database: PrismaService | Prisma.TransactionClient,
     examId: string,
@@ -3603,6 +3770,7 @@ export class LearningService {
     return this.mapExam(row);
   }
 
+  /** Tải lượt thi cùng đáp án và ném 404 nhất quán. */
   private async getDatabaseAttempt(
     database: PrismaService | Prisma.TransactionClient,
     attemptId: string,
@@ -3612,6 +3780,7 @@ export class LearningService {
     return this.mapAttempt(row);
   }
 
+  /** Bắt buộc user tồn tại, ACTIVE và có vai trò yêu cầu trước mutation thành viên. */
   private async requireUserRole(
     database: PrismaService,
     userId: string,
@@ -3625,6 +3794,7 @@ export class LearningService {
     if (!user) throw new BadRequestException(message);
   }
 
+  /** Đọc chính sách storage từ cấu hình hệ thống và áp dụng mặc định an toàn. */
   private async getStoragePolicy(database: PrismaService): Promise<{ maxFileSizeMb: number; storageQuotaMb: number; allowedMimeTypes: string[] }> {
     const row = await database.systemSetting.findUnique({ where: { key: "platform" }, select: { value: true } });
     const record = typeof row?.value === "object" && row.value !== null && !Array.isArray(row.value)
@@ -3641,6 +3811,7 @@ export class LearningService {
     };
   }
 
+  /** Kiểm tra quota/chính sách, quét virus rồi ghi upload vào namespace material/quarantine. */
   private async storeUpload(classId: string, materialId: string, upload: UploadedMaterialFile, quarantined = false): Promise<{ objectKey: string; checksum: string }> {
     if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp tải lên không khớp nội dung nhận được.");
     const safeExtension = extname(upload.originalName).toLowerCase().replace(/[^a-z0-9.]/g, "").slice(0, 12);
@@ -3655,6 +3826,7 @@ export class LearningService {
     return { objectKey, checksum: `sha256:${createHash("sha256").update(upload.buffer).digest("hex")}` };
   }
 
+  /** Ghi object qua storage service hoặc filesystem fallback đã chặn path traversal. */
   private async writeStoredFile(objectKey: string, buffer: Buffer): Promise<StoredObject> {
     if (this.objectStorage) return this.objectStorage.put(objectKey, buffer);
     const target = this.resolveObjectPath(objectKey);
@@ -3666,6 +3838,7 @@ export class LearningService {
     return { objectKey, checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}` };
   }
 
+  /** Xóa object theo best-effort ở provider chính hoặc filesystem fallback. */
   private async removeStoredFile(objectKey: string): Promise<void> {
     if (this.objectStorage) { await this.objectStorage.remove(objectKey); return; }
     await unlink(this.resolveObjectPath(objectKey)).catch((error: unknown) => {
@@ -3673,12 +3846,14 @@ export class LearningService {
     });
   }
 
+  /** Chỉ xóa ảnh câu hỏi khi không còn version nào tham chiếu cùng object key. */
   private async removeQuestionObjectIfUnreferenced(objectKey: string): Promise<void> {
     const prisma = this.database();
     if (prisma && await prisma.question.count({ where: { imageObjectKey: objectKey } }) > 0) return;
     await this.removeStoredFile(objectKey);
   }
 
+  /** Resolve đường dẫn fallback và từ chối object key thoát khỏi storage root. */
   private resolveObjectPath(objectKey: string): string {
     const root = resolve(this.config?.get("STORAGE_ROOT", { infer: true }) ?? "../TestDoAn-data");
     const target = resolve(root, objectKey);
@@ -3686,16 +3861,19 @@ export class LearningService {
     return target;
   }
 
+  /** Ký HMAC liên kết học liệu, ràng buộc id, hạn và loại hành động. */
   private signMaterialAccess(materialId: string, expires: number, action: MaterialAccessAction): string {
     const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
     return createHmac("sha256", secret).update(`${materialId}.${expires}.${action}`).digest("base64url");
   }
 
+  /** Ký liên kết bản ghi gắn riêng với buổi học và học viên. */
   private signRecordingAccess(sessionId: string, expires: number, learnerId: string): string {
     const secret = this.config?.get("STORAGE_SIGNING_SECRET", { infer: true }) ?? "development-storage-signing-key-change-me";
     return createHmac("sha256", secret).update(`recording.${sessionId}.${learnerId}.${expires}`).digest("base64url");
   }
 
+  /** Kiểm tra hạn và so sánh chữ ký constant-time, trả thông báo nghiệp vụ tương ứng. */
   private verifyExpiringSignature(expectedSignature: string, expires: number, signature: string, message: string): void {
     const current = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(expires) || expires < current || expires > current + 600) throw new BadRequestException("Liên kết đã hết hạn hoặc không hợp lệ.");
@@ -3704,6 +3882,7 @@ export class LearningService {
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException(message);
   }
 
+  /** Dựng lại chữ ký học liệu mong đợi và dùng bộ kiểm tra liên kết hết hạn. */
   private verifyMaterialAccess(materialId: string, expires: number, signature: string, action: MaterialAccessAction): void {
     const current = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(expires) || expires < current || expires > current + 600) throw new BadRequestException("Liên kết tải học liệu đã hết hạn hoặc không hợp lệ.");
@@ -3712,6 +3891,7 @@ export class LearningService {
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new BadRequestException("Chữ ký tải học liệu không hợp lệ.");
   }
 
+  /** Ánh xạ vai trò sang tài khoản seed tương ứng chỉ cho fallback/demo. */
   private userIdForRole(role: string): string {
     if (role === "SYSTEM_ADMIN") return "usr-admin";
     if (role === "CENTER_MANAGER") return "usr-manager";
@@ -3719,19 +3899,23 @@ export class LearningService {
     return "usr-learner";
   }
 
+  /** Đọc object qua storage service hoặc filesystem fallback. */
   private readStoredFile(objectKey: string): Promise<Buffer> {
     if (this.objectStorage) return this.objectStorage.get(objectKey);
     return readFile(this.resolveObjectPath(objectKey)).catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
   }
 
+  /** Xác định object key thuộc namespace học liệu mà service cho phép phục vụ. */
   private isMaterialObjectKey(objectKey: string): boolean {
     return objectKey.startsWith("files/") || objectKey.startsWith("cloudinary:");
   }
 
+  /** Cho phép vai trò quản trị/điều hành truy cập hàng đợi hỗ trợ. */
   private canManageSupport(role: string): boolean {
     return role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER";
   }
 
+  /** Áp dụng quyền lớp và visibility cho học liệu fallback in-memory. */
   private canAccessMemoryMaterial(material: LearningMaterial, role: string, actorId: string): boolean {
     const classItem = this.classes.find((item) => item.id === material.classId);
     if (!classItem) return false;
@@ -3740,17 +3924,20 @@ export class LearningService {
     return true;
   }
 
+  /** Kiểm tra thành viên lớp ở bản ghi Prisma trước khi truy cập học liệu. */
   private assertMaterialClassAccess(classItem: { enrollments: Array<{ learnerId: string; status: string }>; instructors: Array<{ instructorId: string }> }, role: string, actorId: string): void {
     if (role === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === actorId && item.status === "ACTIVE")) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
     if (role === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === actorId)) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
   }
 
+  /** Kiểm tra quyền lớp tương đương trên dữ liệu in-memory. */
   private assertMemoryMaterialClassAccess(classId: string, role: string, actorId: string): void {
     const classItem = this.findClass(classId);
     if (role === "LEARNER" && !classItem.learnerIds.includes(actorId)) throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
     if (role === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId)) throw new NotFoundException("Giảng viên không được phân công vào lớp chứa học liệu này.");
   }
 
+  /** Tính trạng thái đề từ công bố, cửa sổ thời gian, lượt đang làm và giới hạn số lượt. */
   private examAvailability(exam: LearningExam, attemptCount: number, active: boolean, timestamp: Date): LearnerExamSummary["availabilityStatus"] {
     if (active) return "IN_PROGRESS";
     if (timestamp < new Date(exam.openAt)) return "UPCOMING";
@@ -3759,21 +3946,25 @@ export class LearningService {
     return "AVAILABLE";
   }
 
+  /** Chọn hạn sớm hơn giữa thời lượng lượt thi và giờ đóng đề. */
   private attemptDeadline(startedAt: Date, durationMinutes: number, examCloseAt: Date): Date {
     return new Date(Math.min(startedAt.getTime() + durationMinutes * 60_000, examCloseAt.getTime()));
   }
 
+  /** Tìm câu hỏi fallback và dùng chung logic so sánh đáp án khách quan. */
   private isMemoryAnswerCorrect(questionId: string, submitted: string[]): boolean {
     const question = this.questions.find((item) => item.id === questionId);
     return Boolean(question) && JSON.stringify([...submitted].sort()) === JSON.stringify([...(question?.correctAnswers ?? [])].sort());
   }
 
+  /** Chuẩn hóa văn bản diễn đàn và áp dụng giới hạn độ dài/nội dung rỗng. */
   private validateForumContent(value: string, label: string): string {
     const normalized = value.trim();
     if (/<\/?[a-z][^>]*>|javascript:|data:text\/html/i.test(normalized)) throw new BadRequestException(`${label} chứa HTML hoặc mã thực thi không được phép.`);
     return normalized;
   }
 
+  /** Chuẩn hóa văn bản phiếu hỗ trợ và chặn nội dung rỗng/quá dài. */
   private validateSupportText(value: string, label: string): string {
     const normalized = this.validateForumContent(value, label);
     const secretPatterns = [
@@ -3788,6 +3979,7 @@ export class LearningService {
     return normalized;
   }
 
+  /** Kiểm tra kích thước, MIME và chữ ký tệp bằng chứng hỗ trợ. */
   private validateSupportUpload(upload: UploadedMaterialFile): void {
     const allowedMimeTypes = new Set(["application/pdf", "image/png", "image/jpeg", "text/plain"]);
     if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước tệp bằng chứng không khớp nội dung nhận được.");
@@ -3797,6 +3989,7 @@ export class LearningService {
     if (upload.mimeType === "text/plain") this.validateSupportText(upload.buffer.toString("utf8"), "Tệp bằng chứng");
   }
 
+  /** Phát hiện mẫu tệp thực thi/script nguy hiểm khi antivirus ngoài không khả dụng. */
   private detectMaliciousUpload(upload: UploadedMaterialFile): string | undefined {
     const head = upload.buffer.subarray(0, Math.min(upload.buffer.length, 8192));
     const text = head.toString("utf8");
@@ -3807,6 +4000,7 @@ export class LearningService {
     return undefined;
   }
 
+  /** Kiểm tra giới hạn, MIME, magic bytes và quét virus cho ảnh câu hỏi. */
   private async validateQuestionImage(upload: UploadedMaterialFile): Promise<void> {
     const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
     if (upload.size !== upload.buffer.length) throw new BadRequestException("Kích thước ảnh không khớp nội dung nhận được.");
@@ -3822,6 +4016,7 @@ export class LearningService {
     if (threat) throw new BadRequestException(`Ảnh câu hỏi không an toàn: ${threat}`);
   }
 
+  /** Gọi antivirus service và trả lý do cách ly thay vì ném lỗi khi phát hiện malware. */
   private async scanUpload(upload: UploadedMaterialFile): Promise<string | undefined> {
     const signatureReason = this.detectMaliciousUpload(upload);
     if (signatureReason) return signatureReason;
@@ -3830,6 +4025,7 @@ export class LearningService {
     return result.clean ? undefined : `ClamAV phát hiện mã độc: ${result.signature ?? "không xác định"}.`;
   }
 
+  /** Áp dụng từ cấm và giới hạn tần suất đăng dựa trên dữ liệu Prisma. */
   private async enforceForumPolicy(database: PrismaService, authorId: string, content: string): Promise<void> {
     const policy = await database.moderationPolicy.findFirst({ orderBy: { version: "desc" } });
     const terms = this.toStringArray(policy?.prohibitedTerms ?? []);
@@ -3838,37 +4034,50 @@ export class LearningService {
     if (recentPosts >= (policy?.maxPostsPerMinute ?? 5)) throw new BadRequestException("Bạn đã vượt giới hạn bài viết trong một phút.");
   }
 
+  /** Áp dụng chính sách diễn đàn tương đương trên kho nhớ demo. */
   private enforceMemoryForumPolicy(authorId: string, content: string): void {
     if (this.moderationTerms().some((term) => content.toLowerCase().includes(term))) throw new BadRequestException("Nội dung chứa từ khóa bị chính sách diễn đàn chặn.");
     const recentPosts = this.posts.filter((item) => item.authorId === authorId && Date.now() - new Date(item.createdAt).getTime() <= 60_000).length;
     if (recentPosts >= 5) throw new BadRequestException("Bạn đã vượt giới hạn bài viết trong một phút.");
   }
 
+  /** Trả danh sách từ khóa kiểm duyệt được chuẩn hóa từ cấu hình môi trường. */
   private moderationTerms(): string[] {
     return ["spam", "lừa đảo"];
   }
 
+  /** Xác minh vai trò quản trị hoặc thành viên lớp trước thao tác diễn đàn Prisma. */
   private assertForumClassAccess(classItem: ClassWithMembers, role: string, actorId: string): void {
     if (role === "LEARNER" && !classItem.enrollments.some((item) => item.learnerId === actorId && item.status === "ACTIVE")) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
     if (role === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
   }
 
+  /** Xác minh quyền diễn đàn tương đương trên dữ liệu lớp in-memory. */
   private assertMemoryForumClassAccess(classId: string, role: string, actorId: string): void {
     const classItem = this.findClass(classId);
     if (role === "LEARNER" && !classItem.learnerIds.includes(actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
     if (role === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
   }
 
+  /** Thu hẹp JSON thành mảng chuỗi, loại mọi phần tử không đúng kiểu. */
   private toStringArray(value: Prisma.JsonValue): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
   }
 
+  /** Tìm khóa học trong fallback và chuẩn hóa lỗi 404. */
   private findCourse(courseId: string): LearningCourse { const item = this.courses.find((course) => course.id === courseId); if (!item) throw new NotFoundException("Không tìm thấy khóa học."); return item; }
+  /** Tìm lớp trong fallback và chuẩn hóa lỗi 404. */
   private findClass(classId: string): LearningClass { const item = this.classes.find((candidate) => candidate.id === classId); if (!item) throw new NotFoundException("Không tìm thấy lớp học."); return item; }
+  /** Tìm đề thi trong fallback và chuẩn hóa lỗi 404. */
   private findExam(examId: string): LearningExam { const item = this.exams.find((candidate) => candidate.id === examId); if (!item) throw new NotFoundException("Không tìm thấy đề."); return item; }
+  /** Tìm lượt thi trong fallback và chuẩn hóa lỗi 404. */
   private findAttempt(attemptId: string): ExamAttempt { const item = this.attempts.find((candidate) => candidate.id === attemptId); if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài."); return item; }
+  /** Tìm chủ đề trong fallback và chuẩn hóa lỗi 404. */
   private findTopic(topicId: string): ForumTopic { const item = this.topics.find((candidate) => candidate.id === topicId); if (!item) throw new NotFoundException("Không tìm thấy chủ đề."); return item; }
+  /** Tìm bài viết trong fallback và chuẩn hóa lỗi 404. */
   private findPost(postId: string): ForumPost { const item = this.posts.find((candidate) => candidate.id === postId); if (!item) throw new NotFoundException("Không tìm thấy bài viết."); return item; }
+  /** Tìm báo cáo trong fallback và chuẩn hóa lỗi 404. */
   private findReport(reportId: string): ContentReport { const item = this.reports.find((candidate) => candidate.id === reportId); if (!item) throw new NotFoundException("Không tìm thấy báo cáo."); return item; }
+  /** Tìm buổi học trong fallback và chuẩn hóa lỗi 404. */
   private findSession(sessionId: string): LiveSession { const item = this.sessions.find((candidate) => candidate.id === sessionId); if (!item) throw new NotFoundException("Không tìm thấy buổi học."); return item; }
 }

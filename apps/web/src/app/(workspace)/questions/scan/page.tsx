@@ -19,6 +19,7 @@ interface ScanResult { providerId: string; provider: string; model: string; sour
 
 const objectiveTypes = new Set(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"]);
 
+/** Chuyển ảnh đề thành bản nháp câu hỏi bằng AI, cho phép rà soát trước khi lưu/tạo đề. */
 export default function ScanQuestionsPage() {
   const router = useRouter();
   const { session, notify } = useApp();
@@ -46,10 +47,12 @@ export default function ScanQuestionsPage() {
   const selectedDrafts = useMemo(() => selected.map((index) => drafts[index]).filter((item): item is ScanDraft => Boolean(item)), [drafts, selected]);
 
   if (!allowed) return <AccessDenied />;
+  /** Kiểm tra tệp ảnh đầu vào và tạo URL xem trước chỉ dùng trong trình duyệt. */
   const chooseFile = (next?: File) => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]);
   };
+  /** Tải ảnh lên dịch vụ quét, nhận các câu hỏi có cấu trúc và đưa vào vùng hiệu đính. */
   const scan = async () => {
     if (!file || !providerId) return;
     setScanning(true);
@@ -60,7 +63,9 @@ export default function ScanQuestionsPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
     finally { setScanning(false); }
   };
+  /** Áp dụng bản vá cho đúng câu hỏi quét mà không làm đổi các bản nháp còn lại. */
   const updateDraft = (index: number, patch: Partial<ScanDraft>) => setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  /** Lưu các bản nháp đã chọn và tùy chọn ghép chúng thành một đề thi mới. */
   const save = async (createExam: boolean) => {
     if (!courseId || !selectedDrafts.length) return;
     setSaving(true);

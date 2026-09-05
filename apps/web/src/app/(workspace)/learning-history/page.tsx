@@ -19,6 +19,7 @@ interface Summary {
     adjustmentReason?: string;
   };
 }
+/** Hiển thị lịch sử tham dự, bản ghi buổi học và luồng khiếu nại của học viên. */
 export default function LearningHistoryPage() {
   const { session, notify } = useApp();
   const [items, setItems] = useState<LiveSession[]>([]);
@@ -26,6 +27,7 @@ export default function LearningHistoryPage() {
   const [appealSession, setAppealSession] = useState<LiveSession | null>(null);
   const [appealReason, setAppealReason] = useState("");
   const pagination = usePagination(items);
+  /** Nạp các lớp cùng lịch sử buổi học thuộc phạm vi người dùng hiện tại. */
   const load = useCallback(async () => {
     if (session.roleCode !== "LEARNER") return;
     try {
@@ -47,6 +49,7 @@ export default function LearningHistoryPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Mở chi tiết tham dự của một buổi học và dữ liệu đối soát liên quan. */
   const view = async (item: LiveSession) => {
     try {
       const data = await apiRequest<Summary>(
@@ -63,6 +66,7 @@ export default function LearningHistoryPage() {
       );
     }
   };
+  /** Xin URL bản ghi có thời hạn rồi mở bằng trình xem an toàn của ứng dụng. */
   const openRecording = async (item: LiveSession) => {
     try {
       const access = await apiRequest<{ url: string; expiresAt: string }>(
@@ -80,6 +84,7 @@ export default function LearningHistoryPage() {
       );
     }
   };
+  /** Gửi yêu cầu xem xét lại điểm danh của buổi đang chọn. */
   const requestAppeal = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!appealSession) return;

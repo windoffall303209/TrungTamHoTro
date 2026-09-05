@@ -72,6 +72,7 @@ const defaults: Record<Exclude<AiProviderType, "CUSTOM">, { name: string; model:
 };
 
 @Injectable()
+/** Quản lý cấu hình AI đã mã hóa và điều phối scan ảnh qua Gemini, NVIDIA NIM, OpenAI hoặc endpoint custom. */
 export class AiProviderService {
   private readonly memory = new Map<string, StoredAiProvider>();
 
@@ -80,8 +81,10 @@ export class AiProviderService {
     @Optional() private readonly config?: ConfigService<Environment, true>,
   ) {}
 
+  /** Trả bản sao catalog để caller không thể sửa cấu hình model mặc định trong bộ nhớ. */
   getCatalog(): typeof providerCatalog { return structuredClone(providerCatalog); }
 
+  /** Hợp nhất provider built-in và custom đã lưu, chỉ trả trạng thái có key chứ không lộ key. */
   async list(): Promise<AiProviderConfig[]> {
     const stored = await this.readAll();
     const resolved = (["GEMINI", "NVIDIA_NIM", "OPENAI"] as const).map((provider) => {
@@ -92,6 +95,7 @@ export class AiProviderService {
     return resolved.map((item) => this.publicView(item));
   }
 
+  /** Validate model/URL, mã hóa API key mới, xử lý default duy nhất rồi lưu cấu hình và audit. */
   async configure(input: { id?: string; provider: AiProviderType; name?: string; model: string; baseUrl?: string; apiKey?: string; enabled?: boolean; isDefault?: boolean }, actorId: string): Promise<AiProviderConfig> {
     const current = input.id ? await this.findStored(input.id) : (await this.readAll()).find((item) => item.provider === input.provider && input.provider !== "CUSTOM");
     const model = input.model.trim();
@@ -121,6 +125,7 @@ export class AiProviderService {
     return this.publicView(stored);
   }
 
+  /** Xóa cấu hình provider tùy chỉnh và secret; provider built-in được đặt lại rỗng. */
   async remove(id: string): Promise<void> {
     const current = await this.findStored(id);
     if (!current) throw new NotFoundException("Không tìm thấy cấu hình AI.");
@@ -129,6 +134,7 @@ export class AiProviderService {
     else this.memory.delete(id);
   }
 
+  /** Gọi request kiểm tra nhỏ, cập nhật health state và không đưa lỗi chứa secret ra phản hồi. */
   async test(id: string, actorId: string): Promise<AiProviderConfig> {
     const current = await this.requireReady(id, false);
     try {
@@ -145,6 +151,7 @@ export class AiProviderService {
     return this.publicView(current);
   }
 
+  /** Chọn provider sẵn sàng, gửi ảnh và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
   async scanImage(input: { providerId?: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<QuestionScanResult> {
     if (!(["image/png", "image/jpeg", "image/webp"] as string[]).includes(input.mimeType)) throw new BadRequestException("Chỉ hỗ trợ ảnh PNG, JPEG hoặc WebP.");
     if (!input.buffer.length || input.buffer.length > 12 * 1024 * 1024) throw new BadRequestException("Ảnh quét phải có dung lượng từ 1 byte đến 12 MB.");
@@ -155,6 +162,7 @@ export class AiProviderService {
     return { providerId: provider.id, provider: provider.provider, model: provider.model, sourceName: input.fileName, questions, warnings: questions.some((item) => item.confidence < 0.7) ? ["Một số câu có độ tin cậy thấp và cần được kiểm tra kỹ trước khi lưu."] : [] };
   }
 
+  /** Giải mã key trong bộ nhớ và dispatch request theo giao thức riêng của từng provider. */
   private async invoke(provider: StoredAiProvider, buffer: Buffer, mimeType: string, fileName: string, healthOnly: boolean): Promise<unknown> {
     const prompt = healthOnly ? "Trả về JSON đúng dạng {\"questions\":[]} và không thêm văn bản." : `Đọc toàn bộ ảnh đề thi ${fileName}. Trích xuất mọi câu hỏi theo đúng thứ tự. Giữ chữ đậm bằng Markdown **...**, chữ nghiêng bằng *...*, đổi mọi công thức toán sang LaTeX ($...$ hoặc $$...$$). Không tự bịa đáp án; nếu ảnh không có đáp án thì để correctAnswers rỗng và thêm cảnh báo. Trả về duy nhất JSON: {"questions":[{"type":"SINGLE_CHOICE|MULTIPLE_CHOICE|TRUE_FALSE|SHORT_ANSWER|ESSAY","content":"...","options":["..."],"correctAnswers":["..."],"difficulty":1,"tags":["..."],"confidence":0.0,"warnings":["..."]}]}.`;
     const apiKey = decryptSecret(provider.encryptedApiKey, this.encryptionSecret());
@@ -167,12 +175,14 @@ export class AiProviderService {
     return this.parseJson(((payload?.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message?.content));
   }
 
+  /** Trích JSON từ phản hồi thuần hoặc code fence Markdown và báo lỗi định dạng rõ ràng. */
   private parseJson(value: unknown): unknown {
     if (typeof value !== "string") throw new ServiceUnavailableException("Nhà cung cấp AI không trả về nội dung hợp lệ.");
     try { return JSON.parse(value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); }
     catch { throw new ServiceUnavailableException("Không đọc được JSON do nhà cung cấp AI trả về."); }
   }
 
+  /** Thu hẹp dữ liệu AI không tin cậy thành câu hỏi, options, đáp án và độ khó hợp lệ. */
   private normalizeQuestions(raw: unknown): ScannedQuestionDraft[] {
     const values = typeof raw === "object" && raw !== null && Array.isArray((raw as { questions?: unknown }).questions) ? (raw as { questions: unknown[] }).questions : [];
     const types = new Set(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"]);
@@ -191,6 +201,7 @@ export class AiProviderService {
     });
   }
 
+  /** Chọn provider mặc định đang bật/có key hoặc provider sẵn sàng đầu tiên. */
   private async defaultProvider(): Promise<StoredAiProvider> {
     const providers = await this.readAll();
     const provider = providers.find((item) => item.enabled && item.isDefault) ?? providers.find((item) => item.enabled);
@@ -198,6 +209,7 @@ export class AiProviderService {
     return provider;
   }
 
+  /** Tải provider và bắt buộc có API key, đồng thời kiểm tra enabled khi được yêu cầu. */
   private async requireReady(id: string, requireEnabled: boolean): Promise<StoredAiProvider> {
     const provider = await this.findStored(id);
     if (!provider) throw new NotFoundException("Không tìm thấy cấu hình AI.");
@@ -205,16 +217,20 @@ export class AiProviderService {
     return provider;
   }
 
+  /** Tạo cấu hình mặc định chưa có secret cho provider tích hợp sẵn. */
   private emptyBuiltIn(provider: Exclude<AiProviderType, "CUSTOM">): StoredAiProvider {
     return { id: `ai-${provider.toLowerCase()}`, provider, ...defaults[provider], enabled: false, isDefault: false, healthStatus: "UNKNOWN", encryptedApiKey: "", apiKeySuffix: "", updatedAt: new Date(0).toISOString() };
   }
 
+  /** Loại ciphertext khỏi cấu hình trước khi trả qua API. */
   private publicView(item: StoredAiProvider): AiProviderConfig {
     const { encryptedApiKey, apiKeySuffix, ...safe } = item;
     return { ...safe, hasApiKey: Boolean(encryptedApiKey), maskedApiKey: encryptedApiKey ? `••••••••${apiKeySuffix}` : "Chưa cấu hình" };
   }
 
+  /** Tạo khóa namespace ổn định cho SecretVault. */
   private key(id: string): string { return `ai-provider:${id}`; }
+  /** Đọc mọi secret trong namespace AI và giải mã cấu hình JSON hợp lệ. */
   private async readAll(): Promise<StoredAiProvider[]> {
     const prisma = this.database();
     if (prisma) {
@@ -223,15 +239,19 @@ export class AiProviderService {
     }
     return [...this.memory.values()].map((item) => structuredClone(item));
   }
+  /** Tìm cấu hình đã lưu theo id sau khi giải mã vault. */
   private async findStored(id: string): Promise<StoredAiProvider | undefined> { return (await this.readAll()).find((item) => item.id === id); }
+  /** Mã hóa toàn bộ cấu hình provider và ghi audit không chứa API key. */
   private async persist(item: StoredAiProvider, actorId: string): Promise<void> {
     const prisma = this.database();
     if (prisma) await prisma.systemSetting.upsert({ where: { key: this.key(item.id) }, update: { value: item as unknown as object, version: { increment: 1 }, effectiveAt: new Date(), updatedBy: actorId }, create: { key: this.key(item.id), value: item as unknown as object, updatedBy: actorId } });
     else this.memory.set(item.id, structuredClone(item));
   }
+  /** Bỏ cờ mặc định ở provider khác để duy trì invariant một default. */
   private async clearOtherDefaults(id: string, actorId: string): Promise<void> {
     for (const item of await this.readAll()) if (item.id !== id && item.isDefault) await this.persist({ ...item, isDefault: false, updatedAt: new Date().toISOString() }, actorId);
   }
+  /** Chỉ cho endpoint custom HTTP(S), chặn URL thiếu hoặc không hợp lệ. */
   private validateCustomUrl(value?: string): string {
     if (!value?.trim()) throw new BadRequestException("Nhà cung cấp tùy chỉnh cần endpoint chat completions.");
     let parsed: URL;
@@ -239,6 +259,8 @@ export class AiProviderService {
     if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) throw new BadRequestException("Endpoint tùy chỉnh phải dùng HTTPS; chỉ localhost được dùng HTTP.");
     return parsed.toString();
   }
+  /** Lấy khóa mã hóa vault; fallback chỉ phục vụ chế độ phát triển không DI config. */
   private encryptionSecret(): string { return this.config?.get("AUTH_ENCRYPTION_SECRET", { infer: true }) ?? "development-auth-encryption-key-change-me"; }
+  /** Chọn Prisma khi DB được cấu hình, nếu không dùng vault in-memory. */
   private database(): PrismaService | undefined { return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined; }
 }

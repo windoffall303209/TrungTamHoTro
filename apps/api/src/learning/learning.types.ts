@@ -1,3 +1,4 @@
+/** Các view model của miền đào tạo, tách hợp đồng API khỏi cấu trúc bản ghi Prisma nội bộ. */
 export type PublishStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
 export interface LearningCourse {

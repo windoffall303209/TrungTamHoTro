@@ -20,6 +20,7 @@ const roleLabel: Record<InstructorRole, string> = {
   CO_INSTRUCTOR: "Đồng giảng viên",
 };
 
+/** Trình bày hồ sơ lớp và điều phối toàn bộ thao tác nhân sự/vòng đời tại một nơi. */
 export default function ClassDetailPage() {
   const params = useParams<{ classId: string }>();
   const router = useRouter();
@@ -49,6 +50,7 @@ export default function ClassDetailPage() {
   const learnerPagination = usePagination(activeEnrollments);
   const historyPagination = usePagination(roster?.history ?? []);
 
+  /** Nạp song song chi tiết lớp, roster và danh sách người dùng có thể được thêm. */
   const load = useCallback(async () => {
     if (!allowed || !classId) return;
     setLoading(true);
@@ -80,6 +82,7 @@ export default function ClassDetailPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR đúng hợp đồng API. */
   const assignInstructor = async () => {
     if (!item || !instructorForm.userId) return;
     setSaving(true);
@@ -99,6 +102,7 @@ export default function ClassDetailPage() {
     }
   };
 
+  /** Ghi danh một học viên vào lớp và làm mới dữ liệu sau khi thành công. */
   const enrollLearner = async () => {
     if (!item || !learnerId) return;
     setSaving(true);
@@ -118,6 +122,7 @@ export default function ClassDetailPage() {
     }
   };
 
+  /** Ghi danh hàng loạt và giữ kết quả từng tài khoản để người quản lý đối soát. */
   const importEnrollments = async () => {
     if (!item) return;
     const userIds = bulkLearners.split(/[\n,;]+/).map((value) => value.trim()).filter(Boolean);
@@ -143,6 +148,7 @@ export default function ClassDetailPage() {
     }
   };
 
+  /** Xác nhận rồi gỡ giảng viên hoặc học viên đã chọn khỏi lớp. */
   const removeMember = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!item || !removeTarget) return;
@@ -164,6 +170,7 @@ export default function ClassDetailPage() {
     }
   };
 
+  /** Chuyển lớp sang trạng thái hoạt động sau kiểm tra điều kiện ở máy chủ. */
   const activate = async () => {
     if (!item) return;
     setSaving(true);

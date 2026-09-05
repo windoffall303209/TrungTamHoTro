@@ -12,6 +12,7 @@ import type { LearningClass, Material, MaterialVersionSnapshot } from "@/lib/lea
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+/** Điều phối tạo, phiên bản hóa, duyệt, xem trước và tải xuống học liệu. */
 export default function MaterialsPage() {
   const { session, notify } = useApp();
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
@@ -41,6 +42,7 @@ export default function MaterialsPage() {
   const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
   const clientPagination = usePagination(items);
 
+  /** Nạp lớp và học liệu theo quyền, trạng thái và lớp đang được lọc. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -78,6 +80,7 @@ export default function MaterialsPage() {
     return () => clearTimeout(timer);
   }, [load]);
 
+  /** Tải tệp nguồn nếu có rồi tạo bản ghi học liệu ở trạng thái phù hợp. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!file) {
@@ -106,6 +109,7 @@ export default function MaterialsPage() {
     }
   };
 
+  /** Gửi học liệu vào quy trình duyệt hoặc xuất bản ngay theo cấu hình hệ thống. */
   const publish = async (item: Material) => {
     try {
       await apiRequest(`/instructor/materials/${item.id}`, {
@@ -120,15 +124,18 @@ export default function MaterialsPage() {
     }
   };
 
+  /** Nạp lịch sử phiên bản của học liệu và mở bảng chi tiết. */
   const showHistory = async (item: Material) => {
     try { setHistoryTarget(item); setVersions(await apiRequest<MaterialVersionSnapshot[]>(`/materials/${item.id}/versions`, { roleCode: session.roleCode })); }
     catch (error) { setHistoryTarget(null); notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error"); }
   };
+  /** Xin URL tải có thời hạn cho đúng phiên bản học liệu đã chọn. */
   const downloadVersion = async (version: MaterialVersionSnapshot) => {
     try { const access = await apiRequest<{ url: string }>(`/materials/${version.materialId}/versions/${version.version}/access`, { roleCode: session.roleCode }); await downloadApiFile(access.url, session.roleCode); notify(`Đã tải phiên bản ${version.version}.`); }
     catch (error) { notify(error instanceof Error ? error.message : "Không tải được phiên bản này.", "error"); }
   };
 
+  /** Tải tệp thay thế và tạo phiên bản học liệu mới mà không ghi đè lịch sử. */
   const uploadVersion = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!versionTarget || !versionFile) return;
@@ -141,6 +148,7 @@ export default function MaterialsPage() {
     finally { setSaving(false); }
   };
 
+  /** Gửi quyết định duyệt/từ chối cùng ghi chú cho học liệu đang chờ. */
   const review = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reviewTarget) return;
@@ -159,6 +167,7 @@ export default function MaterialsPage() {
     }
   };
 
+  /** Lấy URL tải xuống an toàn và kích hoạt tải tệp với tên máy chủ cung cấp. */
   const download = async (item: Material) => {
     try {
       const access = await apiRequest<{ url: string; expiresAt: string }>(`/materials/${item.id}/access`, { roleCode: session.roleCode });
@@ -169,6 +178,7 @@ export default function MaterialsPage() {
     }
   };
 
+  /** Lấy URL xem trước và mở viewer nội bộ để người dùng có nút đóng/quay lại rõ ràng. */
   const preview = async (item: Material) => {
     try {
       const access = await apiRequest<{ url: string; expiresAt: string }>(`/materials/${item.id}/access?action=PREVIEW`, { roleCode: session.roleCode });

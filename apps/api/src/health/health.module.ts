@@ -6,5 +6,6 @@ import { HealthService } from "./health.service.js";
   controllers: [HealthController],
   providers: [HealthService],
 })
+/** Đăng ký health controller và service cho hạ tầng giám sát. */
 export class HealthModule {}
 

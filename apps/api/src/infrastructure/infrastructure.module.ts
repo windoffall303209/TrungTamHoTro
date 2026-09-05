@@ -9,4 +9,5 @@ import { DatabaseBackupService } from "./database-backup.service.js";
   providers: [AntivirusService, DatabaseBackupService, EmailDeliveryService, ObjectStorageService],
   exports: [AntivirusService, DatabaseBackupService, EmailDeliveryService, ObjectStorageService],
 })
+/** Export các adapter I/O ngoài tiến trình dưới dạng singleton toàn cục. */
 export class InfrastructureModule {}

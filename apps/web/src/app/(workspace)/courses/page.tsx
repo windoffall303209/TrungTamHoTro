@@ -16,6 +16,7 @@ import { hasPermission } from "@/lib/access-control";
 const blankCourse = { code: "", name: "", description: "", outcomes: "" };
 const blankClass = { courseId: "", code: "", name: "", term: "2026-2027", startAt: "", endAt: "", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false };
 
+/** Hiển thị khóa học và lớp theo tab độc lập, kèm luồng tạo, phiên bản hóa và kích hoạt. */
 export default function CoursesPage() {
   const router = useRouter();
   const { session, notify } = useApp();
@@ -29,14 +30,22 @@ export default function CoursesPage() {
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "course:manage");
   const coursePagination = usePagination(courses);
   const classPagination = usePagination(classes);
+  /** Nạp khóa học dành cho quản lý và các lớp mà vai trò hiện tại được phép truy cập. */
   const load = useCallback(async () => { if (!allowed) return; setLoading(true); try { const [courseData, classData] = await Promise.all([manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]), apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode })]); setCourses(courseData); setClasses(classData); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error"); } finally { setLoading(false); } }, [allowed, manager, notify, session.roleCode]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  /** Tạo khóa học mới hoặc tạo bản nháp phiên bản kế tiếp từ khóa học đang sửa. */
   const createCourse = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const payload = { ...courseForm, outcomes: courseForm.outcomes.split("\n").map((item) => item.trim()).filter(Boolean) }; await apiRequest(editingCourseId ? `/manager/courses/${editingCourseId}` : "/manager/courses", { method: editingCourseId ? "PATCH" : "POST", roleCode: session.roleCode, body: JSON.stringify(editingCourseId ? { name: payload.name, description: payload.description, outcomes: payload.outcomes } : payload) }); notify(editingCourseId ? "Đã tạo bản nháp mới; phiên bản đang dùng của lớp không đổi." : "Đã tạo khóa học bản nháp."); setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được khóa học.", "error"); } finally { setSaving(false); } };
+  /** Mở lớp mới từ khóa học đã chọn và chuẩn hóa thời gian sang ISO trước khi gửi. */
   const createClass = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await apiRequest("/manager/classes", { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ ...classForm, startAt: new Date(classForm.startAt).toISOString(), endAt: new Date(classForm.endAt).toISOString() }) }); notify("Đã mở lớp học mới."); setMode(null); setClassForm(blankClass); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được lớp.", "error"); } finally { setSaving(false); } };
+  /** Xuất bản phiên bản khóa học để có thể dùng cho hoạt động giảng dạy. */
   const publish = async (course: Course) => { try { await apiRequest(`/manager/courses/${course.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify("Đã xuất bản khóa học."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được.", "error"); } };
+  /** Đưa dữ liệu khóa học vào biểu mẫu để tạo bản nháp chỉnh sửa mới. */
   const editCourse = (course: Course) => { setEditingCourseId(course.id); setCourseForm({ code: course.code, name: course.name, description: course.description, outcomes: course.outcomes.join("\n") }); setMode("course"); };
+  /** Nạp lịch sử phiên bản và mở bảng đối chiếu của khóa học. */
   const openVersions = async (course: Course) => { try { setVersions(await apiRequest<CourseVersionSnapshot[]>(`/manager/courses/${course.id}/versions`, { roleCode: session.roleCode })); setVersionTarget(course); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error"); } };
+  /** Ngừng sử dụng khóa học nhưng giữ snapshot mà các lớp cũ đang tham chiếu. */
   const archiveCourse = async (event: React.FormEvent) => { event.preventDefault(); if (!archiveTarget) return; try { setSaving(true); await apiRequest(`/manager/courses/${archiveTarget.id}/archive`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason: archiveReason }) }); notify("Đã ngừng sử dụng khóa học; các lớp cũ vẫn giữ phiên bản đã chọn."); setArchiveTarget(null); setArchiveReason(""); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không ngừng sử dụng được khóa học.", "error"); } finally { setSaving(false); } };
+  /** Kích hoạt lớp sau khi API xác nhận các điều kiện vận hành cần thiết. */
   const activate = async (item: LearningClass) => { try { await apiRequest(`/manager/classes/${item.id}/activate`, { method: "POST", roleCode: session.roleCode }); notify("Lớp đã được kích hoạt."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không kích hoạt được.", "error"); } };
   if (!allowed) return <AccessDenied />;
   return <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10"><PageHeader eyebrow="Learning Operations" title={session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : "Khóa học & lớp"} description={manager ? "Quản lý danh mục đào tạo, kỳ học, sức chứa và vòng đời lớp." : "Theo dõi các lớp được phân công hoặc đã ghi danh theo đúng phạm vi truy cập."} actions={manager ? <div className="flex gap-2"><Button onClick={() => setMode("course")} variant="secondary"><BookOpen size={17} />Khóa học</Button><Button onClick={() => setMode("class")}><Plus size={17} />Mở lớp</Button></div> : undefined} />

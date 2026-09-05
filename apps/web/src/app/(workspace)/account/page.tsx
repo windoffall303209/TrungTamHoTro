@@ -19,6 +19,7 @@ const authenticatorApps = [
   { id: "other", name: "Ứng dụng TOTP khác", note: "Authy, Bitwarden và ứng dụng tương thích" },
 ] as const;
 
+/** Rút gọn user-agent thành tên trình duyệt, nền tảng và loại thiết bị dễ đọc. */
 function deviceName(userAgent: string): { label: string; mobile: boolean } {
   if (userAgent === "Thiết bị không xác định") return { label: userAgent, mobile: false };
   const mobile = /Android|iPhone|iPad/i.test(userAgent);
@@ -27,6 +28,7 @@ function deviceName(userAgent: string): { label: string; mobile: boolean } {
   return { label: `${browser} · ${platform}`, mobile };
 }
 
+/** Điều phối hồ sơ, avatar, mật khẩu, MFA và các phiên đăng nhập của tài khoản hiện tại. */
 export default function AccountPage() {
   const { notify, refreshSession } = useApp();
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
@@ -53,6 +55,7 @@ export default function AccountPage() {
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
 
+  /** Nạp song song hồ sơ và phiên đăng nhập để đồng bộ toàn bộ màn hình bảo mật. */
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -66,8 +69,11 @@ export default function AccountPage() {
     finally { setLoading(false); }
   }, [notify]);
 
+  // Hoãn lần nạp đầu sang microtask để tránh cập nhật state đồng bộ ngay trong effect.
   useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
+  // Thu hồi object URL khi đổi ảnh xem trước hoặc rời trang để tránh rò rỉ bộ nhớ.
   useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
+  // Sinh QR cục bộ từ URI TOTP; khóa bí mật không được gửi sang dịch vụ tạo QR bên ngoài.
   useEffect(() => {
     if (!mfaSetup) return;
     let active = true;
@@ -77,6 +83,7 @@ export default function AccountPage() {
     return () => { active = false; };
   }, [mfaSetup, notify]);
 
+  /** Chỉ cập nhật các trường hồ sơ được phép rồi làm mới session dùng chung trên header. */
   async function saveProfile(event: FormEvent) {
     event.preventDefault(); setSaving(true);
     try {
@@ -86,6 +93,7 @@ export default function AccountPage() {
     finally { setSaving(false); }
   }
 
+  /** Kiểm tra định dạng/kích thước avatar ở client và tạo URL xem trước tạm thời. */
   function selectAvatar(file: File | null) {
     if (!file) { setAvatarFile(null); setAvatarPreview(""); return; }
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { notify("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP.", "error"); return; }
@@ -93,6 +101,7 @@ export default function AccountPage() {
     setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file));
   }
 
+  /** Tải avatar dạng multipart lên API rồi đồng bộ lại hồ sơ và session toàn ứng dụng. */
   async function saveAvatar() {
     if (!avatarFile) return;
     setAvatarSaving(true);
@@ -104,6 +113,7 @@ export default function AccountPage() {
     finally { setAvatarSaving(false); }
   }
 
+  /** Xóa avatar trên máy chủ và đưa các vị trí hiển thị về chữ viết tắt mặc định. */
   async function removeAvatar() {
     setAvatarSaving(true);
     try {
@@ -113,6 +123,7 @@ export default function AccountPage() {
     finally { setAvatarSaving(false); }
   }
 
+  /** Đổi/thiết lập mật khẩu bằng mật khẩu hiện tại hoặc email step-up với tài khoản Google. */
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     if (passwords.newPassword !== passwords.confirmPassword) { notify("Xác nhận mật khẩu mới chưa khớp.", "error"); return; }
@@ -129,10 +140,12 @@ export default function AccountPage() {
     finally { setPasswordSaving(false); }
   }
 
+  /** Yêu cầu OTP email theo đúng mục đích của thao tác nhạy cảm. */
   async function requestSecurityCode(purpose: "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE"): Promise<{ challengeId: string; email: string; sent: boolean }> {
     return apiRequest("/account/security-email-challenges", { method: "POST", body: JSON.stringify({ purpose }) });
   }
 
+  /** Khởi tạo email step-up trước khi tài khoản Google đặt hoặc đổi mật khẩu. */
   async function requestPasswordCode() {
     try {
       const result = await requestSecurityCode("PASSWORD_CHANGE");
@@ -141,21 +154,25 @@ export default function AccountPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi mã bảo mật.", "error"); }
   }
 
+  /** Thu hồi một phiên cụ thể và loại nó khỏi danh sách cục bộ sau khi API thành công. */
   async function revoke(sessionId: string) {
     try { await apiRequest<void>(`/account/sessions/${sessionId}`, { method: "DELETE" }); setSessions((items) => items.filter((item) => item.id !== sessionId)); notify("Đã thu hồi phiên đăng nhập."); }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể thu hồi phiên.", "error"); }
   }
 
+  /** Đóng toàn bộ phiên khác, giữ nguyên phiên đang thao tác rồi nạp lại dữ liệu. */
   async function revokeOthers() {
     try { const result = await apiRequest<{ revokedSessions: number }>("/account/sessions/revoke-others", { method: "POST" }); notify(`Đã đóng ${result.revokedSessions} phiên khác.`); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể đóng các phiên khác.", "error"); }
   }
 
+  /** Gửi lại email xác minh cho tài khoản chưa xác minh. */
   async function resendVerification() {
     try { const result = await apiRequest<{ sent: boolean }>("/account/verification-email", { method: "POST" }); notify(result.sent ? "Đã gửi lại email xác minh." : "Email đã được xác minh.", "info"); }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi email xác minh.", "error"); }
   }
 
+  /** Bắt đầu thiết lập TOTP trực tiếp hoặc qua email step-up đối với tài khoản Google. */
   async function startMfa() {
     try {
       if (profile.googleConnected) {
@@ -168,6 +185,7 @@ export default function AccountPage() {
     catch (error) { notify(error instanceof Error ? error.message : "Không thể khởi tạo MFA.", "error"); }
   }
 
+  /** Tiêu thụ OTP email để nhận bí mật TOTP và chuyển sang bước quét QR. */
   async function authorizeMfaSetup(event: FormEvent) {
     event.preventDefault();
     try {
@@ -176,11 +194,13 @@ export default function AccountPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác thực mã email.", "error"); }
   }
 
+  /** Xác nhận mã TOTP đầu tiên, lưu mã khôi phục trả về và bật MFA. */
   async function confirmMfa() {
     try { const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/confirm", { method: "POST", body: JSON.stringify({ code: mfaCode }) }); setRecoveryCodes(result.recoveryCodes); setMfaSetup(null); setMfaCode(""); await load(); notify("Đã bật xác thực hai bước."); }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể bật MFA.", "error"); }
   }
 
+  /** Xác minh mật khẩu/OTP email để nhận challenge ngắn hạn cho thao tác tắt MFA. */
   async function startDisableMfa(event: FormEvent) {
     event.preventDefault();
     try {
@@ -190,6 +210,7 @@ export default function AccountPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác minh danh tính.", "error"); }
   }
 
+  /** Mở nhánh email step-up khi tài khoản Google yêu cầu tắt MFA. */
   async function beginDisableMfa() {
     try {
       const result = await requestSecurityCode("MFA_DISABLE");
@@ -198,12 +219,14 @@ export default function AccountPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi mã bảo mật.", "error"); }
   }
 
+  /** Kết hợp challenge đã cấp với mã TOTP hiện tại để vô hiệu hóa MFA. */
   async function disableMfa(event: FormEvent) {
     event.preventDefault();
     try { await apiRequest("/account/mfa", { method: "DELETE", body: JSON.stringify({ challengeToken: mfaDisableChallenge, code: mfaCode }) }); setMfaDisableChallenge(""); setMfaCode(""); setMfaDisableStep("idle"); await load(); notify("Đã tắt xác thực hai bước.", "info"); }
     catch (error) { notify(error instanceof Error ? error.message : "Không thể tắt MFA.", "error"); }
   }
 
+  /** Hủy luồng tắt MFA và xóa toàn bộ dữ liệu xác minh nhạy cảm khỏi state. */
   function cancelDisableMfa() { setMfaDisableStep("idle"); setMfaDisablePassword(""); setMfaDisableEmailChallenge(null); setMfaDisableEmailCode(""); setMfaDisableChallenge(""); setMfaCode(""); }
 
   const otherSessions = useMemo(() => sessions.filter((item) => !item.current), [sessions]);

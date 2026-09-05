@@ -20,6 +20,7 @@ import type {
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+/** Điều phối thảo luận lớp, thông báo, báo cáo nội dung và quy trình kiểm duyệt. */
 export default function ForumPage() {
   const { session, notify } = useApp();
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
@@ -62,6 +63,7 @@ export default function ForumPage() {
   });
   const topicPagination = usePagination(topics);
   const postPagination = usePagination(posts);
+  /** Nạp các lớp, chủ đề, thông báo và hàng đợi kiểm duyệt phù hợp với vai trò. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -106,6 +108,7 @@ export default function ForumPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Chọn chủ đề và nạp toàn bộ bài viết trong luồng thảo luận đó. */
   const choose = useCallback(async (topic: ForumTopic) => {
     setSelected(topic);
     setAttachmentIds([]);
@@ -131,6 +134,7 @@ export default function ForumPage() {
       return () => window.clearTimeout(timer);
     }
   }, [choose, selected, topics]);
+  /** Tạo chủ đề mới trong lớp đang chọn rồi mở ngay luồng vừa tạo. */
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -157,6 +161,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Đăng bài hoặc phản hồi vào chủ đề hiện tại và đồng bộ lại luồng. */
   const createPost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected) return;
@@ -184,6 +189,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Lưu nội dung chỉnh sửa của bài viết thuộc quyền người dùng. */
   const updatePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingPost || !selected) return;
@@ -192,6 +198,7 @@ export default function ForumPage() {
       setEditingPost(null); setEditBody(""); notify("Đã sửa phản hồi và lưu lịch sử phiên bản."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không sửa được phản hồi.", "error"); }
   };
+  /** Xóa mềm bài viết sau xác nhận rồi nạp lại chủ đề để phản ánh trạng thái. */
   const deletePost = async (item: ForumPost) => {
     if (!selected) return;
     try {
@@ -199,6 +206,7 @@ export default function ForumPage() {
       notify("Đã xóa mềm phản hồi; cấu trúc hội thoại vẫn được giữ."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không xóa được phản hồi.", "error"); }
   };
+  /** Áp dụng thao tác kiểm duyệt ở cấp chủ đề cùng lý do bắt buộc. */
   const moderateTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !topicAction) return;
@@ -207,6 +215,7 @@ export default function ForumPage() {
       setSelected(updated); setTopics((current) => current.map((item) => item.id === updated.id ? updated : item)); setTopicAction(null); setTopicReason(""); notify("Đã cập nhật trạng thái chủ đề và ghi audit.");
     } catch (error) { notify(error instanceof Error ? error.message : "Không điều phối được chủ đề.", "error"); }
   };
+  /** Ẩn bài vi phạm và lưu lý do phục vụ nhật ký kiểm duyệt. */
   const hidePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!hideTarget || !selected) return;
@@ -215,6 +224,7 @@ export default function ForumPage() {
       setHideTarget(null); setHideReason(""); notify("Đã ẩn phản hồi và ghi lý do kiểm duyệt."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không ẩn được phản hồi.", "error"); }
   };
+  /** Đánh dấu một thông báo đã đọc và cập nhật trạng thái lạc quan tại client. */
   const markNotificationRead = async (item: LearningNotification) => {
     if (item.readAt) return;
     try {
@@ -229,6 +239,7 @@ export default function ForumPage() {
       notify(error instanceof Error ? error.message : "Không cập nhật được thông báo.", "error");
     }
   };
+  /** Gửi báo cáo nội dung vào hàng đợi xử lý của quản trị viên. */
   const report = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reportTarget) return;
@@ -253,6 +264,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Mở hồ sơ kiểm duyệt và nạp ngữ cảnh nội dung bị báo cáo. */
   const openModeration = async (item: ContentReport) => {
     try {
       setSubmitting(true);
@@ -270,6 +282,7 @@ export default function ForumPage() {
       setSubmitting(false);
     }
   };
+  /** Kết luận báo cáo bằng quyết định và biện pháp xử lý được chọn. */
   const resolve = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!moderationTarget) return;
@@ -286,6 +299,7 @@ export default function ForumPage() {
       setSubmitting(false);
     }
   };
+  /** Gửi khiếu nại đối với quyết định kiểm duyệt để chuyển sang vòng xem xét tiếp theo. */
   const appeal = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!appealTarget) return;

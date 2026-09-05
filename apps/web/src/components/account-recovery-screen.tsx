@@ -7,6 +7,7 @@ import { apiRequest } from "@/lib/api-client";
 
 const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-base text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-subtle)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15";
 
+/** Phát trạng thái xác minh sang các tab bằng localStorage và BroadcastChannel. */
 function announceVerification(verificationId: string): void {
   const message = { verificationId, verifiedAt: new Date().toISOString() };
   localStorage.setItem("wind-edu:email-verified", JSON.stringify(message));
@@ -17,12 +18,14 @@ function announceVerification(verificationId: string): void {
   }
 }
 
+/** Che phần tên email nhưng giữ domain để người dùng nhận biết hộp thư. */
 function maskedEmail(email: string): string {
   const [name, domain] = email.split("@");
   if (!name || !domain) return email || "email của bạn";
   return `${name.slice(0, 2)}${"*".repeat(Math.max(2, Math.min(name.length - 2, 5)))}@${domain}`;
 }
 
+/** State machine dùng chung cho quên mật khẩu, đặt lại mật khẩu và xác minh/đổi email. */
 export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "verify" }) {
   const [email, setEmail] = useState("");
   const [verificationId, setVerificationId] = useState("");
@@ -38,6 +41,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  /** Chốt giao diện xác minh và báo các tab khác dừng polling. */
   const finishVerification = useCallback((id: string, fromLink = false) => {
     announceVerification(id);
     setLinkVerified(fromLink);
@@ -45,6 +49,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     window.queueMicrotask(() => setLoading(false));
   }, []);
 
+  // Link token được xử lý một lần; luồng mã số polling và nghe thông báo chéo tab theo best-effort.
   useEffect(() => {
     if (mode !== "verify") return;
     const params = new URLSearchParams(window.location.search);
@@ -72,6 +77,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     }
     window.queueMicrotask(() => setLoading(false));
 
+    /** Thăm dò trạng thái challenge để tab hiện tại nhận biết xác minh hoàn tất ở tab khác. */
     const checkStatus = async () => {
       try {
         const result = await apiRequest<{ verified: boolean; expired: boolean }>(`/auth/verification-status?verificationId=${encodeURIComponent(id)}`);
@@ -83,6 +89,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     };
     void checkStatus();
     const timer = window.setInterval(() => void checkStatus(), 3000);
+    /** Nhận tín hiệu xác minh qua storage event giữa các tab cùng origin. */
     const onStorage = (event: StorageEvent) => {
       if (event.key !== "wind-edu:email-verified" || !event.newValue) return;
       try {
@@ -104,6 +111,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     };
   }, [finishVerification, mode]);
 
+  /** Điều phối submit theo mode và thay URL khi đổi sang phiên xác minh email mới. */
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError("");
@@ -147,6 +155,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     }
   }
 
+  /** Gửi lại mã; nếu server xoay verificationId thì thay URL để state/polling dùng id mới. */
   async function resendCode(): Promise<void> {
     if (!email || !verificationId) return;
     setLoading(true);

@@ -17,6 +17,7 @@ type RoleWithPermissions = Prisma.RoleGetPayload<{
 }>;
 
 @Injectable()
+/** Quản lý danh tính bằng Prisma khi có DB và dùng dữ liệu nhớ tương đương cho chế độ demo cục bộ. */
 export class IdentityService {
   private readonly users: IdentityUser[] = [
     { id: "usr-admin", username: "admin@wind.edu.vn", displayName: "Wind Of Fall", email: "admin@wind.edu.vn", roleCode: "SYSTEM_ADMIN", status: "ACTIVE", createdAt: now(), updatedAt: now() },
@@ -36,6 +37,7 @@ export class IdentityService {
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
+  /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
   async listUsers(query?: string): Promise<IdentityUser[]> {
     const normalized = query?.trim() ?? "";
     const prisma = this.database();
@@ -56,6 +58,7 @@ export class IdentityService {
       .map((user) => ({ ...user }));
   }
 
+  /** Tạo user, gán vai trò và ghi audit trong cùng transaction; xử lý cả xung đột unique. */
   async createUser(input: CreateUserDto, actorId = "usr-admin"): Promise<IdentityUser> {
     const normalizedEmail = input.email.trim().toLowerCase();
     const normalizedUsername = input.username.trim().toLowerCase();
@@ -106,6 +109,7 @@ export class IdentityService {
     return { ...user };
   }
 
+  /** Cập nhật user/vai trò và bảo vệ quản trị viên hoạt động cuối cùng khỏi bị khóa hoặc hạ quyền. */
   async updateUser(userId: string, input: UpdateUserDto, actorId = "usr-admin"): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {
@@ -172,6 +176,7 @@ export class IdentityService {
     return { ...user };
   }
 
+  /** Đọc vai trò và quyền từ DB hoặc trả bản sao dữ liệu demo để tránh mutation ngoài ý muốn. */
   async listRoles(): Promise<IdentityRole[]> {
     const prisma = this.database();
     if (prisma) {
@@ -184,6 +189,7 @@ export class IdentityService {
     return this.roles.map((role) => ({ ...role, permissions: [...role.permissions] }));
   }
 
+  /** Thay thế tập quyền nguyên tử, giữ quyền tự quản trị bắt buộc và tăng version để theo dõi thay đổi. */
   async updateRolePermissions(input: UpdateRolePermissionsDto, actorId = "usr-admin"): Promise<IdentityRole> {
     if (input.roleCode === "SYSTEM_ADMIN" && !input.permissions.includes("role:update")) {
       throw new BadRequestException("Vai trò quản trị phải giữ quyền role:update.");
@@ -231,6 +237,7 @@ export class IdentityService {
     return { ...role, permissions: [...role.permissions] };
   }
 
+  /** Đọc 200 sự kiện danh tính gần nhất và chuẩn hóa context JSON thành nội dung hiển thị. */
   async listAuditEvents(): Promise<IdentityAuditEvent[]> {
     const prisma = this.database();
     if (prisma) {
@@ -254,10 +261,12 @@ export class IdentityService {
     return this.auditEvents.map((event) => ({ ...event }));
   }
 
+  /** Chỉ chọn Prisma khi ứng dụng được cấu hình kết nối DB; nếu không dùng kho nhớ demo. */
   private database(): PrismaService | undefined {
     return this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
   }
 
+  /** Ánh xạ bản ghi Prisma sang hợp đồng IdentityUser không chứa trường bí mật. */
   private mapUser(row: UserWithRoles): IdentityUser {
     return {
       id: row.id,
@@ -271,6 +280,7 @@ export class IdentityService {
     };
   }
 
+  /** Lấy vai trò chính và từ chối dữ liệu DB không thuộc danh mục ứng dụng hỗ trợ. */
   private getRoleCode(row: UserWithRoles): RoleCode {
     const code = row.roles[0]?.role.code;
     if (!code || !Object.hasOwn(DEFAULT_ROLE_PERMISSIONS, code)) {
@@ -279,6 +289,7 @@ export class IdentityService {
     return code as RoleCode;
   }
 
+  /** Ánh xạ vai trò Prisma và kiểm tra mã vai trò trước khi ép kiểu. */
   private mapRole(row: RoleWithPermissions): IdentityRole {
     if (!Object.hasOwn(DEFAULT_ROLE_PERMISSIONS, row.code)) {
       throw new BadRequestException(`Mã vai trò ${row.code} không được ứng dụng hỗ trợ.`);
@@ -292,12 +303,14 @@ export class IdentityService {
     };
   }
 
+  /** Tạo hash ngẫu nhiên không thể đăng nhập cho tài khoản quản trị tạo mà chưa đặt mật khẩu. */
   private createDisabledPasswordHash(): string {
     const salt = randomBytes(16).toString("hex");
     const hash = scryptSync(randomBytes(32), salt, 64).toString("hex");
     return `scrypt:${salt}:${hash}`;
   }
 
+  /** Ghi audit vào cùng transaction nghiệp vụ để thay đổi và dấu vết luôn nhất quán. */
   private async writeDatabaseAudit(
     transaction: Prisma.TransactionClient,
     actorId: string,
@@ -310,12 +323,14 @@ export class IdentityService {
     });
   }
 
+  /** Thu hẹp Prisma JSON thành object trước khi đọc trường summary. */
   private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value)
       ? value as Record<string, unknown>
       : {};
   }
 
+  /** Thêm sự kiện audit vào đầu danh sách fallback in-memory. */
   private audit(actorId: string, action: string, targetId: string, summary: string): void {
     this.auditEvents.unshift({ id: randomUUID(), actorId, action, targetId, summary, createdAt: now() });
   }

@@ -28,11 +28,13 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+/** Giữ phiên toàn ứng dụng, điều phối auth/MFA/role và cung cấp toast dùng chung. */
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<SessionData>(emptySession);
   const [authLoading, setAuthLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  /** Đồng bộ phiên từ server; mọi lỗi đều đưa client về trạng thái chưa đăng nhập. */
   const refreshSession = useCallback(async (): Promise<boolean> => {
     try { setSession(await apiRequest<SessionData>("/auth/session")); return true; }
     catch { setSession(emptySession); return false; }
@@ -41,36 +43,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
   useEffect(() => {
+    /** Xóa session cục bộ khi API phát tín hiệu phiên hết hạn từ tab hiện tại hoặc tab khác. */
     const clearExpiredSession = () => setSession(emptySession);
     window.addEventListener("wind-edu:unauthorized", clearExpiredSession);
     return () => window.removeEventListener("wind-edu:unauthorized", clearExpiredSession);
   }, []);
 
+  /** Đăng nhập và tách kết quả cần MFA khỏi phiên hoàn chỉnh. */
   const login = useCallback(async (input: LoginInput) => {
     const result = await apiRequest<SessionData | { requiresMfa: true; challengeToken: string }>("/auth/login", { method: "POST", body: JSON.stringify(input) });
     if ("requiresMfa" in result) return { requiresMfa: true, challengeToken: result.challengeToken };
     setSession(result);
     return { requiresMfa: false };
   }, []);
+  /** Tạo tài khoản rồi trả thông tin phiên xác minh email cho màn hình đăng ký. */
   const register = useCallback(async (input: RegisterInput) => {
     return apiRequest<RegistrationResult>("/auth/register", { method: "POST", body: JSON.stringify(input) });
   }, []);
+  /** Hoàn tất MFA bằng TOTP hoặc recovery code và lưu phiên trả về. */
   const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, recovery = false) => {
     const path = recovery ? "/auth/mfa/recovery" : "/auth/mfa/verify";
     const body = recovery ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
     setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, []);
+  /** Hoàn tất bước MFA của OAuth Google từ cookie thử thách HttpOnly. */
   const completeGoogleMfa = useCallback(async (value: string, recovery = false) => {
     const path = recovery ? "/auth/google/mfa/recovery" : "/auth/google/mfa/verify";
     const body = recovery ? { recoveryCode: value } : { code: value };
     setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, []);
+  /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
     try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
   }, []);
+  /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */
   const setRole = useCallback(async (role: RoleCode) => {
     setSession(await apiRequest<SessionData>("/auth/session", { roleCode: role }));
   }, []);
+  /** Hiển thị toast có id để timer cũ không đóng nhầm thông báo mới. */
   const notify = useCallback((message: string, tone: ToastState["tone"] = "success") => {
     const next = { id: Date.now(), message, tone };
     setToast(next);
@@ -81,6 +91,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-[var(--danger-fill)] text-[var(--status-on-fill)]" : toast.tone === "info" ? "bg-[var(--action)] text-[var(--action-ink)]" : "bg-[var(--success-fill)] text-[var(--status-on-fill)]"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 
+/** Truy cập AppContext và báo lỗi sớm nếu component nằm ngoài provider. */
 export function useApp(): AppContextValue {
   const value = useContext(AppContext);
   if (!value) throw new Error("useApp phải được dùng bên trong AppProvider");

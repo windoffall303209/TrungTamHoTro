@@ -11,6 +11,7 @@ import { hasPermission } from "@/lib/access-control";
 import type { ClassClosureReadiness, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
+/** Quản lý điều kiện sẵn sàng, đóng lớp và mở lại lớp theo vòng đời vận hành. */
 export default function ClassLifecyclePage() {
   const [requestedClassId] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("classId") ?? "");
   const { session, notify } = useApp();
@@ -24,6 +25,7 @@ export default function ClassLifecyclePage() {
 
   const selected = classes.find((item) => item.id === selectedId);
 
+  /** Kiểm tra các điều kiện nghiệp vụ còn thiếu trước khi lớp được phép đóng. */
   const loadReadiness = useCallback(async (classId: string) => {
     if (!classId) return;
     try {
@@ -33,6 +35,7 @@ export default function ClassLifecyclePage() {
     }
   }, [notify, session.roleCode]);
 
+  /** Nạp danh sách lớp quản lý và báo cáo sẵn sàng của lớp đang chọn. */
   const load = useCallback(async () => {
     if (!canManage) return;
     try {
@@ -51,6 +54,7 @@ export default function ClassLifecyclePage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  /** Đóng lớp với lý do nghiệp vụ sau khi máy chủ xác nhận đủ điều kiện. */
   const closeClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -71,6 +75,7 @@ export default function ClassLifecyclePage() {
     }
   };
 
+  /** Mở lại một lớp đã đóng và ghi nhận lý do vào lịch sử vòng đời. */
   const reopenClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;

@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   description: "Không gian vận hành tập trung cho dữ liệu, đề thi, diễn đàn và lớp học online.",
 };
 
+// Chạy trước hydration để áp dụng theme đã lưu và tránh nháy giao diện sai màu.
 const themeInitializer = `(() => {
   try {
     const stored = localStorage.getItem("wind-edu-theme");
@@ -26,6 +27,7 @@ const themeInitializer = `(() => {
   } catch { document.documentElement.dataset.theme = "light"; }
 })();`;
 
+/** Khung HTML gốc, nạp font/theme sớm và cung cấp trạng thái ứng dụng cho mọi route. */
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html data-scroll-behavior="smooth" lang="vi" suppressHydrationWarning>

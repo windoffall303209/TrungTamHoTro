@@ -11,6 +11,7 @@ import { hasEveryPermission } from "@/lib/access-control";
 import type { DirectoryUser, ExamAttempt, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 
+/** Gom các thao tác giảng dạy thường ngày: điểm, điểm danh và bản ghi buổi học. */
 export default function TeachingOperationsPage() {
   const { session, notify } = useApp();
   const canManageTeaching = session.roleCode === "INSTRUCTOR" && hasEveryPermission(session, ["question:manage", "exam:manage", "session:manage"]);
@@ -32,6 +33,7 @@ export default function TeachingOperationsPage() {
     sessionId: "",
     recordingUrl: "",
   });
+  /** Nạp lớp, bài nộp và buổi học thuộc phạm vi giảng viên hiện tại. */
   const load = useCallback(async () => {
     if (!canManageTeaching) return;
     try {
@@ -64,6 +66,7 @@ export default function TeachingOperationsPage() {
     }
   }, [canManageTeaching, notify, session.roleCode]);
 
+  /** Chọn buổi học và nạp bảng điểm danh chi tiết để chỉnh sửa. */
   const selectAttendanceSession = useCallback(async (sessionId: string) => {
     setAttendance((current) => ({ ...current, sessionId, learnerId: "" }));
     const classId = sessions.find((item) => item.id === sessionId)?.classId;
@@ -90,6 +93,7 @@ export default function TeachingOperationsPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Lưu điểm và phản hồi cho bài nộp đang được giảng viên chấm. */
   const saveGrade = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!grading) return;
@@ -109,6 +113,7 @@ export default function TeachingOperationsPage() {
       );
     }
   };
+  /** Gửi các thay đổi điểm danh thủ công cùng lý do điều chỉnh. */
   const saveAttendance = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -133,6 +138,7 @@ export default function TeachingOperationsPage() {
       );
     }
   };
+  /** Gắn đường dẫn bản ghi với buổi học đã kết thúc để đưa vào xử lý. */
   const attachRecording = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -154,6 +160,7 @@ export default function TeachingOperationsPage() {
       );
     }
   };
+  /** Xác nhận bản ghi đã sẵn sàng cho người có quyền xem. */
   const markRecordingReady = async () => {
     if (!recording.sessionId) return;
     try {

@@ -39,6 +39,7 @@ const modules = [
   { href: "/live-classes", name: "Lớp học online", detail: "Lịch học, phòng trực tuyến và bản ghi", icon: CalendarDays, permissions: ["session:view"], roles: ["LEARNER"] },
 ] satisfies Array<{ href: string; name: string; detail: string; icon: typeof Database; permissions: PermissionCode[]; roles: RoleCode[] }>;
 
+/** Tải song song bộ KPI phù hợp với từng vai trò và chuẩn hóa thành ba chỉ số tổng quan. */
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
@@ -92,6 +93,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   ];
 }
 
+/** Hiển thị dashboard theo role, lọc phân hệ theo RBAC và cho phép tải lại KPI. */
 export function DashboardHome() {
   const { session } = useApp();
   const content = roleContent[session.roleCode];
@@ -100,6 +102,7 @@ export function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  /** Đồng bộ KPI khi đổi vai trò hoặc người dùng yêu cầu tải lại. */
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");

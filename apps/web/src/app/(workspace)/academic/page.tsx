@@ -14,6 +14,7 @@ import { useApp } from "@/providers/app-provider";
 
 const emptyAssignment = { classId: "", title: "", description: "", instructions: "", dueAt: "", maxScore: 10, rubric: [{ title: "Nội dung", description: "Đáp ứng yêu cầu của bài tập", maxPoints: 10 }] };
 
+/** Điều phối bài tập, bài nộp, chấm điểm và thông báo theo lớp của người dùng hiện tại. */
 export default function AcademicPage() {
   const { session, notify } = useApp();
   const [classes, setClasses] = useState<LearningClass[]>([]);
@@ -39,6 +40,7 @@ export default function AcademicPage() {
   const allowed = session.roleCode === "INSTRUCTOR" || session.roleCode === "LEARNER";
   const canTeach = session.roleCode === "INSTRUCTOR" && hasPermission(session, "exam:manage");
 
+  /** Nạp các lớp và dữ liệu học vụ tương ứng với vai trò, sau đó chọn lớp khả dụng đầu tiên. */
   const load = useCallback(async () => {
     if (!allowed) return;
     try {
@@ -55,6 +57,7 @@ export default function AcademicPage() {
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
+  /** Chuyển ngữ cảnh lớp và tải lại bài tập/thông báo gắn với lớp đó. */
   async function changeClass(classId: string): Promise<void> {
     setSelectedClassId(classId);
     assignmentPagination.resetPage();
@@ -62,17 +65,20 @@ export default function AcademicPage() {
     if (canTeach && classId) try { setGradebook(await apiRequest<GradebookRow[]>(`/academic/classes/${classId}/gradebook`, { roleCode: session.roleCode })); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được sổ điểm.", "error"); }
   }
 
+  /** Tạo bản nháp bài tập cùng rubric cho lớp đang chọn. */
   async function createAssignment(event: FormEvent): Promise<void> {
     event.preventDefault();
     try { await apiRequest(`/instructor/classes/${assignmentForm.classId}/assignments`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ ...assignmentForm, dueAt: new Date(assignmentForm.dueAt).toISOString() }) }); setCreatingAssignment(false); setAssignmentForm({ ...emptyAssignment, classId: assignmentForm.classId }); notify("Đã tạo bài tập nháp."); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không tạo được bài tập.", "error"); }
   }
 
+  /** Xuất bản bài tập để học viên trong lớp có thể xem và nộp bài. */
   async function publish(item: Assignment): Promise<void> {
     try { await apiRequest(`/instructor/assignments/${item.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify("Đã xuất bản bài tập và thông báo cho học viên."); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được bài tập.", "error"); }
   }
 
+  /** Tải các tệp đã chọn rồi tạo/cập nhật bài nộp với danh sách tệp đính kèm. */
   async function submitAssignment(event: FormEvent): Promise<void> {
     event.preventDefault(); if (!submitting) return;
     const existingCount = submitting.submission?.attachments.length ?? 0;
@@ -84,6 +90,7 @@ export default function AcademicPage() {
     finally { setSubmissionBusy(false); }
   }
 
+  /** Kiểm tra và đưa tệp người học chọn vào hàng chờ trước khi tải lên. */
   function chooseSubmissionFiles(files: FileList | null): void {
     if (!files || !submitting) return;
     const next = [...submissionFiles, ...Array.from(files)];
@@ -95,6 +102,7 @@ export default function AcademicPage() {
     setSubmissionFiles(next); setSubmissionError("");
   }
 
+  /** Gỡ một tệp đã lưu khỏi bài nộp hiện tại rồi đồng bộ lại chi tiết bài. */
   async function removeStoredAttachment(attachmentId: string): Promise<void> {
     const submission = submitting?.submission; if (!submission) return;
     setSubmissionBusy(true); setSubmissionError("");
@@ -105,6 +113,7 @@ export default function AcademicPage() {
     finally { setSubmissionBusy(false); }
   }
 
+  /** Lấy URL có kiểm soát để xem trước hoặc tải tệp bài nộp mà không điều hướng khỏi ứng dụng. */
   async function openAttachment(submissionId: string, attachmentId: string, preview: boolean): Promise<void> {
     try {
       const path = `/assignment-submissions/${submissionId}/attachments/${attachmentId}${preview ? "?action=preview" : ""}`;
@@ -112,17 +121,20 @@ export default function AcademicPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không mở được tệp bài nộp.", "error"); }
   }
 
+  /** Nạp danh sách bài nộp của một bài tập để giảng viên chấm. */
   async function openSubmissions(item: Assignment): Promise<void> {
     try { setSubmissions(await apiRequest<AssignmentSubmission[]>(`/instructor/assignments/${item.id}/submissions`, { roleCode: session.roleCode })); setReviewing(item); }
     catch (error) { notify(error instanceof Error ? error.message : "Không tải được bài nộp.", "error"); }
   }
 
+  /** Gửi điểm và phản hồi cho bài nộp đang chọn rồi làm mới danh sách chấm. */
   async function grade(event: FormEvent): Promise<void> {
     event.preventDefault(); if (!grading || !reviewing) return;
     try { await apiRequest(`/instructor/assignment-submissions/${grading.id}/grade`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ rubricScores: reviewing.rubric.map((criterion) => ({ criterionId: criterion.id, score: rubricScores[criterion.id] ?? 0 })), feedback }) }); setGrading(null); setFeedback(""); await openSubmissions(reviewing); await load(); notify("Đã lưu điểm rubric và phản hồi."); }
     catch (error) { notify(error instanceof Error ? error.message : "Không lưu được điểm.", "error"); }
   }
 
+  /** Đăng thông báo mới vào lớp đang chọn và làm mới luồng thông báo. */
   async function createAnnouncement(event: FormEvent): Promise<void> {
     event.preventDefault();
     try { await apiRequest(`/academic/classes/${announcementForm.classId}/announcements`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ title: announcementForm.title, body: announcementForm.body }) }); setCreatingAnnouncement(false); setAnnouncementForm({ classId: announcementForm.classId, title: "", body: "" }); await load(); notify("Đã phát thông báo đến thành viên lớp."); }

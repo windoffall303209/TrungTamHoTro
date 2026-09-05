@@ -10,10 +10,12 @@ type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: un
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
 
+/** Ghép đường dẫn tương đối với API origin dùng cho ảnh/tài nguyên công khai. */
 export function publicApiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/** Lỗi API chuẩn hóa gồm HTTP status và details để màn hình xử lý thống nhất. */
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly details?: unknown) {
     super(message);
@@ -21,6 +23,7 @@ export class ApiError extends Error {
   }
 }
 
+/** Gửi request JSON kèm cookie, role và CSRF; bóc envelope và phát sự kiện khi phiên hết hạn. */
 export async function apiRequest<T>(
   path: string,
   options: RequestInit & { roleCode?: RoleCode } = {},
@@ -54,6 +57,7 @@ export async function apiRequest<T>(
   return data;
 }
 
+/** Đọc tên tệp Unicode theo RFC 5987 hoặc filename thường từ Content-Disposition. */
 export function apiFileName(disposition: string, fallback = "hoc-lieu"): string {
   const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   if (encodedName) {
@@ -62,6 +66,7 @@ export function apiFileName(disposition: string, fallback = "hoc-lieu"): string 
   return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback;
 }
 
+/** Tải blob có xác thực, tạo anchor tạm và thu hồi object URL sau khi bắt đầu download. */
 export async function downloadApiFile(path: string, roleCode: RoleCode): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { accept: "application/octet-stream", "x-role-code": roleCode },
@@ -82,6 +87,7 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
   URL.revokeObjectURL(blobUrl);
 }
 
+/** Mở cửa sổ trước thao tác async để tránh popup blocker, sau đó tải và render bản xem trước có nút đóng. */
 export async function previewApiFile(path: string, roleCode: RoleCode, fallbackFileName = "Học liệu"): Promise<void> {
   const previewWindow = window.open("", "_blank");
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
@@ -125,6 +131,7 @@ interface PreviewPalette {
   surfaceMuted: string;
 }
 
+/** Chụp token màu/font hiện tại để cửa sổ xem trước đồng bộ sáng/tối với ứng dụng. */
 function previewPalette(): PreviewPalette {
   const root = document.documentElement;
   const styles = window.getComputedStyle(root);
@@ -144,6 +151,7 @@ function previewPalette(): PreviewPalette {
   };
 }
 
+/** Dựng UI xem trước PDF/ảnh/video; định dạng Word hiển thị hướng dẫn tải xuống. */
 function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fileName: string; mimeType: string }, palette: PreviewPalette): void {
   const doc = previewWindow.document;
   doc.title = `${file.fileName} · Wind EDU`;

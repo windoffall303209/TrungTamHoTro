@@ -10,4 +10,5 @@ import { ObservabilityController } from "./observability.controller.js";
   providers: [MetricsService, { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor }],
   exports: [MetricsService],
 })
+/** Đăng ký metrics singleton và interceptor toàn cục cho mọi HTTP handler. */
 export class ObservabilityModule {}
