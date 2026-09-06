@@ -6,9 +6,9 @@ import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ReviewExamDto, ReviewMaterialDto, ReviewQuestionDto, SaveAnswerDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, ReviewExamDto, ReviewMaterialDto, ReviewQuestionDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "./learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
-import type { ExamApprovalRecord, ExamAttempt, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
+import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemptReview, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 
 @ApiTags("Content & Assessment")
@@ -239,9 +239,54 @@ export class ContentController {
   /** Cho giảng viên phụ trách xem đề theo thứ tự gốc bất kể cấu hình xáo trộn. */
   getInstructorExamPreview(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getInstructorExamPreview(examId, session.user.id); }
 
+  @Get("manager/exams/:examId/preview") @RequirePermissions("class:manage")
+  /** Cho người duyệt xem nội dung đề đang chờ phê duyệt mà không cần được phân công lớp. */
+  getReviewerExamPreview(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getReviewerExamPreview(examId); }
+
   @Post("instructor/exams") @RequirePermissions("exam:manage")
   /** Tạo đề từ danh sách câu hỏi đã chọn và cấu hình thời gian/lượt làm. */
   createExam(@Body() input: CreateExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.createExam(input, session.user.id); }
+
+  @Patch("instructor/exams/:examId") @RequirePermissions("exam:manage")
+  /** Chỉnh toàn bộ đề nháp bằng optimistic version để không ghi đè thay đổi đồng thời. */
+  updateExam(@Param("examId") examId: string, @Body() input: UpdateExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.updateExam(examId, input, session.user.id); }
+
+  @Post("instructor/exams/ai-generate") @RequirePermissions("exam:manage")
+  /** Tạo câu hỏi đúng ma trận từ tài liệu môn học hoặc Web Search rồi lưu thành đề nháp. */
+  async generateAiExam(@Body() input: GenerateAiExamDto, @CurrentSession() session: AuthenticatedSession): Promise<AiGeneratedExamResult> {
+    const seenTypes = new Set(input.distribution.map((item) => item.type));
+    if (seenTypes.size !== input.distribution.length) throw new BadRequestException("Mỗi loại câu hỏi chỉ được xuất hiện một lần trong ma trận.");
+    const totalQuestions = input.distribution.reduce((sum, item) => sum + item.count, 0);
+    if (totalQuestions < 1 || totalQuestions > 50) throw new BadRequestException("Tổng số câu hỏi AI phải từ 1 đến 50.");
+    const existing = await this.learning.getGeneratedExamByRequest(input.clientRequestId, input.classId, session.user.id);
+    if (existing) {
+      const context = existing.aiContext ?? { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
+      return { exam: existing, generatedQuestionCount: existing.questionIds.length, providerId: context.providerId ?? "reused", provider: context.provider ?? "Yêu cầu trước", model: context.model ?? "reused", context: { mode: context.mode, materialIds: context.materialIds, materialNames: [], sources: context.sources }, warnings: [...(context.warnings ?? []), "Đã trả lại đề từ yêu cầu AI hoàn tất trước đó; không tạo bản trùng."] };
+    }
+    const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds);
+    const generated = await this.aiProviders.generateExamDraft({
+      providerId: input.providerId,
+      courseName: context.courseName,
+      courseDescription: context.courseDescription,
+      focus: input.focus.trim(),
+      difficulty: input.difficulty,
+      distribution: input.distribution,
+      contextMode: input.contextMode,
+      sourceFiles: context.sourceFiles,
+    });
+    const exam = await this.learning.createGeneratedExam({
+      classId: input.classId,
+      title: input.title,
+      durationMinutes: input.durationMinutes,
+      totalScore: input.totalScore,
+      openAt: input.openAt,
+      closeAt: input.closeAt,
+      attemptLimit: input.attemptLimit,
+      shuffleQuestions: input.shuffleQuestions,
+      randomSeed: input.randomSeed,
+    }, generated.questions, context.courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, input.clientRequestId, session.user.id);
+    return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: generated.warnings };
+  }
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
   /** Gửi đề duyệt hoặc tự động công bố theo chính sách hệ thống. */
@@ -281,13 +326,35 @@ export class ContentController {
     return this.learning.requestRegrade(attemptId, input.reason, session.user.id);
   }
 
+  @Get("instructor/regrade-requests") @RequirePermissions("exam:manage")
+  /** Liệt kê hàng đợi phúc khảo thuộc các lớp giảng viên phụ trách. */
+  listRegradeRequests(@CurrentSession() session: AuthenticatedSession, @Query("status") status?: RegradeRequest["status"]): Promise<RegradeRequest[]> {
+    return this.learning.listRegradeRequests(session.user.id, status);
+  }
+
+  @Post("instructor/regrade-requests/:requestId/claim") @RequirePermissions("exam:manage")
+  /** Nhận xử lý độc quyền một yêu cầu phúc khảo đang mở. */
+  claimRegrade(@Param("requestId") requestId: string, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    return this.learning.claimRegrade(requestId, session.user.id);
+  }
+
+  @Patch("instructor/regrade-requests/:requestId/resolve") @RequirePermissions("exam:manage")
+  /** Chấp thuận hoặc từ chối phúc khảo, đồng bộ điểm và lịch sử khi chấp thuận. */
+  resolveRegrade(@Param("requestId") requestId: string, @Body() input: ResolveRegradeDto, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    return this.learning.resolveRegrade(requestId, input, session.user.id);
+  }
+
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")
   /** Liệt kê lượt thi trong các lớp giảng viên phụ trách, có thể lọc theo đề. */
   listAttempts(@CurrentSession() session: AuthenticatedSession, @Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId, session.user.id); }
 
+  @Get("instructor/exam-attempts/:attemptId/review") @RequirePermissions("exam:manage")
+  /** Trả đề, đáp án và điểm từng câu để giảng viên chấm trong đúng phạm vi lớp. */
+  reviewAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttemptReview> { return this.learning.getAttemptReview(attemptId, session.user.id); }
+
   @Patch("instructor/exam-attempts/:attemptId/grade") @RequirePermissions("exam:manage")
   /** Chấm hoặc sửa điểm lượt thi và ghi lý do hiệu chỉnh vào lịch sử. */
-  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id); }
+  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id, input.questionScores); }
 
   @Get("instructor/exam-attempts/:attemptId/grade-history") @RequirePermissions("exam:manage")
   /** Trả lịch sử các lần chấm/sửa điểm sau khi kiểm tra quyền giảng viên. */

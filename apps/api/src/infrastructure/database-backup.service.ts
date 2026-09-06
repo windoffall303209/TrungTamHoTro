@@ -96,6 +96,40 @@ export class DatabaseBackupService {
     }
   }
 
+  /** Phục hồi bundle vào một database mới để chuẩn bị cutover vận hành mà không ghi đè database đang chạy. */
+  async restoreToDatabase(buffer: Buffer, targetDatabase: string): Promise<{ database: string; tableCount: number; rowCount: number }> {
+    const bundle = this.parseBundle(buffer);
+    this.assertIdentifier(targetDatabase);
+    if (targetDatabase === this.databaseName) throw new BadRequestException("Không được khôi phục trực tiếp đè lên database đang vận hành.");
+    const administrator = await this.open();
+    let created = false;
+    try {
+      const existing = await administrator.query<Array<{ SCHEMA_NAME: string }>>("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?", [targetDatabase]);
+      if (existing.length) throw new BadRequestException("Database đích đã tồn tại; cần chọn tên database mới để tránh ghi đè dữ liệu.");
+      await administrator.query(`CREATE DATABASE ${this.quoteIdentifier(targetDatabase)} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      created = true;
+      const target = await this.open(targetDatabase);
+      try {
+        await target.query("SET FOREIGN_KEY_CHECKS=0");
+        for (const table of bundle.tables) {
+          this.validateTable(table);
+          await target.query(table.createSql);
+        }
+        for (const table of bundle.tables) await this.restoreRows(target, table);
+        await target.query("SET FOREIGN_KEY_CHECKS=1");
+      } finally {
+        await target.end().catch(() => undefined);
+      }
+      return { database: targetDatabase, tableCount: bundle.tables.length, rowCount: bundle.tables.reduce((sum, table) => sum + table.rows.length, 0) };
+    } catch (error) {
+      if (created) await administrator.query(`DROP DATABASE IF EXISTS ${this.quoteIdentifier(targetDatabase)}`).catch(() => undefined);
+      if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException("Khôi phục vận hành MariaDB thất bại.");
+    } finally {
+      await administrator.end().catch(() => undefined);
+    }
+  }
+
   /** Chèn dữ liệu theo batch 200 dòng để giới hạn kích thước mỗi câu lệnh MariaDB. */
   private async restoreRows(connection: Connection, table: BackupTable): Promise<void> {
     if (!table.rows.length) return;

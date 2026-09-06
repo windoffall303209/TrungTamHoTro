@@ -3,6 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
+import { isSupportedLocale } from "@/i18n/catalog";
+import { useI18n } from "@/providers/i18n-provider";
 
 const emptySession: SessionData = {
   sessionId: "", user: { id: "", username: "", name: "", email: "", roleName: "", avatarUrl: null }, roleCode: "LEARNER", permissions: [], availableRoles: [],
@@ -30,16 +32,23 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 /** Giữ phiên toàn ứng dụng, điều phối auth/MFA/role và cung cấp toast dùng chung. */
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { setLocale } = useI18n();
   const [session, setSession] = useState<SessionData>(emptySession);
   const [authLoading, setAuthLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  /** Nhận phiên hợp lệ và áp tùy chọn ngôn ngữ đã lưu trong hồ sơ người dùng. */
+  const adoptSession = useCallback((nextSession: SessionData) => {
+    setSession(nextSession);
+    if (isSupportedLocale(nextSession.user.locale)) setLocale(nextSession.user.locale);
+  }, [setLocale]);
+
   /** Đồng bộ phiên từ server; mọi lỗi đều đưa client về trạng thái chưa đăng nhập. */
   const refreshSession = useCallback(async (): Promise<boolean> => {
-    try { setSession(await apiRequest<SessionData>("/auth/session")); return true; }
+    try { adoptSession(await apiRequest<SessionData>("/auth/session")); return true; }
     catch { setSession(emptySession); return false; }
     finally { setAuthLoading(false); }
-  }, []);
+  }, [adoptSession]);
 
   useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
   useEffect(() => {
@@ -53,9 +62,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (input: LoginInput) => {
     const result = await apiRequest<SessionData | { requiresMfa: true; challengeToken: string }>("/auth/login", { method: "POST", body: JSON.stringify(input) });
     if ("requiresMfa" in result) return { requiresMfa: true, challengeToken: result.challengeToken };
-    setSession(result);
+    adoptSession(result);
     return { requiresMfa: false };
-  }, []);
+  }, [adoptSession]);
   /** Tạo tài khoản rồi trả thông tin phiên xác minh email cho màn hình đăng ký. */
   const register = useCallback(async (input: RegisterInput) => {
     return apiRequest<RegistrationResult>("/auth/register", { method: "POST", body: JSON.stringify(input) });
@@ -64,22 +73,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, recovery = false) => {
     const path = recovery ? "/auth/mfa/recovery" : "/auth/mfa/verify";
     const body = recovery ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
-    setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
-  }, []);
+    adoptSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
+  }, [adoptSession]);
   /** Hoàn tất bước MFA của OAuth Google từ cookie thử thách HttpOnly. */
   const completeGoogleMfa = useCallback(async (value: string, recovery = false) => {
     const path = recovery ? "/auth/google/mfa/recovery" : "/auth/google/mfa/verify";
     const body = recovery ? { recoveryCode: value } : { code: value };
-    setSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
-  }, []);
+    adoptSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
+  }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
     try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
   }, []);
   /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */
   const setRole = useCallback(async (role: RoleCode) => {
-    setSession(await apiRequest<SessionData>("/auth/session", { roleCode: role }));
-  }, []);
+    adoptSession(await apiRequest<SessionData>("/auth/session", { roleCode: role }));
+  }, [adoptSession]);
   /** Hiển thị toast có id để timer cũ không đóng nhầm thông báo mới. */
   const notify = useCallback((message: string, tone: ToastState["tone"] = "success") => {
     const next = { id: Date.now(), message, tone };

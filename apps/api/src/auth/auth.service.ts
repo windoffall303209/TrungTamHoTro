@@ -24,14 +24,14 @@ type SecurityEmailPurpose = "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE";
 type SecurityEmailTokenType = "PASSWORD_CHANGE_OTP" | "MFA_SETUP_OTP" | "MFA_DISABLE_OTP";
 
 type UserWithRoles = {
-  id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string | null; googleSubject: string | null; displayName: string; status: string;
+  id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string | null; googleSubject: string | null; displayName: string; status: string; locale: string;
   mfaSecretEncrypted: string | null; mfaEnabledAt: Date | null; avatarObjectKey: string | null; avatarMimeType: string | null; avatarUpdatedAt: Date | null;
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
 export interface AuthenticatedSession {
   sessionId: string;
-  user: { id: string; username: string; name: string; email: string; roleName: string; avatarUrl?: string | null };
+  user: { id: string; username: string; name: string; email: string; roleName: string; locale?: "vi-VN" | "en-US"; avatarUrl?: string | null };
   roleCode: RoleCode;
   permissions: PermissionCode[];
   availableRoles: Array<{ code: RoleCode; name: string }>;
@@ -266,7 +266,14 @@ export class AuthService {
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.accountToken.update({ where: { id: row.id }, data: { consumedAt: now } }),
-      this.prisma.user.update({ where: { id: row.userId }, data: { passwordHash: await hashPassword(newPassword) } }),
+      this.prisma.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash: await hashPassword(newPassword),
+          status: user.status === "PENDING_VERIFICATION" ? "ACTIVE" : undefined,
+          emailVerifiedAt: user.emailVerifiedAt ?? now,
+        },
+      }),
       this.prisma.authSession.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: now } }),
       this.prisma.accountToken.updateMany({ where: { userId: row.userId, type: "PASSWORD_RESET", consumedAt: null }, data: { consumedAt: now } }),
     ]);
@@ -856,7 +863,7 @@ export class AuthService {
     if (!selected) throw new ForbiddenException("Vai trò của phiên không còn hợp lệ.");
     return {
       sessionId,
-      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
+      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, locale: user.locale as "vi-VN" | "en-US", avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
       roleCode,
       permissions: selected.permissions.map(({ permission }) => permission.code as PermissionCode),
       availableRoles: user.roles.map(({ role }) => ({ code: role.code as RoleCode, name: role.name })),

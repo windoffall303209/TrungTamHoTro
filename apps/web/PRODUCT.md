@@ -38,7 +38,7 @@ Wind EDU không chia người dùng thành bốn hệ thống độc lập. Mộ
 - Bốn phân hệ cốt lõi: kho dữ liệu và học liệu, ngân hàng câu hỏi và đề thi, diễn đàn trao đổi, lớp học online.
 - Các nghiệp vụ hỗ trợ: khóa học và lớp, điểm danh, vòng đời lớp, kết quả học tập, hỗ trợ, báo cáo và vận hành hệ thống.
 - Phân quyền theo bốn vai trò: `SYSTEM_ADMIN`, `CENTER_MANAGER`, `INSTRUCTOR`, `LEARNER`.
-- Giao diện web hiện dùng tiếng Việt và phải giữ thuật ngữ nghiệp vụ nhất quán.
+- Giao diện web hỗ trợ đầy đủ tiếng Việt (`vi-VN`) và tiếng Anh (`en-US`); lựa chọn theo tài khoản/thiết bị và phải giữ thuật ngữ nghiệp vụ nhất quán giữa hai ngôn ngữ.
 - Frontend dùng Next.js, React, TypeScript và Tailwind CSS trong pnpm monorepo.
 - Backend dùng NestJS REST API; dữ liệu dùng chung qua Prisma và MySQL 8.
 - MySQL chạy trực tiếp trên máy; dự án không sử dụng Docker.
@@ -48,7 +48,7 @@ Wind EDU không chia người dùng thành bốn hệ thống độc lập. Mộ
 
 - Tên sản phẩm hiện tại: Wind EDU.
 - Tên mô tả: Trung tâm hỗ trợ giảng dạy.
-- Sản phẩm ưu tiên ngôn ngữ rõ ràng, trực tiếp và đúng ngữ cảnh giáo dục bằng tiếng Việt.
+- Sản phẩm ưu tiên ngôn ngữ rõ ràng, trực tiếp và đúng ngữ cảnh giáo dục bằng cả tiếng Việt và tiếng Anh.
 - Không biến bốn vai trò thành bốn sản phẩm hoặc bốn thương hiệu tách rời.
 
 ## Evidence on Hand

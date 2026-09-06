@@ -31,7 +31,7 @@ async function bootstrap(): Promise<void> {
     origin: config.get("WEB_ORIGIN", { infer: true }),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Accept", "Content-Type", "X-Role-Code", "X-CSRF-Token"],
+    allowedHeaders: ["Accept", "Accept-Language", "Content-Type", "X-Role-Code", "X-CSRF-Token"],
     exposedHeaders: ["Content-Disposition", "Content-Type", "Content-Length"],
   });
   app.use(helmet());

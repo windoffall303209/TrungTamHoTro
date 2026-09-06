@@ -258,8 +258,8 @@ async function createFixture(prisma: PrismaService): Promise<void> {
     prisma.classEnrollment.create({ data: { id: `e2e-enrollment-b-${fixtureSuffix}`, classId: ids.classB, learnerId: ids.learnerB } }),
   ]);
   await prisma.$transaction([
-    prisma.material.create({ data: { id: ids.materialA, classId: ids.classA, ownerId: ids.instructorA, name: "Tài liệu E2E A.pdf", objectKey: `e2e/${fixtureSuffix}/a.pdf`, mimeType: "application/pdf", sizeBytes: 128n, folder: "E2E", tags: ["e2e", "a"], visibility: "PUBLISHED" } }),
-    prisma.material.create({ data: { id: ids.materialB, classId: ids.classB, ownerId: ids.instructorB, name: "Tài liệu E2E B.pdf", objectKey: `e2e/${fixtureSuffix}/b.pdf`, mimeType: "application/pdf", sizeBytes: 128n, folder: "E2E", tags: ["e2e", "b"], visibility: "PUBLISHED" } }),
+    prisma.material.create({ data: { id: ids.materialA, classId: ids.classA, courseId: ids.courseA, ownerId: ids.instructorA, name: "Tài liệu E2E A.pdf", objectKey: `e2e/${fixtureSuffix}/a.pdf`, mimeType: "application/pdf", sizeBytes: 128n, folder: "E2E", tags: ["e2e", "a"], visibility: "PUBLISHED" } }),
+    prisma.material.create({ data: { id: ids.materialB, classId: ids.classB, courseId: ids.courseB, ownerId: ids.instructorB, name: "Tài liệu E2E B.pdf", objectKey: `e2e/${fixtureSuffix}/b.pdf`, mimeType: "application/pdf", sizeBytes: 128n, folder: "E2E", tags: ["e2e", "b"], visibility: "PUBLISHED" } }),
     prisma.question.create({ data: { id: ids.questionA, courseId: ids.courseA, authorId: ids.instructorA, type: "TRUE_FALSE", content: "Câu hỏi kiểm thử phía A?", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["e2e"], status: "PUBLISHED", familyId: ids.questionA, contentHash: `hash-a-${fixtureSuffix}` } }),
     prisma.question.create({ data: { id: ids.questionB, courseId: ids.courseB, authorId: ids.instructorB, type: "TRUE_FALSE", content: "Câu hỏi kiểm thử phía B?", options: ["Đúng", "Sai"], correctAnswers: ["Đúng"], difficulty: 1, tags: ["e2e"], status: "PUBLISHED", familyId: ids.questionB, contentHash: `hash-b-${fixtureSuffix}` } }),
   ]);

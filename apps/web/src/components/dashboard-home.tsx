@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import type { IdentityRole, IdentityUser, PermissionCode, RoleCode } from "@/lib/app-types";
-import type { ExamAttempt, LearnerExamSummary, LearnerResult, LearningClass, LiveSession, OperationalReport } from "@/lib/learning-types";
+import type { Assignment, GradingQueueGroup, LearnerExamSummary, LearnerResult, LearningClass, LiveSession, OperationalReport } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { PageHeader } from "./page-header";
 import { hasAnyPermission } from "@/lib/access-control";
@@ -68,28 +68,31 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   }
 
   if (roleCode === "INSTRUCTOR") {
-    const [classes, attempts, sessions] = await Promise.all([
+    const [classes, gradingQueue, sessions] = await Promise.all([
       apiRequest<LearningClass[]>("/instructor/classes", { roleCode }),
-      apiRequest<ExamAttempt[]>("/instructor/exam-attempts", { roleCode }),
+      apiRequest<GradingQueueGroup[]>("/instructor/grading-queue", { roleCode }),
       apiRequest<LiveSession[]>("/sessions", { roleCode }),
     ]);
     const now = Date.now();
     return [
       { value: String(classes.length), label: "lớp được phân công" },
-      { value: String(attempts.filter((item) => item.status === "SUBMITTED").length), label: "bài đang chờ chấm" },
+      { value: String(gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0)), label: "bài tập và bài thi chờ chấm" },
       { value: String(sessions.filter((item) => item.status !== "CANCELLED" && new Date(item.startsAt).getTime() > now).length), label: "buổi học sắp tới" },
     ];
   }
 
-  const [classes, exams, results] = await Promise.all([
+  const [classes, exams, assignments, results] = await Promise.all([
     apiRequest<LearningClass[]>("/learner/classes", { roleCode }),
     apiRequest<LearnerExamSummary[]>("/learner/exams", { roleCode }),
+    apiRequest<Assignment[]>("/academic/assignments", { roleCode }),
     apiRequest<LearnerResult[]>("/learner/results", { roleCode }),
   ]);
+  const actionableAssignments = assignments.filter((item) => item.status === "PUBLISHED" && !item.submission && new Date(item.dueAt).getTime() >= Date.now()).length;
+  const actionableExams = exams.filter((item) => item.availabilityStatus === "AVAILABLE" || item.availabilityStatus === "IN_PROGRESS").length;
   return [
     { value: String(classes.filter((item) => item.status === "ACTIVE").length), label: "lớp đang theo học" },
-    { value: String(exams.filter((item) => item.availabilityStatus === "AVAILABLE" || item.availabilityStatus === "IN_PROGRESS").length), label: "bài có thể thực hiện" },
-    { value: String(results.length), label: "kết quả đã công bố" },
+    { value: String(actionableAssignments + actionableExams), label: "bài tập và bài thi cần làm" },
+    { value: String(results.length + assignments.filter((item) => item.submission?.status === "GRADED").length), label: "kết quả đã công bố" },
   ];
 }
 
@@ -124,7 +127,7 @@ export function DashboardHome() {
     <div className="workspace-enter mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow={session.user.roleName} title={content.title} description={content.description} actions={<button className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] transition-[background-color,border-color,transform] duration-200 hover:-translate-y-px hover:border-[var(--action)] active:translate-y-px active:scale-[0.98] disabled:opacity-50" disabled={loading} onClick={() => void refresh()} type="button"><RefreshCw className={loading ? "animate-spin" : ""} size={15} />Cập nhật dữ liệu</button>} />
       <section aria-label="Chỉ số tổng quan" className="grid min-h-28 divide-y divide-[var(--rule)] border-b border-[var(--rule-strong)] py-2 md:grid-cols-3 md:divide-x md:divide-y-0">
-        {loading ? <div aria-label="Đang đồng bộ số liệu" className="col-span-full grid gap-5 py-6 md:grid-cols-3">{[0, 1, 2].map((item) => <div className="animate-pulse" key={item}><div className="h-8 w-20 rounded bg-[var(--rule)]" /><div className="mt-3 h-4 w-40 rounded bg-[var(--surface-muted)]" /></div>)}</div> : error ? <div className="col-span-full flex flex-col items-center justify-center gap-2 py-6 text-center"><p className="text-sm font-bold text-[var(--danger)]">{error}</p><button className="text-link text-xs" onClick={() => void refresh()} type="button">Thử tải lại</button></div> : metrics.map(({ value, label }) => <div className="py-6 md:px-7 md:first:pl-0" key={label}><p className="tabular font-heading text-3xl font-bold tracking-[-0.03em] text-[var(--ink)]">{value}</p><p className="mt-1 text-sm font-medium text-[var(--ink-soft)]">{label}</p></div>)}
+        {loading ? <div aria-label="Đang đồng bộ số liệu" aria-live="polite" className="col-span-full grid gap-5 py-6 md:grid-cols-3" role="status">{[0, 1, 2].map((item) => <div className="animate-pulse" key={item}><div className="h-8 w-20 rounded bg-[var(--rule)]" /><div className="mt-3 h-4 w-40 rounded bg-[var(--surface-muted)]" /></div>)}</div> : error ? <div className="col-span-full flex flex-col items-center justify-center gap-2 py-6 text-center"><p className="text-sm font-bold text-[var(--danger)]">{error}</p><button className="text-link text-xs" onClick={() => void refresh()} type="button">Thử tải lại</button></div> : metrics.map(({ value, label }) => <div className="py-6 md:px-7 md:first:pl-0" key={label}><p className="tabular font-heading text-3xl font-bold tracking-[-0.03em] text-[var(--ink)]">{value}</p><p className="mt-1 text-sm font-medium text-[var(--ink-soft)]">{label}</p></div>)}
       </section>
       <section className="py-10"><div className="mb-5 flex items-end justify-between gap-4"><div><h2 className="font-heading text-2xl font-bold tracking-[-0.025em] text-[var(--ink)]">Việc cần làm tiếp</h2><p className="mt-1 text-sm text-[var(--ink-soft)]">Đi tới đúng phân hệ để tiếp tục công việc đang mở.</p></div><span className="hidden text-xs font-bold text-[var(--ink-soft)] md:block">{visibleModules.length} phân hệ khả dụng</span></div><div className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/55">
         {visibleModules.map(({ href, name, detail, icon: Icon }) => <Link className="group grid grid-cols-[auto_1fr_auto] items-center gap-4 border-b border-[var(--rule)] px-3 py-5 transition-colors last:border-0 hover:bg-[var(--surface-muted)]/65 active:bg-[var(--surface-muted)] md:px-5" href={href} key={href}><div className="grid size-10 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-deep)]"><Icon size={20} /></div><div><h3 className="font-bold text-[var(--ink)]">{name}</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">{detail}</p></div><ArrowUpRight className="text-[var(--ink-subtle)] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" size={18} /></Link>)}

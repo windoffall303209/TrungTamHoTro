@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import {
   BellRing,
   DatabaseZap,
@@ -12,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import { useApp } from "@/providers/app-provider";
 
@@ -30,6 +32,8 @@ interface Backup {
   checksum: string;
   createdAt: string;
   status: string;
+  attempts: number;
+  progress: number;
 }
 interface ExportJob {
   id: string;
@@ -38,6 +42,23 @@ interface ExportJob {
   rowCount: number;
   expiresAt: string;
   status: string;
+  checksum?: string;
+  sizeBytes: number;
+  downloadAvailable: boolean;
+  attempts: number;
+  progress: number;
+}
+interface RestoreJob {
+  id: string;
+  backupId: string;
+  mode: "DRILL" | "OPERATIONAL";
+  status: string;
+  requestedBy: string;
+  approvedBy?: string;
+  reason?: string;
+  targetDatabase?: string;
+  verification: string;
+  createdAt: string;
 }
 interface Template {
   id: string;
@@ -83,6 +104,20 @@ interface RetentionJob {
   requestedBy: string;
   approvedBy: string;
   createdAt: string;
+  evidence: Record<string, unknown>;
+  attempts: number;
+  progress: number;
+}
+interface LegalHold {
+  id: string;
+  category: string;
+  reason: string;
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  releasedAt?: string;
+  releasedBy?: string;
+  releaseReason?: string;
 }
 interface SystemAlert {
   id: string;
@@ -96,6 +131,15 @@ interface SystemAlert {
   mutedUntil?: string;
   recoveredAt?: string;
 }
+interface StorageCleanupFailure { id: string; entityType: string; objectKey: string; error: string; removedAt: string }
+
+/** Chuyển trạng thái job kỹ thuật thành mô tả ngắn có tiến độ và số lần thử. */
+function operationalStatusText(item: { status: string; progress: number; attempts: number }): string {
+  if (item.status === "PENDING") return item.attempts > 0 ? `Chờ thử lại · lần ${item.attempts}/5` : "Đang chờ worker";
+  if (item.status === "RUNNING") return `Đang xử lý · ${item.progress}%`;
+  if (item.status === "FAILED") return `Thất bại sau ${item.attempts} lần`;
+  return "Hoàn tất";
+}
 
 /** Trung tâm vận hành cho sao lưu, lưu trữ dữ liệu, cảnh báo, email và nhật ký kiểm toán. */
 export default function OperationsPage() {
@@ -104,6 +148,7 @@ export default function OperationsPage() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [exports, setExports] = useState<ExportJob[]>([]);
+  const [restores, setRestores] = useState<RestoreJob[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [query, setQuery] = useState("");
@@ -120,6 +165,7 @@ export default function OperationsPage() {
     [],
   );
   const [retentionJobs, setRetentionJobs] = useState<RetentionJob[]>([]);
+  const [legalHolds, setLegalHolds] = useState<LegalHold[]>([]);
   const [retentionForm, setRetentionForm] = useState({
     category: "LEARNING",
     retentionDays: 365,
@@ -127,10 +173,18 @@ export default function OperationsPage() {
     approvedBy: "Trưởng quản trị",
   });
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [cleanupFailures, setCleanupFailures] = useState<StorageCleanupFailure[]>([]);
+  const [outboxStats, setOutboxStats] = useState<Record<string, number>>({});
   const auditPagination = usePagination(audit);
   const templatePagination = usePagination(templates);
   const alertPagination = usePagination(alerts);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [legalHoldOpen, setLegalHoldOpen] = useState(false);
+  const [releaseHold, setReleaseHold] = useState<LegalHold | null>(null);
+  const [legalHoldForm, setLegalHoldForm] = useState({ category: "LEARNING", reason: "" });
+  const [releaseReason, setReleaseReason] = useState("");
+  const [restoreForm, setRestoreForm] = useState({ mode: "DRILL" as "DRILL" | "OPERATIONAL", reason: "Kiểm tra định kỳ khả năng phục hồi bản sao lưu", targetDatabase: "" });
   const [form, setForm] = useState({
     eventCode: "EXAM_PUBLISHED",
     locale: "vi-VN",
@@ -151,11 +205,15 @@ export default function OperationsPage() {
         auditData,
         backupData,
         exportData,
+        restoreData,
         templateData,
         policyData,
         retentionPolicyData,
         retentionJobData,
+        legalHoldData,
         alertData,
+        cleanupData,
+        outboxData,
       ] = await Promise.all([
         apiRequest<Audit[]>(`/system/audit?${params.toString()}`, {
           roleCode: session.roleCode,
@@ -164,6 +222,9 @@ export default function OperationsPage() {
           roleCode: session.roleCode,
         }),
         apiRequest<ExportJob[]>("/system/exports", {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<RestoreJob[]>("/system/restores", {
           roleCode: session.roleCode,
         }),
         apiRequest<Template[]>("/system/notification-templates", {
@@ -178,18 +239,27 @@ export default function OperationsPage() {
         apiRequest<RetentionJob[]>("/system/retention-jobs", {
           roleCode: session.roleCode,
         }),
+        apiRequest<LegalHold[]>("/system/legal-holds", {
+          roleCode: session.roleCode,
+        }),
         apiRequest<SystemAlert[]>("/system/alerts", {
           roleCode: session.roleCode,
         }),
+        apiRequest<StorageCleanupFailure[]>("/system/storage-cleanup-failures", { roleCode: session.roleCode }),
+        apiRequest<Record<string, number>>("/system/outbox/stats", { roleCode: session.roleCode }),
       ]);
       setAudit(auditData);
       setBackups(backupData);
       setExports(exportData);
+      setRestores(restoreData);
       setTemplates(templateData);
       setPolicy(policyData);
       setRetentionPolicies(retentionPolicyData);
       setRetentionJobs(retentionJobData);
+      setLegalHolds(legalHoldData);
       setAlerts(alertData);
+      setCleanupFailures(cleanupData);
+      setOutboxStats(outboxData);
     } catch (error) {
       notify(
         error instanceof Error
@@ -203,8 +273,17 @@ export default function OperationsPage() {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
   }, [load]);
-  /** Khôi phục bản sao lưu đã chọn sau khi người quản trị xác nhận rõ thao tác. */
-  const restore = async () => {
+  useEffect(() => {
+    const hasActiveJobs = [...backups, ...exports, ...retentionJobs].some(
+      (item) => item.status === "PENDING" || item.status === "RUNNING",
+    );
+    if (!hasActiveJobs) return;
+    const timer = window.setInterval(() => void load(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [backups, exports, load, retentionJobs]);
+  /** Tạo yêu cầu drill để một quản trị viên khác phê duyệt bằng phiên đăng nhập của họ. */
+  const requestRestore = async (event: React.FormEvent) => {
+    event.preventDefault();
     const backup = backups[0];
     if (!backup) return;
     try {
@@ -213,16 +292,39 @@ export default function OperationsPage() {
         roleCode: session.roleCode,
         body: JSON.stringify({
           backupId: backup.id,
-          approvedBy: session.user.name,
+          mode: restoreForm.mode,
+          reason: restoreForm.reason,
+          targetDatabase: restoreForm.mode === "OPERATIONAL" ? restoreForm.targetDatabase : undefined,
         }),
       });
-      notify("Đã kiểm tra checksum và phục hồi thử nghiệm thành công.");
+      notify("Đã tạo yêu cầu khôi phục; cần quản trị viên khác phê duyệt.");
+      setRestoreOpen(false);
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không khôi phục được.",
         "error",
       );
+    }
+  };
+  /** Phê duyệt yêu cầu của người khác và thực thi đúng chế độ đã yêu cầu. */
+  const approveRestore = async (item: RestoreJob) => {
+    try {
+      await apiRequest(`/system/restores/${item.id}/approve`, { method: "POST", roleCode: session.roleCode });
+      notify(item.mode === "DRILL" ? "Phục hồi thử đã vượt qua kiểm chứng." : "Đã khôi phục vào database staging; cần cutover theo runbook.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không phê duyệt được yêu cầu khôi phục.", "error");
+    }
+  };
+  /** Thử lại đúng một object cleanup và làm mới danh sách lỗi vận hành. */
+  const retryCleanup = async (item: StorageCleanupFailure) => {
+    try {
+      await apiRequest(`/system/storage-cleanup-failures/${item.id}/retry`, { method: "POST", roleCode: session.roleCode });
+      notify("Đã dọn object tồn đọng và đóng lỗi cleanup.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Retry cleanup thất bại.", "error");
     }
   };
   /** Tạo gói xuất dữ liệu theo phạm vi và định dạng quản trị viên lựa chọn. */
@@ -233,7 +335,7 @@ export default function OperationsPage() {
         roleCode: session.roleCode,
         body: JSON.stringify({ category: "LEARNING", format: "CSV" }),
       });
-      notify("Đã xuất dữ liệu; liên kết có hiệu lực 24 giờ.");
+      notify("Đã xếp yêu cầu xuất dữ liệu vào hàng đợi; trang sẽ tự cập nhật tiến độ.");
       await load();
     } catch (error) {
       notify(
@@ -250,7 +352,7 @@ export default function OperationsPage() {
         roleCode: session.roleCode,
         body: JSON.stringify({ category: "AUDIT", format: "CSV" }),
       });
-      notify("Đã tạo bản xuất audit có hạn 24 giờ.");
+      notify("Đã xếp bản xuất audit vào hàng đợi; liên kết tải xuất hiện khi hoàn tất.");
       await load();
     } catch (error) {
       notify(
@@ -311,13 +413,71 @@ export default function OperationsPage() {
           approvedBy,
         }),
       });
-      notify("Job retention đã hoàn tất và lưu bằng chứng.");
+      notify("Đã xếp retention vào hàng đợi; bằng chứng xuất hiện sau khi worker hoàn tất.");
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không chạy được retention.",
         "error",
       );
+    }
+  };
+  /** Xác minh archive và từng asset nhúng trước khi dùng làm bằng chứng phục hồi. */
+  const verifyRetention = async (item: RetentionJob) => {
+    try {
+      const result = await apiRequest<{ recordCount: number; assetCount: number }>(`/system/retention-jobs/${item.id}/verify`, { method: "POST", roleCode: session.roleCode });
+      notify(`Archive hợp lệ: ${result.recordCount} bản ghi, ${result.assetCount} tệp phục hồi được.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Archive không vượt qua kiểm tra phục hồi.", "error");
+    }
+  };
+  /** Xếp một bản backup FULL vào hàng đợi bền vững và theo dõi tiến độ tại chỗ. */
+  const runBackup = async () => {
+    try {
+      await apiRequest("/system/backups", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ type: "FULL" }),
+      });
+      notify("Đã xếp backup FULL vào hàng đợi; trang sẽ tự cập nhật tiến độ.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tạo được yêu cầu backup.", "error");
+    }
+  };
+  /** Tạo legal hold theo danh mục để chặn mọi retention job liên quan ngay lập tức. */
+  const createLegalHold = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await apiRequest("/system/legal-holds", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify(legalHoldForm),
+      });
+      setLegalHoldForm({ ...legalHoldForm, reason: "" });
+      setLegalHoldOpen(false);
+      notify("Đã kích hoạt legal hold; dữ liệu trong danh mục được bảo vệ.");
+      await Promise.all([load(), previewRetention()]);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tạo được legal hold.", "error");
+    }
+  };
+  /** Giải tỏa đúng một legal hold với lý do truy vết, không tự chạy retention sau đó. */
+  const releaseLegalHold = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!releaseHold) return;
+    try {
+      await apiRequest(`/system/legal-holds/${releaseHold.id}/release`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ reason: releaseReason }),
+      });
+      setReleaseHold(null);
+      setReleaseReason("");
+      notify("Đã giải tỏa legal hold; retention vẫn cần một lệnh thực thi riêng.");
+      await Promise.all([load(), previewRetention()]);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không giải tỏa được legal hold.", "error");
     }
   };
   /** Ghi nhận hành động xác nhận/đóng cảnh báo cùng ghi chú của người vận hành. */
@@ -497,7 +657,7 @@ export default function OperationsPage() {
                     {item.action}
                   </p>
                   <time className="text-[10px] text-slate-400">
-                    {new Date(item.createdAt).toLocaleString("vi-VN")}
+                    {new Date(item.createdAt).toLocaleString(activeLocale())}
                   </time>
                 </div>
                 <p className="mt-1 text-sm font-semibold">{item.target}</p>
@@ -516,21 +676,23 @@ export default function OperationsPage() {
               Khôi phục & xuất dữ liệu
             </h2>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Button onClick={() => void restore()} variant="secondary">
-              Phục hồi thử bản mới nhất
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <Button onClick={() => setRestoreOpen(true)} variant="secondary">
+              Yêu cầu khôi phục
+            </Button>
+            <Button onClick={() => void runBackup()} variant="secondary">
+              Backup FULL
             </Button>
             <Button onClick={() => void exportData()}>Xuất dữ liệu CSV</Button>
           </div>
           <div className="mt-5 space-y-3">
             {backups.slice(0, 2).map((item) => (
-              <div className="rounded-xl bg-slate-50 p-3" key={item.id}>
-                <p className="text-sm font-bold">
-                  {item.type} · {item.checksum}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {new Date(item.createdAt).toLocaleString("vi-VN")}
-                </p>
+              <div className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3" key={item.id}>
+                <div>
+                  <p className="text-sm font-bold">{item.type} · {item.checksum || operationalStatusText(item)}</p>
+                  <p className="mt-1 text-xs text-slate-500">{operationalStatusText(item)} · {new Date(item.createdAt).toLocaleString(activeLocale())}</p>
+                </div>
+                <StatusBadge status={item.status} />
               </div>
             ))}
             {exports.slice(0, 2).map((item) => (
@@ -544,10 +706,33 @@ export default function OperationsPage() {
                     {item.rowCount} dòng
                   </p>
                   <p className="text-xs text-emerald-700">
-                    Hết hạn {new Date(item.expiresAt).toLocaleString("vi-VN")}
+                    {item.status === "COMPLETED" ? `Hết hạn ${new Date(item.expiresAt).toLocaleString(activeLocale())}` : operationalStatusText(item)}
                   </p>
                 </div>
-                <StatusBadge status={item.status} />
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={item.status} />
+                  {item.downloadAvailable ? <Button onClick={() => void downloadApiFile(`/system/exports/${item.id}/download`, session.roleCode)} variant="secondary">Tải tệp</Button> : null}
+                </div>
+              </div>
+            ))}
+            {restores.slice(0, 3).map((item) => (
+              <div className="flex items-start justify-between gap-3 rounded-xl bg-sky-50 p-3" key={item.id}>
+                <div>
+                  <p className="text-sm font-bold">{item.mode === "DRILL" ? "Phục hồi thử" : "Khôi phục vận hành"} · {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-500">Yêu cầu bởi {item.requestedBy}{item.approvedBy ? ` · duyệt bởi ${item.approvedBy}` : " · đang chờ người duyệt độc lập"}</p>
+                  {item.verification ? <p className="mt-1 text-xs text-sky-800">{item.verification}</p> : null}
+                </div>
+                {item.status === "PENDING" && item.requestedBy !== session.user.id ? <Button onClick={() => void approveRestore(item)}>Phê duyệt</Button> : <StatusBadge status={item.status} />}
+              </div>
+            ))}
+            <div className="rounded-xl border border-[var(--rule)] p-3">
+              <p className="text-sm font-bold">Hàng đợi email</p>
+              <p className="mt-1 text-xs text-[var(--ink-soft)]">Chờ {outboxStats.PENDING ?? 0} · lỗi chờ retry {outboxStats.FAILED ?? 0} · đã gửi {outboxStats.DELIVERED ?? 0}</p>
+            </div>
+            {cleanupFailures.map((failure) => (
+              <div className="flex items-start justify-between gap-3 rounded-xl bg-rose-50 p-3" key={failure.id}>
+                <div className="min-w-0"><p className="text-sm font-bold text-rose-900">Object cleanup chưa hoàn tất</p><p className="mt-1 truncate text-xs text-rose-700">{failure.objectKey} · {failure.error}</p></div>
+                <Button onClick={() => void retryCleanup(failure)} variant="secondary">Thử lại</Button>
               </div>
             ))}
           </div>
@@ -758,6 +943,31 @@ export default function OperationsPage() {
               </div>
             </div>
           ) : null}
+          <div className="mt-6 border-t border-[var(--rule)] pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-heading text-base font-extrabold">Legal hold đang theo dõi</h3>
+                <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">Mỗi hold bảo vệ độc lập; giải tỏa một hold không tự xóa dữ liệu hoặc chạy retention.</p>
+              </div>
+              <Button onClick={() => setLegalHoldOpen(true)} variant="secondary"><ShieldAlert size={15} />Tạo legal hold</Button>
+            </div>
+            <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+              {legalHolds.length ? legalHolds.map((item) => (
+                <article className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between" key={item.id}>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-sm">{item.category}</strong>
+                      <StatusBadge status={item.active ? "ACTIVE" : "RELEASED"} />
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">{item.reason}</p>
+                    <p className="mt-1 text-xs text-[var(--ink-muted)]">Tạo bởi {item.createdBy} · {new Date(item.createdAt).toLocaleString(activeLocale())}</p>
+                    {!item.active && item.releaseReason ? <p className="mt-1 text-xs text-[var(--ink-muted)]">Giải tỏa bởi {item.releasedBy}: {item.releaseReason}</p> : null}
+                  </div>
+                  {item.active ? <Button onClick={() => { setReleaseHold(item); setReleaseReason(""); }} variant="ghost">Giải tỏa</Button> : null}
+                </article>
+              )) : <p className="py-4 text-sm text-[var(--ink-soft)]">Chưa có legal hold.</p>}
+            </div>
+          </div>
           <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
             {retentionPolicies.slice(0, 4).map((item) => (
               <div
@@ -778,13 +988,10 @@ export default function OperationsPage() {
               </div>
             ))}
             {retentionJobs.slice(0, 2).map((item) => (
-              <p
-                className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800"
-                key={item.id}
-              >
-                Job {item.status}: xử lý {item.affectedRows}, giữ{" "}
-                {item.skippedRows}
-              </p>
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-2 text-xs text-slate-700" key={item.id}>
+                <span>{operationalStatusText(item)} · xử lý {item.affectedRows}, giữ {item.skippedRows}</span>
+                {typeof item.evidence.archiveObjectKey === "string" ? <Button onClick={() => void verifyRetention(item)} variant="ghost">Kiểm tra phục hồi</Button> : null}
+              </div>
             ))}
           </div>
         </section>
@@ -814,7 +1021,7 @@ export default function OperationsPage() {
                       <p className="mt-1 text-sm font-bold">{item.summary}</p>
                       <p className="mt-1 text-xs text-slate-500">
                         Phát hiện{" "}
-                        {new Date(item.detectedAt).toLocaleString("vi-VN")}
+                        {new Date(item.detectedAt).toLocaleString(activeLocale())}
                       </p>
                     </div>
                     <StatusBadge status={item.status} />
@@ -852,6 +1059,40 @@ export default function OperationsPage() {
           <Pagination itemLabel="cảnh báo" onPageChange={alertPagination.setPage} onPageSizeChange={alertPagination.setPageSize} page={alertPagination.page} pageSize={alertPagination.pageSize} totalItems={alertPagination.totalItems} />
         </section>
       </div>
+      <Modal open={restoreOpen} onClose={() => setRestoreOpen(false)} title="Yêu cầu khôi phục dữ liệu">
+        <form className="space-y-4" onSubmit={(event) => void requestRestore(event)}>
+          <Field label="Chế độ">
+            <select className={inputClass} value={restoreForm.mode} onChange={(event) => setRestoreForm({ ...restoreForm, mode: event.target.value as "DRILL" | "OPERATIONAL" })}>
+              <option value="DRILL">Phục hồi thử rồi dọn database tạm</option>
+              <option value="OPERATIONAL">Khôi phục vào database staging để cutover</option>
+            </select>
+          </Field>
+          {restoreForm.mode === "OPERATIONAL" ? <Field label="Database staging mới"><input className={inputClass} pattern="[A-Za-z0-9_]+" required value={restoreForm.targetDatabase} onChange={(event) => setRestoreForm({ ...restoreForm, targetDatabase: event.target.value })} /></Field> : null}
+          <Field label="Lý do"><textarea className={inputClass} minLength={10} required rows={3} value={restoreForm.reason} onChange={(event) => setRestoreForm({ ...restoreForm, reason: event.target.value })} /></Field>
+          <p className="text-xs leading-5 text-[var(--ink-soft)]">Người tạo yêu cầu không thể tự phê duyệt. Chế độ vận hành chỉ chạy khi hệ thống đang bảo trì và không ghi đè database hiện tại.</p>
+          <Button type="submit">Gửi yêu cầu</Button>
+        </form>
+      </Modal>
+      <Modal open={legalHoldOpen} onClose={() => setLegalHoldOpen(false)} title="Tạo legal hold" description="Hold có hiệu lực ngay cho toàn bộ danh mục và được ghi vào audit log.">
+        <form className="space-y-4" onSubmit={(event) => void createLegalHold(event)}>
+          <Field label="Loại dữ liệu">
+            <select className={inputClass} value={legalHoldForm.category} onChange={(event) => setLegalHoldForm({ ...legalHoldForm, category: event.target.value })}>
+              <option value="LEARNING">Dữ liệu học tập</option>
+              <option value="AUDIT">Audit log</option>
+              <option value="SUPPORT">Hỗ trợ</option>
+            </select>
+          </Field>
+          <Field label="Lý do bảo toàn"><textarea className={inputClass} minLength={5} maxLength={500} required rows={4} value={legalHoldForm.reason} onChange={(event) => setLegalHoldForm({ ...legalHoldForm, reason: event.target.value })} /></Field>
+          <Button disabled={legalHoldForm.reason.trim().length < 5} type="submit">Kích hoạt hold</Button>
+        </form>
+      </Modal>
+      <Modal open={Boolean(releaseHold)} onClose={() => setReleaseHold(null)} title="Giải tỏa legal hold" description={releaseHold ? `${releaseHold.category} · ${releaseHold.reason}` : undefined}>
+        <form className="space-y-4" onSubmit={(event) => void releaseLegalHold(event)}>
+          <Field label="Lý do giải tỏa"><textarea className={inputClass} minLength={5} maxLength={500} required rows={4} value={releaseReason} onChange={(event) => setReleaseReason(event.target.value)} /></Field>
+          <p className="text-xs leading-5 text-[var(--ink-soft)]">Thao tác chỉ giải tỏa hold này. Dữ liệu không bị xử lý cho đến khi có một lệnh retention riêng được phê duyệt.</p>
+          <Button disabled={releaseReason.trim().length < 5} type="submit" variant="danger">Xác nhận giải tỏa</Button>
+        </form>
+      </Modal>
       <Modal
         open={templateOpen}
         onClose={() => setTemplateOpen(false)}

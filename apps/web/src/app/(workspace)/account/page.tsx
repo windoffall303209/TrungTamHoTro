@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
@@ -10,6 +12,7 @@ import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/components/user-avatar";
+import { useI18n } from "@/providers/i18n-provider";
 
 const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: "", phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", avatarUrl: null, status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, googleConnected: false, createdAt: "" };
 const authenticatorApps = [
@@ -31,6 +34,7 @@ function deviceName(userAgent: string): { label: string; mobile: boolean } {
 /** Điều phối hồ sơ, avatar, mật khẩu, MFA và các phiên đăng nhập của tài khoản hiện tại. */
 export default function AccountPage() {
   const { notify, refreshSession } = useApp();
+  const { formatDateTime, locale, setLocale } = useI18n();
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -248,8 +252,8 @@ export default function AccountPage() {
           <Field label="Phương thức đăng nhập"><input className={inputClass} disabled readOnly value={profile.googleConnected ? profile.hasPassword ? "Google và mật khẩu" : "Google" : "Tài khoản và mật khẩu"} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[var(--ink-muted)]">{profile.googleConnected ? "Google đã xác minh quyền sở hữu email này." : "Tài khoản được bảo vệ bằng mật khẩu cục bộ."}</span></Field>
           <Field label="Số điện thoại"><input className={inputClass} disabled={loading} inputMode="tel" maxLength={30} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="Ví dụ: 0901 234 567" value={profile.phone} /></Field>
           <Field label="Múi giờ"><select className={inputClass} disabled={loading} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} value={profile.timezone}><option value="Asia/Bangkok">Bangkok (UTC+7)</option><option value="Asia/Ho_Chi_Minh">Hồ Chí Minh (UTC+7)</option><option value="UTC">UTC</option></select></Field>
-          <Field label="Ngôn ngữ"><select className={inputClass} disabled={loading} onChange={(event) => setProfile({ ...profile, locale: event.target.value })} value={profile.locale}><option value="vi-VN">Tiếng Việt</option><option value="en-US">English</option></select></Field>
-          <div><p className="text-sm font-bold">Trạng thái tài khoản</p><div className="mt-3"><StatusBadge status={profile.status} /></div><p className="mt-2 text-xs text-[var(--ink-muted)]">Tham gia từ {profile.createdAt ? new Date(profile.createdAt).toLocaleDateString("vi-VN") : "—"}</p></div>
+          <Field label="Ngôn ngữ"><select className={inputClass} disabled={loading} onChange={(event) => { const nextLocale = event.target.value === "en-US" ? "en-US" : "vi-VN"; setProfile({ ...profile, locale: nextLocale }); setLocale(nextLocale); }} value={profile.locale || locale}><option value="vi-VN">Tiếng Việt</option><option value="en-US">English</option></select></Field>
+          <div><p className="text-sm font-bold">Trạng thái tài khoản</p><div className="mt-3"><StatusBadge status={profile.status} /></div><p className="mt-2 text-xs text-[var(--ink-muted)]">Tham gia từ {profile.createdAt ? formatDateTime(profile.createdAt) : "—"}</p></div>
         </div>
         <div className="mt-7 flex justify-end"><Button loading={saving} type="submit"><Save size={16} />Lưu thay đổi</Button></div>
       </form>
@@ -299,7 +303,7 @@ export default function AccountPage() {
     <section className="content-panel mt-7 p-5 md:p-7">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><Laptop className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Thiết bị đăng nhập</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Kiểm tra và đóng ngay những phiên bạn không nhận ra.</p></div></div><Button disabled={!otherSessions.length} onClick={() => void revokeOthers()} variant="secondary"><Trash2 size={16} />Đóng mọi phiên khác</Button></div>
       <div className="mt-6 divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
-        {sessions.map((item) => { const device = deviceName(item.userAgent); const Icon = device.mobile ? Smartphone : Laptop; return <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between" key={item.id}><div className="flex min-w-0 items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--surface-muted)] text-[var(--ink-soft)]"><Icon size={18} /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{device.label}</p>{item.current ? <span className="rounded-full bg-[var(--success)]/10 px-2.5 py-1 text-[11px] font-extrabold text-[var(--success-deep)]">Phiên hiện tại</span> : null}</div><p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">IP {item.ipAddress} · hoạt động {new Date(item.lastSeenAt).toLocaleString("vi-VN")}</p><p className="text-xs leading-5 text-[var(--ink-muted)]">Hết hạn {new Date(item.expiresAt).toLocaleString("vi-VN")}</p></div></div>{!item.current ? <Button aria-label={`Thu hồi phiên ${device.label}`} onClick={() => void revoke(item.id)} variant="ghost"><Trash2 size={15} />Thu hồi</Button> : null}</div>; })}
+        {sessions.map((item) => { const device = deviceName(item.userAgent); const Icon = device.mobile ? Smartphone : Laptop; return <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between" key={item.id}><div className="flex min-w-0 items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--surface-muted)] text-[var(--ink-soft)]"><Icon size={18} /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold">{device.label}</p>{item.current ? <span className="rounded-full bg-[var(--success)]/10 px-2.5 py-1 text-[11px] font-extrabold text-[var(--success-deep)]">Phiên hiện tại</span> : null}</div><p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">IP {item.ipAddress} · hoạt động {new Date(item.lastSeenAt).toLocaleString(activeLocale())}</p><p className="text-xs leading-5 text-[var(--ink-muted)]">Hết hạn {new Date(item.expiresAt).toLocaleString(activeLocale())}</p></div></div>{!item.current ? <Button aria-label={`Thu hồi phiên ${device.label}`} onClick={() => void revoke(item.id)} variant="ghost"><Trash2 size={15} />Thu hồi</Button> : null}</div>; })}
         {!sessions.length && !loading ? <p className="empty-copy">Không có phiên đăng nhập đang hoạt động.</p> : null}
       </div>
     </section>

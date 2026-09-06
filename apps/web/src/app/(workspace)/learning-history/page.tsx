@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import { Clock3, ExternalLink, History, Video } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
@@ -137,7 +139,7 @@ export default function LearningHistoryPage() {
                   </div>
                   <p className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                     <Clock3 size={13} />
-                    {new Date(item.startsAt).toLocaleString("vi-VN")}
+                    {new Date(item.startsAt).toLocaleString(activeLocale())}
                   </p>
                 </div>
                 <Button onClick={() => void view(item)} variant="secondary">
