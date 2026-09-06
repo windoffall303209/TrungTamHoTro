@@ -32,22 +32,36 @@ describe("SystemService", () => {
     expect(delivery.providerMessageId).toBe("email-test-01");
     expect(delivery.subject).toContain("Giữa kỳ");
     expect(send).toHaveBeenCalledOnce();
+    expect(
+      await service.renderPublishedNotification(
+        "EXAM_PUBLISHED",
+        {
+          examTitle: "Giữa kỳ",
+          className: "WEB-K01",
+          openAt: "08:00",
+          closeAt: "09:00",
+        },
+        "Thông báo dự phòng",
+      ),
+    ).toBe("Đề mới Giữa kỳ");
     await expect(service.sendTemplateTest(second.id, "admin@wind.edu.vn", {})).rejects.toThrow("Chưa cung cấp biến");
   });
 
-  it("chỉ bật provider sau health check và tạo phòng thử bằng provider mặc định", async () => {
+  it("không coi credential reference là health check và chỉ tạo phòng thật bằng provider sẵn sàng", async () => {
     const service = new SystemService();
     await expect(service.configureIntegration({ provider: "GOOGLE_MEET" })).rejects.toThrow("credential");
     const configured = await service.configureIntegration({ provider: "GOOGLE_MEET", credentialReference: "vault://meeting/google", webhookUrl: "https://hooks.wind.edu.vn/meet" });
     expect(configured.maskedCredential).toBe("••••••••");
     expect(JSON.stringify(configured)).not.toContain("vault://meeting/google");
     await expect(service.updateIntegration(configured.id, true)).rejects.toThrow("health check");
-    expect((await service.testIntegration(configured.id)).healthStatus).toBe("HEALTHY");
-    expect((await service.updateIntegration(configured.id, true)).enabled).toBe(true);
-    expect((await service.setDefaultIntegration(configured.id)).isDefault).toBe(true);
-    const room = await service.createTestMeeting(configured.id);
-    expect(room.provider).toBe("GOOGLE_MEET");
-    expect(room.attendeeUrl).not.toContain("vault");
+    await expect(service.testIntegration(configured.id)).rejects.toThrow("OAuth và webhook thật");
+    const jitsi = (await service.listIntegrations()).find((item) => item.provider === "JITSI")!;
+    expect((await service.testIntegration(jitsi.id)).healthStatus).toBe("HEALTHY");
+    expect((await service.updateIntegration(jitsi.id, true)).enabled).toBe(true);
+    expect((await service.setDefaultIntegration(jitsi.id)).isDefault).toBe(true);
+    const room = await service.createTestMeeting(jitsi.id);
+    expect(room.provider).toBe("JITSI");
+    expect(room.attendeeUrl).toMatch(/^https:\/\/meet\.jit\.si\/wind-test-/);
     await expect(service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom", webhookUrl: "http://unsafe.local" })).rejects.toThrow("HTTPS");
   });
 
@@ -87,12 +101,27 @@ describe("SystemService", () => {
   it("mô phỏng retention, bảo vệ legal hold và tách người duyệt job", async () => {
     const service = new SystemService();
     const policy = await service.createRetentionPolicy({ category: "AUDIT", retentionDays: 365, action: "ARCHIVE", approvedBy: "Trưởng quản trị" });
-    await service.createLegalHold("AUDIT", "Phục vụ cuộc kiểm toán đang mở");
+    const firstHold = await service.createLegalHold("AUDIT", "Phục vụ cuộc kiểm toán đang mở") as { id: string };
+    await service.createLegalHold("AUDIT", "Giữ độc lập cho yêu cầu pháp chế");
     const preview = await service.previewRetention("AUDIT");
     expect(preview.legalHoldRows).toBe(preview.estimatedRows);
     await expect(service.runRetention(policy.id, "Nguyễn Admin", "Nguyễn Admin")).rejects.toThrow("phải khác");
     const job = await service.runRetention(policy.id, "Nguyễn Admin", "Trưởng tuân thủ");
     expect(job).toMatchObject({ status: "COMPLETED", affectedRows: 0, skippedRows: preview.estimatedRows });
+    expect(await service.releaseLegalHold(firstHold.id, "Cuộc kiểm toán đã hoàn tất")).toMatchObject({ active: false, releasedBy: "usr-admin" });
+    expect((await service.previewRetention("AUDIT")).legalHoldRows).toBe(preview.estimatedRows);
+  });
+
+  it("chạy retention theo đúng policy được chọn và chặn policy chưa hiệu lực", async () => {
+    const service = new SystemService();
+    const selected = await service.createRetentionPolicy({ category: "LEARNING", retentionDays: 30, action: "DELETE", approvedBy: "Trưởng dữ liệu" });
+    await service.createRetentionPolicy({ category: "LEARNING", retentionDays: 365, action: "ARCHIVE", approvedBy: "Trưởng dữ liệu" });
+    const job = await service.runRetention(selected.id, "Người yêu cầu", "Người phê duyệt");
+    const cutoffAt = new Date(String(job.evidence.cutoffAt));
+    expect(Math.round((Date.now() - cutoffAt.getTime()) / 86_400_000)).toBe(30);
+    expect(job.evidence.action).toBe("DELETE");
+    const future = await service.createRetentionPolicy({ category: "AUDIT", retentionDays: 90, action: "ARCHIVE", approvedBy: "Trưởng dữ liệu", effectiveAt: "2030-01-01T00:00:00.000Z" });
+    await expect(service.runRetention(future.id, "Người yêu cầu", "Người phê duyệt")).rejects.toThrow("chưa đến thời điểm hiệu lực");
   });
 
   it("chống cảnh báo trùng và quản lý nhận việc, im lặng, phục hồi", async () => {

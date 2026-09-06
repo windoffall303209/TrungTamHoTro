@@ -13,6 +13,8 @@ outputs/
 output/
 .playwright-cli/
 .playwright-mcp/
+apps/web/playwright-report/
+apps/web/test-results/
 artifacts/
 docs/
 security_best_practices_report.md

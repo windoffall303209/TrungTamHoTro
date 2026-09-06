@@ -1,6 +1,8 @@
 "use client";
 
-import { Archive, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
+import { activeLocale } from "@/i18n/runtime";
+
+import { Archive, ArrowUpRight, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -99,11 +101,15 @@ export default function ClassLifecyclePage() {
   if (!canManage) return <AccessDenied />;
 
   const metrics = readiness ? [
-    ["Kỳ thi mở", readiness.openExams],
-    ["Bài chưa chấm", readiness.pendingGrades],
-    ["Buổi chưa kết thúc", readiness.activeSessions],
-    ["Điểm danh chưa khóa", readiness.unlockedAttendanceSessions],
-    ["Yêu cầu đang mở", readiness.openAppeals],
+    { label: "Kỳ thi đang mở", value: readiness.openExams, href: `/exams?classId=${selectedId}` },
+    { label: "Lượt thi đang làm", value: readiness.inProgressAttempts, href: `/exams?classId=${selectedId}` },
+    { label: "Bài thi chờ chấm", value: readiness.pendingGrades, href: `/academic?classId=${selectedId}` },
+    { label: "Bài tập còn mở", value: readiness.openAssignments, href: `/academic?classId=${selectedId}` },
+    { label: "Bài tập chờ chấm", value: readiness.pendingAssignmentGrades, href: `/academic?classId=${selectedId}` },
+    { label: "Phúc khảo đang mở", value: readiness.openRegrades, href: `/exams?classId=${selectedId}` },
+    { label: "Buổi chưa kết thúc", value: readiness.activeSessions, href: `/live-classes?classId=${selectedId}` },
+    { label: "Điểm danh chưa khóa", value: readiness.unlockedAttendanceSessions, href: `/attendance?classId=${selectedId}` },
+    { label: "Khiếu nại đang mở", value: readiness.openAppeals, href: `/attendance?classId=${selectedId}` },
   ] : [];
 
   return (
@@ -114,10 +120,10 @@ export default function ClassLifecyclePage() {
         <Field label="Lớp cần quản lý">
           <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); void loadReadiness(value); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
         </Field>
-        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--rule)] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString("vi-VN")} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
+        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--rule)] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString(activeLocale())} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
       </section>
 
-      {readiness ? <div className="metric-ledger mt-6 [--metric-columns:5]">{metrics.map(([label, value]) => <div key={label}><p className={`tabular text-2xl font-extrabold ${value ? "text-rose-700" : "text-emerald-700"}`}>{value}</p><p className="mt-1 text-xs font-bold text-slate-500">{label}</p></div>)}</div> : null}
+      {readiness ? <div className="metric-ledger mt-6 [--metric-columns:3] lg:[--metric-columns:5]">{metrics.map((metric) => <a className="group min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" href={metric.href} key={metric.label}><span className="flex items-center justify-between gap-2"><span className={`tabular text-2xl font-extrabold ${metric.value ? "text-rose-700" : "text-emerald-700"}`}>{metric.value}</span><ArrowUpRight className="text-[var(--ink-muted)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" size={15} /></span><span className="mt-1 block text-xs font-bold text-slate-500">{metric.label}</span></a>)}</div> : null}
 
       <div className="mt-7 grid gap-7 lg:grid-cols-[1fr_.9fr]">
         <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">

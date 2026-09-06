@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import {
   Activity,
   ArrowLeft,
@@ -459,7 +461,7 @@ export default function SettingsPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-[var(--ink)]">{item.name}</h3>{item.isDefault ? <StatusBadge status="DEFAULT" /> : null}<StatusBadge status={item.healthStatus} /></div>
                   <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">{item.model} · {item.maskedApiKey}</p>
-                  <p className="mt-1 text-xs text-[var(--ink-muted)]">{item.enabled ? "Đang bật" : "Đang tắt"}{item.lastCheckedAt ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString("vi-VN")}` : " · chưa kiểm tra kết nối"}</p>
+                  <p className="mt-1 text-xs text-[var(--ink-muted)]">{item.enabled ? "Đang bật" : "Đang tắt"}{item.lastCheckedAt ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString(activeLocale())}` : " · chưa kiểm tra kết nối"}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 md:justify-end"><Button onClick={() => openAiEditor(item)} variant="ghost">Cấu hình</Button>{item.hasApiKey ? <Button onClick={() => void testAiProvider(item)} variant="secondary">Kiểm tra</Button> : null}{item.provider === "CUSTOM" && item.hasApiKey ? <Button aria-label={`Xóa ${item.name}`} onClick={() => void removeAiProvider(item)} variant="ghost"><Trash2 size={16} /></Button> : null}</div>
               </article>
@@ -658,7 +660,7 @@ export default function SettingsPage() {
                 </p>
                 <p className="mt-1">
                   Hiệu lực{" "}
-                  {new Date(settings.effectiveAt).toLocaleString("vi-VN")} · cập
+                  {new Date(settings.effectiveAt).toLocaleString(activeLocale())} · cập
                   nhật bởi {settings.updatedBy}
                 </p>
               </div>
@@ -690,7 +692,7 @@ export default function SettingsPage() {
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  {new Date(item.effectiveAt).toLocaleString("vi-VN")} ·{" "}
+                  {new Date(item.effectiveAt).toLocaleString(activeLocale())} ·{" "}
                   {item.updatedBy}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
@@ -788,7 +790,7 @@ export default function SettingsPage() {
                       {item.type} · {item.sizeMb} MB
                     </p>
                     <p className="text-[10px] text-slate-400">
-                      {new Date(item.createdAt).toLocaleString("vi-VN")} ·{" "}
+                      {new Date(item.createdAt).toLocaleString(activeLocale())} ·{" "}
                       {item.checksum}
                     </p>
                   </div>

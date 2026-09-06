@@ -10,7 +10,8 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "i18n:check": "node scripts/check-i18n-coverage.mjs --check && node scripts/check-api-i18n-coverage.mjs --check"
   },
   "dependencies": {
     "@wind-of-fall/contracts": "workspace:*",
