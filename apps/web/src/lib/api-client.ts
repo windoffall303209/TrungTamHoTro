@@ -1,4 +1,5 @@
 import type { RoleCode } from "./app-types";
+import { isSupportedLocale, LOCALE_STORAGE_KEY, translateText, type SupportedLocale } from "@/i18n/catalog";
 
 interface ApiEnvelope<T> {
   data: T;
@@ -9,6 +10,13 @@ type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: un
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
+
+/** Đọc locale hiện hành cho request, lỗi cục bộ và cửa sổ xem trước độc lập. */
+function requestLocale(): SupportedLocale {
+  if (typeof window === "undefined") return "vi-VN";
+  const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+  return isSupportedLocale(stored) ? stored : document.documentElement.lang === "en-US" ? "en-US" : "vi-VN";
+}
 
 /** Ghép đường dẫn tương đối với API origin dùng cho ảnh/tài nguyên công khai. */
 export function publicApiUrl(path: string): string {
@@ -30,6 +38,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("accept", "application/json");
+  headers.set("accept-language", requestLocale());
   if (options.roleCode) headers.set("x-role-code", options.roleCode);
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (options.method && !["GET", "HEAD", "OPTIONS"].includes(options.method.toUpperCase()) && csrfToken) headers.set("x-csrf-token", csrfToken);
@@ -41,7 +50,7 @@ export async function apiRequest<T>(
     try {
       payload = JSON.parse(rawBody) as ApiPayload<T>;
     } catch {
-      throw new ApiError("Phản hồi từ hệ thống không đúng định dạng.", response.status);
+      throw new ApiError(translateText("Phản hồi từ hệ thống không đúng định dạng.", requestLocale()), response.status);
     }
   }
   if (!response.ok) {
@@ -49,7 +58,7 @@ export async function apiRequest<T>(
     if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("wind-edu:unauthorized"));
     }
-    throw new ApiError(error?.message ?? "Không thể xử lý yêu cầu.", response.status, error?.details);
+    throw new ApiError(translateText(error?.message ?? "Không thể xử lý yêu cầu.", requestLocale()), response.status, error?.details);
   }
   if (!payload) return undefined as T;
   const data = (payload as ApiEnvelope<T>).data;
@@ -69,13 +78,13 @@ export function apiFileName(disposition: string, fallback = "hoc-lieu"): string 
 /** Tải blob có xác thực, tạo anchor tạm và thu hồi object URL sau khi bắt đầu download. */
 export async function downloadApiFile(path: string, roleCode: RoleCode): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { accept: "application/octet-stream", "x-role-code": roleCode },
+    headers: { accept: "application/octet-stream", "accept-language": requestLocale(), "x-role-code": roleCode },
     cache: "no-store",
     credentials: "include",
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-    throw new ApiError(payload.error?.message ?? "Không thể tải học liệu.", response.status, payload.error?.details);
+    throw new ApiError(translateText(payload.error?.message ?? "Không thể tải học liệu.", requestLocale()), response.status, payload.error?.details);
   }
   const blobUrl = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
@@ -92,24 +101,25 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
   const previewWindow = window.open("", "_blank");
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
   const palette = previewPalette();
-  previewWindow.document.title = "Đang tải bản xem trước…";
-  previewWindow.document.body.textContent = "Đang tải bản xem trước…";
+  const locale = requestLocale();
+  previewWindow.document.title = translateText("Đang tải bản xem trước…", locale);
+  previewWindow.document.body.textContent = translateText("Đang tải bản xem trước…", locale);
   previewWindow.document.body.style.cssText = `margin:0;display:grid;min-height:100vh;place-items:center;background:${palette.canvas};color:${palette.ink};font-weight:600;font-size:15px;font-family:${palette.fontFamily}`;
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { accept: "application/pdf,image/*,video/mp4,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document", "x-role-code": roleCode },
+      headers: { accept: "application/pdf,image/*,video/mp4,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document", "accept-language": locale, "x-role-code": roleCode },
       cache: "no-store",
       credentials: "include",
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-      throw new ApiError(payload.error?.message ?? "Không thể mở bản xem trước.", response.status, payload.error?.details);
+      throw new ApiError(translateText(payload.error?.message ?? "Không thể mở bản xem trước.", locale), response.status, payload.error?.details);
     }
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);
     const mimeType = (response.headers.get("content-type") ?? blob.type).split(";", 1)[0]?.toLowerCase() ?? "application/octet-stream";
     const fileName = apiFileName(response.headers.get("content-disposition") ?? "", fallbackFileName);
-    renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType }, palette);
+    renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType }, palette, locale);
     previewWindow.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });
     previewWindow.focus();
   } catch (error) {
@@ -152,11 +162,11 @@ function previewPalette(): PreviewPalette {
 }
 
 /** Dựng UI xem trước PDF/ảnh/video; định dạng Word hiển thị hướng dẫn tải xuống. */
-function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fileName: string; mimeType: string }, palette: PreviewPalette): void {
+function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fileName: string; mimeType: string }, palette: PreviewPalette, locale: SupportedLocale): void {
   const doc = previewWindow.document;
   doc.title = `${file.fileName} · Wind EDU`;
   try { previewWindow.history.replaceState(null, "", "/xem-tep"); } catch { /* about:blank may reject history changes in hardened browsers */ }
-  doc.documentElement.lang = "vi";
+  doc.documentElement.lang = locale;
   doc.head.replaceChildren();
   doc.body.replaceChildren();
 
@@ -180,10 +190,10 @@ function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fil
   const download = doc.createElement("a");
   download.href = file.blobUrl;
   download.download = file.fileName;
-  download.textContent = "Tải xuống";
+  download.textContent = translateText("Tải xuống", locale);
   const close = doc.createElement("button");
   close.type = "button";
-  close.textContent = "Đóng";
+  close.textContent = translateText("Đóng", locale);
   close.addEventListener("click", () => previewWindow.close());
   actions.append(download, close);
   header.append(title, actions);
@@ -192,7 +202,7 @@ function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fil
   if (file.mimeType === "application/pdf") {
     const frame = doc.createElement("iframe");
     frame.src = file.blobUrl;
-    frame.title = `Bản xem trước ${file.fileName}`;
+    frame.title = `${translateText("Bản xem trước", locale)} ${file.fileName}`;
     main.appendChild(frame);
   } else if (file.mimeType.startsWith("image/")) {
     const image = doc.createElement("img");
@@ -208,9 +218,9 @@ function renderPreviewWindow(previewWindow: Window, file: { blobUrl: string; fil
     const message = doc.createElement("section");
     message.className = "unsupported";
     const heading = doc.createElement("h1");
-    heading.textContent = "Định dạng này không xem trực tiếp được";
+    heading.textContent = translateText("Định dạng này không xem trực tiếp được", locale);
     const detail = doc.createElement("p");
-    detail.textContent = "Tệp Word đã được lưu an toàn. Hãy chọn “Tải xuống” để mở bằng Microsoft Word hoặc ứng dụng tương thích.";
+    detail.textContent = translateText("Tệp Word đã được lưu an toàn. Hãy chọn “Tải xuống” để mở bằng Microsoft Word hoặc ứng dụng tương thích.", locale);
     message.append(heading, detail);
     main.appendChild(message);
   }

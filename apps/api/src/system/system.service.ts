@@ -12,18 +12,21 @@ export interface SystemSettings { centerName: string; timezone: string; locale: 
 export interface SystemSettingRevision extends SystemSettings { id: string; key: string }
 export interface StorageOverview { quotaBytes: number; usedBytes: number; usagePercent: number; maxFileSizeMb: number; allowedMimeTypes: string[]; byClass: Array<{ classId: string; classCode: string; className: string; fileCount: number; usedBytes: number }> }
 export interface IntegrationConfig { id: string; provider: "GOOGLE_MEET" | "ZOOM" | "JITSI"; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; maskedCredential: string; webhookConfigured: boolean; lastCheckedAt?: string; updatedAt: string }
-export interface BackupRun { id: string; type: "FULL" | "INCREMENTAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; createdAt: string; checksum: string; sizeMb: number }
+export interface BackupRun { id: string; type: "FULL" | "INCREMENTAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; createdAt: string; checksum: string; sizeMb: number; attempts: number; progress: number }
 export interface AuditEvent { id: string; actor: string; action: string; target: string; detail: string; createdAt: string }
 export interface AuditFilter { query?: string; actor?: string; action?: string; target?: string; from?: string; to?: string; limit?: number }
-export interface RestoreRun { id: string; backupId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; approvedBy: string; createdAt: string; verification: string }
-export interface DataExport { id: string; category: string; format: "CSV" | "JSON"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; rowCount: number; expiresAt: string; createdAt: string }
+export interface RestoreRun { id: string; backupId: string; mode: "DRILL" | "OPERATIONAL"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; requestedBy: string; approvedBy?: string; reason?: string; targetDatabase?: string; createdAt: string; verification: string }
+export interface DataExport { id: string; category: string; format: "CSV" | "JSON"; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; rowCount: number; checksum?: string; sizeBytes: number; downloadAvailable: boolean; expiresAt: string; createdAt: string; attempts: number; progress: number }
 export interface NotificationTemplate { id: string; eventCode: string; locale: string; subject: string; body: string; version: number; status: "DRAFT" | "PUBLISHED"; updatedAt: string }
 export interface ModerationPolicy { version: number; prohibitedTerms: string[]; maxPostsPerMinute: number; action: "FLAG" | "HIDE_PENDING_REVIEW"; updatedAt: string }
 export interface TemplateTestDelivery { recipient: string; subject: string; body: string; status: "SENT"; provider: "resend"; providerMessageId: string; sentAt: string }
 export interface RetentionPreview { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; estimatedRows: number; legalHoldRows: number; deletableRows: number; cutoffAt: string }
 export interface RetentionPolicyView { id: string; category: string; version: number; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt: string; createdAt: string }
-export interface RetentionJobView { id: string; policyId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; affectedRows: number; skippedRows: number; requestedBy: string; approvedBy: string; evidence: Record<string, unknown>; createdAt: string; completedAt?: string }
+export interface RetentionJobView { id: string; policyId: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; affectedRows: number; skippedRows: number; requestedBy: string; approvedBy: string; evidence: Record<string, unknown>; createdAt: string; completedAt?: string; attempts: number; progress: number }
+export interface LegalHoldView { id: string; category: string; reason: string; active: boolean; createdBy: string; createdAt: string; releasedAt?: string; releasedBy?: string; releaseReason?: string }
 export interface SystemAlertView { id: string; fingerprint: string; serviceName: string; severity: "WARNING" | "CRITICAL"; status: "OPEN" | "ACKNOWLEDGED" | "MUTED" | "RESOLVED"; summary: string; metricValue?: number; threshold?: number; detectedAt: string; acknowledgedBy?: string; mutedUntil?: string; recoveredAt?: string; updatedAt: string }
+export interface SnapshotAssetAudit { generatedAt: string; classesWithoutCourseSnapshot: Array<{ classId: string; courseId: string; courseVersion: number }>; referencedObjectCount: number; uniqueObjectCount: number; sharedObjects: Array<{ objectKey: string; references: string[] }>; missingObjects: Array<{ objectKey: string; references: string[] }> }
+export interface StorageCleanupFailure { id: string; entityType: "ASSIGNMENT_ATTACHMENT"; objectKey: string; error: string; removedAt: string }
 
 const templateVariables: Record<string, readonly string[]> = {
   ACCOUNT_UPDATED: ["displayName", "accountStatus"],
@@ -57,16 +60,17 @@ const defaultSettings = (): SystemSettings => ({
 export class SystemService {
   private settings: SystemSettings = defaultSettings();
   private integrations: IntegrationConfig[] = ["GOOGLE_MEET", "ZOOM", "JITSI"].map((provider, index) => ({ id: `int-${index + 1}`, provider: provider as IntegrationConfig["provider"], enabled: provider === "JITSI", isDefault: provider === "JITSI", healthStatus: provider === "JITSI" ? "HEALTHY" : "UNKNOWN", maskedCredential: provider === "JITSI" ? "Không yêu cầu" : "Chưa cấu hình", webhookConfigured: false, lastCheckedAt: provider === "JITSI" ? new Date().toISOString() : undefined, updatedAt: new Date().toISOString() }));
-  private backups: BackupRun[] = [{ id: "backup-seed", type: "FULL", status: "COMPLETED", createdAt: new Date(Date.now() - 86_400_000).toISOString(), checksum: "sha256:9e151f", sizeMb: 18.4 }];
+  private backups: BackupRun[] = [{ id: "backup-seed", type: "FULL", status: "COMPLETED", createdAt: new Date(Date.now() - 86_400_000).toISOString(), checksum: "sha256:9e151f", sizeMb: 18.4, attempts: 1, progress: 100 }];
   private restores: RestoreRun[] = [];
   private exports: DataExport[] = [];
+  private exportFiles = new Map<string, Buffer>();
   private templates: NotificationTemplate[] = [{ id: "tpl-class-reminder", eventCode: "CLASS_REMINDER", locale: "vi-VN", subject: "Nhắc lịch học {{className}}", body: "Buổi học {{sessionTitle}} bắt đầu lúc {{startsAt}}.", version: 1, status: "PUBLISHED", updatedAt: new Date().toISOString() }];
   private moderation: ModerationPolicy = { version: 1, prohibitedTerms: ["spam", "lừa đảo"], maxPostsPerMinute: 5, action: "FLAG", updatedAt: new Date().toISOString() };
   private audit: AuditEvent[] = [{ id: "audit-seed", actor: "system", action: "SYSTEM_STARTED", target: "platform", detail: "Khởi tạo cấu hình vận hành.", createdAt: new Date().toISOString() }];
   private settingRevisions: SystemSettingRevision[] = [{ id: "setting-revision-1", key: "platform", ...defaultSettings() }];
   private retentionPolicies: RetentionPolicyView[] = [];
   private retentionJobs: RetentionJobView[] = [];
-  private legalHolds: Array<{ id: string; category: string; reason: string; active: boolean; createdBy: string; createdAt: string }> = [];
+  private legalHolds: LegalHoldView[] = [];
   private alerts: SystemAlertView[] = [];
 
   constructor(
@@ -197,20 +201,20 @@ export class SystemService {
     if (prisma) {
       const current = await prisma.integrationProvider.findUnique({ where: { id: integrationId } });
       if (!current) throw new NotFoundException("Không tìm thấy tích hợp.");
-      const healthy = current.provider === "JITSI" || Boolean(current.credentialRef);
+      const healthy = current.provider === "JITSI";
       const row = await prisma.integrationProvider.update({ where: { id: integrationId }, data: { healthStatus: healthy ? "HEALTHY" : "ERROR", lastCheckedAt: new Date() } });
       await this.logDatabase(prisma, actorId, "INTEGRATION_HEALTH_CHECKED", current.provider, healthy ? "HEALTHY" : "ERROR");
-      if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
+      if (!healthy) throw new BadRequestException("Health check production của Google Meet/Zoom cần OAuth và webhook thật; tham chiếu credential không được xem là kết nối thành công.");
       return this.mapIntegration(row);
     }
     const item = this.integrations.find((entry) => entry.id === integrationId);
     if (!item) throw new NotFoundException("Không tìm thấy tích hợp.");
-    const healthy = item.provider === "JITSI" || item.maskedCredential === "••••••••";
+    const healthy = item.provider === "JITSI";
     item.healthStatus = healthy ? "HEALTHY" : "ERROR";
     item.lastCheckedAt = new Date().toISOString();
     item.updatedAt = item.lastCheckedAt;
     this.log(actorId, "INTEGRATION_HEALTH_CHECKED", item.provider, healthy ? "HEALTHY" : "ERROR");
-    if (!healthy) throw new BadRequestException("Health check thất bại: chưa cấu hình credential reference.");
+    if (!healthy) throw new BadRequestException("Health check production của Google Meet/Zoom cần OAuth và webhook thật; tham chiếu credential không được xem là kết nối thành công.");
     return structuredClone(item);
   }
 
@@ -239,11 +243,12 @@ export class SystemService {
     const integrations = await this.listIntegrations();
     const item = integrations.find((entry) => entry.id === integrationId);
     if (!item || !item.enabled || !item.isDefault || item.healthStatus !== "HEALTHY") throw new BadRequestException("Provider mặc định chưa sẵn sàng để tạo phòng thử.");
+    if (item.provider !== "JITSI") throw new ServiceUnavailableException("Google Meet/Zoom chưa có adapter OAuth production; hệ thống không tạo URL mô phỏng.");
     const roomId = `wind-test-${randomUUID()}`;
     const prisma = this.database();
     if (prisma) await this.logDatabase(prisma, actorId, "INTEGRATION_TEST_MEETING_CREATED", item.provider, `Phòng thử ${roomId}.`);
     else this.log(actorId, "INTEGRATION_TEST_MEETING_CREATED", item.provider, `Phòng thử ${roomId}.`);
-    return { provider: item.provider, attendeeUrl: item.provider === "JITSI" ? `https://meet.jit.si/${roomId}` : `https://meeting.local/${item.provider.toLowerCase()}/${roomId}`, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+    return { provider: item.provider, attendeeUrl: `https://meet.jit.si/${roomId}`, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
   }
 
   /** Liệt kê các job sao lưu từ DB hoặc dữ liệu nhớ demo. */
@@ -256,54 +261,78 @@ export class SystemService {
     return structuredClone(this.backups);
   }
 
-  /** Tạo job, gọi DatabaseBackupService và chốt trạng thái/checksum hoặc lỗi. */
+  /** Xếp sao lưu vào hàng đợi bền vững để request không phải chờ tác vụ nặng. */
   async runBackup(type: BackupRun["type"], actorId = "usr-admin"): Promise<BackupRun> {
     if (type === "INCREMENTAL") throw new BadRequestException("Sao lưu gia tăng cần binary log và điểm khôi phục liên tục; hệ thống hiện chỉ cho phép FULL để bảo đảm khôi phục được.");
     const prisma = this.database();
     if (!prisma || !this.databaseBackup || !this.objectStorage) throw new ServiceUnavailableException("Sao lưu thật yêu cầu kết nối database và kho object đang hoạt động.");
     const backupId = `backup-${randomUUID()}`;
-    const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${backupId}.json`;
-    await prisma.backupJob.create({ data: { id: backupId, type, status: "RUNNING" } });
+    const row = await prisma.backupJob.create({
+      data: {
+        id: backupId,
+        type,
+        status: "PENDING",
+        requestedBy: actorId,
+        availableAt: new Date(),
+      },
+    });
+    await this.logDatabase(prisma, actorId, "BACKUP_QUEUED", row.id, `${type} · chờ worker xử lý.`);
+    return this.mapBackup(row);
+  }
+
+  /** Tạo yêu cầu drill hoặc khôi phục vận hành và để trạng thái chờ một quản trị viên khác phê duyệt. */
+  async requestRestore(input: { backupId: string; mode: "DRILL" | "OPERATIONAL"; reason: string; targetDatabase?: string }, actorId = "usr-admin"): Promise<RestoreRun> {
+    if (input.reason.trim().length < 10) throw new BadRequestException("Cần lý do khôi phục ít nhất 10 ký tự.");
+    if (input.mode === "OPERATIONAL" && !/^[a-zA-Z0-9_]+$/.test(input.targetDatabase ?? "")) throw new BadRequestException("Khôi phục vận hành cần tên database đích mới, chỉ gồm chữ, số và dấu gạch dưới.");
+    const prisma = this.database();
+    if (!prisma) throw new ServiceUnavailableException("Khôi phục thật yêu cầu kết nối database.");
+    const backup = await prisma.backupJob.findUnique({ where: { id: input.backupId } });
+    if (!backup || backup.status !== "COMPLETED" || !backup.checksum || !backup.objectKey) throw new NotFoundException("Không tìm thấy điểm sao lưu thật hợp lệ.");
+    const row = await prisma.restoreJob.create({ data: { id: `restore-${randomUUID()}`, backupId: input.backupId, mode: input.mode, requestedBy: actorId, reason: input.reason.trim(), targetDatabase: input.targetDatabase?.trim(), status: "PENDING" } });
+    await this.logDatabase(prisma, actorId, "RESTORE_REQUESTED", row.id, `${input.mode} · ${input.reason.trim()}`);
+    return this.mapRestore(row);
+  }
+
+  /** Xác thực người duyệt độc lập rồi chạy drill hoặc phục hồi vào database staging mới. */
+  async approveRestore(restoreId: string, approverId: string): Promise<RestoreRun> {
+    const prisma = this.database();
+    if (!prisma || !this.databaseBackup || !this.objectStorage) throw new ServiceUnavailableException("Dịch vụ khôi phục chưa sẵn sàng.");
+    const restore = await prisma.restoreJob.findUnique({ where: { id: restoreId }, include: { backup: true } });
+    if (!restore) throw new NotFoundException("Không tìm thấy yêu cầu khôi phục.");
+    if (restore.status !== "PENDING") throw new BadRequestException("Yêu cầu khôi phục không còn ở trạng thái chờ duyệt.");
+    if (restore.requestedBy === approverId) throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
+    const approver = await prisma.user.findUnique({ where: { id: approverId }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    const canApprove = approver?.status === "ACTIVE" && approver.roles.some((entry) => entry.role.permissions.some((grant) => grant.permission.code === "system:configure"));
+    if (!canApprove) throw new BadRequestException("Người phê duyệt không còn tài khoản hoạt động hoặc thiếu quyền vận hành hệ thống.");
+    if (!restore.backup.checksum || !restore.backup.objectKey || restore.backup.status !== "COMPLETED") throw new BadRequestException("Điểm sao lưu không còn hợp lệ.");
+    if (restore.mode === "OPERATIONAL" && !(await this.getSettings()).maintenanceMode) throw new BadRequestException("Khôi phục vận hành chỉ được chạy khi hệ thống đang ở chế độ bảo trì.");
+    const claimed = await prisma.restoreJob.updateMany({ where: { id: restoreId, status: "PENDING" }, data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() } });
+    if (claimed.count !== 1) throw new BadRequestException("Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.");
     try {
-      const content = await this.databaseBackup.createFullBackup();
-      const stored = await this.objectStorage.put(objectKey, content);
-      const row = await prisma.backupJob.update({ where: { id: backupId }, data: { status: "COMPLETED", checksum: stored.checksum, sizeBytes: BigInt(content.length), objectKey: stored.objectKey, completedAt: new Date() } });
-      await this.logDatabase(prisma, actorId, "BACKUP_COMPLETED", row.id, `${type} · ${stored.checksum} · ${content.length} bytes`);
-      return this.mapBackup(row);
+      const content = await this.objectStorage.get(restore.backup.objectKey);
+      const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+      if (checksum !== restore.backup.checksum) throw new BadRequestException("Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.");
+      const result = restore.mode === "OPERATIONAL"
+        ? await this.databaseBackup.restoreToDatabase(content, restore.targetDatabase ?? "")
+        : await this.databaseBackup.verifyRestore(content);
+      const verification = restore.mode === "OPERATIONAL"
+        ? `Checksum hợp lệ; đã khôi phục ${result.tableCount} bảng và ${result.rowCount} dòng vào database staging ${result.database}. Cần cutover hạ tầng theo runbook riêng.`
+        : `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
+      const row = await prisma.restoreJob.update({ where: { id: restoreId }, data: { status: "COMPLETED", verification, completedAt: new Date() } });
+      await this.logDatabase(prisma, approverId, restore.mode === "OPERATIONAL" ? "RESTORE_STAGING_COMPLETED" : "RESTORE_DRILL_COMPLETED", restore.backupId, verification);
+      return this.mapRestore(row);
     } catch (error) {
-      await prisma.backupJob.update({ where: { id: backupId }, data: { status: "FAILED", errorMessage: "Không thể tạo hoặc lưu bản sao lưu.", completedAt: new Date() } }).catch(() => undefined);
-      await this.logDatabase(prisma, actorId, "BACKUP_FAILED", backupId, "Không thể tạo hoặc lưu bản sao lưu.").catch(() => undefined);
+      await prisma.restoreJob.update({ where: { id: restoreId }, data: { status: "FAILED", verification: "Khôi phục thất bại; database vận hành hiện tại không bị thay đổi.", completedAt: new Date() } }).catch(() => undefined);
       if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) throw error;
-      throw new ServiceUnavailableException("Không thể tạo hoặc lưu bản sao lưu.");
+      throw new ServiceUnavailableException("Khôi phục thất bại.");
     }
   }
 
-  /** Yêu cầu tách người thao tác/phê duyệt, phục hồi vào DB tạm để kiểm tra trước khi ghi trạng thái. */
+  /** Giữ API service cũ ở dạng drill một bước chỉ để tương thích test không kết nối DB. */
   async restoreBackup(backupId: string, approvedBy: string, actorId = "usr-admin"): Promise<RestoreRun> {
     if (approvedBy.trim().length < 3) throw new BadRequestException("Cần người phê duyệt khôi phục.");
-    const prisma = this.database();
-    if (prisma) {
-      const backup = await prisma.backupJob.findUnique({ where: { id: backupId } });
-      if (!backup || backup.status !== "COMPLETED" || !backup.checksum || !backup.objectKey) throw new NotFoundException("Không tìm thấy điểm sao lưu thật hợp lệ.");
-      if (!this.databaseBackup || !this.objectStorage) throw new ServiceUnavailableException("Dịch vụ khôi phục chưa sẵn sàng.");
-      const restoreId = `restore-${randomUUID()}`;
-      await prisma.restoreJob.create({ data: { id: restoreId, backupId, approvedBy: approvedBy.trim(), status: "RUNNING" } });
-      try {
-        const content = await this.objectStorage.get(backup.objectKey);
-        const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-        if (checksum !== backup.checksum) throw new BadRequestException("Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.");
-        const result = await this.databaseBackup.verifyRestore(content);
-        const verification = `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
-        const row = await prisma.restoreJob.update({ where: { id: restoreId }, data: { status: "COMPLETED", verification, completedAt: new Date() } });
-        await this.logDatabase(prisma, actorId, "RESTORE_VERIFIED", backupId, verification);
-        return this.mapRestore(row);
-      } catch (error) {
-        await prisma.restoreJob.update({ where: { id: restoreId }, data: { status: "FAILED", verification: "Phục hồi thử nghiệm thất bại.", completedAt: new Date() } }).catch(() => undefined);
-        if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) throw error;
-        throw new ServiceUnavailableException("Phục hồi thử nghiệm thất bại.");
-      }
-    }
-    throw new ServiceUnavailableException("Khôi phục thật yêu cầu kết nối database.");
+    if (approvedBy.trim() === actorId) throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
+    return this.requestRestore({ backupId, mode: "DRILL", reason: "Kiểm tra khả năng phục hồi bản sao lưu" }, actorId);
   }
 
   /** Liệt kê lịch sử kiểm tra phục hồi sao lưu. */
@@ -324,12 +353,7 @@ export class SystemService {
     const settings = await this.getSettings();
     const retentionDays = policy?.retentionDays ?? settings.retentionDays;
     const action = policy?.action ?? "ARCHIVE";
-    const cutoffAt = new Date(Date.now() - retentionDays * 86_400_000);
-    const prisma = this.database();
-    const estimatedRows = prisma ? await this.countRetentionRows(prisma, category, cutoffAt) : category === "AUDIT" ? 12_840 : category === "LEARNING" ? 3_260 : 840;
-    const hasLegalHold = prisma ? Boolean(await prisma.legalHold.findFirst({ where: { category, active: true } })) : this.legalHolds.some((item) => item.category === category && item.active);
-    const legalHoldRows = hasLegalHold ? estimatedRows : 0;
-    return { category, retentionDays, action, estimatedRows, legalHoldRows, deletableRows: estimatedRows - legalHoldRows, cutoffAt: cutoffAt.toISOString() };
+    return this.previewRetentionPolicy({ category, retentionDays, action });
   }
 
   /** Liệt kê mọi phiên bản chính sách lưu giữ. */
@@ -375,6 +399,44 @@ export class SystemService {
     return structuredClone(item);
   }
 
+  /** Liệt kê legal hold cùng trạng thái giải tỏa và người thực hiện. */
+  async listLegalHolds(): Promise<LegalHoldView[]> {
+    const prisma = this.database();
+    if (prisma) {
+      const rows = await prisma.legalHold.findMany({ orderBy: [{ active: "desc" }, { createdAt: "desc" }] });
+      return rows.map((row) => ({ id: row.id, category: row.category, reason: row.reason, active: row.active, createdBy: row.createdBy, createdAt: row.createdAt.toISOString(), releasedAt: row.releasedAt?.toISOString(), releasedBy: row.releasedBy ?? undefined, releaseReason: row.releaseReason ?? undefined }));
+    }
+    return structuredClone([...this.legalHolds].sort((left, right) => Number(right.active) - Number(left.active) || right.createdAt.localeCompare(left.createdAt)));
+  }
+
+  /** Giải tỏa đúng một hold, giữ các hold khác và lưu lý do vào audit. */
+  async releaseLegalHold(holdId: string, reasonInput: string, actorId = "usr-admin"): Promise<LegalHoldView> {
+    const reason = reasonInput.trim();
+    if (reason.length < 5) throw new BadRequestException("Lý do giải tỏa legal hold cần ít nhất 5 ký tự.");
+    const prisma = this.database();
+    if (prisma) {
+      const current = await prisma.legalHold.findUnique({ where: { id: holdId } });
+      if (!current) throw new NotFoundException("Không tìm thấy legal hold.");
+      if (!current.active) throw new BadRequestException("Legal hold đã được giải tỏa trước đó.");
+      const row = await prisma.$transaction(async (transaction) => {
+        const changed = await transaction.legalHold.updateMany({ where: { id: holdId, active: true }, data: { active: false, releasedAt: new Date(), releasedBy: actorId, releaseReason: reason } });
+        if (changed.count !== 1) throw new BadRequestException("Legal hold đã thay đổi; hãy tải lại danh sách.");
+        await this.logDatabase(transaction, actorId, "LEGAL_HOLD_RELEASED", holdId, `${current.category} · ${reason}`);
+        return transaction.legalHold.findUniqueOrThrow({ where: { id: holdId } });
+      });
+      return { id: row.id, category: row.category, reason: row.reason, active: row.active, createdBy: row.createdBy, createdAt: row.createdAt.toISOString(), releasedAt: row.releasedAt?.toISOString(), releasedBy: row.releasedBy ?? undefined, releaseReason: row.releaseReason ?? undefined };
+    }
+    const item = this.legalHolds.find((hold) => hold.id === holdId);
+    if (!item) throw new NotFoundException("Không tìm thấy legal hold.");
+    if (!item.active) throw new BadRequestException("Legal hold đã được giải tỏa trước đó.");
+    item.active = false;
+    item.releasedAt = new Date().toISOString();
+    item.releasedBy = actorId;
+    item.releaseReason = reason;
+    this.log(actorId, "LEGAL_HOLD_RELEASED", holdId, `${item.category} · ${reason}`);
+    return structuredClone(item);
+  }
+
   /** Thực thi policy với nguyên tắc bốn mắt, legal-hold check và audit kết quả. */
   async runRetention(policyId: string, requestedBy: string, approvedBy: string): Promise<RetentionJobView> {
     if (!requestedBy.trim() || !approvedBy.trim()) throw new BadRequestException("Cần người yêu cầu và người phê duyệt.");
@@ -382,27 +444,17 @@ export class SystemService {
     const prisma = this.database();
     if (prisma) {
       const policy = await prisma.retentionPolicy.findUnique({ where: { id: policyId } }); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention.");
-      const preview = await this.previewRetention(policy.category);
+      if (policy.effectiveAt > new Date()) throw new BadRequestException("Chính sách retention chưa đến thời điểm hiệu lực.");
+      const preview = await this.previewRetentionPolicy({ category: policy.category, retentionDays: policy.retentionDays, action: policy.action === "DELETE" ? "DELETE" : "ARCHIVE" });
       const jobId = `retention-job-${randomUUID()}`;
-      await prisma.retentionJob.create({ data: { id: jobId, policyId, status: "RUNNING", requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt } } });
-      try {
-        if (preview.legalHoldRows > 0) {
-          const row = await prisma.retentionJob.update({ where: { id: jobId }, data: { status: "COMPLETED", affectedRows: 0, skippedRows: preview.legalHoldRows, evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, completedAt: new Date() } });
-          await this.logDatabase(prisma, requestedBy, "RETENTION_JOB_SKIPPED", jobId, `${preview.legalHoldRows} bản ghi được legal hold bảo vệ.`);
-          return this.mapRetentionJob(row);
-        }
-        const result = await this.executeRetention(prisma, policy.category, policy.action === "DELETE" ? "DELETE" : "ARCHIVE", new Date(preview.cutoffAt), jobId);
-        const row = await prisma.retentionJob.update({ where: { id: jobId }, data: { status: "COMPLETED", affectedRows: result.affectedRows, skippedRows: 0, evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, archiveObjectKey: result.archiveObjectKey, archiveChecksum: result.archiveChecksum, removedObjects: result.removedObjects, objectCleanupFailures: result.objectCleanupFailures }, completedAt: new Date() } });
-        await this.logDatabase(prisma, requestedBy, "RETENTION_JOB_COMPLETED", jobId, `${result.affectedRows} bản ghi đã ${policy.action === "ARCHIVE" ? "lưu trữ và xóa" : "xóa"}.`);
-        return this.mapRetentionJob(row);
-      } catch (error) {
-        await prisma.retentionJob.update({ where: { id: jobId }, data: { status: "FAILED", evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, error: "Không thể thực thi retention." }, completedAt: new Date() } }).catch(() => undefined);
-        if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) throw error;
-        throw new ServiceUnavailableException("Không thể thực thi retention.");
-      }
+      const row = await prisma.retentionJob.create({ data: { id: jobId, policyId, status: "PENDING", requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt }, availableAt: new Date() } });
+      await this.logDatabase(prisma, requestedBy, "RETENTION_JOB_QUEUED", jobId, `${policy.category} · policy v${policy.version} · chờ worker xử lý.`);
+      return this.mapRetentionJob(row);
     }
-    const policy = this.retentionPolicies.find((item) => item.id === policyId); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention."); const preview = await this.previewRetention(policy.category);
-    const item: RetentionJobView = { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, createdAt: new Date().toISOString(), completedAt: new Date().toISOString() };
+    const policy = this.retentionPolicies.find((item) => item.id === policyId); if (!policy) throw new NotFoundException("Không tìm thấy chính sách retention.");
+    if (new Date(policy.effectiveAt) > new Date()) throw new BadRequestException("Chính sách retention chưa đến thời điểm hiệu lực.");
+    const preview = await this.previewRetentionPolicy(policy);
+    const item: RetentionJobView = { id: `retention-job-${randomUUID()}`, policyId, status: "COMPLETED", affectedRows: preview.deletableRows, skippedRows: preview.legalHoldRows, requestedBy: requestedBy.trim(), approvedBy: approvedBy.trim(), evidence: { category: policy.category, action: policy.action, cutoffAt: preview.cutoffAt, legalHoldProtected: preview.legalHoldRows }, createdAt: new Date().toISOString(), completedAt: new Date().toISOString(), attempts: 1, progress: 100 };
     this.retentionJobs.unshift(item); this.log(requestedBy, "RETENTION_JOB_COMPLETED", item.id, `${item.affectedRows} bản ghi xử lý; ${item.skippedRows} bản ghi được giữ.`); return structuredClone(item);
   }
 
@@ -411,28 +463,304 @@ export class SystemService {
     const prisma = this.database(); if (prisma) return (await prisma.retentionJob.findMany({ orderBy: { createdAt: "desc" } })).map((row) => this.mapRetentionJob(row)); return structuredClone(this.retentionJobs);
   }
 
-  /** Tạo export job, đếm dữ liệu, sinh checksum/URL và ghi trạng thái hoàn thành. */
+  /** Tạo snapshot preview từ đúng một policy thay vì trộn với phiên bản mới nhất. */
+  private async previewRetentionPolicy(policy: Pick<RetentionPolicyView, "category" | "retentionDays" | "action">): Promise<RetentionPreview> {
+    const cutoffAt = new Date(Date.now() - policy.retentionDays * 86_400_000);
+    const prisma = this.database();
+    const estimatedRows = prisma ? await this.countRetentionRows(prisma, policy.category, cutoffAt) : policy.category === "AUDIT" ? 12_840 : policy.category === "LEARNING" ? 3_260 : 840;
+    const hasLegalHold = prisma ? Boolean(await prisma.legalHold.findFirst({ where: { category: policy.category, active: true } })) : this.legalHolds.some((item) => item.category === policy.category && item.active);
+    const legalHoldRows = hasLegalHold ? estimatedRows : 0;
+    return { category: policy.category, retentionDays: policy.retentionDays, action: policy.action, estimatedRows, legalHoldRows, deletableRows: estimatedRows - legalHoldRows, cutoffAt: cutoffAt.toISOString() };
+  }
+
+  /** Xếp export vào hàng đợi bền vững; worker mới tạo tệp và xác minh checksum. */
   async runExport(category: string, format: DataExport["format"], actorId = "usr-admin"): Promise<DataExport> {
+    const normalizedCategory = category.trim().toUpperCase();
+    if (!["AUDIT", "LEARNING", "USERS"].includes(normalizedCategory)) throw new BadRequestException("Export chỉ hỗ trợ AUDIT, LEARNING hoặc USERS.");
     const prisma = this.database();
     if (prisma) {
-      const rowCount = await this.countExportRows(prisma, category);
       const createdAt = new Date();
       const expiresAt = new Date(createdAt.getTime() + 86_400_000);
-      return prisma.$transaction(async (transaction) => {
-        const row = await transaction.dataExportJob.create({
+      if (!this.objectStorage) throw new ServiceUnavailableException("Kho object chưa sẵn sàng để tạo tệp export.");
+      const exportId = `export-${randomUUID()}`;
+      const row = await prisma.dataExportJob.create({ data: { id: exportId, category: normalizedCategory, format, status: "PENDING", expiresAt, requestedBy: actorId, availableAt: new Date() } });
+      await this.logDatabase(prisma, actorId, "DATA_EXPORT_QUEUED", row.id, `${normalizedCategory} · ${format} · chờ worker xử lý.`);
+      return this.mapExport(row);
+    }
+    const rows = normalizedCategory === "AUDIT" ? this.audit.map((item) => ({ ...item })) : [];
+    const content = this.serializeExport(rows, format);
+    const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+    const item: DataExport = { id: `export-${randomUUID()}`, category: normalizedCategory, format, status: "COMPLETED", rowCount: rows.length, checksum, sizeBytes: content.length, downloadAvailable: true, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString(), attempts: 1, progress: 100 };
+    this.exportFiles.set(item.id, content);
+    this.exports.unshift(item);
+    this.log(actorId, "DATA_EXPORTED", item.id, `${normalizedCategory} · ${format} · ${item.rowCount} dòng · ${checksum}`);
+    return structuredClone(item);
+  }
+
+  /** Thu hồi lease hết hạn rồi xử lý một batch backup, export và retention theo hàng đợi DB. */
+  async drainOperationalJobs(limit = 6): Promise<{
+    backup: number;
+    export: number;
+    retention: number;
+  }> {
+    const prisma = this.database();
+    if (!prisma) return { backup: 0, export: 0, retention: 0 };
+    const now = new Date();
+    await Promise.all([
+      prisma.backupJob.updateMany({
+        where: { status: "RUNNING", availableAt: { lte: now } },
+        data: { status: "PENDING", progress: 0, availableAt: now },
+      }),
+      prisma.dataExportJob.updateMany({
+        where: { status: "RUNNING", availableAt: { lte: now } },
+        data: { status: "PENDING", progress: 0, availableAt: now },
+      }),
+      prisma.retentionJob.updateMany({
+        where: { status: "RUNNING", availableAt: { lte: now } },
+        data: { status: "PENDING", progress: 0, availableAt: now },
+      }),
+    ]);
+    const processed = { backup: 0, export: 0, retention: 0 };
+    for (let index = 0; index < Math.max(1, Math.min(limit, 30)); index += 1) {
+      if (await this.processQueuedBackup(prisma)) {
+        processed.backup += 1;
+        continue;
+      }
+      if (await this.processQueuedExport(prisma)) {
+        processed.export += 1;
+        continue;
+      }
+      if (await this.processQueuedRetention(prisma)) {
+        processed.retention += 1;
+        continue;
+      }
+      break;
+    }
+    return processed;
+  }
+
+  /** Claim và hoàn tất một backup bằng lease nguyên tử; lỗi tạm thời được retry có backoff. */
+  private async processQueuedBackup(prisma: PrismaService): Promise<boolean> {
+    const candidate = await prisma.backupJob.findFirst({
+      where: { status: "PENDING", availableAt: { lte: new Date() }, attempts: { lt: 5 } },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!candidate) return false;
+    const claimed = await prisma.backupJob.updateMany({
+      where: { id: candidate.id, status: "PENDING", attempts: candidate.attempts },
+      data: {
+        status: "RUNNING",
+        attempts: { increment: 1 },
+        progress: 10,
+        availableAt: this.jobLeaseExpiry(),
+        errorMessage: null,
+      },
+    });
+    if (claimed.count !== 1) return true;
+    try {
+      if (!this.databaseBackup || !this.objectStorage)
+        throw new ServiceUnavailableException("Hạ tầng backup chưa sẵn sàng.");
+      const content = await this.databaseBackup.createFullBackup();
+      await prisma.backupJob.update({ where: { id: candidate.id }, data: { progress: 60 } });
+      const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}.json`;
+      const stored = await this.objectStorage.put(objectKey, content);
+      const row = await prisma.backupJob.update({
+        where: { id: candidate.id },
+        data: {
+          status: "COMPLETED",
+          progress: 100,
+          checksum: stored.checksum,
+          sizeBytes: BigInt(content.length),
+          objectKey: stored.objectKey,
+          completedAt: new Date(),
+        },
+      });
+      await this.logDatabase(prisma, row.requestedBy, "BACKUP_COMPLETED", row.id, `${row.type} · ${stored.checksum} · ${content.length} bytes`);
+    } catch (error) {
+      await this.retryBackupJob(prisma, candidate.id, candidate.attempts + 1, error);
+    }
+    return true;
+  }
+
+  /** Claim và tạo một export thật; chỉ COMPLETED sau khi đọc lại object và khớp checksum. */
+  private async processQueuedExport(prisma: PrismaService): Promise<boolean> {
+    const candidate = await prisma.dataExportJob.findFirst({
+      where: { status: "PENDING", availableAt: { lte: new Date() }, attempts: { lt: 5 } },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!candidate) return false;
+    const claimed = await prisma.dataExportJob.updateMany({
+      where: { id: candidate.id, status: "PENDING", attempts: candidate.attempts },
+      data: {
+        status: "RUNNING",
+        attempts: { increment: 1 },
+        progress: 10,
+        availableAt: this.jobLeaseExpiry(),
+        errorMessage: null,
+      },
+    });
+    if (claimed.count !== 1) return true;
+    try {
+      if (!this.objectStorage)
+        throw new ServiceUnavailableException("Kho object chưa sẵn sàng.");
+      const format: DataExport["format"] = candidate.format === "JSON" ? "JSON" : "CSV";
+      const rows = await this.collectExportRows(prisma, candidate.category);
+      const content = this.serializeExport(rows, format);
+      await prisma.dataExportJob.update({ where: { id: candidate.id }, data: { progress: 55 } });
+      const objectKey = `exports/${candidate.category.toLowerCase()}/${candidate.id}.${format.toLowerCase()}`;
+      const stored = await this.objectStorage.put(objectKey, content);
+      const verified = await this.objectStorage.get(stored.objectKey);
+      const checksum = `sha256:${createHash("sha256").update(verified).digest("hex")}`;
+      if (checksum !== stored.checksum)
+        throw new ServiceUnavailableException("Tệp export lưu trữ không vượt qua kiểm tra checksum.");
+      const row = await prisma.dataExportJob.update({
+        where: { id: candidate.id },
+        data: {
+          status: "COMPLETED",
+          progress: 100,
+          rowCount: rows.length,
+          objectKey: stored.objectKey,
+          checksum: stored.checksum,
+          sizeBytes: BigInt(content.length),
+        },
+      });
+      await this.logDatabase(prisma, row.requestedBy, "DATA_EXPORTED", row.id, `${row.category} · ${format} · ${rows.length} dòng · ${stored.checksum}`);
+    } catch (error) {
+      await this.retryExportJob(prisma, candidate.id, candidate.attempts + 1, error);
+    }
+    return true;
+  }
+
+  /** Claim retention theo policy đã ghim, kiểm tra lại legal hold rồi mới archive/delete. */
+  private async processQueuedRetention(prisma: PrismaService): Promise<boolean> {
+    const candidate = await prisma.retentionJob.findFirst({
+      where: { status: "PENDING", availableAt: { lte: new Date() }, attempts: { lt: 5 } },
+      include: { policy: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!candidate) return false;
+    const claimed = await prisma.retentionJob.updateMany({
+      where: { id: candidate.id, status: "PENDING", attempts: candidate.attempts },
+      data: {
+        status: "RUNNING",
+        attempts: { increment: 1 },
+        progress: 10,
+        availableAt: this.jobLeaseExpiry(),
+      },
+    });
+    if (claimed.count !== 1) return true;
+    const evidence = this.asRecord(candidate.evidence);
+    const cutoffAt = new Date(this.stringValue(evidence.cutoffAt, ""));
+    const action = evidence.action === "DELETE" ? "DELETE" : "ARCHIVE";
+    try {
+      if (Number.isNaN(cutoffAt.getTime()))
+        throw new BadRequestException("Snapshot retention không có cutoff hợp lệ.");
+      const affectedCandidateRows = await this.countRetentionRows(prisma, candidate.policy.category, cutoffAt);
+      const legalHold = await prisma.legalHold.findFirst({
+        where: { category: candidate.policy.category, active: true },
+      });
+      if (legalHold) {
+        const row = await prisma.retentionJob.update({
+          where: { id: candidate.id },
           data: {
-            id: `export-${randomUUID()}`, category, format, status: "COMPLETED", rowCount,
-            objectKey: `exports/${category.toLowerCase()}/${createdAt.getTime()}.${format.toLowerCase()}`, expiresAt,
+            status: "COMPLETED",
+            progress: 100,
+            affectedRows: 0,
+            skippedRows: affectedCandidateRows,
+            evidence: { ...evidence, legalHoldProtected: affectedCandidateRows },
+            completedAt: new Date(),
           },
         });
-        await this.logDatabase(transaction, actorId, "DATA_EXPORTED", row.id, `${category} · ${format} · ${rowCount} dòng`);
-        return this.mapExport(row);
+        await this.logDatabase(prisma, row.requestedBy, "RETENTION_JOB_SKIPPED", row.id, `${affectedCandidateRows} bản ghi được legal hold bảo vệ.`);
+        return true;
+      }
+      await prisma.retentionJob.update({ where: { id: candidate.id }, data: { progress: 40 } });
+      const result = await this.executeRetention(prisma, candidate.policy.category, action, cutoffAt, candidate.id);
+      const row = await prisma.retentionJob.update({
+        where: { id: candidate.id },
+        data: {
+          status: "COMPLETED",
+          progress: 100,
+          affectedRows: result.affectedRows,
+          skippedRows: 0,
+          evidence: {
+            ...evidence,
+            archiveObjectKey: result.archiveObjectKey,
+            archiveChecksum: result.archiveChecksum,
+            removedObjects: result.removedObjects,
+            objectCleanupFailures: result.objectCleanupFailures,
+          },
+          completedAt: new Date(),
+        },
       });
+      await this.logDatabase(prisma, row.requestedBy, "RETENTION_JOB_COMPLETED", row.id, `${result.affectedRows} bản ghi đã ${action === "ARCHIVE" ? "lưu trữ và xóa" : "xóa"}.`);
+    } catch (error) {
+      await this.retryRetentionJob(prisma, candidate.id, candidate.attempts + 1, evidence, error);
     }
-    const item: DataExport = { id: `export-${randomUUID()}`, category, format, status: "COMPLETED", rowCount: category === "AUDIT" ? this.audit.length : 48, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
-    this.exports.unshift(item);
-    this.log(actorId, "DATA_EXPORTED", item.id, `${category} · ${format} · ${item.rowCount} dòng`);
-    return structuredClone(item);
+    return true;
+  }
+
+  /** Đặt lại backup để retry hoặc chuyển FAILED sau lần thử cuối. */
+  private async retryBackupJob(prisma: PrismaService, idValue: string, attempts: number, error: unknown): Promise<void> {
+    const terminal = attempts >= 5;
+    const message = this.jobError(error, "Không thể tạo hoặc lưu bản sao lưu.");
+    const row = await prisma.backupJob.update({ where: { id: idValue }, data: { status: terminal ? "FAILED" : "PENDING", progress: 0, availableAt: this.jobRetryAt(attempts), errorMessage: message, completedAt: terminal ? new Date() : null } });
+    await this.logDatabase(prisma, row.requestedBy, terminal ? "BACKUP_FAILED" : "BACKUP_RETRY_SCHEDULED", row.id, `Lần ${attempts}/5 · ${message}`);
+    if (terminal) await this.recordAlert(`job:backup:${row.id}`, "operational-job", "CRITICAL", `Backup ${row.id} thất bại sau 5 lần thử.`);
+  }
+
+  /** Đặt lại export để retry hoặc chuyển FAILED sau lần thử cuối. */
+  private async retryExportJob(prisma: PrismaService, idValue: string, attempts: number, error: unknown): Promise<void> {
+    const terminal = attempts >= 5;
+    const message = this.jobError(error, "Không thể tạo hoặc kiểm chứng tệp export.");
+    const row = await prisma.dataExportJob.update({ where: { id: idValue }, data: { status: terminal ? "FAILED" : "PENDING", progress: 0, availableAt: this.jobRetryAt(attempts), errorMessage: message } });
+    await this.logDatabase(prisma, row.requestedBy, terminal ? "DATA_EXPORT_FAILED" : "DATA_EXPORT_RETRY_SCHEDULED", row.id, `Lần ${attempts}/5 · ${message}`);
+    if (terminal) await this.recordAlert(`job:export:${row.id}`, "operational-job", "WARNING", `Export ${row.id} thất bại sau 5 lần thử.`);
+  }
+
+  /** Đặt lại retention để retry hoặc chuyển FAILED, giữ snapshot và lỗi gần nhất trong evidence. */
+  private async retryRetentionJob(prisma: PrismaService, idValue: string, attempts: number, evidence: Record<string, unknown>, error: unknown): Promise<void> {
+    const terminal = attempts >= 5;
+    const message = this.jobError(error, "Không thể thực thi retention.");
+    const row = await prisma.retentionJob.update({ where: { id: idValue }, data: { status: terminal ? "FAILED" : "PENDING", progress: 0, availableAt: this.jobRetryAt(attempts), evidence: { ...evidence, lastError: message }, completedAt: terminal ? new Date() : null } });
+    await this.logDatabase(prisma, row.requestedBy, terminal ? "RETENTION_JOB_FAILED" : "RETENTION_JOB_RETRY_SCHEDULED", row.id, `Lần ${attempts}/5 · ${message}`);
+    if (terminal) await this.recordAlert(`job:retention:${row.id}`, "operational-job", "CRITICAL", `Retention ${row.id} thất bại sau 5 lần thử.`);
+  }
+
+  /** Tạo lease 10 phút để job RUNNING bị worker chết có thể được nhận lại. */
+  private jobLeaseExpiry(): Date {
+    return new Date(Date.now() + 10 * 60_000);
+  }
+
+  /** Tạo backoff lũy tiến tối đa một giờ cho lần retry tiếp theo. */
+  private jobRetryAt(attempts: number): Date {
+    return new Date(Date.now() + Math.min(60, 2 ** Math.max(0, attempts - 1)) * 60_000);
+  }
+
+  /** Chuẩn hóa lỗi worker, giới hạn độ dài và không làm lộ stack hay credential. */
+  private jobError(error: unknown, fallback: string): string {
+    return (error instanceof Error ? error.message : fallback).slice(0, 500);
+  }
+
+  /** Đọc lại tệp export còn hạn và kiểm tra checksum ngay trước khi tải xuống. */
+  async downloadExport(exportId: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+    const prisma = this.database();
+    if (prisma) {
+      const row = await prisma.dataExportJob.findUnique({ where: { id: exportId } });
+      if (!row || row.status !== "COMPLETED" || !row.objectKey || !row.checksum) throw new NotFoundException("Không tìm thấy tệp export hoàn tất.");
+      if (!row.expiresAt || row.expiresAt <= new Date()) throw new BadRequestException("Tệp export đã hết hạn; hãy tạo bản xuất mới.");
+      if (!this.objectStorage) throw new ServiceUnavailableException("Kho object chưa sẵn sàng.");
+      const buffer = await this.objectStorage.get(row.objectKey);
+      const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
+      if (checksum !== row.checksum) throw new ServiceUnavailableException("Checksum tệp export không hợp lệ.");
+      const format = row.format === "JSON" ? "JSON" : "CSV";
+      return { buffer, filename: `${row.category.toLowerCase()}-${row.id}.${format.toLowerCase()}`, mimeType: format === "JSON" ? "application/json; charset=utf-8" : "text/csv; charset=utf-8" };
+    }
+    const item = this.exports.find((entry) => entry.id === exportId);
+    const buffer = this.exportFiles.get(exportId);
+    if (!item || !buffer) throw new NotFoundException("Không tìm thấy tệp export.");
+    if (new Date(item.expiresAt) <= new Date()) throw new BadRequestException("Tệp export đã hết hạn; hãy tạo bản xuất mới.");
+    return { buffer, filename: `${item.category.toLowerCase()}-${item.id}.${item.format.toLowerCase()}`, mimeType: item.format === "JSON" ? "application/json; charset=utf-8" : "text/csv; charset=utf-8" };
   }
 
   /** Liệt kê các lần xuất dữ liệu hệ thống. */
@@ -508,6 +836,39 @@ export class SystemService {
     const subject = render(template.subject);
     const body = render(template.body);
     return { subject, body, unresolvedVariables: [...new Set([...subject.matchAll(/\[([^\]]+)\]/g), ...body.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]))] };
+  }
+
+  /** Render mẫu PUBLISHED mới nhất cho runtime; dùng tiêu đề fallback nếu thiếu mẫu hoặc biến. */
+  async renderPublishedNotification(
+    eventCode: string,
+    variables: Record<string, string>,
+    fallbackTitle: string,
+  ): Promise<string> {
+    const locale = (await this.getSettings()).locale;
+    const prisma = this.database();
+    let template: NotificationTemplate | undefined;
+    if (prisma) {
+      const row = await prisma.notificationTemplate.findFirst({
+        where: { eventCode, locale, status: "PUBLISHED" },
+        orderBy: { version: "desc" },
+      });
+      template = row ? this.mapTemplate(row) : undefined;
+    } else {
+      template = this.templates
+        .filter(
+          (item) =>
+            item.eventCode === eventCode &&
+            item.locale === locale &&
+            item.status === "PUBLISHED",
+        )
+        .sort((left, right) => right.version - left.version)[0];
+    }
+    if (!template) return fallbackTitle;
+    const rendered = template.subject.replace(
+      /{{([a-zA-Z0-9_]+)}}/g,
+      (_, key: string) => variables[key] ?? `[${key}]`,
+    );
+    return /\[[^\]]+\]/.test(rendered) ? fallbackTitle : rendered;
   }
 
   /** Render và gửi email thử, lưu kết quả giao hàng cùng actor nhưng không lưu nội dung nhạy cảm. */
@@ -681,12 +1042,14 @@ export class SystemService {
       createdAt: row.createdAt.toISOString(),
       checksum: row.checksum ?? "",
       sizeMb: row.sizeBytes === null ? 0 : Math.round(Number(row.sizeBytes) / 100_000) / 10,
+      attempts: row.attempts,
+      progress: row.progress,
     };
   }
 
-  /** Ánh xạ job phục hồi và kết quả xác minh DB tạm. */
+  /** Ánh xạ yêu cầu phục hồi, loại thao tác và dấu vết hai người. */
   private mapRestore(row: Prisma.RestoreJobGetPayload<Record<string, never>>): RestoreRun {
-    return { id: row.id, backupId: row.backupId, status: row.status, approvedBy: row.approvedBy, createdAt: row.createdAt.toISOString(), verification: row.verification ?? "" };
+    return { id: row.id, backupId: row.backupId, mode: row.mode === "OPERATIONAL" ? "OPERATIONAL" : "DRILL", status: row.status, requestedBy: row.requestedBy, approvedBy: row.approvedBy ?? undefined, reason: row.reason ?? undefined, targetDatabase: row.targetDatabase ?? undefined, createdAt: row.createdAt.toISOString(), verification: row.verification ?? "" };
   }
 
   /** Ánh xạ job xuất dữ liệu và URL/checksum khi hoàn thành. */
@@ -697,8 +1060,13 @@ export class SystemService {
       format: row.format === "JSON" ? "JSON" : "CSV",
       status: row.status,
       rowCount: row.rowCount ?? 0,
+      checksum: row.checksum ?? undefined,
+      sizeBytes: row.sizeBytes === null ? 0 : Number(row.sizeBytes),
+      downloadAvailable: row.status === "COMPLETED" && Boolean(row.objectKey) && Boolean(row.expiresAt && row.expiresAt > new Date()),
       expiresAt: row.expiresAt?.toISOString() ?? row.createdAt.toISOString(),
       createdAt: row.createdAt.toISOString(),
+      attempts: row.attempts,
+      progress: row.progress,
     };
   }
 
@@ -727,7 +1095,7 @@ export class SystemService {
 
   /** Ánh xạ job retention cùng số bản ghi xử lý và lỗi. */
   private mapRetentionJob(row: Prisma.RetentionJobGetPayload<Record<string, never>>): RetentionJobView {
-    return { id: row.id, policyId: row.policyId, status: row.status, affectedRows: row.affectedRows, skippedRows: row.skippedRows, requestedBy: row.requestedBy, approvedBy: row.approvedBy, evidence: this.asRecord(row.evidence), createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString() };
+    return { id: row.id, policyId: row.policyId, status: row.status, affectedRows: row.affectedRows, skippedRows: row.skippedRows, requestedBy: row.requestedBy, approvedBy: row.approvedBy, evidence: this.asRecord(row.evidence), createdAt: row.createdAt.toISOString(), completedAt: row.completedAt?.toISOString(), attempts: row.attempts, progress: row.progress };
   }
 
   /** Ánh xạ cảnh báo và các mốc acknowledge/mute/resolve. */
@@ -774,11 +1142,16 @@ export class SystemService {
           materials: { include: { versions: true, accessLogs: true, reviews: true, forumAttachments: true } },
           exams: { include: { questions: true, approvals: true, attempts: { include: { answers: true, regradeRequests: true, gradeHistory: true } } } },
           forumTopics: { include: { posts: { include: { attachments: true, mentions: true } } } },
-          sessions: { include: { attendance: true, appeals: true } }, assignments: { include: { submissions: true } }, announcements: true,
+          sessions: { include: { attendance: true, appeals: true } },
+          assignments: { include: { submissions: { include: { attachments: true, revisions: true, gradeChanges: true } }, changes: true } },
+          announcements: true,
         },
       });
       records = classes;
-      objectKeys = classes.flatMap((classItem) => classItem.materials.flatMap((material) => [material.objectKey, ...material.versions.map((version) => version.objectKey)]));
+      objectKeys = classes.flatMap((classItem) => [
+        ...classItem.materials.flatMap((material) => [material.objectKey, ...material.versions.map((version) => version.objectKey)]),
+        ...classItem.assignments.flatMap((assignment) => assignment.submissions.flatMap((submission) => submission.attachments.map((attachment) => attachment.objectKey))),
+      ]);
     } else {
       throw new BadRequestException("Retention chỉ hỗ trợ AUDIT, SUPPORT hoặc LEARNING.");
     }
@@ -787,8 +1160,17 @@ export class SystemService {
     let archiveChecksum: string | undefined;
     if (action === "ARCHIVE" && records.length) {
       if (!this.objectStorage) throw new ServiceUnavailableException("Kho object chưa sẵn sàng để lưu archive retention.");
-      const content = Buffer.from(JSON.stringify({ format: "wind-edu-retention-archive", version: 1, category, cutoffAt: cutoffAt.toISOString(), createdAt: new Date().toISOString(), records }, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), "utf8");
+      const assets = [] as Array<{ objectKey: string; checksum: string; sizeBytes: number; contentBase64: string }>;
+      for (const objectKey of [...new Set(objectKeys)]) {
+        const buffer = await this.objectStorage.get(objectKey).catch(() => { throw new ServiceUnavailableException(`Không đọc được asset ${objectKey}; archive đã dừng trước khi xóa dữ liệu.`); });
+        assets.push({ objectKey, checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}`, sizeBytes: buffer.length, contentBase64: buffer.toString("base64") });
+      }
+      const content = Buffer.from(JSON.stringify({ format: "wind-edu-retention-archive", version: 2, category, cutoffAt: cutoffAt.toISOString(), createdAt: new Date().toISOString(), records, assets }, (_key, value: unknown) => typeof value === "bigint" ? value.toString() : value), "utf8");
       const stored = await this.objectStorage.put(`retention/${category.toLowerCase()}/${jobId}.json`, content);
+      const verified = await this.objectStorage.get(stored.objectKey);
+      const verifiedChecksum = `sha256:${createHash("sha256").update(verified).digest("hex")}`;
+      if (verifiedChecksum !== stored.checksum) throw new ServiceUnavailableException("Archive retention không vượt qua kiểm tra checksum; dữ liệu nguồn chưa bị xóa.");
+      this.validateRetentionArchive(verified);
       archiveObjectKey = stored.objectKey;
       archiveChecksum = stored.checksum;
     }
@@ -808,6 +1190,148 @@ export class SystemService {
       }
     } else objectCleanupFailures = new Set(objectKeys).size;
     return { affectedRows: records.length, archiveObjectKey, archiveChecksum, removedObjects, objectCleanupFailures };
+  }
+
+  /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
+  async snapshotAssetAudit(): Promise<SnapshotAssetAudit> {
+    const prisma = this.database();
+    if (!prisma || !this.objectStorage) throw new ServiceUnavailableException("Đối soát snapshot/asset cần database và kho object đang hoạt động.");
+    const [classes, courseVersions, materials, materialVersions, submissionAttachments, questionImages, chatAttachments, supportAttachments] = await Promise.all([
+      prisma.learningClass.findMany({ select: { id: true, courseId: true, courseVersion: true } }),
+      prisma.courseVersion.findMany({ select: { courseId: true, version: true } }),
+      prisma.material.findMany({ select: { id: true, objectKey: true } }),
+      prisma.materialVersion.findMany({ select: { id: true, objectKey: true } }),
+      prisma.assignmentSubmissionAttachment.findMany({ where: { removedAt: null }, select: { id: true, objectKey: true } }),
+      prisma.question.findMany({ where: { imageObjectKey: { not: null } }, select: { id: true, imageObjectKey: true } }),
+      prisma.chatMessageAttachment.findMany({ select: { id: true, objectKey: true } }),
+      prisma.supportAttachment.findMany({ select: { id: true, objectKey: true } }),
+    ]);
+    const snapshotKeys = new Set(courseVersions.map((item) => `${item.courseId}:${item.version}`));
+    const classesWithoutCourseSnapshot = classes.filter((item) => !snapshotKeys.has(`${item.courseId}:${item.courseVersion}`)).map((item) => ({ classId: item.id, courseId: item.courseId, courseVersion: item.courseVersion }));
+    const references = new Map<string, string[]>();
+    const add = (objectKey: string | null, reference: string): void => { if (!objectKey) return; references.set(objectKey, [...(references.get(objectKey) ?? []), reference]); };
+    materials.forEach((item) => add(item.objectKey, `material:${item.id}`));
+    materialVersions.forEach((item) => add(item.objectKey, `material-version:${item.id}`));
+    submissionAttachments.forEach((item) => add(item.objectKey, `assignment-attachment:${item.id}`));
+    questionImages.forEach((item) => add(item.imageObjectKey, `question-image:${item.id}`));
+    chatAttachments.forEach((item) => add(item.objectKey, `chat-attachment:${item.id}`));
+    supportAttachments.forEach((item) => add(item.objectKey, `support-attachment:${item.id}`));
+    const missingObjects: SnapshotAssetAudit["missingObjects"] = [];
+    for (const [objectKey, owners] of references) {
+      try { await this.objectStorage.get(objectKey); }
+      catch { missingObjects.push({ objectKey, references: owners }); }
+    }
+    return {
+      generatedAt: new Date().toISOString(),
+      classesWithoutCourseSnapshot,
+      referencedObjectCount: [...references.values()].reduce((sum, owners) => sum + owners.length, 0),
+      uniqueObjectCount: references.size,
+      sharedObjects: [...references.entries()].filter(([, owners]) => owners.length > 1).map(([objectKey, owners]) => ({ objectKey, references: owners })),
+      missingObjects,
+    };
+  }
+
+  /** Liệt kê metadata đã xóa mềm nhưng object cleanup thất bại để vận hành có thể retry. */
+  async listStorageCleanupFailures(): Promise<StorageCleanupFailure[]> {
+    const prisma = this.database();
+    if (!prisma) return [];
+    const rows = await prisma.assignmentSubmissionAttachment.findMany({ where: { removedAt: { not: null }, removalError: { not: null } }, orderBy: { removedAt: "asc" }, take: 100 });
+    return rows.map((row) => ({ id: row.id, entityType: "ASSIGNMENT_ATTACHMENT", objectKey: row.objectKey, error: row.removalError ?? "Không rõ lỗi", removedAt: row.removedAt!.toISOString() }));
+  }
+
+  /** Retry xóa đúng object đã được ghi lỗi và chỉ xóa cờ lỗi sau khi storage xác nhận thành công. */
+  async retryStorageCleanup(attachmentId: string, actorId: string): Promise<{ cleaned: true }> {
+    const prisma = this.database();
+    if (!prisma || !this.objectStorage) throw new ServiceUnavailableException("Cần database và kho object để retry cleanup.");
+    const row = await prisma.assignmentSubmissionAttachment.findUnique({ where: { id: attachmentId } });
+    if (!row || !row.removedAt || !row.removalError) throw new NotFoundException("Không tìm thấy lỗi cleanup đang chờ xử lý.");
+    await this.objectStorage.remove(row.objectKey);
+    await prisma.$transaction([
+      prisma.assignmentSubmissionAttachment.update({ where: { id: attachmentId }, data: { removalError: null } }),
+      prisma.auditLog.create({ data: { actorId, action: "STORAGE_CLEANUP_RETRIED", entityType: "assignment_attachment", entityId: attachmentId, context: { objectKey: row.objectKey } } }),
+    ]);
+    return { cleaned: true };
+  }
+
+  /** Đọc archive của retention job và xác minh checksum gói cùng từng asset phục hồi được. */
+  async verifyRetentionArchive(jobId: string): Promise<{ valid: true; category: string; recordCount: number; assetCount: number; checksum: string }> {
+    const prisma = this.database();
+    if (!prisma || !this.objectStorage) throw new ServiceUnavailableException("Cần database và kho object để kiểm tra archive.");
+    const job = await prisma.retentionJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new NotFoundException("Không tìm thấy retention job.");
+    const evidence = this.asRecord(job.evidence);
+    const objectKey = typeof evidence.archiveObjectKey === "string" ? evidence.archiveObjectKey : "";
+    const checksum = typeof evidence.archiveChecksum === "string" ? evidence.archiveChecksum : "";
+    if (!objectKey || !checksum) throw new BadRequestException("Job này không có archive để kiểm tra.");
+    const content = await this.objectStorage.get(objectKey);
+    const actualChecksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+    if (actualChecksum !== checksum) throw new ServiceUnavailableException("Checksum archive retention không hợp lệ.");
+    const archive = this.validateRetentionArchive(content);
+    await this.logDatabase(prisma, "system", "RETENTION_ARCHIVE_VERIFIED", jobId, `${archive.category} · ${archive.records.length} bản ghi · ${archive.assets.length} asset`);
+    return { valid: true, category: archive.category, recordCount: archive.records.length, assetCount: archive.assets.length, checksum };
+  }
+
+  /** Parse archive version 2 và kiểm tra checksum/size của toàn bộ asset nhúng. */
+  private validateRetentionArchive(content: Buffer): { category: string; records: unknown[]; assets: Array<{ objectKey: string; checksum: string; sizeBytes: number; contentBase64: string }> } {
+    try {
+      const value = JSON.parse(content.toString("utf8")) as { format?: string; version?: number; category?: string; records?: unknown[]; assets?: Array<{ objectKey?: string; checksum?: string; sizeBytes?: number; contentBase64?: string }> };
+      if (value.format !== "wind-edu-retention-archive" || value.version !== 2 || typeof value.category !== "string" || !Array.isArray(value.records) || !Array.isArray(value.assets)) throw new Error("invalid archive");
+      const assets = value.assets.map((asset) => {
+        if (typeof asset.objectKey !== "string" || typeof asset.checksum !== "string" || typeof asset.sizeBytes !== "number" || typeof asset.contentBase64 !== "string") throw new Error("invalid asset");
+        const buffer = Buffer.from(asset.contentBase64, "base64");
+        const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
+        if (buffer.length !== asset.sizeBytes || checksum !== asset.checksum) throw new Error("asset checksum mismatch");
+        return { objectKey: asset.objectKey, checksum: asset.checksum, sizeBytes: asset.sizeBytes, contentBase64: asset.contentBase64 };
+      });
+      return { category: value.category, records: value.records, assets };
+    } catch {
+      throw new ServiceUnavailableException("Archive retention không thể phục hồi hoặc đã bị thay đổi.");
+    }
+  }
+
+  /** Thu thập từng dòng export với nhãn thực thể để CSV và JSON cùng một phạm vi. */
+  private async collectExportRows(prisma: PrismaService, category: string): Promise<Array<Record<string, unknown>>> {
+    if (category === "AUDIT") return (await prisma.auditLog.findMany({ orderBy: { createdAt: "asc" } })).map((row) => ({ entity: "audit_log", ...row }));
+    if (category === "USERS") return (await prisma.user.findMany({ select: { id: true, username: true, email: true, displayName: true, status: true, createdAt: true, updatedAt: true }, orderBy: { createdAt: "asc" } })).map((row) => ({ entity: "user", ...row }));
+    const [courses, classes, exams, attempts, assignments, submissions] = await prisma.$transaction([
+      prisma.course.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.learningClass.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.exam.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.examAttempt.findMany({ orderBy: { startedAt: "asc" } }),
+      prisma.assignment.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.assignmentSubmission.findMany({ orderBy: { submittedAt: "asc" } }),
+    ]);
+    return [
+      ...courses.map((row) => ({ entity: "course", ...row })),
+      ...classes.map((row) => ({ entity: "learning_class", ...row })),
+      ...exams.map((row) => ({ entity: "exam", ...row })),
+      ...attempts.map((row) => ({ entity: "exam_attempt", ...row })),
+      ...assignments.map((row) => ({ entity: "assignment", ...row })),
+      ...submissions.map((row) => ({ entity: "assignment_submission", ...row })),
+    ];
+  }
+
+  /** Tuần tự hóa export thành JSON hoặc CSV có BOM và escape đúng chuẩn bảng tính. */
+  private serializeExport(rows: Array<Record<string, unknown>>, format: DataExport["format"]): Buffer {
+    const normalize = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? item.toString() : item instanceof Date ? item.toISOString() : item));
+    if (format === "JSON") return Buffer.from(JSON.stringify({ format: "wind-edu-data-export", version: 1, createdAt: new Date().toISOString(), rows: normalize(rows) }, null, 2), "utf8");
+    const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    /** Chuyển mọi kiểu giá trị xuất dữ liệu về chuỗi CSV xác định. */
+    const formatCell = (value: unknown): string => {
+      if (value === null || value === undefined) return "";
+      if (value instanceof Date) return value.toISOString();
+      if (typeof value === "object") return JSON.stringify(normalize(value)) ?? "";
+      if (typeof value === "string") return value;
+      if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return value.toString();
+      if (typeof value === "symbol") return value.description ?? "";
+      return "[function]";
+    };
+    const escape = (value: unknown): string => {
+      const normalized = formatCell(value);
+      return `"${normalized.replace(/"/g, '""')}"`;
+    };
+    const lines = [keys.map(escape).join(","), ...rows.map((row) => keys.map((key) => escape(row[key])).join(","))];
+    return Buffer.from(`\uFEFF${lines.join("\r\n")}`, "utf8");
   }
 
   /** Upsert cảnh báo theo fingerprint để cùng sự cố không sinh bản ghi trùng. */

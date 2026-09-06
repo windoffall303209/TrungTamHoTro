@@ -4,9 +4,10 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../auth/require-permissions.decorator.js";
+import { fileContentDisposition, normalizeMultipartFileName } from "../infrastructure/file-transfer.js";
 import {
   AppealReportDto, AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreateAttendanceAppealDto, CreatePostDto, CreateReportDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto,
-  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
+  CreateProgressInterventionDto, CreateReportExportDto, CreateTopicDto, HideForumPostDto, ModerateTopicDto, ProgressQueryDto, ResolveAttendanceAppealDto, ResolveReportDto, RunOperationalReportDto, SyncAttendanceDto, TransferProgressInterventionDto, TransitionSessionDto, UpdateAttendanceDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto,
 } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { ClassProgressReport, ContentReport, ExamAnalytics, ForumPost, ForumTopic, LearningNotification, LiveSession, ModerationContext, OperationalReport, ProgressIntervention, ReportExport, ReportRun, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
@@ -95,11 +96,11 @@ export class EngagementController {
 
   @Post("manager/forum/reports/:reportId/claim") @RequirePermissions("forum:moderate")
   /** Nhận xử lý một báo cáo để tránh nhiều người xử lý đồng thời. */
-  claimReport(@Param("reportId") reportId: string, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.claimReport(reportId, session.user.id); }
+  claimReport(@Param("reportId") reportId: string, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.claimReport(reportId, session.user.id, session.roleCode); }
 
   @Post("manager/forum/reports/:reportId/resolve") @RequirePermissions("forum:moderate")
   /** Chốt hành động kiểm duyệt và nội dung giải quyết báo cáo. */
-  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution, session.user.id); }
+  resolveReport(@Param("reportId") reportId: string, @Body() input: ResolveReportDto, @CurrentSession() session: AuthenticatedSession): Promise<ContentReport> { return this.learning.resolveReport(reportId, input.action, input.resolution, session.user.id, session.roleCode); }
 
   @Post("learner/content-reports/:reportId/appeal") @RequirePermissions("forum:view")
   /** Gửi khiếu nại đối với kết quả báo cáo thuộc người dùng. */
@@ -209,6 +210,13 @@ export class EngagementController {
     return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
   }
 
+  @Get("support/tickets/:ticketId/attachments/:attachmentId") @RequireAuthentication()
+  /** Đọc bằng chứng sau khi service kiểm tra người gửi hoặc quyền quản lý hỗ trợ. */
+  async readSupportAttachment(@Param("ticketId") ticketId: string, @Param("attachmentId") attachmentId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
+    const file = await this.learning.readSupportAttachment(ticketId, attachmentId, session.roleCode, session.user.id);
+    return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition("inline", normalizeMultipartFileName(file.fileName)), length: file.buffer.length });
+  }
+
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")
   /** Cập nhật trạng thái, mức ưu tiên hoặc người phụ trách phiếu. */
   updateTicket(@Param("ticketId") ticketId: string, @Body() input: UpdateTicketDto, @CurrentSession() session: AuthenticatedSession): Promise<SupportTicket> { return this.learning.updateTicket(ticketId, input, session.user.id); }
@@ -256,9 +264,17 @@ export class EngagementController {
   /** Tạo biện pháp hỗ trợ cho học viên được phát hiện cần can thiệp. */
   createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input, session.user.id); }
 
+  @Get("progress/interventions/mine") @RequirePermissions("report:view")
+  /** Liệt kê các hành động hỗ trợ mà người dùng hiện tại đang chịu trách nhiệm. */
+  listMyProgressInterventions(@CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention[]> { return this.learning.listMyProgressInterventions(session.user.id); }
+
   @Patch("manager/progress/interventions/:interventionId") @RequirePermissions("report:view")
   /** Chuyển trạng thái biện pháp can thiệp và ghi người cập nhật. */
-  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input.status, session.user.id); }
+  updateProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: UpdateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.updateProgressIntervention(interventionId, input, session.user.id, session.roleCode); }
+
+  @Patch("manager/progress/interventions/:interventionId/transfer") @RequirePermissions("report:view")
+  /** Bàn giao hành động hỗ trợ đang mở cho giảng viên khác trong cùng lớp. */
+  transferProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: TransferProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.transferProgressIntervention(interventionId, input.assigneeId, input.reason, session.user.id); }
 
   @Post("manager/reports/run") @RequirePermissions("report:view")
   /** Chụp một lần chạy báo cáo vận hành để làm nguồn cho các bản xuất. */

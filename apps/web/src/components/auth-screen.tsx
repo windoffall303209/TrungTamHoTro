@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-subtle)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15";
 
@@ -99,7 +100,8 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
       <div className="relative max-w-lg py-16"><h1 className="text-4xl font-bold leading-tight tracking-[-0.035em]">Một tài khoản,<br />toàn bộ hành trình dạy và học.</h1><p className="mt-6 max-w-md text-base leading-7 text-[var(--nav-muted)]">Học liệu, đề thi, diễn đàn và lớp học trực tuyến cùng vận hành trong một không gian có phân quyền rõ ràng.</p><div className="mt-10 space-y-4 border-t border-white/15 pt-7 text-sm font-semibold text-[var(--nav-muted)]"><p className="flex items-center gap-3"><BookOpenCheck className="text-[var(--accent)]" size={18} />Dữ liệu học tập xuyên suốt giữa các vai trò</p><p className="flex items-center gap-3"><ShieldCheck className="text-[var(--accent)]" size={18} />Phiên đăng nhập bảo mật và quyền truy cập tách biệt</p></div></div>
       <p className="relative text-xs text-[var(--nav-subtle)]">Wind EDU · Sổ giáo vụ số</p>
     </section>
-    <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
+    <section className="relative flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
+      <div className="absolute right-5 top-5 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
       <div className="w-full max-w-[30rem] animate-rise">
         <Link className="mb-10 inline-flex items-center gap-2 font-bold lg:hidden" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
         <h1 className="text-[2rem] font-bold leading-tight tracking-[-0.03em]">{challengeToken ? "Xác thực hai bước" : registering ? "Tạo tài khoản học viên" : "Chào mừng quay lại"}</h1>

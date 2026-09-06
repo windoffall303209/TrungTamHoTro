@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import { CheckCircle2, FileJson, LockKeyhole, RefreshCw, UserCheck } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
@@ -150,12 +152,12 @@ export default function AttendancePage() {
       <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
-            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
+            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString(activeLocale()) }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
           </Field>
           <Button disabled={!selectedId} onClick={() => void loadReview(selectedId)} variant="secondary"><RefreshCw size={16} />Làm mới</Button>
           <Button disabled={!review || Boolean(review.session.attendanceLockedAt) || statistics.openAppeals > 0} onClick={() => void lockAttendance()} variant="danger"><LockKeyhole size={16} />Khóa điểm danh</Button>
         </div>
-        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString("vi-VN")} bởi {review.session.attendanceLockedById}.</p> : null}
+        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString(activeLocale())} bởi {review.session.attendanceLockedById}.</p> : null}
       </section>
 
       <div className="metric-ledger mt-6">

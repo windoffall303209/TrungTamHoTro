@@ -17,6 +17,7 @@ export interface SessionUser {
   email: string;
   roleName: string;
   avatarUrl?: string | null;
+  locale?: "vi-VN" | "en-US";
 }
 
 export interface SessionData {
@@ -62,7 +63,9 @@ export interface IdentityUser {
   displayName: string;
   email: string;
   roleCode: RoleCode;
+  roleCodes: RoleCode[];
   status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
+  invitationSent?: boolean;
   createdAt: string;
   updatedAt: string;
 }

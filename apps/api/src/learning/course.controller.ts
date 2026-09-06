@@ -3,9 +3,9 @@ import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, UpdateCourseDto } from "./learning.dto.js";
+import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateCourseDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
-import type { ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
+import type { ClassCapabilities, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
 
 @ApiTags("Course & Class")
 @Controller()
@@ -53,6 +53,10 @@ export class CourseController {
   /** Liệt kê các lớp học viên hiện tại đã ghi danh. */
   listLearnerClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses("LEARNER", session.user.id); }
 
+  @Get("classes/:classId/capabilities") @RequirePermissions("class:view")
+  /** Trả ma trận thao tác theo quyền thực tế, quan hệ lớp và trạng thái hiện tại. */
+  getClassCapabilities(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<ClassCapabilities> { return this.learning.getClassCapabilities(classId, session); }
+
   @Post("manager/classes") @RequirePermissions("class:manage")
   /** Mở lớp nháp từ phiên bản khóa học được chọn. */
   createClass(@Body() input: CreateClassDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.createClass(input, session.user.id); }
@@ -60,6 +64,10 @@ export class CourseController {
   @Post("manager/classes/:classId/instructors") @RequirePermissions("class:manage")
   /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR. */
   assignInstructor(@Param("classId") classId: string, @Body() input: AssignInstructorDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.assignInstructor(classId, input.userId, input.role, session.user.id); }
+
+  @Post("manager/classes/:classId/instructors/transfer-primary") @RequirePermissions("class:manage")
+  /** Bàn giao giảng viên chính nguyên tử và lưu đầy đủ nguồn, đích, lý do. */
+  transferPrimaryInstructor(@Param("classId") classId: string, @Body() input: TransferPrimaryInstructorDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.transferPrimaryInstructor(classId, input.expectedPrimaryId, input.newPrimaryId, input.reason, session.user.id); }
 
   @Patch("manager/classes/:classId/instructors/:instructorId/remove") @RequirePermissions("class:manage")
   /** Gỡ phân công giảng viên và lưu lý do vào lịch sử thành viên. */
