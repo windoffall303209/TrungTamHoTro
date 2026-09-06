@@ -1,12 +1,29 @@
 "use client";
 
-import { CalendarPlus, ExternalLink, Pencil, Radio, Trash2, Video } from "lucide-react";
+import { activeLocale } from "@/i18n/runtime";
+import {
+  CalendarPlus,
+  ExternalLink,
+  Pencil,
+  Radio,
+  Trash2,
+  Video,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
+import {
+  Button,
+  Field,
+  inputClass,
+  Modal,
+  Pagination,
+  StatusBadge,
+  usePagination,
+} from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -15,10 +32,18 @@ import { hasPermission } from "@/lib/access-control";
 /** Quản lý lịch, trạng thái tham gia và vòng đời của các buổi học trực tuyến. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
-  const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
+  const searchParams = useSearchParams();
+  const allowed = [
+    "SYSTEM_ADMIN",
+    "CENTER_MANAGER",
+    "INSTRUCTOR",
+    "LEARNER",
+  ].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
+  const manager =
+    ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
+    hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
   const pagination = usePagination(items);
   const [classes, setClasses] = useState<LearningClass[]>([]);
@@ -59,6 +84,21 @@ export default function LiveClassesPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn. */
+  useEffect(() => {
+    const sessionId = searchParams.get("sessionId");
+    if (!sessionId || loading) return;
+    const timer = window.setTimeout(() => {
+      const node = document.getElementById(`session-${sessionId}`);
+      if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
+      else
+        notify(
+          "Buổi học không còn khả dụng hoặc bạn không có quyền xem.",
+          "error",
+        );
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [items, loading, notify, searchParams]);
   useEffect(() => {
     /** Cập nhật mốc thời gian dùng để tính trạng thái sắp diễn ra/đang học trên giao diện. */
     const updateClock = () => setClock(Date.now());
@@ -70,16 +110,21 @@ export default function LiveClassesPage() {
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await apiRequest(manager ? `/manager/classes/${form.classId}/sessions` : `/instructor/classes/${form.classId}/sessions`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          title: form.title,
-          startsAt: new Date(form.startsAt).toISOString(),
-          endsAt: new Date(form.endsAt).toISOString(),
-          provider: form.provider,
-        }),
-      });
+      await apiRequest(
+        manager
+          ? `/manager/classes/${form.classId}/sessions`
+          : `/instructor/classes/${form.classId}/sessions`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            title: form.title,
+            startsAt: new Date(form.startsAt).toISOString(),
+            endsAt: new Date(form.endsAt).toISOString(),
+            provider: form.provider,
+          }),
+        },
+      );
       notify("Đã lên lịch lớp trực tuyến.");
       setOpen(false);
       await load();
@@ -91,11 +136,64 @@ export default function LiveClassesPage() {
     }
   };
   /** Chuẩn hóa dữ liệu buổi học vào input datetime-local và mở editor đổi lịch. */
-  const openEdit = (item: LiveSession) => { setEditing(item); setForm({ classId: item.classId, title: item.title, startsAt: new Date(item.startsAt).toISOString().slice(0, 16), endsAt: new Date(item.endsAt).toISOString().slice(0, 16), provider: item.provider, reason: "" }); setOpen(true); };
+  const openEdit = (item: LiveSession) => {
+    setEditing(item);
+    setForm({
+      classId: item.classId,
+      title: item.title,
+      startsAt: new Date(item.startsAt).toISOString().slice(0, 16),
+      endsAt: new Date(item.endsAt).toISOString().slice(0, 16),
+      provider: item.provider,
+      reason: "",
+    });
+    setOpen(true);
+  };
   /** Đổi lịch buổi học, ghi nhận lý do và để máy chủ phát thông báo cho lớp. */
-  const update = async (event: React.FormEvent) => { event.preventDefault(); if (!editing) return; try { await apiRequest(`/manager/sessions/${editing.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ title: form.title, startsAt: new Date(form.startsAt).toISOString(), endsAt: new Date(form.endsAt).toISOString(), provider: form.provider, reason: form.reason }) }); notify("Đã đổi lịch và gửi thông báo cho lớp."); setOpen(false); setEditing(null); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không đổi được lịch.", "error"); } };
+  const update = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editing) return;
+    try {
+      await apiRequest(`/manager/sessions/${editing.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: form.title,
+          startsAt: new Date(form.startsAt).toISOString(),
+          endsAt: new Date(form.endsAt).toISOString(),
+          provider: form.provider,
+          reason: form.reason,
+        }),
+      });
+      notify("Đã đổi lịch và gửi thông báo cho lớp.");
+      setOpen(false);
+      setEditing(null);
+      await load();
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không đổi được lịch.",
+        "error",
+      );
+    }
+  };
   /** Hủy buổi học với lý do bắt buộc và làm mới lịch sau khi API gửi thông báo. */
-  const cancel = async (item: LiveSession) => { const reason = window.prompt("Lý do hủy buổi học"); if (!reason) return; try { await apiRequest(`/manager/sessions/${item.id}/cancel`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason }) }); notify("Đã hủy buổi học và gửi thông báo."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không hủy được buổi học.", "error"); } };
+  const cancel = async (item: LiveSession) => {
+    const reason = window.prompt("Lý do hủy buổi học");
+    if (!reason) return;
+    try {
+      await apiRequest(`/manager/sessions/${item.id}/cancel`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ reason }),
+      });
+      notify("Đã hủy buổi học và gửi thông báo.");
+      await load();
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không hủy được buổi học.",
+        "error",
+      );
+    }
+  };
   /** Chuyển trạng thái vận hành của buổi học qua endpoint hành động tương ứng. */
   const transition = async (
     item: LiveSession,
@@ -119,13 +217,18 @@ export default function LiveClassesPage() {
   /** Ghi nhận tham gia và mở liên kết phòng học được máy chủ cấp. */
   const join = async (item: LiveSession) => {
     try {
-      const result = await apiRequest<{ attendeeUrl: string; joinedAt: string }>(
-        `/learner/sessions/${item.id}/join`,
-        { method: "POST", roleCode: session.roleCode },
-      );
+      const result = await apiRequest<{
+        attendeeUrl: string;
+        joinedAt: string;
+      }>(`/learner/sessions/${item.id}/join`, {
+        method: "POST",
+        roleCode: session.roleCode,
+      });
       setJoinedSessionId(item.id);
       window.open(result.attendeeUrl, "_blank", "noopener,noreferrer");
-      notify(`Đã ghi nhận tham gia lúc ${new Date(result.joinedAt).toLocaleTimeString("vi-VN")}.`);
+      notify(
+        `Đã ghi nhận tham gia lúc ${new Date(result.joinedAt).toLocaleTimeString(activeLocale())}.`,
+      );
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Chưa thể vào lớp.",
@@ -136,11 +239,21 @@ export default function LiveClassesPage() {
   /** Ghi nhận thời điểm rời phòng để phục vụ đối soát điểm danh. */
   const leave = async (item: LiveSession) => {
     try {
-      const result = await apiRequest<{ attendedMinutes: number }>(`/learner/sessions/${item.id}/leave`, { method: "POST", roleCode: session.roleCode });
+      const result = await apiRequest<{ attendedMinutes: number }>(
+        `/learner/sessions/${item.id}/leave`,
+        { method: "POST", roleCode: session.roleCode },
+      );
       setJoinedSessionId(null);
-      notify(`Đã kết thúc phiên tham gia và ghi nhận ${result.attendedMinutes} phút.`);
+      notify(
+        `Đã kết thúc phiên tham gia và ghi nhận ${result.attendedMinutes} phút.`,
+      );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không kết thúc được phiên tham gia.", "error");
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Không kết thúc được phiên tham gia.",
+        "error",
+      );
     }
   };
   if (!allowed) return <AccessDenied />;
@@ -152,7 +265,20 @@ export default function LiveClassesPage() {
         description="Lập lịch, mở phòng, điểm danh và gắn bản ghi sau buổi học."
         actions={
           instructor || manager ? (
-            <Button onClick={() => { setEditing(null); setForm({ classId: classes[0]?.id ?? "", title: "", startsAt: "", endsAt: "", provider: "GOOGLE_MEET", reason: "" }); setOpen(true); }}>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setForm({
+                  classId: classes[0]?.id ?? "",
+                  title: "",
+                  startsAt: "",
+                  endsAt: "",
+                  provider: "GOOGLE_MEET",
+                  reason: "",
+                });
+                setOpen(true);
+              }}
+            >
               <CalendarPlus size={17} />
               Lên lịch
             </Button>
@@ -164,6 +290,7 @@ export default function LiveClassesPage() {
           {pagination.pageItems.map((item) => (
             <article
               className="grid gap-5 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+              id={`session-${item.id}`}
               key={item.id}
             >
               <div
@@ -183,12 +310,17 @@ export default function LiveClassesPage() {
                   <StatusBadge status={item.status} />
                 </div>
                 <p className="mt-2 text-sm text-slate-500">
-                  {new Date(item.startsAt).toLocaleString("vi-VN")} —{" "}
-                  {new Date(item.endsAt).toLocaleTimeString("vi-VN", {
+                  {new Date(item.startsAt).toLocaleString(activeLocale())} —{" "}
+                  {new Date(item.endsAt).toLocaleTimeString(activeLocale(), {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}{" "}
-                  · {item.provider.replace("_", " ")}{item.fallbackUsed ? ` · fallback từ ${item.requestedProvider?.replace("_", " ")} sau ${item.provisioningAttempts} lần thử` : item.provisioningAttempts && item.provisioningAttempts > 1 ? ` · ${item.provisioningAttempts} lần thử` : ""}
+                  · {item.provider.replace("_", " ")}
+                  {item.fallbackUsed
+                    ? ` · fallback từ ${item.requestedProvider?.replace("_", " ")} sau ${item.provisioningAttempts} lần thử`
+                    : item.provisioningAttempts && item.provisioningAttempts > 1
+                      ? ` · ${item.provisioningAttempts} lần thử`
+                      : ""}
                   {item.timezone ? ` · ${item.timezone}` : ""}
                 </p>
                 {item.recordingUrl ? (
@@ -217,15 +349,39 @@ export default function LiveClassesPage() {
                     Kết thúc
                   </Button>
                 ) : null}
-                {manager && item.status === "SCHEDULED" && new Date(item.startsAt) > new Date() ? <><Button onClick={() => openEdit(item)} variant="secondary"><Pencil size={15} />Đổi lịch</Button><Button onClick={() => void cancel(item)} variant="ghost"><Trash2 size={15} />Hủy</Button></> : null}
+                {manager &&
+                item.status === "SCHEDULED" &&
+                new Date(item.startsAt) > new Date() ? (
+                  <>
+                    <Button onClick={() => openEdit(item)} variant="secondary">
+                      <Pencil size={15} />
+                      Đổi lịch
+                    </Button>
+                    <Button onClick={() => void cancel(item)} variant="ghost">
+                      <Trash2 size={15} />
+                      Hủy
+                    </Button>
+                  </>
+                ) : null}
                 {learner && joinedSessionId === item.id ? (
-                  <Button onClick={() => void leave(item)} variant="secondary">Rời phòng và chốt điểm danh</Button>
-                ) : learner && (item.status === "SCHEDULED" || item.status === "LIVE") ? (
+                  <Button onClick={() => void leave(item)} variant="secondary">
+                    Rời phòng và chốt điểm danh
+                  </Button>
+                ) : learner &&
+                  (item.status === "SCHEDULED" || item.status === "LIVE") ? (
                   <Button
-                    disabled={clock < new Date(item.startsAt).getTime() - 15 * 60_000 || clock > new Date(item.endsAt).getTime() + 30 * 60_000}
+                    disabled={
+                      clock < new Date(item.startsAt).getTime() - 15 * 60_000 ||
+                      clock > new Date(item.endsAt).getTime() + 30 * 60_000
+                    }
                     onClick={() => void join(item)}
                   >
-                    {clock < new Date(item.startsAt).getTime() - 15 * 60_000 ? "Mở trước giờ học 15 phút" : clock > new Date(item.endsAt).getTime() + 30 * 60_000 ? "Đã hết giờ tham gia" : "Vào lớp"} <ExternalLink size={15} />
+                    {clock < new Date(item.startsAt).getTime() - 15 * 60_000
+                      ? "Mở trước giờ học 15 phút"
+                      : clock > new Date(item.endsAt).getTime() + 30 * 60_000
+                        ? "Đã hết giờ tham gia"
+                        : "Vào lớp"}{" "}
+                    <ExternalLink size={15} />
                   </Button>
                 ) : null}
               </div>
@@ -233,15 +389,37 @@ export default function LiveClassesPage() {
           ))}
         </div>
       </SectionState>
-      <Pagination itemLabel="buổi học trực tuyến" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
+      <Pagination
+        itemLabel="buổi học trực tuyến"
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        totalItems={pagination.totalItems}
+      />
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         title={editing ? "Đổi lịch lớp trực tuyến" : "Lên lịch lớp trực tuyến"}
       >
-        <form className="space-y-4" onSubmit={(e) => void (editing ? update(e) : create(e))}>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => void (editing ? update(e) : create(e))}
+        >
           <Field label="Lớp học">
-            <SearchableSelect aria-label="Tìm và chọn lớp học" disabled={Boolean(editing)} onChange={(value) => setForm({ ...form, classId: value })} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={form.classId} />
+            <SearchableSelect
+              aria-label="Tìm và chọn lớp học"
+              disabled={Boolean(editing)}
+              onChange={(value) => setForm({ ...form, classId: value })}
+              options={classes.map((item) => ({
+                value: item.id,
+                label: `${item.code} — ${item.name}`,
+                description: item.term,
+                keywords: item.id,
+              }))}
+              placeholder="Gõ mã hoặc tên lớp để lọc…"
+              value={form.classId}
+            />
           </Field>
           <Field label="Tên buổi học">
             <input
@@ -282,8 +460,21 @@ export default function LiveClassesPage() {
               <option value="JITSI">Jitsi</option>
             </select>
           </Field>
-          {editing ? <Field label="Lý do đổi lịch"><textarea className={inputClass} minLength={5} required rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></Field> : null}
-          <Button disabled={!editing && !form.classId} type="submit">Xác nhận lịch</Button>
+          {editing ? (
+            <Field label="Lý do đổi lịch">
+              <textarea
+                className={inputClass}
+                minLength={5}
+                required
+                rows={3}
+                value={form.reason}
+                onChange={(e) => setForm({ ...form, reason: e.target.value })}
+              />
+            </Field>
+          ) : null}
+          <Button disabled={!editing && !form.classId} type="submit">
+            Xác nhận lịch
+          </Button>
         </form>
       </Modal>
     </div>

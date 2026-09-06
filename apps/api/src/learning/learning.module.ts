@@ -7,11 +7,13 @@ import { AcademicController } from "./academic.controller.js";
 import { AcademicService } from "./academic.service.js";
 import { ExamAttemptReconciliationService } from "./exam-attempt-reconciliation.service.js";
 import { SystemModule } from "../system/system.module.js";
+import { ChatController } from "./chat.controller.js";
+import { ChatService } from "./chat.service.js";
 
 @Module({
   imports: [SystemModule],
-  controllers: [CourseController, ContentController, EngagementController, AcademicController],
-  providers: [LearningService, AcademicService, ExamAttemptReconciliationService],
+  controllers: [CourseController, ContentController, EngagementController, AcademicController, ChatController],
+  providers: [LearningService, AcademicService, ExamAttemptReconciliationService, ChatService],
   exports: [LearningService],
 })
 /** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */

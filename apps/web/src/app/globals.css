@@ -8,7 +8,7 @@
   --surface: #fffdfa;
   --ink: #102a43;
   --ink-soft: #516274;
-  --ink-muted: #657789;
+  --ink-muted: #607284;
   --ink-subtle: #80909b;
   --rule: #d5dfe2;
   --rule-strong: #a9bac1;
@@ -218,7 +218,7 @@ html.theme-changing *, html.theme-changing *::before, html.theme-changing *::aft
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes toast { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes workspace-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes workspace-enter { from { transform: translateY(10px); } to { transform: translateY(0); } }
 .animate-rise { animation: rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .animate-slide-in { animation: slide-in 220ms ease-out both; }
 .animate-toast { animation: toast 180ms ease-out both; }
