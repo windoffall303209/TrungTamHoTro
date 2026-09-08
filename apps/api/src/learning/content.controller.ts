@@ -12,7 +12,7 @@ import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemp
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
-import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto } from "./learning.dto.js";
+import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
 import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
@@ -32,6 +32,14 @@ export class ContentController {
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
   /** Tạo tóm tắt và thẻ ôn tập có nguồn từ học liệu giảng viên được phép xem. */
   studyMaterial(@Param("materialId") materialId: string, @Body() input: MaterialStudyGuideDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["study"]> { return this.materialAi.study(materialId, session.user.id, session.roleCode, input); }
+
+  @Get("instructor/materials/:materialId/ai-study-guides") @RequirePermissions("material:manage")
+  /** Liệt kê lịch sử bộ ôn tập riêng của giảng viên, có phân trang. */
+  listStudyDrafts(@Param("materialId") materialId: string, @Query() query: StudyDraftListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["listStudyDrafts"]> { return this.materialAi.listStudyDrafts(materialId, session.user.id, session.roleCode, query.cursor); }
+
+  @Get("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
+  /** Mở lại bộ ôn tập đã lưu sau khi xác nhận quyền đối với phiên bản nguồn. */
+  getStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getStudyDraft"]> { return this.materialAi.getStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */

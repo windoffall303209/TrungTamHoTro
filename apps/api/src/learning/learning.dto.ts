@@ -41,6 +41,11 @@ export class MaterialStudyGuideDto {
   @IsOptional() @IsInt() @Min(1) @Max(200) toPage?: number;
 }
 
+/** Cursor chỉ định vị một bản nháp trong lịch sử của chính người gọi. */
+export class StudyDraftListQueryDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191) cursor?: string;
+}
+
 /** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
 export class EditExamQuestionDto {
   @IsString() @MinLength(5) @MaxLength(20000) content!: string;
