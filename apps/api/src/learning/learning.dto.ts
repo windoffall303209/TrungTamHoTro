@@ -22,6 +22,20 @@ import { Type } from "class-transformer";
 import { OmitType } from "@nestjs/swagger";
 import type { LearningQuestion } from "./learning.types.js";
 
+/** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
+export class EditExamQuestionDto {
+  @IsString() @MinLength(5) @MaxLength(20000) content!: string;
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(5000, { each: true }) options!: string[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(10000, { each: true }) correctAnswers!: string[];
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** Ghi nhận xác nhận duyệt câu hỏi khi gửi đề. */
+export class SubmitExamDto {
+  @IsOptional() @IsBoolean() confirmQuestions?: boolean;
+  @IsOptional() @IsInt() @Min(1) expectedVersion?: number;
+}
+
 /** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */
 export class CreateCourseDto {
   @IsString() @MinLength(2) @MaxLength(50) code!: string;
@@ -257,6 +271,7 @@ export class GenerateAiExamDto extends OmitType(CreateExamDto, [
   @IsIn(["AUTO", "COURSE_MATERIALS", "WEB_SEARCH"])
   contextMode: "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH" = "AUTO";
   @IsOptional() @IsString() @MaxLength(191) providerId?: string;
+  @IsOptional() @IsString() @MaxLength(200) model?: string;
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(6)
