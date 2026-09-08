@@ -12,7 +12,7 @@ import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemp
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
-import { MaterialAiContextDto, MaterialAiQuestionDto } from "./learning.dto.js";
+import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto } from "./learning.dto.js";
 import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
@@ -28,6 +28,10 @@ export class ContentController {
   @Post("instructor/materials/:materialId/ai-question") @RequirePermissions("material:manage")
   /** Hỏi đáp tài liệu của giảng viên với trích dẫn từ đúng ngữ cảnh server đã đọc. */
   askMaterial(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["ask"]> { return this.materialAi.ask(materialId, session.user.id, session.roleCode, input.question, input.language); }
+
+  @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
+  /** Tạo tóm tắt và thẻ ôn tập có nguồn từ học liệu giảng viên được phép xem. */
+  studyMaterial(@Param("materialId") materialId: string, @Body() input: MaterialStudyGuideDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["study"]> { return this.materialAi.study(materialId, session.user.id, session.roleCode, input); }
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
