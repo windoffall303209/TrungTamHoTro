@@ -1,4 +1,11 @@
 {
+  "AI hỗ trợ văn bản và tối đa 5 tệp TXT UTF-8, mỗi tệp không quá 80.000 byte. Bài có định dạng khác cần chấm thủ công để không bỏ sót nội dung.": "AI supports inline text and up to 5 UTF-8 TXT files, each no larger than 80,000 bytes. Submissions containing other formats require manual grading so no content is overlooked.",
+  "AI đọc toàn bộ phần nhập trực tiếp và các tệp TXT. Tổng giới hạn là 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.": "AI reads all inline text and TXT files. The total limit is 20,000 characters; the system rejects oversized submissions rather than truncating them.",
+  "Nguồn dùng để chấm": "Sources used for grading",
+  "Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý.": "The server checked the text against the stored file. Open each source and review its content before using the suggestion.",
+  "Nội dung nhập trực tiếp": "Inline submission text",
+  "Nguồn trích dẫn": "Quote source",
+  "AI đề xuất điểm và phản hồi theo rubric từ văn bản và tệp TXT UTF-8. Giảng viên phải kiểm tra trước khi lưu điểm; PDF, ảnh và Word chưa được hỗ trợ.": "AI suggests rubric-based scores and feedback from inline text and UTF-8 TXT files. Instructors must review before saving grades; PDF, images and Word files are not yet supported.",
   "Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.": "TXT files for AI grading must contain content and be no larger than 80,000 bytes.",
   "Tệp TXT cho chấm AI phải được lưu bằng UTF-8 hợp lệ.": "TXT files for AI grading must use valid UTF-8 encoding.",
   "Tệp TXT chứa ký tự điều khiển không được hỗ trợ cho chấm AI.": "The TXT file contains control characters that AI grading does not support.",
