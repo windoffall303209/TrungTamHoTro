@@ -401,7 +401,8 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] Kiểm thử: 17 unit test ở hai bộ grading assist/store; 2 integration test MySQL riêng xác nhận cạnh tranh 6 worker, phát lại sau khi tạo lại service và giữ trạng thái không rõ kết quả. Provider trong các test là giả lập, không phải UAT AI live.
 - [x] Migration bổ sung đã áp dụng cho database local và database `_test`; không reset dữ liệu.
 - [x] Nối HTTP cho gợi ý chấm: POST/GET `instructor/assignment-submissions/:submissionId/ai-suggestion`, chỉ nhận phiên bản bài nộp và VI/EN/BILINGUAL; GET không sinh AI, response `no-store`, quyền `exam:manage` và kiểm tra phân công trong service. Test HTTP dùng guard/validation thật, mock biên auth/service; không thay thế UAT live.
-- [ ] Nối UI, cấu hình admin và luồng giảng viên xem xét gợi ý chấm; API đã có nhưng chưa có điểm vào frontend.
+- [x] Cấu hình admin có tác vụ riêng “Gợi ý chấm bài”, hỗ trợ Gemini/OpenAI/NIM/Custom, không yêu cầu Gemini phụ cho Custom văn bản. Có mô tả giới hạn, bản dịch Anh và kiểm thử lưu/khôi phục/lỗi/đổi provider. Frontend 65 test đạt; ảnh trình duyệt mock đã xem ở desktop 1440×1000 và mobile 390×844.
+- [ ] Nối UI giảng viên xem xét gợi ý chấm; API và cài đặt admin đã có nhưng chưa có điểm vào chấm bài trên frontend.
 - [ ] Quy trình admin đối soát/khôi phục claim bị gián đoạn và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh
