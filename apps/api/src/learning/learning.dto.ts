@@ -22,6 +22,11 @@ import { Type } from "class-transformer";
 import { OmitType } from "@nestjs/swagger";
 import type { LearningQuestion } from "./learning.types.js";
 
+/** Từ khóa tùy chọn để tìm đoạn trong tài liệu đã được kiểm tra quyền. */
+export class MaterialAiContextDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(1000) query?: string;
+}
+
 /** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
 export class EditExamQuestionDto {
   @IsString() @MinLength(5) @MaxLength(20000) content!: string;
