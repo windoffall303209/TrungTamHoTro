@@ -33,6 +33,14 @@ export class MaterialAiQuestionDto {
   @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
 }
 
+/** Bộ ôn tập chỉ nhận phạm vi trang, số thẻ và ngôn ngữ; nguồn và model do máy chủ quản lý. */
+export class MaterialStudyGuideDto {
+  @IsInt() @Min(1) @Max(20) cardCount = 5;
+  @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsOptional() @IsInt() @Min(1) @Max(200) fromPage?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(200) toPage?: number;
+}
+
 /** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
 export class EditExamQuestionDto {
   @IsString() @MinLength(5) @MaxLength(20000) content!: string;
