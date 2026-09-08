@@ -1,5 +1,6 @@
+import { testStudyDraft } from "./ai-study-draft.fixture.js";
 import { describe, expect, it, vi } from "vitest";
-import { AiStudyDraftService, type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
+import { type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
 import { validateStudyDraftEdit } from "../src/learning/ai-study-draft-edit.js";
 
 const source = { id: "chunk", materialId: "material", version: 1, checksum: "checksum", name: "Lesson", page: 1, start: 0, end: 8, text: "Evidence" };
@@ -9,7 +10,7 @@ const identity = { ownerId: "teacher", materialId: "material", sourceVersion: 1,
 
 describe("study draft human edits", () => {
   it("paginates published metadata without returning private content or withdrawn guides", async () => {
-    const service = new AiStudyDraftService();
+    const service = testStudyDraft();
     const privateDraft = await service.generate(identity, () => Promise.resolve(original));
     for (let index = 1; index <= 25; index++) {
       const draft = await service.generate({ ...identity, options: { ...identity.options, fromPage: index, toPage: index } }, () => Promise.resolve(original));
@@ -32,7 +33,7 @@ describe("study draft human edits", () => {
     await expect(service.listPublished(identity.materialId, first.items[0]!.id)).rejects.toMatchObject({ status: 400 });
   });
   it("publishes only confirmed snapshots, keeps later edits private and supports revision-checked withdrawal", async () => {
-    const service = new AiStudyDraftService();
+    const service = testStudyDraft();
     const saved = await service.generate(identity, () => Promise.resolve(original));
     const publish = { expectedRevision: 0, expectedPublicationRevision: 0, confirmReview: true };
     await expect(service.getPublished(saved.draftId, "material")).rejects.toMatchObject({ status: 404 });
@@ -55,7 +56,7 @@ describe("study draft human edits", () => {
     expect((await service.get(saved.draftId, "teacher", "material")).editedResult?.summary[0]?.text).toBe("Revised");
   });
   it("preserves AI output, restores authoritative sources and detects simultaneous saves", async () => {
-    const service = new AiStudyDraftService();
+    const service = testStudyDraft();
     const generate = vi.fn(() => Promise.resolve(original));
     const saved = await service.generate(identity, generate);
     const attempts = await Promise.allSettled([service.edit(saved.draftId, "teacher", "material", input), service.edit(saved.draftId, "teacher", "material", input)]);
@@ -88,7 +89,7 @@ describe("study draft human edits", () => {
   });
 
   it("rejects editing a no-context result", async () => {
-    const service = new AiStudyDraftService();
+    const service = testStudyDraft();
     const saved = await service.generate(identity, () => Promise.resolve({ ...original, insufficientContext: true, summary: [], flashcards: [] }));
     await expect(service.edit(saved.draftId, "teacher", "material", input)).rejects.toMatchObject({ status: 409 });
   });

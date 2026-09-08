@@ -392,6 +392,11 @@ Phạm vi mã nguồn của CHAT-01…07, UX-01…04, WF-01…38, VERIFY-01…07
 
 Effort là kích thước công việc đã thực hiện để phục vụ hậu kiểm, không phải số giờ hay cam kết sprint được dựng lại sau sự kiện.
 
+## AI bộ ôn tập — khóa bền vững (2026-09-08)
+
+- [x] Loại bỏ toàn bộ fallback RAM trong AiStudyDraftService. Thiếu/tắt database trả 503 cho generate/get/list/edit/publish/unpublish/getPublished/listPublished; lỗi ghi claim không gọi provider. Giữ nguyên unique fingerprint, cập nhật có điều kiện, snapshot phát hành và phân trang metadata. Thông báo mới có tiếng Anh.
+- [x] Unit fixture mô phỏng database tách khỏi mã sản phẩm; 42 test qua bốn bộ draft/edit/context/MySQL đạt, bao gồm tạo đồng thời, replay sau thay service, UNCERTAIN, chỉnh sửa/phát hành đồng thời và thu hồi. Typecheck/lint phần sửa đạt. Provider trong test là mô phỏng, chưa phải UAT live.
+
 ## AI hỏi đáp tài liệu — lưu trả lời và chống gửi lặp (2026-09-08)
 
 - [x] Hỏi đáp tài liệu lưu kết quả riêng bằng claim database theo người tạo/tài liệu/phiên bản/câu hỏi đã trim/ngôn ngữ; không lưu nguyên câu hỏi trong khóa hoặc metadata claim. Unique insert trước trích xuất/trả lời; READY dùng lại sau restart, GENERATING/UNCERTAIN chặn gọi lại. Không fallback memory nếu database tắt/lỗi. Thông báo Việt–Anh.
