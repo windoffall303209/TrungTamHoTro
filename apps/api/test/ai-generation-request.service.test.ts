@@ -24,6 +24,22 @@ function sharedDatabase(): PrismaService {
 }
 
 describe("AI generation idempotency", () => {
+  it.each(["disabled", "missing"])("refuses %s storage before provider, recovery or save", async (mode) => {
+    const db = sharedDatabase();
+    vi.spyOn(db, "isStartupConnectionEnabled").mockReturnValue(false);
+    const create = vi.spyOn(db.systemSetting, "create");
+    const generate = vi.fn();
+    const save = vi.fn();
+    const recover = vi.fn();
+    const storage = mode === "missing" ? undefined as unknown as PrismaService : db;
+    for (let index = 0; index < 2; index++) {
+      await expect(new AiGenerationRequestService(storage).run(`id-${index}`, "owner", {}, generate, save, recover)).rejects.toMatchObject({ status: 503 });
+    }
+    expect(create).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+  });
   it("never reclaims legacy GENERATING records when upgrading the service", async () => {
     const db = sharedDatabase();
     await db.systemSetting.create({ data: { key: "ai-generation:legacy", updatedBy: "owner", value: { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "GENERATING" } } });
@@ -179,7 +195,7 @@ describe("AI generation idempotency", () => {
   });
 
   it("never automatically repeats an uncertain upstream call", async () => {
-    const service = new AiGenerationRequestService();
+    const service = new AiGenerationRequestService(sharedDatabase());
     const generate = vi.fn().mockRejectedValue(new Error("timeout"));
     await expect(service.run("id", "owner", {}, generate, vi.fn(), noResult)).rejects.toThrow("timeout");
     await expect(service.run("id", "owner", {}, generate, vi.fn(), noResult)).rejects.toThrow("chưa có kết quả xác định");
@@ -187,7 +203,7 @@ describe("AI generation idempotency", () => {
   });
 
   it("recovers a committed exam after response failure without generating again", async () => {
-    const service = new AiGenerationRequestService();
+    const service = new AiGenerationRequestService(sharedDatabase());
     const generate = vi.fn(() => Promise.resolve(prepared));
     await expect(service.run("id", "owner", {}, generate, () => Promise.reject(new Error("lost commit response")), noResult)).rejects.toThrow();
     expect(await service.run("id", "owner", {}, generate, vi.fn(), () => Promise.resolve(result))).toEqual(result);
