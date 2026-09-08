@@ -352,7 +352,7 @@ export class ContentController {
     }
 
       return undefined;
-    });
+    }, { idempotentSave: true });
   }
 
   @Patch("instructor/exams/:examId/questions/:questionId") @RequirePermissions("exam:manage")

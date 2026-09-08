@@ -24,6 +24,19 @@ function sharedDatabase(): PrismaService {
 }
 
 describe("AI generation idempotency", () => {
+  it("resumes SAVING only for an explicitly idempotent persistence callback without regenerating", async () => {
+    const db = sharedDatabase();
+    const generate = vi.fn(() => Promise.resolve(prepared));
+    await expect(new AiGenerationRequestService(db).run("saving", "owner", {}, generate, () => Promise.reject(new Error("interrupted save")), noResult)).rejects.toThrow("interrupted save");
+    const row = await db.systemSetting.findUnique({ where: { key: "ai-generation:saving" } });
+    await db.systemSetting.updateMany({ where: { key: "ai-generation:saving", version: row!.version }, data: { value: { ...(row!.value as object), state: "SAVING" }, version: { increment: 1 } } });
+    const save = vi.fn(() => Promise.resolve(result));
+    await expect(new AiGenerationRequestService(db).run("retry", "owner", {}, generate, save, noResult)).rejects.toMatchObject({ status: 409 });
+    expect(save).not.toHaveBeenCalled();
+    expect(await new AiGenerationRequestService(db).run("retry", "owner", {}, generate, save, noResult, { idempotentSave: true })).toEqual(result);
+    expect(save).toHaveBeenCalledExactlyOnceWith(prepared, "saving");
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
   it.each([null, [], "broken", { owner: "" }, { hash: "bad" }, { state: "UNKNOWN" }, { state: "READY" }, { state: "SAVING", prepared: {} }, { state: "COMPLETED" }, { canonicalRequestId: 123 }, { canonicalRequestId: " " }, { canonicalRequestId: "a".repeat(178) }])("rejects damaged persisted claims before any external callback: %j", async (damage) => {
     const db = sharedDatabase();
     const base = { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "CLAIMED" };

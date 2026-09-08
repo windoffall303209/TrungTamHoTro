@@ -38,7 +38,7 @@ export class AiGenerationRequestService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Giữ một lần gọi provider; retry bước lưu từ bản nháp đã cache và trả lại kết quả hoàn tất. */
-  async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared, canonicalRequestId: string) => Promise<AiGeneratedExamResult>, recover: (canonicalRequestId: string) => Promise<AiGeneratedExamResult | undefined>): Promise<AiGeneratedExamResult> {
+  async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared, canonicalRequestId: string) => Promise<AiGeneratedExamResult>, recover: (canonicalRequestId: string) => Promise<AiGeneratedExamResult | undefined>, options: { idempotentSave?: boolean } = {}): Promise<AiGeneratedExamResult> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Sinh đề AI yêu cầu database bền vững để chống tạo trùng. Liên hệ quản trị viên kiểm tra kết nối.");
     const requestKey = `ai-generation:${requestId}`;
     const hash = createHash("sha256").update(canonical(payload)).digest("hex");
@@ -77,7 +77,9 @@ export class AiGenerationRequestService {
       row = (await this.read(key))!;
     }
     if (row.value.state === "UNCERTAIN") throw new ConflictException("Lần gọi AI trước chưa có kết quả xác định. Hệ thống không tự gọi lại để tránh tính phí trùng. Liên hệ quản trị viên kiểm tra mã yêu cầu.");
-    if (row.value.state !== "READY") throw new HttpException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.", 409);
+    // Opt in only for a transactional save with a unique canonical request ID: an earlier save may still be running.
+    const resumableSave = row.value.state === "SAVING" && options.idempotentSave === true;
+    if (row.value.state !== "READY" && !resumableSave) throw new HttpException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.", 409);
     if (!await this.replace(key, row.version, { ...row.value, state: "SAVING" })) throw new ConflictException("Yêu cầu AI đang được lưu. Hãy thử lấy lại kết quả.");
     const savingVersion = row.version + 1;
     let result: AiGeneratedExamResult;
