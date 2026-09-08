@@ -931,6 +931,18 @@ export class AcademicService {
     return rows.map((row) => this.mapSubmission(row));
   }
 
+  /** Lấy đúng bài nộp và rubric cho AI, không đưa tên/email hoặc điểm cũ vào ngữ cảnh chấm. */
+  async gradingAiContext(submissionId: string, expectedSubmissionRevision: number, session: AuthenticatedSession): Promise<{ submissionId: string; submissionRevision: number; assignmentVersion: number; instructions: string; answer: string; rubric: RubricCriterion[] }> {
+    if (!Number.isInteger(expectedSubmissionRevision) || expectedSubmissionRevision < 1) throw new BadRequestException("Phiên bản bài nộp không hợp lệ.");
+    const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, select: { id: true } } } });
+    if (!submission) throw new NotFoundException("Không tìm thấy bài nộp.");
+    await this.requireTeachingAccess(submission.assignment.classId, session, true);
+    if (submission.revision !== expectedSubmissionRevision) throw new ConflictException("Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.");
+    if (submission.attachments.length) throw new BadRequestException("Gợi ý chấm AI hiện chỉ hỗ trợ bài nộp văn bản không có tệp đính kèm. Hãy chấm thủ công để không bỏ sót nội dung tệp.");
+    if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
+    return { submissionId: submission.id, submissionRevision: submission.revision, assignmentVersion: submission.assignment.version, instructions: [submission.assignment.title, submission.assignment.description, submission.assignment.instructions].join("\n\n"), answer: submission.content, rubric: this.rubric(submission.assignment.rubric) };
+  }
+
   /** Kiểm tra điểm từng rubric không vượt trần rồi lưu kết quả và thời điểm chấm. */
   async gradeSubmission(
     submissionId: string,
