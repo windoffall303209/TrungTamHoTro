@@ -394,6 +394,9 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 
 ## AI sinh đề — hoàn thiện chống tạo trùng (2026-09-08)
 
+- [x] Sửa tái dùng câu ngân hàng khi lưu đề AI: hash nội dung chỉ tìm ứng viên, không đủ để kết luận trùng. Chỉ tái dùng câu PUBLISHED cùng khóa học khi khớp chính xác nội dung (kể cả hoa/thường), loại, độ khó, thứ tự lựa chọn và đáp án; không dùng câu có ảnh cho bản sinh văn bản. Database xét các phiên bản ứng viên mới nhất trước; nếu không khớp tạo câu DRAFT riêng để giữ nội dung AI đã duyệt.
+- [x] QA tái dùng câu: thêm sáu test luồng service cho giống hoàn toàn/khác đáp án/thứ tự lựa chọn/loại/độ khó/hoa thường; bộ LearningService 77/77 đạt, typecheck/lint đạt. Test dùng chế độ dữ liệu bộ nhớ; nhánh truy vấn Prisma đã typecheck nhưng chưa có kiểm thử MySQL chuyên biệt cho tái dùng câu.
+- [ ] Hồi quy toàn API lượt tái dùng câu: 417 đạt, 17 skip, 1 lỗi tại `auth-registration.e2e.test.ts:135` khi tải avatar Cloudinary trả 503 thay vì 200. Log báo không thể kết nối Cloudinary; chưa xác nhận lại dịch vụ ngoài, không tuyên bố full suite xanh.
 - [x] Kiểm tra cấu trúc JSON khóa khi đọc: từ chối null/array/primitive, owner/hash/trạng thái không hợp lệ, mã gốc sai kiểu/rỗng/quá dài, READY/SAVING thiếu cấu trúc nháp và COMPLETED thiếu exam ID. Trả 409 có hướng dẫn đối soát Việt–Anh, không gọi callback provider/recover/save khi đọc khóa hỏng. Đây là kiểm tra cấu trúc tối thiểu, không thay thế xác thực từng câu hỏi khi lưu hoặc đối chiếu đề đã lưu.
 - [x] QA khóa hỏng: 28 unit test chống trùng đạt, MySQL 5/5 đạt; typecheck/lint đạt. Test thêm 12 dạng dữ liệu hỏng; provider/lưu đề được giả lập, không phải UAT AI live. Khôi phục có bằng chứng cho khóa hỏng vẫn chưa được mở tự động.
 - [x] Tách `CLAIMED` (chưa được phép gọi provider) khỏi `GENERATING`. Lỗi tra cứu đề cũ hoặc restart ở bước chuẩn bị được tiếp tục bằng compare-and-swap; chỉ worker thắng khóa mới được gọi AI.
