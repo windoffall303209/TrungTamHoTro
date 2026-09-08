@@ -3,6 +3,7 @@ import type { ConfigService } from "@nestjs/config";
 import type { Environment } from "../src/config/environment.js";
 import { AiProviderService } from "../src/system/ai-provider.service.js";
 import { decryptSecret, encryptSecret } from "../src/infrastructure/secret-vault.js";
+import { chunkDocument } from "../src/system/ai-document-context.js";
 
 const encryptionSecret = "test-encryption-secret-at-least-32-characters";
 const config = { get: (key: string) => key === "AUTH_ENCRYPTION_SECRET" ? encryptionSecret : undefined } as unknown as ConfigService<Environment, true>;
@@ -26,6 +27,40 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("answers through Custom using supplied citations and rejects invented source IDs", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "CUSTOM", name: "Text AI", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "qa-provider-secret", enabled: true }, "usr-admin");
+    await service.configureTask("DOCUMENT_QA", { providerId: provider.id, model: "text-model" }, "usr-admin");
+    const chunks = chunkDocument({ materialId: "material-1", version: 2, checksum: "verified", name: "HTTP.pdf" }, [{ page: 1, text: "HTTP transfers representations between clients and servers." }]);
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ answer: "HTTP transfers representations.", insufficientContext: false, citationIds: [chunks[0]!.id] }) } }] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ answer: "Invented answer", insufficientContext: false, citationIds: ["another-material"] }) } }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await service.answerDocument("What is HTTP?", chunks, "EN");
+    expect(result.citations).toEqual(chunks);
+    expect(result.answer).toBe("HTTP transfers representations.");
+    const body = JSON.stringify(readJsonBody(fetchMock.mock.calls[0]));
+    expect(body).toContain("untrusted DATA");
+    expect(body).toContain("English");
+    expect(readJsonBody(fetchMock.mock.calls[0])).not.toHaveProperty("tools");
+    await expect(service.answerDocument("What is HTTP?", chunks)).rejects.toThrow("ngoài ngữ cảnh");
+  });
+
+  it("does not call a model without relevant context or expose unsupported answers", async () => {
+    const service = new AiProviderService(undefined, config);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await service.answerDocument("Unrelated question", [], "EN")).insufficientContext).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "qa-provider-secret", enabled: true }, "usr-admin");
+    await service.configureTask("DOCUMENT_QA", { providerId: provider.id, model: provider.model }, "usr-admin");
+    const chunks = chunkDocument({ materialId: "m", version: 1, checksum: "hash", name: "notes" }, [{ page: 1, text: "A short source." }]);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ answer: "Unsupported claim must not be shown", insufficientContext: true, citationIds: [] }) }] } }] })));
+    const result = await service.answerDocument("Missing details?", chunks);
+    expect(result.insufficientContext).toBe(true);
+    expect(result.answer).not.toContain("Unsupported claim");
+    expect(result.citations).toEqual([]);
+  });
 
   it("extracts pages with configured model and rejects partial or malformed documents", async () => {
     const service = new AiProviderService(undefined, config);
