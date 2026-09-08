@@ -58,7 +58,7 @@ export function StudyDraftEditor({ materialId, guide, onSaved, onCancel }: { mat
 
   return <form onSubmit={(event) => void save(event)} className="mt-6 space-y-5" noValidate>
     <h4 ref={heading} tabIndex={-1} className="text-lg font-bold">Chỉnh sửa bộ ôn tập</h4>
-    <p className="max-w-[72ch] text-sm leading-6 text-[var(--ink-soft)]">Lưu chỉnh sửa không gọi AI và không thay đổi kết quả AI gốc. Hãy bảo đảm nội dung mới vẫn phù hợp với nguồn trích dẫn. Chưa phát hành cho học viên.</p>
+    <p className="max-w-[72ch] text-sm leading-6 text-[var(--ink-soft)]">Lưu chỉnh sửa không gọi AI và không thay đổi kết quả AI gốc. Hãy bảo đảm nội dung mới vẫn phù hợp với nguồn trích dẫn. Chỉnh sửa không tự cập nhật bản học viên đang xem.</p>
     <fieldset disabled={busy} className="min-w-0 space-y-5">
       {summary.map((text, index) => <div key={index} className="space-y-2">
         <Field label={<><span>Ý chính</span> {index + 1}</>} error={invalid[`summary-${index}`]}><textarea className={`${inputClass} text-base`} rows={3} maxLength={2000} required translate="no" aria-invalid={Boolean(invalid[`summary-${index}`])} value={text} onChange={(event) => setSummary((items) => items.map((value, i) => i === index ? event.target.value : value))} /></Field>
