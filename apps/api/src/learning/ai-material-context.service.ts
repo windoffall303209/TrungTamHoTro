@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { LearningService } from "./learning.service.js";
 import { AiProviderService } from "../system/ai-provider.service.js";
@@ -75,6 +75,19 @@ export class AiMaterialContextService {
   async unpublishStudyDraft(materialId: string, draftId: string, actorId: string, role: string, revision: number): ReturnType<AiStudyDraftService["unpublish"]> {
     await this.requireMaterial(materialId, actorId, role);
     return this.drafts.unpublish(draftId, actorId, materialId, revision);
+  }
+
+  /** Lọc từng phiên bản nguồn trước khi trả metadata, giữ cursor để đi tiếp qua trang có nguồn bị ẩn. */
+  async listPublishedStudyDrafts(materialId: string, actorId: string, role: string, cursor?: string): ReturnType<AiStudyDraftService["listPublished"]> {
+    const material = await this.requireMaterial(materialId, actorId, role);
+    if (material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy bộ ôn tập đã phát hành.");
+    const page = await this.drafts.listPublished(materialId, cursor);
+    const allowed = new Set<number>();
+    await Promise.all([...new Set(page.items.map((item) => item.sourceVersion))].map(async (version) => {
+      try { await this.learning.createMaterialVersionAccess(materialId, version, role, "PREVIEW", actorId); allowed.add(version); }
+      catch (error) { if (!(error instanceof HttpException) || ![403, 404].includes(error.getStatus())) throw error; }
+    }));
+    return { ...page, items: page.items.filter((item) => allowed.has(item.sourceVersion)) };
   }
 
   /** Học viên chỉ nhận snapshot đã phát hành khi còn quyền theo lớp và đúng phiên bản nguồn. */
