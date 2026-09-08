@@ -1,4 +1,7 @@
 {
+  "Đối soát hỏi đáp AI": "AI document answer reconciliation",
+  "Đã lưu câu trả lời": "Answer saved",
+  "Hàng đợi không hiển thị câu hỏi, câu trả lời hoặc trích dẫn riêng. Đã lưu chỉ phản ánh trạng thái lưu trữ, không xác nhận nội dung đúng. Phiên bản tác vụ không phải phiên bản tài liệu.": "This queue does not display private questions, answers or citations. Saved reflects storage status, not content accuracy. The task version is not the document version.",
   "Kiểm tra kết quả": "Check saved result",
   "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới.": "No saved answer exists. You can submit the question to generate one.",
   "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau.": "The request is processing or was interrupted. Check again later.",
