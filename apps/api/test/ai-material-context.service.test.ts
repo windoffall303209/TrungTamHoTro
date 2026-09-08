@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { testStudyDraft } from "./ai-study-draft.fixture.js";
 import { NotFoundException } from "@nestjs/common";
 import { AiMaterialContextService } from "../src/learning/ai-material-context.service.js";
 import type { LearningService } from "../src/learning/learning.service.js";
@@ -11,7 +12,7 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
   const learning = { listMaterials: vi.fn().mockResolvedValue([material]), createMaterialVersionAccess: vi.fn().mockResolvedValue({ url: "/material?expires=123&signature=signed" }), readMaterialVersionDownload: vi.fn().mockResolvedValue({ fileName: material.name, mimeType: "application/pdf", buffer: Buffer.from("pdf-bytes") }) };
   const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "gemini", model: "model-1" }), extractDocumentPages: vi.fn().mockResolvedValue([{ page: 1, text: "Giao thức HTTP truyền dữ liệu." }]), createStudyGuide: vi.fn().mockResolvedValue({ insufficientContext: false, summary: [], flashcards: [], model: "study-model" }) };
   const answers = { generate: (_identity: unknown, generate: () => Promise<SavedDocumentAnswer>) => generate() } as AiDocumentAnswerStore;
-  return { learning, ai, material, service: new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, answers) };
+  return { learning, ai, material, service: new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, testStudyDraft(), answers) };
 }
 
 describe("authorized material AI context", () => {
