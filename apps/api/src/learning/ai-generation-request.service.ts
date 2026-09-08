@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Injectable, Optional } from "@nestjs/common";
+import { ConflictException, HttpException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { GeneratedExamDraft } from "../system/ai-provider.service.js";
@@ -17,11 +17,11 @@ function canonical(value: unknown): string {
 @Injectable()
 /** Claim bền vững trước khi gọi AI; không tự gọi lại provider khi kết quả upstream chưa xác định. */
 export class AiGenerationRequestService {
-  private readonly memory = new Map<string, { version: number; value: RecordValue }>();
-  constructor(@Optional() private readonly prisma?: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Giữ một lần gọi provider; retry bước lưu từ bản nháp đã cache và trả lại kết quả hoàn tất. */
   async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared, canonicalRequestId: string) => Promise<AiGeneratedExamResult>, recover: (canonicalRequestId: string) => Promise<AiGeneratedExamResult | undefined>): Promise<AiGeneratedExamResult> {
+    if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Sinh đề AI yêu cầu database bền vững để chống tạo trùng. Liên hệ quản trị viên kiểm tra kết nối.");
     const requestKey = `ai-generation:${requestId}`;
     const hash = createHash("sha256").update(canonical(payload)).digest("hex");
     const initial: RecordValue = { owner, hash, state: "CLAIMED" };
@@ -71,27 +71,18 @@ export class AiGenerationRequestService {
 
   /** Tạo khóa duy nhất bằng database, chỉ coi unique conflict là request đã tồn tại. */
   private async claim(key: string, value: RecordValue): Promise<boolean> {
-    if (!this.prisma?.isStartupConnectionEnabled()) {
-      if (this.memory.has(key)) return false;
-      this.memory.set(key, { version: 1, value: structuredClone(value) }); return true;
-    }
     try { await this.prisma.systemSetting.create({ data: { key, value: value as unknown as object, updatedBy: value.owner } }); return true; }
     catch (error) { if (error && typeof error === "object" && "code" in error && error.code === "P2002") return false; throw error; }
   }
 
   /** Đọc trạng thái đã lưu mà không phụ thuộc process đang xử lý request đầu tiên. */
   private async read(key: string): Promise<{ version: number; value: RecordValue } | undefined> {
-    if (!this.prisma?.isStartupConnectionEnabled()) return structuredClone(this.memory.get(key));
     const row = await this.prisma.systemSetting.findUnique({ where: { key } });
     return row ? { version: row.version, value: row.value as unknown as RecordValue } : undefined;
   }
 
   /** Chuyển trạng thái bằng compare-and-swap để chỉ một worker được tiếp tục. */
   private async replace(key: string, version: number, value: RecordValue): Promise<boolean> {
-    if (!this.prisma?.isStartupConnectionEnabled()) {
-      if (this.memory.get(key)?.version !== version) return false;
-      this.memory.set(key, { version: version + 1, value: structuredClone(value) }); return true;
-    }
     return (await this.prisma.systemSetting.updateMany({ where: { key, version }, data: { value: value as unknown as object, version: { increment: 1 } } })).count === 1;
   }
 }
