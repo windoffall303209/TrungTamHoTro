@@ -1,21 +1,35 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, Injectable, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { AiProviderService, type ExamLanguage } from "../system/ai-provider.service.js";
 import { AcademicService } from "./academic.service.js";
+import { AiGradingStoreService, type SavedGradingSuggestion } from "./ai-grading-store.service.js";
+import { validateGradingInput } from "../system/ai-grading-suggestion.js";
 
 @Injectable()
 /** Điều phối gợi ý riêng cho giảng viên; không gọi thao tác lưu điểm hoặc gửi phản hồi. */
 export class AiGradingAssistService {
-  constructor(private readonly academic: AcademicService, private readonly ai: AiProviderService) {}
+  constructor(private readonly academic: AcademicService, private readonly ai: AiProviderService, @Optional() private readonly store: AiGradingStoreService = new AiGradingStoreService()) {}
 
   /** Đọc nguồn có quyền trước khi gọi AI và loại kết quả nếu quyền/bài làm/rubric thay đổi trong lúc chờ. */
-  async suggest(submissionId: string, expectedRevision: number, language: ExamLanguage, session: AuthenticatedSession): Promise<Awaited<ReturnType<AiProviderService["suggestGrading"]>> & { submissionRevision: number; assignmentVersion: number; contextHash: string }> {
+  async suggest(submissionId: string, expectedRevision: number, language: ExamLanguage, session: AuthenticatedSession): ReturnType<AiGradingStoreService["generate"]> {
     const context = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
     const contextHash = createHash("sha256").update(JSON.stringify(context)).digest("hex");
-    const suggestion = await this.ai.suggestGrading({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
+    const input = validateGradingInput({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
+    const identity = { ownerId: session.user.id, submissionId, contextHash, language };
+    if (!await this.store.find(identity)) await this.ai.resolveTask("GRADING_ASSIST");
+    const suggestion = await this.store.generate(identity, async () => ({ ...await this.ai.suggestGrading(input), submissionRevision: context.submissionRevision, assignmentVersion: context.assignmentVersion, contextHash }));
     const current = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
     if (createHash("sha256").update(JSON.stringify(current)).digest("hex") !== contextHash) throw new ConflictException("Bài làm hoặc rubric đã thay đổi trong lúc AI xử lý. Gợi ý chưa được áp dụng; hãy tải lại bài.");
-    return { ...suggestion, submissionRevision: context.submissionRevision, assignmentVersion: context.assignmentVersion, contextHash };
+    return suggestion;
+  }
+
+  /** Đọc kết quả hiện hành đã lưu sau khi kiểm tra quyền; không cần model đang hoạt động. */
+  async inspect(submissionId: string, expectedRevision: number, language: ExamLanguage, session: AuthenticatedSession): Promise<{ state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; suggestionId?: string; result?: SavedGradingSuggestion | null }> {
+    const context = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
+    validateGradingInput({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
+    const contextHash = createHash("sha256").update(JSON.stringify(context)).digest("hex");
+    const row = await this.store.find({ ownerId: session.user.id, submissionId, contextHash, language });
+    return row ? { state: row.state, suggestionId: row.id, result: row.result } : { state: "NOT_REQUESTED" };
   }
 }
