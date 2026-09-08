@@ -76,5 +76,16 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
     expect(reopened.editRevision).toBe(1);
     expect(reopened.result).toEqual(original);
     expect(reopened.editedResult?.summary[0]?.text).toBe("Edited");
+    const publicationInput = { expectedRevision: 1, expectedPublicationRevision: 0, confirmReview: true };
+    const publications = await Promise.allSettled(Array.from({ length: 4 }, () => new AiStudyDraftService(prisma).publish(saved.draftId, ownerId, materialId, publicationInput)));
+    expect(publications.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    for (const attempt of publications) if (attempt.status === "rejected") expect(attempt.reason).toMatchObject({ status: 409 });
+    const service = new AiStudyDraftService(prisma);
+    await service.edit(saved.draftId, ownerId, materialId, { ...input, expectedRevision: 1, summary: [{ text: "Private next edit", citationIds: [source.id] }] });
+    expect((await new AiStudyDraftService(prisma).getPublished(saved.draftId, materialId)).result.summary[0]?.text).toBe("Edited");
+    await expect(service.unpublish(saved.draftId, ownerId, materialId, 0)).rejects.toMatchObject({ status: 409 });
+    await service.unpublish(saved.draftId, ownerId, materialId, 1);
+    await expect(new AiStudyDraftService(prisma).getPublished(saved.draftId, materialId)).rejects.toMatchObject({ status: 404 });
+    expect((await service.get(saved.draftId, ownerId, materialId)).editedResult?.summary[0]?.text).toBe("Private next edit");
   });
 });

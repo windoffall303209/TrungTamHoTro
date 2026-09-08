@@ -13,7 +13,7 @@ import { AiProviderService, type QuestionScanResult } from "../system/ai-provide
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
-import { EditExamQuestionDto, EditStudyDraftDto, SubmitExamDto } from "./learning.dto.js";
+import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -44,6 +44,18 @@ export class ContentController {
   /** Chỉnh sửa bản ôn tập riêng, giữ nguồn gốc và phát hiện xung đột chỉnh sửa. */
   @Patch("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
   editStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: EditStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["editStudyDraft"]> { return this.materialAi.editStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
+
+  /** Phát hành snapshot đã duyệt, không gọi AI. */
+  @Post("instructor/materials/:materialId/ai-study-guides/:draftId/publish") @RequirePermissions("material:manage")
+  publishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: PublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["publishStudyDraft"]> { return this.materialAi.publishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
+
+  /** Thu hồi quyền xem snapshot của học viên mà không xóa bản nháp riêng. */
+  @Post("instructor/materials/:materialId/ai-study-guides/:draftId/unpublish") @RequirePermissions("material:manage")
+  unpublishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: UnpublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["unpublishStudyDraft"]> { return this.materialAi.unpublishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input.expectedPublicationRevision); }
+
+  /** Đọc bộ ôn tập công khai theo quyền truy cập lớp của người dùng hiện tại. */
+  @Get("learner/materials/:materialId/study-guides/:draftId") @RequirePermissions("material:view")
+  getPublishedStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getPublishedStudyDraft"]> { return this.materialAi.getPublishedStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
