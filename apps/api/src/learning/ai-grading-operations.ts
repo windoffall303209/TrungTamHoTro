@@ -20,12 +20,13 @@ export class GradingOperationsQueryDto {
 }
 
 const examStates = ["CLAIMED", "GENERATING", "READY", "SAVING", "COMPLETED", "UNCERTAIN"] as const;
+const examScopes = ["canonical", "unlinked", "broken"] as const;
 /** Sinh đề có bước giữ khóa, lưu nháp và hoàn tất riêng; không đồng nhất READY với đề đã lưu. */
 export class ExamOperationsQueryDto extends OmitType(GradingOperationsQueryDto, ["state"] as const) {
   @IsOptional() @IsIn(examStates)
   state?: typeof examStates[number];
-  @IsOptional() @IsIn(["canonical", "unlinked"])
-  scope?: "canonical" | "unlinked";
+  @IsOptional() @IsIn(examScopes)
+  scope?: typeof examScopes[number];
 }
 
 const metadata = { id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true } as const;
@@ -74,11 +75,11 @@ export class AiGradingOperationsService {
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
-  /** Chỉ liệt kê tác vụ sinh đề gốc; các UUID retry và khóa liên kết không trở thành hàng tác vụ giả. */
+  /** Đọc request gốc hoặc request bị ảnh hưởng bởi liên kết thiếu/hỏng; không đọc nội dung đề. */
   async listExams(query: ExamOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: ExamOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery({ ...query, state: undefined }, session);
     if (query.state !== undefined && !examStates.includes(query.state)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
-    if (query.scope !== undefined && !["canonical", "unlinked"].includes(query.scope)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
+    if (query.scope !== undefined && !examScopes.includes(query.scope)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
     const scope = query.scope ?? "canonical";
     const anchor = query.cursor ? (await this.examRows(Prisma.sql`r.\`key\` = ${`ai-generation:${query.cursor}`}`, 1, scope))[0] : undefined;
     if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
@@ -91,7 +92,17 @@ export class AiGradingOperationsService {
   }
 
   /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
-  private examRows(filter: Prisma.Sql, limit: number, scope: "canonical" | "unlinked"): Promise<ExamOperation[]> {
+  private examRows(filter: Prisma.Sql, limit: number, scope: typeof examScopes[number]): Promise<ExamOperation[]> {
+    // Broken bindings can affect several retry IDs; this scope reports affected requests, not distinct jobs.
+    const brokenTarget = Prisma.sql`AND NOT EXISTS (
+      SELECT 1 FROM system_settings target
+      WHERE JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
+        AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId'))) > 0
+        AND target.\`key\` = CONCAT('ai-generation:', JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')))
+        AND JSON_EXTRACT(target.value, '$.owner') = JSON_EXTRACT(b.value, '$.owner')
+        AND JSON_EXTRACT(target.value, '$.hash') = JSON_EXTRACT(b.value, '$.hash')
+        AND JSON_UNQUOTE(JSON_EXTRACT(target.value, '$.state')) IN (${Prisma.join(examStates)})
+    )`;
     // Retry aliases share an owner/hash binding and must not be reported as unlinked claims.
     const binding = Prisma.sql`EXISTS (
       SELECT 1 FROM system_settings b
@@ -99,6 +110,7 @@ export class AiGradingOperationsService {
         AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
         AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
         ${scope === "canonical" ? Prisma.sql`AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = SUBSTRING(r.\`key\`, 15)` : Prisma.empty}
+        ${scope === "broken" ? brokenTarget : Prisma.empty}
     )`;
     const relationship = scope === "unlinked" ? Prisma.sql`NOT ${binding}` : binding;
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
@@ -149,7 +161,7 @@ export class AiGradingOperationsController {
   @Get("exams")
   @RequirePermissions("system:configure")
   @Header("Cache-Control", "no-store")
-  /** Đọc hàng đợi sinh đề gốc, không trả câu hỏi/đáp án và không gọi provider. */
+  /** Đọc request sinh đề theo phạm vi đối soát, không trả câu hỏi/đáp án và không gọi provider. */
   exams(@Query() query: ExamOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listExams"]> {
     return this.operations.listExams(query, session);
   }

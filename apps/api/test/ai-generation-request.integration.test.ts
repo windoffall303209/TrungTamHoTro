@@ -125,4 +125,33 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
     await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: ids[1] }, session)).rejects.toMatchObject({ status: 400 });
     expect(generate).toHaveBeenCalledTimes(1);
   });
+
+  it("finds requests affected by malformed or dangling bindings without exposing private data", async () => {
+    const prefix = randomUUID();
+    const cases = ["missing-id", "numeric-id", "empty-id", "missing-target", "wrong-owner", "wrong-hash", "invalid-state", "valid"];
+    for (const kind of cases) {
+      const id = `${prefix}-${kind}`;
+      const targetId = `${id}-target`;
+      await prisma.systemSetting.create({ data: { key: `ai-generation:${id}`, updatedBy: owner, effectiveAt: new Date("2102-09-08T00:00:00Z"), value: { owner, hash: id, state: "CLAIMED", prepared: { secret: "private broken draft" } } } });
+      const canonicalRequestId = kind === "numeric-id" ? 123 : kind === "empty-id" ? "" : targetId;
+      await prisma.systemSetting.create({ data: { key: `ai-generation-content:${id}`, updatedBy: owner, value: { owner, hash: id, ...(kind === "missing-id" ? {} : { canonicalRequestId }) } } });
+      if (["wrong-owner", "wrong-hash", "invalid-state", "valid"].includes(kind)) await prisma.systemSetting.create({ data: {
+        key: `ai-generation:${targetId}`, updatedBy: owner,
+        value: { owner: kind === "wrong-owner" ? `${owner}-other` : owner, hash: kind === "wrong-hash" ? "different" : id, state: kind === "invalid-state" ? "UNKNOWN" : "CLAIMED" },
+      } });
+    }
+    const operations = new AiGradingOperationsService(prisma);
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
+    const expectedIds = cases.filter((kind) => kind !== "valid").map((kind) => `${prefix}-${kind}`).sort().reverse();
+    const snapshot = await prisma.systemSetting.findMany({ where: { updatedBy: owner, key: { contains: prefix } }, orderBy: { key: "asc" } });
+    const first = await operations.listExams({ limit: 1, scope: "broken", state: "CLAIMED" }, session);
+    expect(first.items.map((item) => item.id)).toEqual(expectedIds.slice(0, 1));
+    const rest = await operations.listExams({ limit: 50, scope: "broken", state: "CLAIMED", cursor: first.nextCursor! }, session);
+    expect(rest.items.filter((item) => item.id.startsWith(prefix)).map((item) => item.id)).toEqual(expectedIds.slice(1));
+    expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "ownerId", "state", "version", "createdAt", "updatedAt"].sort());
+    expect(JSON.stringify([first, rest])).not.toContain("private broken draft");
+    await expect(operations.listExams({ limit: 1, scope: "broken", cursor: `${prefix}-valid` }, session)).rejects.toMatchObject({ status: 400 });
+    await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: expectedIds[0] }, session)).rejects.toMatchObject({ status: 400 });
+    expect(await prisma.systemSetting.findMany({ where: { updatedBy: owner, key: { contains: prefix } }, orderBy: { key: "asc" } })).toEqual(snapshot);
+  });
 });
