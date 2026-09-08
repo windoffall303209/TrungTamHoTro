@@ -8,6 +8,29 @@ const input = { expectedRevision: 0, summary: [{ text: " Revised ", citationIds:
 const identity = { ownerId: "teacher", materialId: "material", sourceVersion: 1, options: { cardCount: 1, language: "VI" as const } };
 
 describe("study draft human edits", () => {
+  it("publishes only confirmed snapshots, keeps later edits private and supports revision-checked withdrawal", async () => {
+    const service = new AiStudyDraftService();
+    const saved = await service.generate(identity, () => Promise.resolve(original));
+    const publish = { expectedRevision: 0, expectedPublicationRevision: 0, confirmReview: true };
+    await expect(service.getPublished(saved.draftId, "material")).rejects.toMatchObject({ status: 404 });
+    await expect(service.publish(saved.draftId, "teacher", "material", { ...publish, confirmReview: false })).rejects.toMatchObject({ status: 400 });
+    await expect(service.publish(saved.draftId, "other", "material", publish)).rejects.toMatchObject({ status: 404 });
+    await service.publish(saved.draftId, "teacher", "material", publish);
+    const publicGuide = await service.getPublished(saved.draftId, "material");
+    expect(publicGuide.result).toEqual(original);
+    expect(publicGuide).not.toHaveProperty("ownerId");
+    expect(publicGuide).not.toHaveProperty("editedResult");
+    expect(publicGuide).not.toHaveProperty("fingerprint");
+    await service.edit(saved.draftId, "teacher", "material", input);
+    expect((await service.getPublished(saved.draftId, "material")).result).toEqual(original);
+    await expect(service.publish(saved.draftId, "teacher", "material", { ...publish, expectedPublicationRevision: 1 })).rejects.toMatchObject({ status: 409 });
+    await service.publish(saved.draftId, "teacher", "material", { ...publish, expectedRevision: 1, expectedPublicationRevision: 1 });
+    expect((await service.getPublished(saved.draftId, "material")).result.summary[0]?.text).toBe("Revised");
+    await expect(service.unpublish(saved.draftId, "teacher", "material", 1)).rejects.toMatchObject({ status: 409 });
+    await service.unpublish(saved.draftId, "teacher", "material", 2);
+    await expect(service.getPublished(saved.draftId, "material")).rejects.toMatchObject({ status: 404 });
+    expect((await service.get(saved.draftId, "teacher", "material")).editedResult?.summary[0]?.text).toBe("Revised");
+  });
   it("preserves AI output, restores authoritative sources and detects simultaneous saves", async () => {
     const service = new AiStudyDraftService();
     const generate = vi.fn(() => Promise.resolve(original));
