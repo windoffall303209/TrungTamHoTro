@@ -11353,8 +11353,7 @@ export class LearningService {
     if (
       input.type === "TRUE_FALSE" &&
       (options.length !== 2 ||
-        !options.includes("Đúng") ||
-        !options.includes("Sai"))
+        ![["Đúng", "Sai"], ["True", "False"], ["Đúng (True)", "Sai (False)"]].some((pair) => pair.every((option) => options.includes(option))))
     )
       throw new BadRequestException(
         "Câu hỏi đúng/sai phải có hai lựa chọn Đúng và Sai.",

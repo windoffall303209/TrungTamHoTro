@@ -92,6 +92,7 @@ const questionTypeOptions: Array<{
   { type: "ESSAY", label: "Tự luận", description: "Kèm dàn ý chấm tham khảo" },
 ];
 const blankAiConfig = {
+  language: "VI" as "VI" | "EN" | "BILINGUAL",
   focus: "",
   difficulty: 2 as 1 | 2 | 3,
   contextMode: "AUTO" as "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH",
@@ -454,6 +455,7 @@ export default function ExamsPage() {
             scoreAllocations: undefined,
             focus: aiConfig.focus.trim(),
             difficulty: aiConfig.difficulty,
+            language: aiConfig.language,
             contextMode: aiConfig.contextMode,
             materialIds:
               aiConfig.contextMode === "WEB_SEARCH" ? [] : aiConfig.materialIds,
@@ -1577,6 +1579,7 @@ export default function ExamsPage() {
                       <option value={3}>Nâng cao</option>
                     </select>
                   </Field>
+                  <Field label="Ngôn ngữ đề thi"><select className={inputClass} value={aiConfig.language} onChange={(event) => setAiConfig({ ...aiConfig, language: event.target.value as "VI" | "EN" | "BILINGUAL" })}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
                   <p className="text-sm text-[var(--ink-soft)]">AI sinh đề do quản trị viên cấu hình. Bạn chỉ cần chọn nội dung, tài liệu và ma trận câu hỏi.</p>
                 </div>
                 {!examAiProviders.length ? (
