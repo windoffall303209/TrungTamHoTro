@@ -1,4 +1,6 @@
 {
+  "Tệp bài nộp không khớp bản đã lưu. Không thể sử dụng nội dung; hãy liên hệ quản trị viên.": "The submission file does not match the stored version. Its contents cannot be used; contact an administrator.",
+  "Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.": "The submission or file changed during download. Reopen the submission.",
   "AI hiện chỉ hỗ trợ bài làm văn bản không có tệp đính kèm. Hãy chấm bài này thủ công để không bỏ sót nội dung.": "AI currently supports text submissions without attachments. Grade this submission manually so no content is overlooked.",
   "Chưa có gợi ý cho bài làm và ngôn ngữ này. Tạo gợi ý sẽ gửi bài làm cùng rubric tới model do admin cấu hình và có thể phát sinh phí.": "No suggestion exists for this submission and language. Generating one sends the work and rubric to the administrator-configured model and may incur charges.",
   "Chưa đủ bằng chứng để gợi ý điểm": "Not enough evidence to suggest a score",
