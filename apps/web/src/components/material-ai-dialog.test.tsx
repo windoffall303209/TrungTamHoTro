@@ -12,6 +12,20 @@ const material = { id: "material-1", name: "Lesson.pdf", version: 4 } as Materia
 const response = { answer: "Answer <script>unsafe()</script>", warning: "Verify original", version: 3, insufficientContext: false, citations: [{ id: "chunk-1", materialId: "material-1", version: 3, name: "Lesson.pdf", page: 2, text: "Source passage" }] };
 
 describe("MaterialAiDialog", () => {
+  it.each(["READY", "NOT_REQUESTED", "GENERATING", "UNCERTAIN"])("checks saved status %s without starting generation", async (state) => {
+    apiRequest.mockResolvedValueOnce(state === "READY" ? { state, result: response } : { state });
+    render(<MaterialAiDialog material={material} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: " Explain " } });
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra kết quả" }));
+    if (state === "READY") await screen.findByText(response.answer);
+    else await waitFor(() => expect(screen.getByRole("status")).not.toHaveTextContent("Đang kiểm tra"));
+    expect(apiRequest).toHaveBeenCalledExactlyOnceWith("/instructor/materials/material-1/ai-question/status", expect.objectContaining({ method: "POST", body: JSON.stringify({ question: "Explain", language: "VI" }) }));
+    expect(screen.getByRole("button", { name: "Gửi câu hỏi" })).toBeEnabled();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Another question" } });
+    expect(screen.queryByText(response.answer)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -99,7 +113,7 @@ describe("MaterialAiDialog", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Explain this" } });
     fireEvent.click(screen.getByRole("button", { name: "Gửi câu hỏi" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
-    expect(screen.getByRole("alert")).toHaveTextContent("phát sinh phí mới");
+    expect(screen.getByRole("alert")).toHaveTextContent("Kiểm tra kết quả");
     expect(screen.getByRole("textbox")).toBeEnabled();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
