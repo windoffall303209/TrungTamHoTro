@@ -258,6 +258,7 @@ export class GenerateAiExamDto extends OmitType(CreateExamDto, [
   "questionIds",
   "scoreAllocations",
 ] as const) {
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
   @IsUUID() clientRequestId!: string;
   @IsString() @MinLength(5) @MaxLength(5_000) focus!: string;
   @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;

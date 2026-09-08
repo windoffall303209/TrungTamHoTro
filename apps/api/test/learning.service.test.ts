@@ -1581,6 +1581,13 @@ describe("LearningService", () => {
     ).rejects.toThrow("tải lại");
   });
 
+  it.each([["True", "False"], ["Đúng (True)", "Sai (False)"]])("lưu câu đúng sai đa ngôn ngữ %s", async (positive, negative) => {
+    const service = new LearningService();
+    const question = await service.createQuestion({ courseId: "course-web", type: "TRUE_FALSE", content: "HTTP is an application layer protocol.", options: [positive, negative], correctAnswers: [positive], difficulty: 1, tags: [] });
+    expect(question.options).toEqual([positive, negative]);
+    expect(question.correctAnswers).toEqual([positive]);
+  });
+
   it("bỏ đọc tài liệu khi chọn web nhưng vẫn kiểm tra quyền lớp học", async () => {
     const service = new LearningService();
     const context = await service.getExamGenerationContext("class-web-01", "usr-instructor", [], true);
