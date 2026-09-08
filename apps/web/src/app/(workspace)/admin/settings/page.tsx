@@ -2,6 +2,7 @@
 
 import { activeLocale } from "@/i18n/runtime";
 import { AiTaskSettings } from "@/components/ai-task-settings";
+import { AiGradingOperations } from "@/components/ai-grading-operations";
 
 import {
   Activity,
@@ -489,6 +490,7 @@ export default function SettingsPage() {
           </div>
           <div className="divide-y divide-[var(--rule)] border-t border-[var(--rule)]">
             <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
+            <AiGradingOperations />
             {aiProviders.map((item) => (
               <article className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-6" key={item.id}>
                 <div className="min-w-0">
