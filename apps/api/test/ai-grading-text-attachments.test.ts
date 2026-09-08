@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { testGradingStore } from "./ai-grading-store.fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcademicService } from "../src/learning/academic.service.js";
 import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
@@ -28,7 +29,7 @@ function fixture(): {
   const storage = { get: vi.fn<(...args: string[]) => Promise<Buffer>>().mockImplementation((key) => Promise.resolve(files.get(key)!)) };
   const academic = new AcademicService(prisma as unknown as PrismaService, storage as unknown as ObjectStorageService, {} as AntivirusService);
   const ai = { resolveTask: vi.fn().mockResolvedValue({}), suggestGrading: vi.fn().mockResolvedValue({ insufficientEvidence: false, feedback: "Correct explanation", suggestedTotal: 5, requiresHumanReview: true, model: "configured", criteria: [{ criterionId: "r1", suggestedPoints: 5, reasoning: "Correct layer", evidence: [files.get("file1")!.toString()] }] }) };
-  return { row, files, storage, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService) };
+  return { row, files, storage, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore()) };
 }
 
 describe("TXT attachment grading context", () => {

@@ -1,13 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learning/ai-grading-store.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
+import { testGradingStore as testStore } from "./ai-grading-store.fixture.js";
 
 const identity = { ownerId: "teacher", submissionId: "submission", contextHash: "a".repeat(64), language: "VI" as const };
 const result: SavedGradingSuggestion = { insufficientEvidence: true, feedback: "Review required", criteria: [], suggestedTotal: null, requiresHumanReview: true, model: "configured", submissionRevision: 1, assignmentVersion: 1, contextHash: identity.contextHash };
 
 describe("AI grading durable claim", () => {
+  it.each([undefined, { isStartupConnectionEnabled: (): boolean => false }])("refuses generation and status without durable storage", async (prisma) => {
+    const store = new AiGradingStoreService(prisma as PrismaService | undefined);
+    const generate = vi.fn();
+    await expect(store.generate(identity, generate)).rejects.toMatchObject({ status: 503 });
+    await expect(store.find(identity)).rejects.toMatchObject({ status: 503 });
+    expect(generate).not.toHaveBeenCalled();
+  });
   it("blocks concurrent calls and replays an isolated copy of the saved result", async () => {
-    const store = new AiGradingStoreService();
+    const store = testStore();
     let release!: (value: SavedGradingSuggestion) => void;
     let entered!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
@@ -27,7 +35,7 @@ describe("AI grading durable claim", () => {
     { ownerId: "another-teacher" }, { submissionId: "another-submission" },
     { contextHash: "b".repeat(64) }, { language: "EN" as const },
   ])("isolates identity dimension %j", async (changed) => {
-    const store = new AiGradingStoreService();
+    const store = testStore();
     await store.generate(identity, () => Promise.resolve(result));
     const other = { ...identity, ...changed };
     expect(await store.find(other)).toBeNull();
@@ -36,7 +44,7 @@ describe("AI grading durable claim", () => {
   });
 
   it("never retries an ambiguous provider failure", async () => {
-    const store = new AiGradingStoreService();
+    const store = testStore();
     const generate = vi.fn().mockRejectedValue(new Error("response lost"));
     await expect(store.generate(identity, generate)).rejects.toThrow("response lost");
     expect((await store.find(identity))?.state).toBe("UNCERTAIN");
@@ -45,7 +53,7 @@ describe("AI grading durable claim", () => {
   });
 
   it("rejects a mismatched result without making it replayable", async () => {
-    const store = new AiGradingStoreService();
+    const store = testStore();
     await expect(store.generate(identity, () => Promise.resolve({ ...result, contextHash: "wrong" }))).rejects.toMatchObject({ status: 409 });
     expect(await store.find(identity)).toMatchObject({ state: "UNCERTAIN", result: null });
   });
