@@ -27,6 +27,12 @@ export class MaterialAiContextDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(1000) query?: string;
 }
 
+/** Câu hỏi và ngôn ngữ trả lời; nguồn chỉ được server lấy từ materialId đã kiểm tra quyền. */
+export class MaterialAiQuestionDto {
+  @IsString() @MinLength(2) @MaxLength(2000) question!: string;
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+}
+
 /** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
 export class EditExamQuestionDto {
   @IsString() @MinLength(5) @MaxLength(20000) content!: string;
