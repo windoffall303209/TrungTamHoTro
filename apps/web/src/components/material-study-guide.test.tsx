@@ -12,6 +12,55 @@ describe("MaterialStudyGuide", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+  it("pages private history and opens the stored result without generating or changing inputs", async () => {
+    const draft = { id: "draft-1", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN", fromPage: 2, toPage: 4 } };
+    apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: "draft-1" })
+      .mockResolvedValueOnce({ items: [draft, { ...draft, id: "draft-2", state: "UNCERTAIN" }], nextCursor: null })
+      .mockResolvedValueOnce({ ...draft, result: response });
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={vi.fn()} openSource={vi.fn()} />);
+    expect(apiRequest).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tải thêm bản nháp" }));
+    expect(await screen.findByText(/Chưa rõ kết quả/)).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Mở bản nháp" })).toHaveLength(1);
+    expect(apiRequest.mock.calls[1]?.[0]).toBe("/instructor/materials/material-1/ai-study-guides?cursor=draft-1");
+    fireEvent.click(screen.getByRole("button", { name: "Mở bản nháp" }));
+    expect(await screen.findByText("A key concept.")).toBeVisible();
+    expect(screen.getByText(/Đã lưu bản nháp riêng/)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Tóm tắt và thẻ ôn tập" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Bản nháp đã lưu" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Số thẻ ôn tập")).toHaveValue(5);
+    expect(apiRequest.mock.calls.every((call) => !call[1].method && !call[1].body)).toBe(true);
+  });
+
+  it("keeps a viewed result when a history read fails and permits a manual refresh", async () => {
+    apiRequest.mockResolvedValueOnce(response).mockRejectedValueOnce(new Error("Không có quyền xem tài liệu."))
+      .mockResolvedValueOnce({ items: [], nextCursor: null });
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={vi.fn()} openSource={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Tạo bộ ôn tập" }));
+    await screen.findByText("A key concept.");
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Không có quyền");
+    expect(screen.getByText("A key concept.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Làm mới lịch sử" }));
+    expect(await screen.findByText(/Chưa có bản nháp đã lưu/)).toBeVisible();
+  });
+
+  it("bounds history reads and blocks competing generation without automatically retrying", async () => {
+    vi.useFakeTimers();
+    apiRequest.mockImplementationOnce((_path: string, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))));
+    const onBusyChange = vi.fn();
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={onBusyChange} openSource={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    fireEvent.submit(screen.getByLabelText("Số thẻ ôn tập").closest("form")!);
+    expect(screen.getByRole("button", { name: "Tạo bộ ôn tập" })).toBeDisabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(screen.getByRole("alert")).toHaveTextContent("không gọi AI");
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Tạo bộ ôn tập" })).toBeEnabled();
+  });
+
   it("requires explicit generation and sends selected count, language and page range", async () => {
     apiRequest.mockResolvedValueOnce(response);
     const openSource = vi.fn().mockResolvedValue(undefined);
