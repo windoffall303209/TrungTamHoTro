@@ -1,9 +1,12 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import { createHash, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { LearningService } from "../src/learning/learning.service.js";
+import { AiGenerationRequestService } from "../src/learning/ai-generation-request.service.js";
+import type { GeneratedExamDraft } from "../src/system/ai-provider.service.js";
+import type { AiGeneratedExamResult } from "../src/learning/learning.types.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 
@@ -26,6 +29,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated MySQL", () => {
   // Delete only rows belonging to this unique fixture, in foreign-key order.
   afterAll(async () => {
     if (prisma) {
+      await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
       await prisma.auditLog.deleteMany({ where: { actorId: fixture } });
       await prisma.exam.deleteMany({ where: { classId: fixture } });
       await prisma.question.deleteMany({ where: { courseId: fixture } });
@@ -48,6 +52,31 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated MySQL", () => {
     expect(await prisma.question.count({ where: { courseId: fixture, content: generated.content } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: stored.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
     expect((await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture)).id).toBe(stored.id);
+  });
+
+  it("recovers an interrupted SAVING claim through concurrent retries without calling AI again", async () => {
+    const requestId = randomUUID();
+    const input = { classId: fixture, title: "Resume save", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const question = { type: "SHORT_ANSWER" as const, content: `Resume question ${requestId}`, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
+    const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
+    const prepared = { courseId: fixture, generated: { questions: [question], model: "fixture", context: { ...context, materialNames: [] }, providerId: "fixture", provider: "CUSTOM", warnings: [] } satisfies GeneratedExamDraft };
+    const generate = vi.fn(() => Promise.resolve(prepared));
+    const noResult = (): Promise<undefined> => Promise.resolve(undefined);
+    await expect(new AiGenerationRequestService(prisma).run(requestId, fixture, input, generate, () => Promise.reject(new Error("fixture interruption")), noResult)).rejects.toThrow("fixture interruption");
+    const key = `ai-generation:${requestId}`;
+    const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key } });
+    // Simulate process death after the durable SAVING transition, before the exam transaction starts.
+    await prisma.systemSetting.update({ where: { key }, data: { value: { ...(claim.value as object), state: "SAVING" }, version: { increment: 1 } } });
+    // This callback uses the production transaction and its unique generationRequestId constraint.
+    const save = async (draft: { courseId: string; generated: GeneratedExamDraft }, canonicalId: string): Promise<AiGeneratedExamResult> => ({ exam: await learning.createGeneratedExam(input, draft.generated.questions, draft.courseId, context, canonicalId, fixture) } as AiGeneratedExamResult);
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiGenerationRequestService(prisma).run(randomUUID(), fixture, input, generate, save, noResult, { idempotentSave: true })));
+    expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
+    const replay = await new AiGenerationRequestService(prisma).run(randomUUID(), fixture, input, generate, save, noResult, { idempotentSave: true });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(await prisma.exam.count({ where: { generationRequestId: requestId } })).toBe(1);
+    expect(await prisma.question.count({ where: { courseId: fixture, content: question.content } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: replay.exam.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
+    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key } })).value).toMatchObject({ state: "COMPLETED", result: { exam: { id: replay.exam.id } } });
   });
 
   it.each(["same", "answer", "options", "type", "difficulty", "case", "image"])("preserves generated question identity: %s", async (variant) => {
