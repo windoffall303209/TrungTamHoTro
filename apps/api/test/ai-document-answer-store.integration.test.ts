@@ -11,7 +11,7 @@ const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DAT
 describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
   const ownerId = `answer-test-${randomUUID()}`;
   const identity = { ownerId, materialId: "fixture-document", version: 1, question: "What is HTTP?", language: "EN" as const };
-  const result = { answer: "An application protocol.", insufficientContext: false, citations: [], warning: "Fixture", version: 1 };
+  const result = { answer: "Insufficient fixture context.", insufficientContext: true, citations: [], warning: "Fixture", version: 1 };
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   // Load real database services without calling AI providers.
