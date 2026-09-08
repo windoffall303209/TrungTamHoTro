@@ -2578,5 +2578,19 @@
   "Không tìm thấy bộ ôn tập đã phát hành.": "Published study guide not found.",
   "Bản ôn tập hoặc trạng thái phát hành đã thay đổi. Hãy tải lại.": "The study guide or its publication status has changed. Please reload.",
   "Cần phát hành phiên bản học liệu hiện tại trước khi phát hành bộ ôn tập tương ứng.": "Publish the current material version before publishing its study guide.",
-  "Mốc danh sách ôn tập không còn hợp lệ. Hãy tải lại danh sách.": "The study guide list cursor is no longer valid. Reload the list."
+  "Mốc danh sách ôn tập không còn hợp lệ. Hãy tải lại danh sách.": "The study guide list cursor is no longer valid. Reload the list.",
+  "Bộ ôn tập đã phát hành": "Published study guides",
+  "Nội dung được giảng viên duyệt từ bản AI hỗ trợ. Đọc tóm tắt, tự trả lời thẻ rồi đối chiếu đáp án và nguồn. Mở bộ ôn tập không gọi AI.": "Your instructor reviewed this AI-assisted content. Read the summary, answer each card, then check its answer and sources. Opening a study guide does not call AI.",
+  "Làm mới bộ ôn tập": "Refresh study guides",
+  "Tải lại bản đang xem": "Reload current guide",
+  "Đang tải bộ ôn tập…": "Loading study guides…",
+  "Chưa có bộ ôn tập được phép xem trong trang này. Bạn có thể tải tiếp nếu còn trang hoặc quay lại sau khi giảng viên phát hành.": "No accessible study guides on this page. Load the next page if available, or return after your instructor publishes a guide.",
+  "Phiên bản nguồn": "Source version",
+  "Phát hành lúc": "Published at",
+  "Mở bộ ôn tập": "Open study guide",
+  "Tải thêm bộ ôn tập": "Load more study guides",
+  "Lần phát hành": "Publication revision",
+  "Chỉ bao phủ một phần nội dung đã chọn. Hãy đối chiếu tài liệu gốc để học đầy đủ.": "Only part of the selected content is covered. Refer to the original document for complete study coverage.",
+  "Tải bộ ôn tập quá thời gian chờ. Hãy thử tải lại.": "Loading the study guide timed out. Try loading again.",
+  "Không tải được bộ ôn tập. Hãy thử lại.": "Could not load the study guide. Please try again."
 }
