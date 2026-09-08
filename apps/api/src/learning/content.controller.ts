@@ -11,13 +11,19 @@ import { LearningService, type MaterialAccessAction, type MaterialSearchResult, 
 import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemptReview, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
+import { AiMaterialContextService } from "./ai-material-context.service.js";
+import { MaterialAiContextDto } from "./learning.dto.js";
 import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
 /** API học liệu, ngân hàng câu hỏi, AI scan, đề thi và vòng đời lượt làm bài. */
 export class ContentController {
-  constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService, private readonly aiRequests: AiGenerationRequestService) {}
+  constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService, private readonly aiRequests: AiGenerationRequestService, private readonly materialAi: AiMaterialContextService) {}
+
+  @Post("instructor/materials/:materialId/ai-context") @RequirePermissions("material:manage")
+  /** Chuẩn bị ngữ cảnh có nguồn cho tài liệu giảng viên được phép truy cập. */
+  prepareMaterialContext(@Param("materialId") materialId: string, @Body() input: MaterialAiContextDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["prepare"]> { return this.materialAi.prepare(materialId, session.user.id, session.roleCode, input.query); }
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */

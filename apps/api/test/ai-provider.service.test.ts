@@ -27,6 +27,22 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("extracts pages with configured model and rejects partial or malformed documents", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "extract-test-secret", enabled: true }, "usr-admin");
+    const selected = await service.configureTask("DOCUMENT_CONTEXT", { providerId: provider.id, model: "gemini-2.5-pro" }, "usr-admin");
+    const file = { name: "source.pdf", mimeType: "application/pdf", buffer: Buffer.from("fixture") };
+    for (const content of [{ complete: false, pages: [{ page: 1, text: "partial" }] }, { complete: true, pages: [{ page: 2, text: "missing page 1" }] }, { complete: true, pages: [{ page: 1, text: "" }] }]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(content) }] } }] }))));
+      await expect(service.extractDocumentPages(file, selected)).rejects.toMatchObject({ status: 503 });
+    }
+    const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify({ complete: true, pages: [{ page: 1, text: "HTTP reference" }] }) }] } }] })));
+    vi.stubGlobal("fetch", mock);
+    expect(await service.extractDocumentPages(file, selected)).toEqual([{ page: 1, text: "HTTP reference" }]);
+    expect(mock.mock.calls[0]?.[0]).toContain("gemini-2.5-pro");
+    await expect(service.extractDocumentPages({ ...file, mimeType: "application/msword" }, selected)).rejects.toMatchObject({ status: 400 });
+  });
+
   it.each(["VI", "EN", "BILINGUAL"] as const)("passes %s language instructions through Gemini generation", async (language) => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "language-test-secret", enabled: true }, "usr-admin");
