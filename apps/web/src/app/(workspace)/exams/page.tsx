@@ -18,7 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { QuestionImage } from "@/components/question-image";
@@ -35,6 +35,7 @@ import {
   Tabs,
   usePagination,
 } from "@/components/ui";
+import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import { eligibleExamQuestions } from "@/lib/exam-question-selection";
@@ -192,7 +193,7 @@ export default function ExamsPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [form, setForm] = useState(blank);
   const [aiConfig, setAiConfig] = useState(blankAiConfig);
-  const [aiRequestId, setAiRequestId] = useState("");
+  const aiSubmitting = useRef(false);
   const [aiProviders, setAiProviders] = useState<AiProviderSummary[]>([]);
   const [questionQuery, setQuestionQuery] = useState("");
   const selectableQuestions = useMemo(
@@ -443,19 +444,13 @@ export default function ExamsPage() {
       );
       return;
     }
-    const requestId = aiRequestId || crypto.randomUUID();
-    setAiRequestId(requestId);
+    if (aiSubmitting.current) return;
+    aiSubmitting.current = true;
     setSaving(true);
     try {
-      const result = await apiRequest<AiGeneratedExamResult>(
-        "/instructor/exams/ai-generate",
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
+      const payload = JSON.parse(JSON.stringify({
             ...form,
             questionIds: undefined,
-            clientRequestId: requestId,
             scoreAllocations: undefined,
             focus: aiConfig.focus.trim(),
             difficulty: aiConfig.difficulty,
@@ -469,7 +464,14 @@ export default function ExamsPage() {
             ),
             openAt: new Date(form.openAt).toISOString(),
             closeAt: new Date(form.closeAt).toISOString(),
-          }),
+      }));
+      const requestId = await persistentAiRequestId(session.user.id, payload);
+      const result = await apiRequest<AiGeneratedExamResult>(
+        "/instructor/exams/ai-generate",
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ ...payload, clientRequestId: requestId }),
         },
       );
       const sourceLabel =
@@ -494,6 +496,7 @@ export default function ExamsPage() {
         "error",
       );
     } finally {
+      aiSubmitting.current = false;
       setSaving(false);
     }
   };
@@ -503,7 +506,6 @@ export default function ExamsPage() {
     setEditingExam(null);
     setForm(blank);
     setCreateMode(mode);
-    setAiRequestId(mode === "AI" ? crypto.randomUUID() : "");
     setQuestionQuery("");
     setOpen(true);
   };

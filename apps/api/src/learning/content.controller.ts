@@ -10,13 +10,14 @@ import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto,
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
 import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemptReview, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
+import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
 /** API học liệu, ngân hàng câu hỏi, AI scan, đề thi và vòng đời lượt làm bài. */
 export class ContentController {
-  constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService) {}
+  constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService, private readonly aiRequests: AiGenerationRequestService) {}
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
@@ -268,11 +269,11 @@ export class ContentController {
     if (seenTypes.size !== input.distribution.length) throw new BadRequestException("Mỗi loại câu hỏi chỉ được xuất hiện một lần trong ma trận.");
     const totalQuestions = input.distribution.reduce((sum, item) => sum + item.count, 0);
     if (totalQuestions < 1 || totalQuestions > 50) throw new BadRequestException("Tổng số câu hỏi AI phải từ 1 đến 50.");
-    const existing = await this.learning.getGeneratedExamByRequest(input.clientRequestId, input.classId, session.user.id);
-    if (existing) {
-      const context = existing.aiContext ?? { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
-      return { exam: existing, generatedQuestionCount: existing.questionIds.length, providerId: context.providerId ?? "reused", provider: context.provider ?? "Yêu cầu trước", model: context.model ?? "reused", context: { mode: context.mode, materialIds: context.materialIds, materialNames: [], sources: context.sources }, warnings: [...(context.warnings ?? []), "Đã trả lại đề từ yêu cầu AI hoàn tất trước đó; không tạo bản trùng."] };
-    }
+    // Kiểm tra quyền trước khi đọc cache; không đọc file hoặc gọi provider ở bước này.
+    await this.learning.getExamGenerationContext(input.classId, session.user.id, [], true);
+    const { clientRequestId, providerId: _providerId, model: _model, ...payload } = input;
+    void _providerId; void _model;
+    return this.aiRequests.run(clientRequestId, session.user.id, payload, async () => {
     const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds, input.contextMode === "WEB_SEARCH");
     const aiTask = await this.aiProviders.resolveTask("GENERATE_EXAM");
     const generated = await this.aiProviders.generateExamDraft({
@@ -285,6 +286,9 @@ export class ContentController {
       contextMode: input.contextMode,
       sourceFiles: context.sourceFiles,
     });
+
+      return { courseId: context.courseId, generated };
+    }, async ({ courseId, generated }) => {
     const exam = await this.learning.createGeneratedExam({
       classId: input.classId,
       title: input.title,
@@ -295,8 +299,17 @@ export class ContentController {
       attemptLimit: input.attemptLimit,
       shuffleQuestions: input.shuffleQuestions,
       randomSeed: input.randomSeed,
-    }, generated.questions, context.courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, input.clientRequestId, session.user.id);
+    }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, input.clientRequestId, session.user.id);
     return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: generated.warnings };
+    }, async () => {
+    const existing = await this.learning.getGeneratedExamByRequest(input.clientRequestId, input.classId, session.user.id);
+    if (existing) {
+      const context = existing.aiContext ?? { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
+      return { exam: existing, generatedQuestionCount: existing.questionIds.length, providerId: context.providerId ?? "reused", provider: context.provider ?? "Yêu cầu trước", model: context.model ?? "reused", context: { mode: context.mode, materialIds: context.materialIds, materialNames: [], sources: context.sources }, warnings: [...(context.warnings ?? []), "Đã trả lại đề từ yêu cầu AI hoàn tất trước đó; không tạo bản trùng."] };
+    }
+
+      return undefined;
+    });
   }
 
   @Patch("instructor/exams/:examId/questions/:questionId") @RequirePermissions("exam:manage")
