@@ -701,6 +701,7 @@ model AiStudyDraft {
   source        MaterialVersion   @relation(fields: [materialId, sourceVersion], references: [materialId, version], onDelete: Cascade)
 
   @@index([ownerId, materialId, createdAt, id])
+  @@index([state, createdAt, id], map: "ai_study_operations_state_created_id")
   @@map("ai_study_drafts")
 }
 
