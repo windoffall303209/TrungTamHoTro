@@ -34,3 +34,9 @@ The academic page contains a fixed modal within the animated workspace. The `wor
 - `apps/web/src/components/assignment-ai-grading.test.tsx`: regression cases for explicit reads/creation, review gating, unsupported sources, language/submission changes, duplicate requests, and timeout recovery.
 
 This note is grounded in source inspection and the feature review handoff. The documentation pass did not independently rerun tests or call a live AI provider. Review screenshots use mocked data and demonstrate layout only; they do not establish provider connectivity, grading quality, live billing behavior, or production database operation. The limited ship disposition is a review outcome, not deployment confirmation or a claim of live AI validation.
+
+## Backend TXT extension — frontend integration pending
+
+The backend now accepts verified UTF-8 TXT attachments in addition to inline text. It reads every attached file, rejects unsupported mixed formats, preserves source snapshots with checksums, and enforces 80,000 bytes per TXT file and 20,000 characters across all content and separators. It never truncates a submission to fit. Quotes must occur within one original source, not across an artificial source boundary. Metadata and permissions are rechecked before generation and current context is checked afterward.
+
+This extension does not yet change the frontend flow above: the current panel still rejects submissions with attachments. PDF, images and Word files remain unsupported by the grading pipeline. Backend verification for this increment: 333 API tests passed, 9 configuration-gated tests skipped; the dedicated MySQL grading store suite passed 2 tests including source snapshot replay. Provider generation in these tests is mocked, not live AI.

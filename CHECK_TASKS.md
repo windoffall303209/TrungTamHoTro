@@ -406,6 +406,8 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] Chấm AI văn bản: 11 test component riêng, tổng 76 test frontend đạt; typecheck/lint và catalog 2.145 chuỗi đạt. Browser mock xác nhận copy điểm/phản hồi và modal mobile nằm trong viewport, không tràn ngang. Review độc lập `ship` ở phạm vi giao diện đã xem, không phải UAT provider live; ghi chú tại `docs/ai-grading-review.md`.
 - [ ] Mở rộng gợi ý chấm cho bài nộp đính kèm sau khi có pipeline trích xuất và đối chiếu đúng phiên bản tệp; hiện chặn rõ, không chấm bỏ sót tệp.
 - [x] Chuẩn bị nguồn tệp bài nộp: đường đọc dùng chung đối chiếu SHA-256/kích thước, kiểm tra lại quyền và metadata/phiên bản sau khi tải; hỗ trợ ghim revision cho caller nội bộ. 15 test nguồn xác nhận từ chối tệp sai bytes/metadata, bị gỡ và mất quyền trong khi tải. Đây chưa phải pipeline trích xuất/chấm tệp bằng AI.
+- [x] Backend chấm TXT UTF-8: đọc đủ mọi tệp và phần nhập trực tiếp, giữ snapshot nguồn/checksum cùng gợi ý. Tối đa 80.000 byte/tệp và 20.000 ký tự toàn bài (tính cả dấu ngăn); từ chối binary, lỗi UTF-8, nguồn rỗng, định dạng hỗn hợp không hỗ trợ, không tự cắt. Trích dẫn phải thuộc nguyên vẹn một nguồn. Đối chiếu toàn bộ nguồn lần cuối trước AI; test đổi metadata tệp trước khi đang đọc tệp sau đã red → green.
+- [ ] Nối frontend cho nguồn TXT và đối chiếu trích dẫn theo tệp; giao diện hiện vẫn chặn mọi bài đính kèm, chưa báo hoàn tất trải nghiệm chấm TXT. PDF/ảnh/Word vẫn cần pipeline riêng, không được bỏ qua trong bài hỗn hợp.
 - [ ] Quy trình admin đối soát/khôi phục claim bị gián đoạn và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh

@@ -11,6 +11,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
+import { combineGradingSources, decodeGradingText, GRADING_TEXT_BYTE_LIMIT, type GradingAnswerSource } from "./ai-grading-source.js";
 
 export interface RubricCriterion {
   id: string;
@@ -949,15 +950,33 @@ export class AcademicService {
   }
 
   /** Lấy đúng bài nộp và rubric cho AI, không đưa tên/email hoặc điểm cũ vào ngữ cảnh chấm. */
-  async gradingAiContext(submissionId: string, expectedSubmissionRevision: number, session: AuthenticatedSession): Promise<{ submissionId: string; submissionRevision: number; assignmentVersion: number; instructions: string; answer: string; rubric: RubricCriterion[] }> {
+  async gradingAiContext(submissionId: string, expectedSubmissionRevision: number, session: AuthenticatedSession): Promise<{ submissionId: string; submissionRevision: number; assignmentVersion: number; instructions: string; answer: string; rubric: RubricCriterion[]; sources?: GradingAnswerSource[] }> {
     if (!Number.isInteger(expectedSubmissionRevision) || expectedSubmissionRevision < 1) throw new BadRequestException("Phiên bản bài nộp không hợp lệ.");
-    const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, select: { id: true } } } });
+    const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, orderBy: { id: "asc" }, select: { id: true, originalName: true, mimeType: true, checksum: true, sizeBytes: true } } } });
     if (!submission) throw new NotFoundException("Không tìm thấy bài nộp.");
     await this.requireTeachingAccess(submission.assignment.classId, session, true);
     if (submission.revision !== expectedSubmissionRevision) throw new ConflictException("Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.");
-    if (submission.attachments.length) throw new BadRequestException("Gợi ý chấm AI hiện chỉ hỗ trợ bài nộp văn bản không có tệp đính kèm. Hãy chấm thủ công để không bỏ sót nội dung tệp.");
-    if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
-    return { submissionId: submission.id, submissionRevision: submission.revision, assignmentVersion: submission.assignment.version, instructions: [submission.assignment.title, submission.assignment.description, submission.assignment.instructions].join("\n\n"), answer: submission.content, rubric: this.rubric(submission.assignment.rubric) };
+    const base = { submissionId: submission.id, submissionRevision: submission.revision, assignmentVersion: submission.assignment.version, instructions: [submission.assignment.title, submission.assignment.description, submission.assignment.instructions].join("\n\n"), answer: submission.content, rubric: this.rubric(submission.assignment.rubric) };
+    if (!submission.attachments.length) {
+      if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
+      return base;
+    }
+    if (submission.attachments.length > 5 || submission.attachments.some((file) => file.mimeType !== "text/plain" || !/\.txt$/i.test(file.originalName))) throw new BadRequestException("Chấm AI hiện hỗ trợ văn bản và tệp TXT UTF-8. Hãy chấm thủ công các định dạng khác để không bỏ sót nội dung tệp.");
+    if (submission.attachments.some((file) => file.sizeBytes <= 0n || file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT))) throw new BadRequestException("Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.");
+    const sources: GradingAnswerSource[] = submission.content.trim() ? [{ attachmentId: null, name: "Nội dung bài làm", checksum: null, text: submission.content }] : [];
+    for (const file of submission.attachments) {
+      const verified = await this.readSubmissionAttachment(submissionId, file.id, session, expectedSubmissionRevision);
+      if (verified.checksum !== file.checksum || verified.fileName !== file.originalName || verified.mimeType !== file.mimeType) throw new ConflictException("Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.");
+      sources.push({ attachmentId: file.id, name: verified.fileName, checksum: verified.checksum, text: decodeGradingText(verified.buffer) });
+    }
+    const answer = combineGradingSources(sources);
+    const current = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, orderBy: { id: "asc" }, select: { id: true, originalName: true, mimeType: true, checksum: true, sizeBytes: true } } } });
+    if (!current) throw new NotFoundException("Không tìm thấy bài nộp.");
+    await this.requireTeachingAccess(current.assignment.classId, session, true);
+    const sameFiles = JSON.stringify(current.attachments.map((file) => [file.id, file.originalName, file.mimeType, file.checksum, String(file.sizeBytes)])) === JSON.stringify(submission.attachments.map((file) => [file.id, file.originalName, file.mimeType, file.checksum, String(file.sizeBytes)]));
+    const sameAssignment = current.assignment.version === submission.assignment.version && current.assignment.classId === submission.assignment.classId && [current.assignment.title, current.assignment.description, current.assignment.instructions].join("\n\n") === base.instructions && JSON.stringify(this.rubric(current.assignment.rubric)) === JSON.stringify(base.rubric);
+    if (current.revision !== submission.revision || current.content !== submission.content || !sameAssignment || !sameFiles) throw new ConflictException("Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.");
+    return { ...base, answer, sources };
   }
 
   /** Kiểm tra điểm từng rubric không vượt trần rồi lưu kết quả và thời điểm chấm. */
