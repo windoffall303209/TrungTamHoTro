@@ -1,17 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { LearningService } from "./learning.service.js";
 import { AiProviderService } from "../system/ai-provider.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { chunkDocument, type ContextChunk, type DocumentPage, retrieveDocumentContext } from "../system/ai-document-context.js";
-import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions, type StudyContext, type StudyGuide } from "../system/ai-study-guide.js";
+import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions } from "../system/ai-study-guide.js";
+import { AiStudyDraftService, type SavedStudyGuide } from "./ai-study-draft.service.js";
+import type { LearningMaterial } from "./learning.types.js";
 
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
 export class AiMaterialContextService {
   private readonly memory = new Map<string, DocumentPage[]>();
   private readonly pending = new Map<string, Promise<DocumentPage[]>>();
-  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService) {}
+  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma)) {}
 
   /** Nạp ngữ cảnh server-side, trả lời có nguồn rồi xác nhận người hỏi vẫn được truy cập phiên bản đó. */
   async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
@@ -25,19 +27,40 @@ export class AiMaterialContextService {
   }
 
   /** Tạo bộ ôn tập có độ bao phủ rõ ràng; kiểm tra quyền lần cuối trước khi trả nội dung. */
-  async study(materialId: string, actorId: string, role: string, options: StudyGuideOptions): Promise<StudyGuide & { model?: string; coverage: StudyContext["coverage"]; version: number; warning: string }> {
+  async study(materialId: string, actorId: string, role: string, options: StudyGuideOptions): Promise<SavedStudyGuide & { draftId: string }> {
     validateStudyGuideOptions(options);
-    const context = await this.prepare(materialId, actorId, role, undefined, true);
-    const selected = selectStudyContext(context.chunks, options);
-    const guide = await this.ai.createStudyGuide(selected.chunks, options);
-    await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
-    return { ...guide, coverage: selected.coverage, version: context.version, warning: context.warning };
+    const material = await this.requireMaterial(materialId, actorId, role);
+    const sourceVersion = material.version;
+    await this.ai.resolveTask("DOCUMENT_QA");
+    await this.ai.resolveTask("DOCUMENT_CONTEXT");
+    const result = await this.drafts.generate({ ownerId: actorId, materialId, sourceVersion, options }, async () => {
+      const context = await this.prepare(materialId, actorId, role, undefined, true, sourceVersion);
+      const selected = selectStudyContext(context.chunks, options);
+      const guide = await this.ai.createStudyGuide(selected.chunks, options);
+      return { ...guide, coverage: selected.coverage, version: context.version, warning: context.warning };
+    });
+    await this.learning.createMaterialVersionAccess(materialId, result.version, role, "PREVIEW", actorId);
+    return result;
+  }
+
+  /** Đọc lịch sử bản nháp riêng, không gọi provider hoặc trích xuất lại tài liệu. */
+  async listStudyDrafts(materialId: string, actorId: string, role: string, cursor?: string): ReturnType<AiStudyDraftService["list"]> {
+    await this.requireMaterial(materialId, actorId, role);
+    return this.drafts.list(actorId, materialId, cursor);
+  }
+
+  /** Mở bản đã lưu chỉ khi người tạo vẫn được xem đúng phiên bản nguồn. */
+  async getStudyDraft(materialId: string, draftId: string, actorId: string, role: string): ReturnType<AiStudyDraftService["get"]> {
+    await this.requireMaterial(materialId, actorId, role);
+    const draft = await this.drafts.get(draftId, actorId, materialId);
+    await this.learning.createMaterialVersionAccess(materialId, draft.sourceVersion, role, "PREVIEW", actorId);
+    return draft;
   }
 
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
-  async prepare(materialId: string, actorId: string, role: string, query?: string, requireAnswerModel = false): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
-    const material = (await this.learning.listMaterials(role, undefined, actorId)).find((item) => item.id === materialId);
-    if (!material || material.quarantinedAt) throw new NotFoundException("Không tìm thấy tài liệu được phép sử dụng cho AI.");
+  async prepare(materialId: string, actorId: string, role: string, query?: string, requireAnswerModel = false, expectedVersion?: number): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
+    const material = await this.requireMaterial(materialId, actorId, role);
+    if (expectedVersion !== undefined && material.version !== expectedVersion) throw new ConflictException("Phiên bản tài liệu đã thay đổi. Hãy tải lại tài liệu trước khi tạo bộ ôn tập.");
     // Xác nhận đủ model trước khi trích xuất có phí, nhưng không tiết lộ cấu hình trước kiểm tra quyền.
     if (requireAnswerModel) await this.ai.resolveTask("DOCUMENT_QA");
     const access = await this.learning.createMaterialVersionAccess(material.id, material.version, role, "PREVIEW", actorId);
@@ -62,6 +85,13 @@ export class AiMaterialContextService {
     await this.learning.createMaterialVersionAccess(material.id, material.version, role, "PREVIEW", actorId);
     const chunks = chunkDocument({ materialId, version: material.version, checksum, name: material.name }, pages);
     return { materialId, version: material.version, checksum, chunks: query ? retrieveDocumentContext(query, chunks) : chunks, cached, warning: "Nội dung được AI trích xuất, cần đối chiếu tài liệu gốc; số trang và độ chính xác chưa được xác minh độc lập." };
+  }
+
+  /** Xác nhận quyền hiện tại và trạng thái cách ly trước khi đọc cache hoặc metadata bản nháp. */
+  private async requireMaterial(materialId: string, actorId: string, role: string): Promise<LearningMaterial> {
+    const material = (await this.learning.listMaterials(role, undefined, actorId)).find((item) => item.id === materialId);
+    if (!material || material.quarantinedAt) throw new NotFoundException("Không tìm thấy tài liệu được phép sử dụng cho AI.");
+    return material;
   }
 
   /** Chỉ lưu khi provider trả đủ dữ liệu; lỗi không trở thành cache rỗng. */
