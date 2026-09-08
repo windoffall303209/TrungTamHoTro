@@ -282,6 +282,7 @@ export class ContentController {
       courseDescription: context.courseDescription,
       focus: input.focus.trim(),
       difficulty: input.difficulty,
+      language: input.language,
       distribution: input.distribution,
       contextMode: input.contextMode,
       sourceFiles: context.sourceFiles,

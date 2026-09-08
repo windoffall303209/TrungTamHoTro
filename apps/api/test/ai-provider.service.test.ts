@@ -27,6 +27,18 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each(["VI", "EN", "BILINGUAL"] as const)("passes %s language instructions through Gemini generation", async (language) => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "language-test-secret", enabled: true }, "usr-admin");
+    const question = { type: "SHORT_ANSWER", content: "What does HTTP stand for?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], difficulty: 1, tags: [], confidence: 0.9, warnings: [] };
+    const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ questions: [question] }) }] } }] })));
+    vi.stubGlobal("fetch", mock);
+    await service.generateExamDraft({ providerId: provider.id, language, courseName: "Web", courseDescription: "HTTP", focus: "HTTP basics", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "COURSE_MATERIALS", sourceFiles: [{ id: "file-1", name: "notes.pdf", mimeType: "application/pdf", buffer: Buffer.from("fixture") }] });
+    const body = JSON.stringify(readJsonBody(mock.mock.calls[0]));
+    expect(body).toContain(language === "EN" ? "in English" : language === "BILINGUAL" ? "song ngữ Việt–Anh" : "Tạo câu hỏi tiếng Việt");
+    if (language !== "VI") expect(body).not.toContain("Tạo câu hỏi tiếng Việt");
+  });
+
   it("generates Custom exams from grounded text without sending unsupported tools or images", async () => {
     const service = new AiProviderService(undefined, config);
     const helper = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "helper-test-secret", enabled: true }, "usr-admin");
