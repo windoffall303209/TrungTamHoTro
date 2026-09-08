@@ -139,6 +139,22 @@ export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSiz
   );
 }
 
+/** Lấy control có thể Tab tới, kể cả summary; bỏ phần tử bị ẩn trong details hoặc tổ tiên. */
+function modalControls(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], summary, [tabindex]")).filter((element) => {
+    if (element.tabIndex < 0 || element.matches(":disabled")) return false;
+    for (let node: HTMLElement | null = element; node && node !== dialog; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (node.hidden || node.hasAttribute("inert") || style.display === "none" || style.visibility === "hidden") return false;
+      if (node instanceof HTMLDetailsElement && !node.open) {
+        const summary = node.querySelector(":scope > summary");
+        if (!summary?.contains(element)) return false;
+      }
+    }
+    return true;
+  });
+}
+
 /** Hộp thoại khóa cuộn, giữ focus bên trong, đóng bằng Escape và trả focus về phần tử trước. */
 export function Modal({ open, title, description, onClose, children, size = "md" }: { open: boolean; title: string; description?: string; onClose: () => void; children: React.ReactNode; size?: "md" | "xl" }) {
   const titleId = useId();
@@ -154,7 +170,7 @@ export function Modal({ open, title, description, onClose, children, size = "md"
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const dialog = dialogRef.current;
-    const focusable = dialog?.querySelector<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
+    const focusable = dialog ? modalControls(dialog)[0] : undefined;
     window.requestAnimationFrame(() => focusable?.focus());
 
     /** Đóng modal bằng Escape trong khi vẫn để trình duyệt xử lý các phím khác. */
@@ -165,7 +181,7 @@ export function Modal({ open, title, description, onClose, children, size = "md"
         return;
       }
       if (event.key !== "Tab" || !dialog) return;
-      const controls = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])"));
+      const controls = modalControls(dialog);
       if (!controls.length) return;
       const first = controls[0];
       const last = controls[controls.length - 1];
