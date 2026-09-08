@@ -90,4 +90,39 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
     await expect(operations.listExams({ limit: 1, cursor: "' OR 1=1 --" }, session)).rejects.toMatchObject({ status: 400 });
     expect(generate).toHaveBeenCalledTimes(2);
   });
+
+  it("reconciles unlinked claims without counting linked retry aliases or changing storage", async () => {
+    const prefix = randomUUID();
+    const ids = [`${prefix}-a`, `${prefix}-b`];
+    for (const id of ids) await prisma.systemSetting.create({ data: {
+      key: `ai-generation:${id}`, updatedBy: owner, effectiveAt: new Date("2100-09-08T00:00:00Z"),
+      value: { owner, hash: id, state: "CLAIMED", prepared: { secret: "private orphan draft" } },
+    } });
+    // A newer retry alias must not displace actual unlinked claims in the first page.
+    const canonicalId = `${prefix}-canonical`;
+    const generate = vi.fn().mockRejectedValue(new Error("fixture uncertain"));
+    await expect(new AiGenerationRequestService(prisma).run(canonicalId, owner, { topic: prefix }, generate, vi.fn(), noResult)).rejects.toThrow("fixture uncertain");
+    const alias = `${prefix}-alias`;
+    await expect(new AiGenerationRequestService(prisma).run(alias, owner, { topic: prefix }, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
+    await prisma.systemSetting.update({ where: { key: `ai-generation:${alias}` }, data: { effectiveAt: new Date("2101-09-08T00:00:00Z") } });
+    const operations = new AiGradingOperationsService(prisma);
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
+    const first = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked" }, session);
+    expect(first.items.map((item) => item.id)).toEqual([ids[1]]);
+    expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "ownerId", "state", "version", "createdAt", "updatedAt"].sort());
+    expect(JSON.stringify(first)).not.toContain("private orphan draft");
+    const second = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked", cursor: first.nextCursor! }, session);
+    expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
+    await expect(operations.listExams({ limit: 1, scope: "canonical", cursor: ids[0] }, session)).rejects.toMatchObject({ status: 400 });
+    await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: alias }, session)).rejects.toMatchObject({ status: 400 });
+    const stored = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${ids[1]}` } });
+    expect(stored.version).toBe(1);
+    expect(stored.value).toMatchObject({ state: "CLAIMED", prepared: { secret: "private orphan draft" } });
+    // A binding added between reads removes the claim from this scope; a stale cursor fails explicitly.
+    await prisma.systemSetting.create({ data: { key: `ai-generation-content:${prefix}`, updatedBy: owner, value: { owner, hash: ids[1], canonicalRequestId: ids[1] } } });
+    const afterBinding = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked" }, session);
+    expect(afterBinding.items.map((item) => item.id)).toEqual([ids[0]]);
+    await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: ids[1] }, session)).rejects.toMatchObject({ status: 400 });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
 });

@@ -50,7 +50,7 @@ describe("Exam operations HTTP contract", () => {
     expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["?state=FAILED", "?limit=0", "?limit=51", "?limit=true", "?limit=1e1", "?limit=1&limit=2", "?cursor=", "?answer=private", "?model=override"])("rejects invalid or extra input %s before SQL", async (query) => {
+  it.each(["?state=FAILED", "?scope=all", "?scope=", "?scope=unlinked&scope=canonical", "?limit=0", "?limit=51", "?limit=true", "?limit=1e1", "?limit=1&limit=2", "?cursor=", "?answer=private", "?model=override"])("rejects invalid or extra input %s before SQL", async (query) => {
     expect((await read(query)).status).toBe(400);
     expect(queryRaw).not.toHaveBeenCalled();
   });
@@ -63,6 +63,15 @@ describe("Exam operations HTTP contract", () => {
   it("rejects an unknown canonical cursor", async () => {
     expect((await read("?cursor=missing")).status).toBe(400);
     expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["canonical", "unlinked"])("supports explicit %s scope with the same read-only contract", async (scope) => {
+    const response = await read(`?scope=${scope}&state=CLAIMED`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    const sql = queryRaw.mock.calls[0]![0] as { sql: string };
+    expect(sql.sql).toContain(scope === "unlinked" ? "NOT EXISTS" : "AND EXISTS");
   });
 
   it("fails explicitly when durable storage is disabled", async () => {
