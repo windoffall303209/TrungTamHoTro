@@ -1,6 +1,7 @@
 "use client";
 
 import { activeLocale } from "@/i18n/runtime";
+import { AiTaskSettings } from "@/components/ai-task-settings";
 
 import {
   Activity,
@@ -13,13 +14,14 @@ import {
   HardDrive,
   History,
   ListChecks,
+  RefreshCw,
   Save,
   Settings2,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
@@ -89,7 +91,8 @@ interface StorageOverview {
 }
 type AiProviderType = "GEMINI" | "NVIDIA_NIM" | "OPENAI" | "CUSTOM";
 interface AiProvider { id: string; provider: AiProviderType; name: string; model: string; baseUrl?: string; enabled: boolean; isDefault: boolean; healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR"; hasApiKey: boolean; maskedApiKey: string; lastCheckedAt?: string; updatedAt: string }
-type ModelCatalog = Record<"GEMINI" | "NVIDIA_NIM" | "OPENAI", Array<{ value: string; label: string; description: string }>>;
+type ModelOption = { value: string; label: string; description: string };
+type ModelCatalog = Record<"GEMINI" | "NVIDIA_NIM" | "OPENAI", ModelOption[]>;
 
 type SettingsSection = "general" | "exam-approval" | "question-approval" | "ai-providers" | "integrations" | "backups" | "storage" | "health" | "history";
 const settingsSections: Array<{ id: SettingsSection; title: string; description: string; icon: typeof Settings2 }> = [
@@ -121,7 +124,10 @@ export default function SettingsPage() {
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>({ GEMINI: [], NVIDIA_NIM: [], OPENAI: [] });
   const [editingAi, setEditingAi] = useState<AiProvider | null>(null);
   const [aiEditorOpen, setAiEditorOpen] = useState(false);
-  const [aiForm, setAiForm] = useState({ provider: "GEMINI" as AiProviderType, name: "", model: "gemini-2.5-flash", baseUrl: "", apiKey: "", enabled: true, isDefault: false });
+  const [aiForm, setAiForm] = useState({ provider: "GEMINI" as AiProviderType, name: "", model: "gemini-3.8-flash", baseUrl: "", apiKey: "", enabled: true, isDefault: false });
+  const [customModels, setCustomModels] = useState<ModelOption[]>([]);
+  const [customModelMode, setCustomModelMode] = useState<"catalog" | "manual">("manual");
+  const [loadingCustomModels, setLoadingCustomModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [configuring, setConfiguring] = useState<Integration | null>(null);
   const [integrationForm, setIntegrationForm] = useState({
@@ -369,8 +375,34 @@ export default function SettingsPage() {
     const target = item ?? null;
     setEditingAi(target);
     setAiEditorOpen(true);
-    setAiForm({ provider: target?.provider ?? provider, name: target?.provider === "CUSTOM" ? target.name : "", model: target?.model ?? (provider === "GEMINI" ? "gemini-2.5-flash" : provider === "NVIDIA_NIM" ? "meta/llama-3.2-90b-vision-instruct" : provider === "OPENAI" ? "gpt-5.4-mini" : ""), baseUrl: target?.baseUrl ?? "", apiKey: "", enabled: target?.enabled ?? true, isDefault: target?.isDefault ?? false });
+    setCustomModels([]);
+    setCustomModelMode("manual");
+    setAiForm({ provider: target?.provider ?? provider, name: target?.provider === "CUSTOM" ? target.name : "", model: target?.model ?? (provider === "GEMINI" ? "gemini-3.8-flash" : provider === "NVIDIA_NIM" ? "meta/muse-glimmer-30b" : provider === "OPENAI" ? "gpt-5.6-terra" : ""), baseUrl: target?.baseUrl ?? "", apiKey: "", enabled: target?.enabled ?? true, isDefault: target?.isDefault ?? false });
   };
+  /** Tải model từ /v1/models của provider Custom đã lưu và giữ nguyên lựa chọn hiện tại khi còn hợp lệ. */
+  const loadCustomModels = async () => {
+    if (!editingAi?.id) {
+      notify("Hãy lưu provider Custom trước khi tải danh sách model.", "info");
+      return;
+    }
+    setLoadingCustomModels(true);
+    try {
+      const models = await apiRequest<ModelOption[]>(`/system/ai-providers/${editingAi.id}/models`, { roleCode: session.roleCode });
+      setCustomModels(models);
+      setAiForm((current) => ({ ...current, model: current.model || models[0]?.value || "" }));
+      setCustomModelMode("catalog");
+      notify(`Đã tải ${models.length} model từ ${editingAi.name}.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tải được danh sách model từ provider Custom.", "error");
+    } finally {
+      setLoadingCustomModels(false);
+    }
+  };
+  /** Giữ model đang cấu hình trong dropdown kể cả khi endpoint vừa ngừng công bố model đó. */
+  const customModelOptions = useMemo(() => {
+    if (!aiForm.model || customModels.some((model) => model.value === aiForm.model)) return customModels;
+    return [{ value: aiForm.model, label: aiForm.model, description: "Model đang được cấu hình." }, ...customModels];
+  }, [aiForm.model, customModels]);
   /** Lưu nhà cung cấp AI và chỉ thay API key khi quản trị viên nhập khóa mới. */
   const saveAiProvider = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true);
@@ -452,10 +484,11 @@ export default function SettingsPage() {
       {activeSection === "ai-providers" ? (
         <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 md:px-6">
-            <div><h2 className="font-heading text-xl font-extrabold">Nhà cung cấp AI</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--ink-soft)]">API key chỉ được gửi tới máy chủ, mã hóa trước khi lưu và không hiển thị lại. Chọn một cấu hình mặc định cho luồng quét đề.</p></div>
+            <div><h2 className="font-heading text-xl font-extrabold">Nhà cung cấp AI</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--ink-soft)]">API key được mã hóa và không hiển thị lại. Lưu nhà cung cấp, sau đó phân công model riêng cho từng chức năng bên dưới.</p></div>
             <Button onClick={() => openAiEditor(undefined, "CUSTOM")} variant="secondary"><Bot size={17} />Thêm custom</Button>
           </div>
           <div className="divide-y divide-[var(--rule)] border-t border-[var(--rule)]">
+            <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
             {aiProviders.map((item) => (
               <article className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-6" key={item.id}>
                 <div className="min-w-0">
@@ -889,11 +922,28 @@ export default function SettingsPage() {
           <Button type="submit">Lưu cấu hình</Button>
         </form>
       </Modal>
-      <Modal open={aiEditorOpen} onClose={() => { if (!saving) { setAiEditorOpen(false); setEditingAi(null); } }} title={editingAi ? `Cấu hình ${editingAi.name}` : "Thêm nhà cung cấp tùy chỉnh"} description="Model tích hợp có thể gõ để lọc. Với custom, nhập trực tiếp model và endpoint tương thích OpenAI Chat Completions.">
+      <Modal open={aiEditorOpen} onClose={() => { if (!saving) { setAiEditorOpen(false); setEditingAi(null); } }} title={editingAi ? `Cấu hình ${editingAi.name}` : "Thêm nhà cung cấp tùy chỉnh"} description="Model tích hợp có thể gõ để lọc. Provider Custom có thể tải nhiều model từ endpoint OpenAI-compatible.">
         <form className="space-y-4" onSubmit={(event) => void saveAiProvider(event)}>
           {aiForm.provider === "CUSTOM" ? <Field label="Tên hiển thị"><input className={inputClass} maxLength={100} onChange={(event) => setAiForm({ ...aiForm, name: event.target.value })} required value={aiForm.name} /></Field> : null}
           <Field label="Model">
-            {aiForm.provider === "CUSTOM" ? <input className={inputClass} onChange={(event) => setAiForm({ ...aiForm, model: event.target.value })} placeholder="org/model-name" required value={aiForm.model} /> : <SearchableSelect aria-label={`Tìm model ${aiForm.provider}`} onChange={(model) => setAiForm({ ...aiForm, model })} options={modelCatalog[aiForm.provider].map((item) => ({ ...item, keywords: `${item.value} ${item.label}` }))} placeholder="Gõ tên model để lọc…" value={aiForm.model} />}
+            {aiForm.provider === "CUSTOM" ? (
+              <div className="space-y-2">
+                {customModelMode === "catalog" && customModels.length ? (
+                  <SearchableSelect aria-label="Tìm model Custom" emptyMessage="Không tìm thấy model phù hợp. Chuyển sang nhập thủ công để dùng model khác." onChange={(model) => setAiForm({ ...aiForm, model })} options={customModelOptions.map((model) => ({ ...model, keywords: model.value }))} placeholder="Gõ tên model để tìm trong danh sách…" value={aiForm.model} />
+                ) : (
+                  <input aria-label="Nhập model Custom" className={inputClass} maxLength={200} onChange={(event) => setAiForm({ ...aiForm, model: event.target.value })} placeholder="org/model-name" required value={aiForm.model} />
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs leading-5 text-[var(--ink-muted)]">
+                    {customModels.length ? `${customModels.length} model khả dụng; vẫn có thể nhập model thủ công.` : "Nhập thủ công hoặc tải danh sách từ endpoint sau khi lưu provider."}
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {customModels.length ? <Button onClick={() => setCustomModelMode((mode) => mode === "catalog" ? "manual" : "catalog")} type="button" variant="ghost">{customModelMode === "catalog" ? "Nhập thủ công" : "Chọn từ danh sách"}</Button> : null}
+                    <Button disabled={!editingAi?.hasApiKey} loading={loadingCustomModels} onClick={() => void loadCustomModels()} type="button" variant="secondary"><RefreshCw size={15} />{customModels.length ? "Tải lại model" : "Tải model"}</Button>
+                  </div>
+                </div>
+              </div>
+            ) : <SearchableSelect aria-label={`Tìm model ${aiForm.provider}`} onChange={(model) => setAiForm({ ...aiForm, model })} options={modelCatalog[aiForm.provider].map((item) => ({ ...item, keywords: `${item.value} ${item.label}` }))} placeholder="Gõ tên model để lọc…" value={aiForm.model} />}
           </Field>
           {aiForm.provider === "CUSTOM" ? <Field label="Endpoint Chat Completions"><input className={inputClass} onChange={(event) => setAiForm({ ...aiForm, baseUrl: event.target.value })} placeholder="https://ai.example.com/v1/chat/completions" required type="url" value={aiForm.baseUrl} /></Field> : null}
           <Field label={editingAi?.hasApiKey ? "API key mới (để trống nếu giữ nguyên)" : "API key"}><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setAiForm({ ...aiForm, apiKey: event.target.value })} placeholder={editingAi?.hasApiKey ? editingAi.maskedApiKey : "Nhập khóa bí mật"} required={!editingAi?.hasApiKey} type="password" value={aiForm.apiKey} /></Field>

@@ -95,6 +95,7 @@ const blankAiConfig = {
   difficulty: 2 as 1 | 2 | 3,
   contextMode: "AUTO" as "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH",
   providerId: "",
+  model: "",
   materialIds: [] as string[],
   distribution: {
     SINGLE_CHOICE: 2,
@@ -184,6 +185,10 @@ export default function ExamsPage() {
   const [returnNote, setReturnNote] = useState("");
   const [previewExam, setPreviewExam] = useState<LearnerExam | null>(null);
   const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
+  const [confirmExam, setConfirmExam] = useState<Exam | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [savingQuestion, setSavingQuestion] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [form, setForm] = useState(blank);
   const [aiConfig, setAiConfig] = useState(blankAiConfig);
@@ -210,8 +215,12 @@ export default function ExamsPage() {
         .includes(needle),
     );
   }, [questionQuery, selectableQuestions]);
-  const openAiProviders = useMemo(
-    () => aiProviders.filter((provider) => provider.provider === "OPENAI"),
+  const examAiProviders = useMemo(
+    () =>
+      aiProviders.filter(
+        (provider) =>
+          ["GEMINI", "OPENAI", "CUSTOM"].includes(provider.provider),
+      ),
     [aiProviders],
   );
   const aiQuestionTotal = useMemo(
@@ -283,7 +292,7 @@ export default function ExamsPage() {
           : Promise.resolve([]),
         instructor
           ? apiRequest<AiProviderSummary[]>(
-              "/instructor/question-bank/ai-providers",
+              "/instructor/question-bank/ai-providers?task=GENERATE_EXAM",
               { roleCode: session.roleCode },
             )
           : Promise.resolve([]),
@@ -302,9 +311,14 @@ export default function ExamsPage() {
         providerId:
           current.providerId ||
           providerData.find(
-            (item) => item.provider === "OPENAI" && item.isDefault,
+            (item) =>
+              (["GEMINI", "OPENAI", "CUSTOM"].includes(item.provider)) &&
+              item.isDefault,
           )?.id ||
-          providerData.find((item) => item.provider === "OPENAI")?.id ||
+          providerData.find(
+            (item) =>
+              ["GEMINI", "OPENAI", "CUSTOM"].includes(item.provider),
+          )?.id ||
           "",
       }));
     } catch (error) {
@@ -391,7 +405,6 @@ export default function ExamsPage() {
           roleCode: session.roleCode,
           body: JSON.stringify({
             ...form,
-            clientRequestId: aiRequestId || crypto.randomUUID(),
             scoreAllocations: form.questionIds.map((questionId) => ({
               questionId,
               score: form.scoreAllocations[questionId] ?? 0,
@@ -425,11 +438,13 @@ export default function ExamsPage() {
     }
     if (!aiConfig.providerId) {
       notify(
-        "Cần cấu hình và bật một provider OpenAI trong Quản trị hệ thống.",
+        "Quản trị viên cần cấu hình AI sinh đề trong Cấu hình hệ thống.",
         "error",
       );
       return;
     }
+    const requestId = aiRequestId || crypto.randomUUID();
+    setAiRequestId(requestId);
     setSaving(true);
     try {
       const result = await apiRequest<AiGeneratedExamResult>(
@@ -440,11 +455,11 @@ export default function ExamsPage() {
           body: JSON.stringify({
             ...form,
             questionIds: undefined,
+            clientRequestId: requestId,
             scoreAllocations: undefined,
             focus: aiConfig.focus.trim(),
             difficulty: aiConfig.difficulty,
             contextMode: aiConfig.contextMode,
-            providerId: aiConfig.providerId,
             materialIds:
               aiConfig.contextMode === "WEB_SEARCH" ? [] : aiConfig.materialIds,
             distribution: questionTypeOptions.flatMap((item) =>
@@ -469,6 +484,7 @@ export default function ExamsPage() {
       setAiConfig((current) => ({
         ...blankAiConfig,
         providerId: current.providerId,
+        model: current.model,
       }));
       await load();
       await preview(result.exam);
@@ -541,12 +557,14 @@ export default function ExamsPage() {
   };
   /** Gửi đề vào quy trình duyệt hoặc tự xuất bản tùy cấu hình phê duyệt của hệ thống. */
   const publish = async (item: Exam) => {
+    setPublishing(true);
     try {
       const updated = await apiRequest<Exam>(
         `/instructor/exams/${item.id}/publish`,
         {
           method: "POST",
           roleCode: session.roleCode,
+          body: JSON.stringify({ confirmQuestions: true, expectedVersion: item.version }),
         },
       );
       notify(
@@ -554,13 +572,29 @@ export default function ExamsPage() {
           ? "Đề đã được tự động phê duyệt và phát hành."
           : "Đã gửi đề sang hàng chờ phê duyệt.",
       );
+      setConfirmExam(null);
+      setPreviewExam(null);
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không gửi duyệt được.",
         "error",
       );
-    }
+    } finally { setPublishing(false); }
+  };
+  /** Lưu câu hỏi riêng của đề và nạp lại phiên bản đề mới. */
+  const savePreviewQuestion = async () => {
+    if (!previewExam || !editingQuestion) return;
+    setSavingQuestion(true);
+    try {
+      const question = await apiRequest<Question>(`/instructor/exams/${previewExam.id}/questions/${editingQuestion.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ content: editingQuestion.content, options: editingQuestion.options, correctAnswers: editingQuestion.correctAnswers, expectedVersion: previewExam.version }) });
+      const updated = { ...previewExam, version: previewExam.version + 1, questionScores: { ...previewExam.questionScores, [question.id]: previewExam.questionScores?.[editingQuestion.id] ?? previewExam.totalScore / previewQuestions.length } };
+      setEditingQuestion(null);
+      await preview(updated);
+      await load();
+      notify("Đã lưu câu hỏi trong đề nháp.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error"); }
+    finally { setSavingQuestion(false); }
   };
   /** Nạp bản xem đề theo thứ tự tác giả để giảng viên không bị ảnh hưởng bởi xáo trộn. */
   const preview = async (item: LearnerExam) => {
@@ -1040,7 +1074,7 @@ export default function ExamsPage() {
                     ) : null}
                     {instructor && item.status === "DRAFT" ? (
                       <Button
-                        onClick={() => void publish(item)}
+                        onClick={() => setConfirmExam(item)}
                         variant="secondary"
                       >
                         <Send size={15} />
@@ -1408,13 +1442,13 @@ export default function ExamsPage() {
                         value: "AUTO" as const,
                         icon: BookOpenCheck,
                         title: "Tự động theo môn học",
-                        text: "Gửi tạm PDF, Word và ảnh đã công khai đến OpenAI; không có tệp mới tìm web.",
+                        text: "Dùng PDF, Word và ảnh đã công khai; nếu không có tệp thì tìm nguồn trên Internet.",
                       },
                       {
                         value: "COURSE_MATERIALS" as const,
                         icon: Library,
                         title: "Chỉ tài liệu môn học",
-                        text: "Gửi tạm tệp đến OpenAI và xóa sau khi tạo; báo lỗi nếu không có tệp.",
+                        text: "Chỉ dùng các tệp đã chọn trong môn học; báo lỗi nếu không có tệp phù hợp.",
                       },
                       {
                         value: "WEB_SEARCH" as const,
@@ -1524,7 +1558,7 @@ export default function ExamsPage() {
                     </div>
                   </fieldset>
                 ) : null}
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <Field label="Độ khó chung">
                     <select
                       className={inputClass}
@@ -1541,31 +1575,11 @@ export default function ExamsPage() {
                       <option value={3}>Nâng cao</option>
                     </select>
                   </Field>
-                  <Field label="Mô hình AI">
-                    <select
-                      className={inputClass}
-                      onChange={(event) =>
-                        setAiConfig({
-                          ...aiConfig,
-                          providerId: event.target.value,
-                        })
-                      }
-                      required
-                      value={aiConfig.providerId}
-                    >
-                      <option value="">Chọn OpenAI provider</option>
-                      {openAiProviders.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name} — {provider.model}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                  <p className="text-sm text-[var(--ink-soft)]">AI sinh đề do quản trị viên cấu hình. Bạn chỉ cần chọn nội dung, tài liệu và ma trận câu hỏi.</p>
                 </div>
-                {!openAiProviders.length ? (
+                {!examAiProviders.length ? (
                   <p className="rounded-lg bg-[var(--warning-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--warning-deep)]">
-                    Chưa có OpenAI provider đang bật và có API key. Cấu hình
-                    provider trong Quản trị hệ thống trước khi tạo đề.
+                    Chưa có cấu hình AI sinh đề đang hoạt động. Liên hệ quản trị viên để thiết lập.
                   </p>
                 ) : null}
               </div>
@@ -1831,10 +1845,14 @@ export default function ExamsPage() {
           </div>
         </form>
       </Modal>
+      <Modal open={Boolean(confirmExam)} onClose={() => { if (!publishing) setConfirmExam(null); }} title="Xác nhận gửi duyệt đề" description="Bạn xác nhận là phê duyệt toàn bộ câu hỏi chứ?">
+        <p className="text-sm text-[var(--ink-soft)]">Xác nhận sẽ phê duyệt các câu hỏi của bạn trong đề và gửi yêu cầu phê duyệt đề. Cấu hình tự động duyệt đề của hệ thống vẫn được áp dụng.</p>
+        <div className="mt-5 flex justify-end gap-3"><Button disabled={publishing} variant="ghost" onClick={() => setConfirmExam(null)}>Hủy</Button><Button loading={publishing} onClick={() => { if (confirmExam) void publish(confirmExam); }}>Xác nhận</Button></div>
+      </Modal>
       <Modal
         open={Boolean(previewExam)}
         onClose={() => {
-          if (!previewLoading) {
+          if (!previewLoading && !savingQuestion && !editingQuestion) {
             setPreviewExam(null);
             setPreviewQuestions([]);
           }
@@ -1845,6 +1863,7 @@ export default function ExamsPage() {
       >
         {previewExam ? (
           <div>
+            {instructor && previewExam.status === "DRAFT" ? <div className="mb-4 flex justify-end"><Button disabled={Boolean(editingQuestion) || savingQuestion} onClick={() => { const item = items.find((entry) => entry.id === previewExam.id); if (item) { setConfirmExam({ ...item, version: previewExam.version }); setPreviewExam(null); } }}>Gửi phê duyệt</Button></div> : null}
             <div className="grid gap-3 border-y border-[var(--rule)] py-4 sm:grid-cols-4">
               <div>
                 <p className="text-xs font-bold text-[var(--ink-muted)]">
@@ -1907,7 +1926,8 @@ export default function ExamsPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={question.status} />
-                        {instructor && question.status === "DRAFT" ? (
+                        {instructor && previewExam.status === "DRAFT" ? <Button disabled={savingQuestion || Boolean(editingQuestion)} variant="ghost" onClick={() => setEditingQuestion({ ...question, options: [...question.options], correctAnswers: [...question.correctAnswers] })}><Pencil size={14} />Sửa câu hỏi</Button> : null}
+                        {instructor && question.status === "DRAFT" && previewExam.status !== "DRAFT" ? (
                           <Button
                             onClick={() =>
                               void submitGeneratedQuestion(question.id)
@@ -1923,6 +1943,12 @@ export default function ExamsPage() {
                         </span>
                       </div>
                     </div>
+                    {editingQuestion?.id === question.id ? <div className="mt-4 space-y-3">
+                      <Field label="Nội dung câu hỏi"><textarea className={inputClass} rows={5} maxLength={20000} value={editingQuestion.content} onChange={(event) => setEditingQuestion({ ...editingQuestion, content: event.target.value })} /></Field>
+                      {question.options.length > 0 ? <Field label="Lựa chọn, mỗi dòng một đáp án"><textarea className={inputClass} rows={5} value={editingQuestion.options.join("\n")} onChange={(event) => setEditingQuestion({ ...editingQuestion, options: event.target.value.split("\n") })} /></Field> : null}
+                      <Field label="Đáp án đúng / ý tham khảo, mỗi dòng một ý"><textarea className={inputClass} rows={4} value={editingQuestion.correctAnswers.join("\n")} onChange={(event) => setEditingQuestion({ ...editingQuestion, correctAnswers: event.target.value.split("\n") })} /></Field>
+                      <div className="flex justify-end gap-3"><Button disabled={savingQuestion} variant="ghost" onClick={() => setEditingQuestion(null)}>Hủy</Button><Button disabled={editingQuestion.content.trim().length < 5 || !editingQuestion.correctAnswers.some((answer) => answer.trim())} loading={savingQuestion} onClick={() => void savePreviewQuestion()}>Lưu câu hỏi</Button></div>
+                    </div> : null}
                     <RichText className="mt-3 font-semibold">
                       {question.content}
                     </RichText>

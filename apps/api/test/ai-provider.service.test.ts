@@ -27,6 +27,59 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("generates Custom exams from grounded text without sending unsupported tools or images", async () => {
+    const service = new AiProviderService(undefined, config);
+    const helper = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "helper-test-secret", enabled: true }, "usr-admin");
+    const custom = await service.configure({ provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-test-secret", enabled: true }, "usr-admin");
+    await expect(service.configureTask("GENERATE_EXAM", { providerId: custom.id, model: "text-model" }, "usr-admin")).rejects.toThrow("cần chọn Gemini");
+    const selected = await service.configureTask("GENERATE_EXAM", { providerId: custom.id, model: "text-model", contextProviderId: helper.id }, "usr-admin");
+    const questions = [{ type: "SHORT_ANSWER", content: "HTTP stands for?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], difficulty: 1, tags: [], confidence: 0.9, warnings: [] }];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "HTTP means Hypertext Transfer Protocol." }] }, groundingMetadata: { groundingChunks: [{ web: { title: "HTTP", uri: "https://developer.mozilla.org/en-US/docs/Web/HTTP" } }] } }] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ questions }) } }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await service.generateExamDraft({ ...selected, courseName: "Web", courseDescription: "HTTP", focus: "HTTP basics", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] });
+    expect(result.provider).toBe("CUSTOM");
+    expect(result.context.sources).toHaveLength(1);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://router.example/v1/chat/completions");
+    expect(readJsonBody(fetchMock.mock.calls[1])).toMatchObject({ model: "text-model", stream: false });
+    expect(readJsonBody(fetchMock.mock.calls[1])).not.toHaveProperty("tools");
+    expect(readJsonBody(fetchMock.mock.calls[1])).not.toHaveProperty("response_format");
+  });
+
+  it("requires admin routing and keeps task models independent", async () => {
+    const service = new AiProviderService(undefined, config);
+    await expect(service.resolveTask("SCAN_IMAGE")).rejects.toThrow("chưa cấu hình");
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "test-task-secret", enabled: true }, "usr-admin");
+    await service.configureTask("SCAN_IMAGE", { providerId: provider.id, model: "gemini-2.5-flash" }, "usr-admin");
+    await service.configureTask("GENERATE_EXAM", { providerId: provider.id, model: "gemini-2.5-pro" }, "usr-admin");
+    expect((await service.resolveTask("SCAN_IMAGE")).model).toBe("gemini-2.5-flash");
+    expect((await service.resolveTask("GENERATE_EXAM")).model).toBe("gemini-2.5-pro");
+    await expect(service.configureTask("GENERATE_EXAM", { providerId: provider.id, model: "invalid" }, "usr-admin")).rejects.toThrow();
+    await service.configure({ id: provider.id, provider: "GEMINI", model: provider.model, enabled: false }, "usr-admin");
+    await expect(service.resolveTask("SCAN_IMAGE")).rejects.toThrow("bị tắt");
+  });
+
+  it.each(["GEMINI", "OPENAI"] as const)("preserves actionable HTTP errors during %s exam generation", async (providerType) => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: providerType, model: providerType === "GEMINI" ? "gemini-2.5-flash" : "gpt-4o-mini", apiKey: "test-provider-secret", enabled: true }, "usr-admin");
+    for (const status of [400, 401, 403, 404, 429, 500, 503]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status })));
+      await expect(service.generateExamDraft({ providerId: provider.id, courseName: "HTTP", courseDescription: "Web", focus: "HTTP basics", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] })).rejects.toMatchObject({ status: status === 429 ? 429 : status >= 500 ? 503 : 400 });
+    }
+  });
+
+  it("publishes expanded current multimodal model catalogs", () => {
+    const catalog = new AiProviderService(undefined, config).getCatalog();
+
+    expect(catalog.GEMINI.map((item) => item.value)).toEqual(expect.arrayContaining(["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]));
+    expect(catalog.NVIDIA_NIM.map((item) => item.value)).toEqual(expect.arrayContaining(["meta/muse-glimmer-30b", "nvidia/nemotron-nano-12b-v2-vl", "meta/llama-3.2-90b-vision-instruct"]));
+    expect(catalog.OPENAI.map((item) => item.value)).toEqual(expect.arrayContaining(["gpt-6-astra", "gpt-5.6-terra", "gpt-4o-mini"]));
+    expect(catalog.GEMINI.length).toBeGreaterThanOrEqual(10);
+    expect(catalog.NVIDIA_NIM.length).toBeGreaterThanOrEqual(7);
+    expect(catalog.OPENAI.length).toBeGreaterThanOrEqual(15);
+  });
+
   it("encrypts API keys with authenticated encryption", () => {
     const encrypted = encryptSecret("secret-api-key", encryptionSecret);
     expect(encrypted).not.toContain("secret-api-key");
@@ -51,6 +104,46 @@ describe("AI provider configuration and image scanning", () => {
     await expect(service.configure({ provider: "CUSTOM", name: "Unsafe", model: "vision", baseUrl: "http://example.com/v1/chat/completions", apiKey: "custom-secret" }, "usr-admin")).rejects.toThrow("HTTPS");
   });
 
+  it("tests Custom providers with text only instead of the invalid one-pixel image", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "CUSTOM", name: "Router", model: "cx/gpt-5.6-terra", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-1234", enabled: true }, "usr-admin");
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.test(provider.id, "usr-admin");
+
+    const body = readJsonBody(fetchMock.mock.calls[0]);
+    expect(result.healthStatus).toBe("HEALTHY");
+    expect(body).toMatchObject({ model: "cx/gpt-5.6-terra", stream: false, messages: [{ role: "user", content: "Reply with exactly OK." }] });
+    expect(JSON.stringify(body)).not.toContain("image_url");
+    expect(body).not.toHaveProperty("response_format");
+  });
+
+  it("discovers and normalizes multiple models from a Custom endpoint", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "CUSTOM", name: "Router", model: "model-b", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-5678", enabled: true }, "usr-admin");
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      void url;
+      void options;
+      return Promise.resolve(new Response(JSON.stringify({ data: [{ id: "model-b" }, { id: "model-a" }, { id: "model-b" }] }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await service.discoverModels(provider.id);
+
+    expect(models.map((item) => item.value)).toEqual(["model-a", "model-b"]);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://router.example/v1/models");
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ authorization: "Bearer custom-secret-5678" });
+  });
+
+  it("keeps provider validation errors as actionable 400 responses", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "CUSTOM", name: "Router", model: "vision", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-9012", enabled: true }, "usr-admin");
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: { message: "invalid image" } }), { status: 400 }))));
+
+    await expect(service.test(provider.id, "usr-admin")).rejects.toMatchObject({ status: 400 });
+  });
+
   it("uses Web Search when the course has no usable material", async () => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "OPENAI", model: "gpt-5.4-mini", apiKey: "openai-secret-1234", enabled: true, isDefault: true }, "usr-admin");
@@ -63,11 +156,52 @@ describe("AI provider configuration and image scanning", () => {
       { type: "message", content: [{ type: "output_text", text: JSON.stringify({ questions }) }] },
     ] }), { status: 200, headers: { "content-type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await service.generateExamDraft({ providerId: provider.id, courseName: "Lập trình web", courseDescription: "HTTP và REST", focus: "HTTP cơ bản", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }, { type: "SINGLE_CHOICE", count: 1 }], contextMode: "AUTO", sourceFiles: [] });
+    const result = await service.generateExamDraft({ providerId: provider.id, model: "gpt-4o-mini", courseName: "Lập trình web", courseDescription: "HTTP và REST", focus: "HTTP cơ bản", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }, { type: "SINGLE_CHOICE", count: 1 }], contextMode: "AUTO", sourceFiles: [] });
     expect(result.context.mode).toBe("WEB_SEARCH");
+    expect(result.model).toBe("gpt-4o-mini");
     expect(result.context.sources[0]?.url).toContain("developer.mozilla.org");
     expect(result.questions.map((item) => item.type)).toEqual(["SHORT_ANSWER", "SINGLE_CHOICE"]);
-    expect(readJsonBody(fetchMock.mock.calls[0])).toMatchObject({ tools: [{ type: "web_search" }] });
+    expect(readJsonBody(fetchMock.mock.calls[0])).toMatchObject({ model: "gpt-4o-mini", tools: [{ type: "web_search" }] });
+  });
+
+  it("rejects a model that does not belong to the selected provider", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-secret-invalid-model", enabled: true }, "usr-admin");
+
+    await expect(service.generateExamDraft({ providerId: provider.id, model: "gpt-4o-mini", courseName: "Lập trình web", courseDescription: "HTTP", focus: "Khái niệm HTTP cơ bản", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] })).rejects.toThrow("không thuộc nhà cung cấp");
+  });
+
+  it("uses Gemini Google Search before requesting structured questions", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-secret-5678", enabled: true, isDefault: true }, "usr-admin");
+    const question = { type: "SHORT_ANSWER", content: "HTTP là chữ viết tắt của cụm từ nào?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], difficulty: 1, tags: ["http"], confidence: 0.92, warnings: [] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "HTTP là giao thức tầng ứng dụng cho web." }] }, groundingMetadata: { groundingChunks: [{ web: { title: "MDN HTTP", uri: "https://developer.mozilla.org/docs/Web/HTTP" } }] } }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ questions: [question] }) }] } }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.generateExamDraft({ providerId: provider.id, courseName: "Lập trình web", courseDescription: "HTTP", focus: "Khái niệm HTTP", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] });
+
+    expect(result.provider).toBe("GEMINI");
+    expect(result.context.sources).toEqual([{ title: "MDN HTTP", url: "https://developer.mozilla.org/docs/Web/HTTP" }]);
+    expect(readJsonBody(fetchMock.mock.calls[0])).toMatchObject({ tools: [{ google_search: {} }] });
+    expect(readJsonBody(fetchMock.mock.calls[1])).toMatchObject({ generationConfig: { responseMimeType: "application/json", responseJsonSchema: { type: "object" } } });
+  });
+
+  it("sends course materials inline to Gemini without Google Search", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-secret-9012", enabled: true, isDefault: true }, "usr-admin");
+    const question = { type: "MULTIPLE_CHOICE", content: "Chọn các đặc điểm đúng của REST.", options: ["Stateless", "Cacheable", "Luôn dùng SOAP", "Client-server"], correctAnswers: ["Stateless", "Cacheable", "Client-server"], difficulty: 2, tags: ["rest"], confidence: 0.96, warnings: [] };
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ questions: [question] }) }] } }] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await service.generateExamDraft({ providerId: provider.id, courseName: "Lập trình web", courseDescription: "REST API", focus: "Ràng buộc REST", difficulty: 2, distribution: [{ type: "MULTIPLE_CHOICE", count: 1 }], contextMode: "COURSE_MATERIALS", sourceFiles: [{ id: "mat-gemini", name: "rest.pdf", mimeType: "application/pdf", buffer: Buffer.from("pdf") }] });
+
+    const body = readJsonBody(fetchMock.mock.calls[0]);
+    expect(result.context).toMatchObject({ mode: "COURSE_MATERIALS", materialIds: ["mat-gemini"] });
+    expect(JSON.stringify(body)).toContain('"inline_data":{"mime_type":"application/pdf"');
+    expect(body).not.toHaveProperty("tools");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uploads course files temporarily and does not enable Web Search", async () => {
