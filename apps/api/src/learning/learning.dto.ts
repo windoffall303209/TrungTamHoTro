@@ -46,6 +46,18 @@ export class StudyDraftListQueryDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(191) cursor?: string;
 }
 
+/** Xác nhận duyệt toàn bộ nội dung và khóa hai revision khi phát hành. */
+export class PublishStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedRevision!: number;
+  @IsInt() @Min(0) @Max(2147483646) expectedPublicationRevision!: number;
+  @IsBoolean() confirmReview!: boolean;
+}
+
+/** Revision trạng thái để thu hồi mà không đè lên lần phát hành mới. */
+export class UnpublishStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedPublicationRevision!: number;
+}
+
 /** Kiểm tra cấu trúc ngoài; nội dung, nguồn và quy tắc liên trường được service xác thực thống nhất. */
 export class EditStudyDraftDto {
   @IsInt() @Min(0) @Max(2147483646) expectedRevision!: number;

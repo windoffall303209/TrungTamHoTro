@@ -12,6 +12,26 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("checks publication visibility, source version and current learner access without AI calls", async () => {
+    const { learning, ai, material, service } = fixture();
+    const source = { id: "source", materialId: material.id, version: 1, page: 1, name: material.name, text: "Evidence" };
+    ai.createStudyGuide.mockResolvedValue({ insufficientContext: false, summary: [{ text: "Summary", citations: [source] }], flashcards: [{ front: "Question", back: "Answer", citations: [source] }] });
+    const saved = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 1, language: "VI" });
+    const input = { expectedRevision: 0, expectedPublicationRevision: 0, confirmReview: true };
+    await expect(service.publishStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", input)).rejects.toMatchObject({ status: 409 });
+    learning.listMaterials.mockResolvedValue([{ ...material, visibility: "PUBLISHED", version: 2 }]);
+    await expect(service.publishStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", input)).rejects.toMatchObject({ status: 409 });
+    learning.listMaterials.mockResolvedValue([{ ...material, visibility: "PUBLISHED" }]);
+    await service.publishStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", input);
+    ai.resolveTask.mockClear();
+    expect((await service.getPublishedStudyDraft(material.id, saved.draftId, "student", "LEARNER")).result.summary[0]?.text).toBe("Summary");
+    expect(learning.createMaterialVersionAccess).toHaveBeenLastCalledWith(material.id, 1, "LEARNER", "PREVIEW", "student");
+    learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("source hidden"));
+    await expect(service.getPublishedStudyDraft(material.id, saved.draftId, "student", "LEARNER")).rejects.toThrow("source hidden");
+    learning.listMaterials.mockResolvedValue([]);
+    await expect(service.getPublishedStudyDraft(material.id, saved.draftId, "student", "LEARNER")).rejects.toMatchObject({ status: 404 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+  });
   it("reopens a saved guide without calling providers and checks source access on every read", async () => {
     const { learning, ai, material, service } = fixture();
     const first = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "EN" });
