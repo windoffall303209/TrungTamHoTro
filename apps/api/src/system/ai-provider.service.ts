@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { decryptSecret, encryptSecret } from "../infrastructure/secret-vault.js";
+import { assertAiQuestionQuality } from "./ai-question-quality.js";
 
 export type AiProviderType = "GEMINI" | "NVIDIA_NIM" | "OPENAI" | "CUSTOM";
 export type AiProviderHealth = "UNKNOWN" | "HEALTHY" | "ERROR";
@@ -677,6 +678,7 @@ export class AiProviderService {
 
   /** Bắt buộc AI trả đúng tổng và đúng từng loại câu theo ma trận giảng viên yêu cầu. */
   private assertGeneratedDistribution(questions: ScannedQuestionDraft[], distribution: Array<{ type: ScannedQuestionDraft["type"]; count: number }>): void {
+    assertAiQuestionQuality(questions);
     const expected = new Map(distribution.map((item) => [item.type, item.count]));
     const actual = new Map<ScannedQuestionDraft["type"], number>();
     questions.forEach((question) => actual.set(question.type, (actual.get(question.type) ?? 0) + 1));
