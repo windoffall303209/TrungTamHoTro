@@ -8,6 +8,27 @@ const input = { expectedRevision: 0, summary: [{ text: " Revised ", citationIds:
 const identity = { ownerId: "teacher", materialId: "material", sourceVersion: 1, options: { cardCount: 1, language: "VI" as const } };
 
 describe("study draft human edits", () => {
+  it("paginates published metadata without returning private content or withdrawn guides", async () => {
+    const service = new AiStudyDraftService();
+    const privateDraft = await service.generate(identity, () => Promise.resolve(original));
+    for (let index = 1; index <= 25; index++) {
+      const draft = await service.generate({ ...identity, options: { ...identity.options, fromPage: index, toPage: index } }, () => Promise.resolve(original));
+      await service.publish(draft.draftId, identity.ownerId, identity.materialId, { expectedRevision: 0, expectedPublicationRevision: 0, confirmReview: true });
+    }
+    const first = await service.listPublished(identity.materialId);
+    const second = await service.listPublished(identity.materialId, first.nextCursor!);
+    expect(first.items).toHaveLength(20);
+    expect(second.items).toHaveLength(5);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((item) => item.id)).size).toBe(25);
+    expect(first.items[0]).toEqual({ id: expect.any(String), sourceVersion: 1, publishedAt: expect.any(Date), publicationRevision: 1, language: "VI" });
+    expect(first.items.some((item) => item.id === privateDraft.draftId)).toBe(false);
+    expect((await service.listPublished("other-material")).items).toEqual([]);
+    await expect(service.listPublished("other-material", first.nextCursor!)).rejects.toMatchObject({ status: 400 });
+    await service.unpublish(first.items[0]!.id, identity.ownerId, identity.materialId, 1);
+    expect((await service.listPublished(identity.materialId)).items.some((item) => item.id === first.items[0]!.id)).toBe(false);
+    await expect(service.listPublished(identity.materialId, first.items[0]!.id)).rejects.toMatchObject({ status: 400 });
+  });
   it("publishes only confirmed snapshots, keeps later edits private and supports revision-checked withdrawal", async () => {
     const service = new AiStudyDraftService();
     const saved = await service.generate(identity, () => Promise.resolve(original));

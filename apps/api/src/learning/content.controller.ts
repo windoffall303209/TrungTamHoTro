@@ -53,6 +53,10 @@ export class ContentController {
   @Post("instructor/materials/:materialId/ai-study-guides/:draftId/unpublish") @RequirePermissions("material:manage")
   unpublishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: UnpublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["unpublishStudyDraft"]> { return this.materialAi.unpublishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input.expectedPublicationRevision); }
 
+  @Get("learner/materials/:materialId/study-guides") @RequirePermissions("material:view")
+  /** Danh sách có phân trang, chỉ trả metadata của các bản phát hành có nguồn được phép xem. */
+  listPublishedStudyDrafts(@Param("materialId") materialId: string, @Query() query: StudyDraftListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["listPublishedStudyDrafts"]> { return this.materialAi.listPublishedStudyDrafts(materialId, session.user.id, session.roleCode, query.cursor); }
+
   /** Đọc bộ ôn tập công khai theo quyền truy cập lớp của người dùng hiện tại. */
   @Get("learner/materials/:materialId/study-guides/:draftId") @RequirePermissions("material:view")
   getPublishedStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getPublishedStudyDraft"]> { return this.materialAi.getPublishedStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
