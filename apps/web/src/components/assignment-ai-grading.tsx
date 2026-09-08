@@ -11,6 +11,7 @@ type Suggestion = {
   insufficientEvidence: boolean; feedback: string; suggestedTotal: number | null;
   requiresHumanReview: true; model: string; submissionRevision: number; assignmentVersion: number;
   criteria: Array<{ criterionId: string; suggestedPoints: number; reasoning: string; evidence: string[] }>;
+  sources?: Array<{ attachmentId: string | null; name: string; checksum: string | null; text: string }>;
 };
 type Status = { state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; result?: Suggestion | null };
 type Props = { assignment: Assignment; submission: AssignmentSubmission; onUse: (scores: Record<string, number>, feedback: string) => void };
@@ -25,12 +26,29 @@ export function AssignmentAiGrading(props: Props) {
 /** Đối chiếu snapshot và bằng chứng trước khi cho chuyển điểm gợi ý vào biểu mẫu thủ công. */
 function matchesSource(value: Suggestion, assignment: Assignment, submission: AssignmentSubmission): boolean {
   if (value.submissionRevision !== submission.revision || value.assignmentVersion !== assignment.version || value.requiresHumanReview !== true) return false;
+  const texts = verifiedSourceTexts(value, submission);
+  if (!texts) return false;
   if (value.insufficientEvidence) return true;
   if (!Array.isArray(value.criteria) || value.criteria.length !== assignment.rubric.length || new Set(value.criteria.map((item) => item.criterionId)).size !== assignment.rubric.length) return false;
   return value.criteria.every((item) => {
     const criterion = assignment.rubric.find((entry) => entry.id === item.criterionId);
-    return criterion && Number.isFinite(item.suggestedPoints) && item.suggestedPoints >= 0 && item.suggestedPoints <= criterion.maxPoints && Array.isArray(item.evidence) && item.evidence.length > 0 && item.evidence.every((quote) => typeof quote === "string" && quote.trim() && submission.content.includes(quote));
+    return criterion && Number.isFinite(item.suggestedPoints) && item.suggestedPoints >= 0 && item.suggestedPoints <= criterion.maxPoints && Array.isArray(item.evidence) && item.evidence.length > 0 && item.evidence.every((quote) => typeof quote === "string" && quote.trim() && texts.some((text) => text.includes(quote)));
   });
+}
+
+/** Đối chiếu danh sách nguồn từ server với bài đang xem; không chấp nhận thiếu, trùng hoặc thêm tệp lạ. */
+function verifiedSourceTexts(value: Suggestion, submission: AssignmentSubmission): string[] | null {
+  if (!submission.attachments.length && value.sources === undefined) return [submission.content];
+  const sources = value.sources;
+  if (!Array.isArray(sources) || sources.length !== submission.attachments.length + (submission.content.trim() ? 1 : 0) || new Set(sources.map((source) => source.attachmentId)).size !== sources.length) return null;
+  if (!sources.every((source) => {
+    if (typeof source.text !== "string" || !source.text.trim() || source.text.length > 20000) return false;
+    if (source.attachmentId === null) return Boolean(submission.content.trim()) && source.text === submission.content && source.checksum === null;
+    const file = submission.attachments.find((item) => item.id === source.attachmentId);
+    return file && source.name === file.originalName && typeof source.checksum === "string" && /^sha256:[a-f0-9]{64}$/.test(source.checksum);
+  })) return null;
+  const texts = sources.map((source) => source.text);
+  return texts.join("\n\n").length <= 20000 ? texts : null;
 }
 
 /** Mở kết quả riêng theo yêu cầu; chỉ POST khi chưa có claim và không bao giờ tự ghi điểm. */
@@ -43,7 +61,7 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
   const [reviewed, setReviewed] = useState(false);
   const [used, setUsed] = useState(false);
   const request = useRef<AbortController | null>(null);
-  const unavailable = submission.attachments.length > 0 || !submission.content.trim();
+  const unavailable = submission.attachments.length > 5 || submission.attachments.some((file) => file.mimeType !== "text/plain" || !/\.txt$/i.test(file.originalName) || !Number.isFinite(file.sizeBytes) || file.sizeBytes <= 0 || file.sizeBytes > 80000) || (!submission.attachments.length && !submission.content.trim());
   useEffect(() => () => { request.current?.abort(); request.current = null; }, []);
 
   /** GET đối soát trạng thái; POST chỉ tạo từ trạng thái chưa yêu cầu, timeout buộc đọc lại thay vì gửi lặp. */
@@ -82,7 +100,8 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
   return <section aria-label="Gợi ý chấm AI" className="space-y-4 border-y border-[var(--rule)] py-5">
     <h3 className="font-bold">Gợi ý chấm AI</h3>
     <p className="text-sm leading-6 text-[var(--ink-soft)]">Gợi ý riêng cho giảng viên, không phải điểm chính thức. AI có thể sai; hãy đối chiếu từng tiêu chí và bài làm.</p>
-    {unavailable ? <p className="text-sm text-[var(--ink-soft)]">AI hiện chỉ hỗ trợ bài làm văn bản không có tệp đính kèm. Hãy chấm bài này thủ công để không bỏ sót nội dung.</p> : <>
+    {unavailable ? <p className="text-sm text-[var(--ink-soft)]">AI hỗ trợ văn bản và tối đa 5 tệp TXT UTF-8, mỗi tệp không quá 80.000 byte. Bài có định dạng khác cần chấm thủ công để không bỏ sót nội dung.</p> : <>
+      {submission.attachments.length ? <p className="text-sm leading-6 text-[var(--ink-soft)]">AI đọc toàn bộ phần nhập trực tiếp và các tệp TXT. Tổng giới hạn là 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.</p> : null}
       <Field label="Ngôn ngữ gợi ý"><select className={inputClass} disabled={busy} value={language} onChange={(event) => { setLanguage(event.target.value as typeof language); setStatus(null); setError(""); setReviewed(false); setUsed(false); }}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
       <div className="flex flex-wrap gap-3">
         <Button type="button" variant="secondary" disabled={busy} onClick={() => void load(false)}>{busy ? "Đang xử lý gợi ý…" : "Kiểm tra gợi ý đã lưu"}</Button>
@@ -94,12 +113,23 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
       {error ? <p role="alert" className="text-sm text-[var(--danger)]">{error}</p> : null}
       {result ? <div className="space-y-4" aria-live="polite">
         <p className="break-words text-sm text-[var(--ink-soft)]"><span>Model</span>: <span translate="no">{result.model}</span></p>
+        {result.sources?.length ? <div className="space-y-2">
+          <h4 className="font-semibold">Nguồn dùng để chấm</h4>
+          <p className="text-sm text-[var(--ink-soft)]">Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý.</p>
+          {result.sources.map((source) => <details key={source.attachmentId ?? "inline"} className="border-b border-[var(--rule)] py-2">
+            <summary className="cursor-pointer break-words py-2 text-sm font-semibold">{source.attachmentId ? <span translate="no">{source.name}</span> : <span>Nội dung nhập trực tiếp</span>}</summary>
+            <p translate="no" className="max-h-64 overflow-auto whitespace-pre-wrap break-words py-3 text-sm leading-6" tabIndex={0}>{source.text}</p>
+          </details>)}
+        </div> : null}
         {result.insufficientEvidence ? <p className="font-semibold">Chưa đủ bằng chứng để gợi ý điểm</p> : <>
           <p className="font-semibold"><span>Tổng điểm đề xuất</span>: {result.suggestedTotal} / {assignment.maxScore}</p>
           <ol className="divide-y divide-[var(--rule)]">{result.criteria.map((item) => <li key={item.criterionId} className="space-y-2 py-4">
             <p className="flex flex-wrap justify-between gap-2 font-semibold"><span translate="no">{assignment.rubric.find((entry) => entry.id === item.criterionId)?.title}</span><span>{item.suggestedPoints} / {assignment.rubric.find((entry) => entry.id === item.criterionId)?.maxPoints}</span></p>
             <p translate="no" className="whitespace-pre-wrap break-words text-sm leading-6">{item.reasoning}</p>
-            <details><summary className="cursor-pointer py-2 text-sm font-semibold">Đối chiếu trích dẫn bài làm</summary>{item.evidence.map((quote, index) => <blockquote key={index} translate="no" className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--ink-soft)]">{quote}</blockquote>)}</details>
+            <details><summary className="cursor-pointer py-2 text-sm font-semibold">Đối chiếu trích dẫn bài làm</summary>{item.evidence.map((quote, index) => <div key={index} className="mt-3">
+              {result.sources ? <p className="break-words text-sm font-semibold"><span>Nguồn trích dẫn</span>: {result.sources.find((source) => source.text.includes(quote))?.attachmentId ? <span translate="no">{result.sources.find((source) => source.text.includes(quote))?.name}</span> : <span>Nội dung nhập trực tiếp</span>}</p> : null}
+              <blockquote translate="no" className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--ink-soft)]">{quote}</blockquote>
+            </div>)}</details>
           </li>)}</ol>
         </>}
         <h4 className="font-semibold">Phản hồi đề xuất</h4>
