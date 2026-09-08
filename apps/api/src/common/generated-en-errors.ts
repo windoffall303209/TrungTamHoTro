@@ -552,5 +552,16 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Yêu cầu đã được xử lý.": "The request has been processed.",
   "Yêu cầu khôi phục không còn ở trạng thái chờ duyệt.": "The restore request is no longer pending.",
   "Yêu cầu phúc khảo đã được người khác nhận hoặc đã kết thúc.": "The appeal request has been received by someone else or has ended.",
-  "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status."
+  "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status.",
+  "Chưa có cấu hình Gemini hoặc OpenAI đang bật để tạo đề bằng AI.": "No enabled Gemini or OpenAI configuration is available for AI exam generation.",
+  "Gemini không trả về nội dung nghiên cứu để tạo đề. Hãy thử lại hoặc đổi model.": "Gemini returned no research content for exam generation. Try again or select another model.",
+  "Gemini không trả về phản hồi hợp lệ.": "Gemini returned an invalid response.",
+  "Provider AI chưa bật hoặc chưa có API key.": "The AI provider is disabled or has no API key.",
+  "Provider đã chọn chưa hỗ trợ tạo đề từ tài liệu và Internet.": "The selected provider does not support exam generation from course files and Internet sources.",
+  "Chỉ provider Custom hỗ trợ tải danh sách model từ endpoint.": "Only Custom providers can load a model list from their endpoint.",
+  "Endpoint Custom không trả về danh sách model hợp lệ.": "The Custom endpoint returned no valid model list.",
+  "Không thể kết nối endpoint Custom để tải danh sách model.": "Could not connect to the Custom endpoint to load its model list.",
+  "Không thể kết nối nhà cung cấp AI để kiểm tra.": "Could not connect to the AI provider for the connection test.",
+  "Provider kết nối được nhưng không trả về nội dung kiểm tra.": "The provider connected successfully but returned no test output.",
+  "Model đã chọn không thuộc nhà cung cấp AI này.": "The selected model does not belong to this AI provider."
 });
