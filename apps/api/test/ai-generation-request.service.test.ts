@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { AiGenerationRequestService } from "../src/learning/ai-generation-request.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import type { GeneratedExamDraft } from "../src/system/ai-provider.service.js";
@@ -23,6 +24,51 @@ function sharedDatabase(): PrismaService {
 }
 
 describe("AI generation idempotency", () => {
+  it("never reclaims legacy GENERATING records when upgrading the service", async () => {
+    const db = sharedDatabase();
+    await db.systemSetting.create({ data: { key: "ai-generation:legacy", updatedBy: "owner", value: { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "GENERATING" } } });
+    const generate = vi.fn();
+    await expect(new AiGenerationRequestService(db).run("legacy", "owner", {}, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when durable claiming is unavailable", async () => {
+    const db = sharedDatabase();
+    vi.spyOn(db.systemSetting, "create").mockRejectedValueOnce(new Error("database offline"));
+    const generate = vi.fn();
+    await expect(new AiGenerationRequestService(db).run("id", "owner", {}, generate, vi.fn(), noResult)).rejects.toThrow("database offline");
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("resumes a pre-provider lookup failure after restart without stranding the claim", async () => {
+    const db = sharedDatabase();
+    const generate = vi.fn(() => Promise.resolve(prepared));
+    const save = vi.fn(() => Promise.resolve(result));
+    const recover = vi.fn().mockRejectedValueOnce(new Error("lookup offline")).mockResolvedValue(undefined);
+    await expect(new AiGenerationRequestService(db).run("original", "owner", {}, generate, save, recover)).rejects.toThrow("lookup offline");
+    expect(generate).not.toHaveBeenCalled();
+    expect(await new AiGenerationRequestService(db).run("retry", "owner", {}, generate, save, recover)).toEqual(result);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledExactlyOnceWith(prepared, "original");
+  });
+
+  it("lets only one worker resume the same pre-provider claim", async () => {
+    const db = sharedDatabase();
+    const generate = vi.fn(() => Promise.resolve(prepared));
+    const save = vi.fn(() => Promise.resolve(result));
+    await expect(new AiGenerationRequestService(db).run("original", "owner", {}, generate, save, () => Promise.reject(new Error("lookup offline")))).rejects.toThrow();
+    const outcomes = await Promise.allSettled(Array.from({ length: 8 }, (_, index) =>
+      new AiGenerationRequestService(db).run(`resume-${index}`, "owner", {}, generate, save, noResult),
+    ));
+    expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
+      else expect(outcome.value).toEqual(result);
+    }
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledExactlyOnceWith(prepared, "original");
+  });
+
   it("coalesces different request IDs across workers and uses the original ID for persistence", async () => {
     const db = sharedDatabase();
     const first = new AiGenerationRequestService(db);
