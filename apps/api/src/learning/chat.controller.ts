@@ -201,7 +201,8 @@ export class ChatController {
     const inline =
       action === "preview" &&
       (file.mimeType === "application/pdf" ||
-        file.mimeType.startsWith("image/"));
+        file.mimeType.startsWith("image/") ||
+        file.mimeType.startsWith("audio/"));
     return new StreamableFile(file.buffer, {
       type: file.mimeType,
       disposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
