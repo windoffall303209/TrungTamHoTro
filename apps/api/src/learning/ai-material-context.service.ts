@@ -7,23 +7,29 @@ import { chunkDocument, type ContextChunk, type DocumentPage, retrieveDocumentCo
 import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions } from "../system/ai-study-guide.js";
 import { AiStudyDraftService, type SavedStudyGuide, type PublishStudyDraft } from "./ai-study-draft.service.js";
 import type { LearningMaterial } from "./learning.types.js";
+import { AiDocumentAnswerStore } from "./ai-document-answer-store.js";
 
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
 export class AiMaterialContextService {
   private readonly memory = new Map<string, DocumentPage[]>();
   private readonly pending = new Map<string, Promise<DocumentPage[]>>();
-  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma)) {}
+  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma)) {}
 
   /** Nạp ngữ cảnh server-side, trả lời có nguồn rồi xác nhận người hỏi vẫn được truy cập phiên bản đó. */
   async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
     const text = typeof question === "string" ? question.trim() : "";
     if (text.length < 2 || text.length > 2000) throw new BadRequestException("Câu hỏi cần từ 2 đến 2.000 ký tự.");
     if (!["VI", "EN", "BILINGUAL"].includes(language)) throw new BadRequestException("Ngôn ngữ AI không hợp lệ.");
-    const context = await this.prepare(materialId, actorId, role, text, true);
-    const result = await this.ai.answerDocument(text, context.chunks, language);
-    await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
-    return { ...result, warning: context.warning, version: context.version };
+    const material = await this.requireMaterial(materialId, actorId, role);
+    await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
+    const result = await this.answers.generate({ ownerId: actorId, materialId, version: material.version, question: text, language }, async () => {
+      const context = await this.prepare(materialId, actorId, role, text, true, material.version);
+      const answer = await this.ai.answerDocument(text, context.chunks, language);
+      return { ...answer, warning: context.warning, version: context.version };
+    });
+    await this.learning.createMaterialVersionAccess(materialId, result.version, role, "PREVIEW", actorId);
+    return result;
   }
 
   /** Tạo bộ ôn tập có độ bao phủ rõ ràng; kiểm tra quyền lần cuối trước khi trả nội dung. */
