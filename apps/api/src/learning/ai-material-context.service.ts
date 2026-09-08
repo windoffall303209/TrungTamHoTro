@@ -12,6 +12,14 @@ export class AiMaterialContextService {
   private readonly pending = new Map<string, Promise<DocumentPage[]>>();
   constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService) {}
 
+  /** Nạp ngữ cảnh server-side, trả lời có nguồn rồi xác nhận người hỏi vẫn được truy cập phiên bản đó. */
+  async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
+    const context = await this.prepare(materialId, actorId, role, question);
+    const result = await this.ai.answerDocument(question, context.chunks, language);
+    await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
+    return { ...result, warning: context.warning, version: context.version };
+  }
+
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
   async prepare(materialId: string, actorId: string, role: string, query?: string): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
     const material = (await this.learning.listMaterials(role, undefined, actorId)).find((item) => item.id === materialId);
