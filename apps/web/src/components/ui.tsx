@@ -14,7 +14,7 @@ export function Button({ children, variant = "primary", loading = false, classNa
 }
 
 /** Ghép nhãn, control và lỗi trường thành một khối form thống nhất. */
-export function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+export function Field({ label, error, children }: { label: React.ReactNode; error?: string; children: React.ReactNode }) {
   return <label className="block text-sm font-bold text-[var(--ink)]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[var(--danger)]">{error}</span> : null}</label>;
 }
 

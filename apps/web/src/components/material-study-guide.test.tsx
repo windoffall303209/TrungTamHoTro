@@ -12,6 +12,26 @@ describe("MaterialStudyGuide", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+  it("opens the latest human revision and locks navigation until editing ends", async () => {
+    const draft = { id: "edited-draft", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN" } };
+    apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: null }).mockResolvedValueOnce({ ...draft, result: response, editRevision: 2, editedResult: { ...response, summary: [{ text: "Human revision", citations: [source] }] } });
+    const onBusyChange = vi.fn();
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={onBusyChange} openSource={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mở bản nháp" }));
+    expect(await screen.findByText("Human revision")).toBeVisible();
+    expect(screen.queryByText("A key concept.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Chỉnh sửa bộ ôn tập" }));
+    expect(screen.getByRole("button", { name: "Tạo bộ ôn tập" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Bản nháp đã lưu" })).toBeDisabled();
+    expect(onBusyChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByLabelText("Ý chính 1")).toHaveValue("Human revision");
+    fireEvent.click(screen.getByRole("button", { name: "Hủy chỉnh sửa" }));
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByRole("button", { name: "Tạo bộ ôn tập" })).toBeEnabled();
+    expect(apiRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("pages private history and opens the stored result without generating or changing inputs", async () => {
     const draft = { id: "draft-1", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN", fromPage: 2, toPage: 4 } };
     apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: "draft-1" })
