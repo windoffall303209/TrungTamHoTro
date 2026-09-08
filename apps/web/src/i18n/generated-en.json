@@ -1,4 +1,8 @@
 {
+  "Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.": "AI document Q&A requires durable database storage to prevent duplicate requests.",
+  "Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.": "The AI question is processing or its outcome is uncertain. Do not resubmit and risk duplicate charges; contact an administrator for reconciliation.",
+  "Phiên bản câu trả lời AI không khớp tài liệu yêu cầu.": "The AI answer version does not match the requested document.",
+  "Không xác nhận được việc lưu câu trả lời AI. Không gửi yêu cầu mới.": "Saving the AI answer could not be confirmed. Do not create a new request.",
   "Dữ liệu khóa sinh đề AI không hợp lệ. Giữ mã yêu cầu và liên hệ quản trị viên đối soát; không tạo yêu cầu mới.": "The stored AI exam generation claim is invalid. Keep the request ID and contact an administrator for reconciliation; do not create a new request.",
   "Liên kết hỏng": "Broken bindings",
   "Nhóm này gồm yêu cầu có liên kết nhưng mã gốc thiếu, sai định dạng hoặc trỏ tới yêu cầu không còn hợp lệ. Nhiều mã thử lại có thể cùng bị ảnh hưởng; số hàng không phải số lần gọi AI. Giữ mã yêu cầu để đối soát, không tự sửa liên kết hoặc gọi lại AI.": "This group contains requests with bindings whose original request ID is missing, malformed, or points to an invalid request. Several retry IDs may be affected; the row count is not the number of AI calls. Keep request IDs for reconciliation; do not repair bindings or call AI again without verification.",
