@@ -5,6 +5,8 @@ import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { OmitType } from "@nestjs/swagger";
 
 /** Bộ lọc hữu hạn cho hàng đợi đối soát; không nhận nội dung bài làm hoặc thông số provider. */
 export class GradingOperationsQueryDto {
@@ -17,9 +19,17 @@ export class GradingOperationsQueryDto {
   limit = 20;
 }
 
+const examStates = ["CLAIMED", "GENERATING", "READY", "SAVING", "COMPLETED", "UNCERTAIN"] as const;
+/** Sinh đề có bước giữ khóa, lưu nháp và hoàn tất riêng; không đồng nhất READY với đề đã lưu. */
+export class ExamOperationsQueryDto extends OmitType(GradingOperationsQueryDto, ["state"] as const) {
+  @IsOptional() @IsIn(examStates)
+  state?: typeof examStates[number];
+}
+
 const metadata = { id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true } as const;
 type GradingOperation = { id: string; ownerId: string; submissionId: string; language: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type StudyOperation = { id: string; ownerId: string; materialId: string; sourceVersion: number; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
+type ExamOperation = { id: string; ownerId: string; state: typeof examStates[number]; version: number; createdAt: Date; updatedAt: Date };
 
 @Injectable()
 /** Chỉ đọc metadata claim bền vững; không trả bài làm, điểm, phản hồi, hash hoặc cấu hình bí mật. */
@@ -62,6 +72,42 @@ export class AiGradingOperationsService {
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
+  /** Chỉ liệt kê tác vụ sinh đề gốc; các UUID retry và khóa liên kết không trở thành hàng tác vụ giả. */
+  async listExams(query: ExamOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: ExamOperation[]; nextCursor: string | null }> {
+    const limit = this.validateQuery({ ...query, state: undefined }, session);
+    if (query.state !== undefined && !examStates.includes(query.state)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
+    const anchor = query.cursor ? (await this.examRows(Prisma.sql`r.\`key\` = ${`ai-generation:${query.cursor}`}`, 1))[0] : undefined;
+    if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
+    const states = query.state ? [query.state] : examStates.filter((state) => state !== "COMPLETED");
+    const stateFilter = Prisma.sql`JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN (${Prisma.join(states)})`;
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-generation:${anchor.id}`}))` : Prisma.empty;
+    const rows = await this.examRows(Prisma.sql`${stateFilter} ${position}`, limit + 1);
+    const items = rows.slice(0, limit);
+    return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
+  }
+
+  /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
+  private examRows(filter: Prisma.Sql, limit: number): Promise<ExamOperation[]> {
+    return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
+      SELECT SUBSTRING(r.\`key\`, 15) AS id,
+        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.owner')) AS ownerId,
+        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) AS state,
+        r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      FROM system_settings r
+      WHERE r.\`key\` LIKE 'ai-generation:%'
+        AND EXISTS (
+          SELECT 1 FROM system_settings b
+          WHERE b.\`key\` LIKE 'ai-generation-content:%'
+            AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = SUBSTRING(r.\`key\`, 15)
+            AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
+            AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
+        )
+        AND ${filter}
+      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      LIMIT ${limit}
+    `);
+  }
+
   /** Dùng chung quyền và quy tắc đầu vào cho mọi hàng đợi trước khi truy cập database. */
   private validateQuery(query: GradingOperationsQueryDto, session: AuthenticatedSession): number {
     if (session.roleCode !== "SYSTEM_ADMIN" || !session.permissions.includes("system:configure")) throw new ForbiddenException("Chỉ quản trị viên hệ thống được đối soát tác vụ AI.");
@@ -91,5 +137,13 @@ export class AiGradingOperationsController {
   /** Liệt kê trạng thái sinh tóm tắt/flashcard mà không đọc nội dung riêng của người tạo. */
   study(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listStudy"]> {
     return this.operations.listStudy(query, session);
+  }
+
+  @Get("exams")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Đọc hàng đợi sinh đề gốc, không trả câu hỏi/đáp án và không gọi provider. */
+  exams(@Query() query: ExamOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listExams"]> {
+    return this.operations.listExams(query, session);
   }
 }
