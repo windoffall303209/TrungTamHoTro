@@ -9,7 +9,7 @@ import { AiProviderService, type AiProviderConfig, type AiProviderType } from ".
 
 class ConfigureAiTaskDto {
   @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
-  @IsIn(["SCAN_IMAGE", "GENERATE_EXAM", "DOCUMENT_CONTEXT", "DOCUMENT_QA"]) task!: "SCAN_IMAGE" | "GENERATE_EXAM" | "DOCUMENT_CONTEXT" | "DOCUMENT_QA";
+  @IsIn(["SCAN_IMAGE", "GENERATE_EXAM", "DOCUMENT_CONTEXT", "DOCUMENT_QA", "GRADING_ASSIST"]) task!: "SCAN_IMAGE" | "GENERATE_EXAM" | "DOCUMENT_CONTEXT" | "DOCUMENT_QA" | "GRADING_ASSIST";
   @IsString() @MinLength(1) @MaxLength(200) providerId!: string;
   @IsString() @MinLength(1) @MaxLength(200) model!: string;
 }
