@@ -46,6 +46,13 @@ export class StudyDraftListQueryDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(191) cursor?: string;
 }
 
+/** Kiểm tra cấu trúc ngoài; nội dung, nguồn và quy tắc liên trường được service xác thực thống nhất. */
+export class EditStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedRevision!: number;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(8) summary!: Array<{ text: string; citationIds: string[] }>;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) flashcards!: Array<{ front: string; back: string; citationIds: string[] }>;
+}
+
 /** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
 export class EditExamQuestionDto {
   @IsString() @MinLength(5) @MaxLength(20000) content!: string;

@@ -57,6 +57,12 @@ export class AiMaterialContextService {
     return draft;
   }
 
+  /** Chỉnh sửa chỉ sau khi xác nhận chủ bản nháp và quyền với đúng phiên bản học liệu. */
+  async editStudyDraft(materialId: string, draftId: string, actorId: string, role: string, input: unknown): ReturnType<AiStudyDraftService["edit"]> {
+    await this.getStudyDraft(materialId, draftId, actorId, role);
+    return this.drafts.edit(draftId, actorId, materialId, input);
+  }
+
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
   async prepare(materialId: string, actorId: string, role: string, query?: string, requireAnswerModel = false, expectedVersion?: number): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
     const material = await this.requireMaterial(materialId, actorId, role);
