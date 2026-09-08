@@ -99,22 +99,22 @@ describe("admin AI grading queue", () => {
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
   });
 
-  it("reads unlinked exam claims explicitly and drops cursors when changing scope", async () => {
+  it.each(["unlinked", "broken"])("reads %s exam claims explicitly and drops cursors when changing scope", async (selectedScope) => {
     const exam = { id: "unlinked-1", ownerId: "teacher", version: 1, state: "CLAIMED", createdAt: row.createdAt, updatedAt: row.updatedAt };
     api.mockResolvedValueOnce({ items: [exam], nextCursor: "unlinked / 1" }).mockResolvedValueOnce({ items: [{ ...exam, id: "unlinked-2" }], nextCursor: null });
     render(<AiGradingOperations />);
     fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
     const scope = screen.getByRole("combobox", { name: "Phạm vi đối soát sinh đề" });
-    fireEvent.change(scope, { target: { value: "unlinked" } });
+    fireEvent.change(scope, { target: { value: selectedScope } });
     expect(api).not.toHaveBeenCalled();
-    expect(screen.getByText(/Khóa có thể đang được chuẩn bị/)).toBeInTheDocument();
+    expect(screen.getByText(selectedScope === "unlinked" ? /Khóa có thể đang được chuẩn bị/ : /số hàng không phải số lần gọi AI/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
     expect(scope).toBeDisabled();
     await screen.findByText("unlinked-1");
-    expect(api.mock.calls[0]?.[0]).toBe("/admin/ai-operations/exams?limit=20&scope=unlinked");
+    expect(api.mock.calls[0]?.[0]).toBe(`/admin/ai-operations/exams?limit=20&scope=${selectedScope}`);
     fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await screen.findByText("unlinked-2");
-    expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/exams?limit=20&scope=unlinked&cursor=unlinked+%2F+1");
+    expect(api.mock.calls[1]?.[0]).toBe(`/admin/ai-operations/exams?limit=20&scope=${selectedScope}&cursor=unlinked+%2F+1`);
     fireEvent.change(scope, { target: { value: "canonical" } });
     expect(screen.queryByText("unlinked-2")).not.toBeInTheDocument();
     expect(api).toHaveBeenCalledTimes(2);
