@@ -2516,5 +2516,22 @@
   "Hãy chọn lại nhà cung cấp hoặc kiểm tra cấu hình AI.": "Select the provider again or check its AI configuration.",
   "Không tải được danh sách model của nhà cung cấp.": "Could not load the provider's model list.",
   "Không tìm thấy model phù hợp.": "No matching model found.",
-  "Model đã chọn không thuộc nhà cung cấp AI này.": "The selected model does not belong to this AI provider."
+  "Model đã chọn không thuộc nhà cung cấp AI này.": "The selected model does not belong to this AI provider.",
+  "Lịch sử bộ ôn tập": "Study guide history",
+  "Bản nháp đã lưu": "Saved drafts",
+  "Chỉ hiển thị bản nháp riêng của bạn trong tài liệu này. Mở lịch sử không gọi AI.": "Only your private drafts for this document appear here. Opening history does not call AI.",
+  "Làm mới lịch sử": "Refresh history",
+  "Đang đọc bản nháp…": "Loading drafts…",
+  "Chưa có bản nháp đã lưu. Tạo bộ ôn tập bên dưới để bắt đầu.": "No saved drafts yet. Create a study guide below to get started.",
+  "thẻ ôn tập": "flashcards",
+  "Phạm vi: toàn tài liệu": "Requested scope: entire document",
+  "Đã lưu kết quả": "Result saved",
+  "Chưa rõ kết quả. Hệ thống không tự gọi lại AI để tránh phí trùng.": "Outcome uncertain. AI will not be called again automatically to avoid duplicate charges.",
+  "Đang xử lý hoặc bị gián đoạn. Làm mới lịch sử để kiểm tra.": "Processing or interrupted. Refresh history to check.",
+  "Mở bản nháp": "Open draft",
+  "Tải thêm bản nháp": "Load more drafts",
+  "Đã lưu bản nháp riêng. Có thể mở lại trong lịch sử; nội dung chưa được phát hành.": "Private draft saved. You can reopen it from history; the content has not been published.",
+  "Bản nháp chưa có kết quả để mở. Hãy làm mới lịch sử để kiểm tra trạng thái.": "This draft has no result to open yet. Refresh history to check its status.",
+  "Đọc bản nháp quá thời gian chờ. Hãy thử tải lại; thao tác này không gọi AI.": "Loading the draft timed out. Try loading again; this does not call AI.",
+  "Không tải được bản nháp ôn tập. Hãy thử lại.": "Could not load study drafts. Please try again."
 }
