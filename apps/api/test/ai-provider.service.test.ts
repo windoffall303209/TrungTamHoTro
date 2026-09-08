@@ -28,6 +28,26 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each(["GEMINI", "OPENAI", "NVIDIA_NIM", "CUSTOM"] as const)("uses separate admin grading routing for %s without tools or grade writes", async (providerType) => {
+    const service = new AiProviderService(undefined, config);
+    const model = providerType === "CUSTOM" ? "grading-model" : service.getCatalog()[providerType][0]!.value;
+    const provider = await service.configure({ provider: providerType, model, baseUrl: "https://router.example/v1/chat/completions", apiKey: "test-grading-secret", enabled: true }, "usr-admin");
+    const input = { instructions: "Explain HTTP.", answer: "HTTP is an application-layer protocol.", language: "BILINGUAL", rubric: [{ id: "r1", title: "Accuracy", description: "Correct layer.", maxPoints: 5 }] };
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    await expect(service.suggestGrading(input)).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await service.configureTask("GRADING_ASSIST", { providerId: provider.id, model }, "usr-admin");
+    const output = JSON.stringify({ insufficientEvidence: false, feedback: "Correct layer.", criteria: [{ criterionId: "r1", suggestedPoints: 5, reasoning: "Names the application layer.", evidence: [input.answer] }] });
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(providerType === "GEMINI" ? { candidates: [{ content: { parts: [{ text: output }] } }] } : { choices: [{ message: { content: output } }] })));
+    expect(await service.suggestGrading(input)).toMatchObject({ suggestedTotal: 5, requiresHumanReview: true, model });
+    const body = readJsonBody(fetchMock.mock.calls[0]);
+    expect(body).not.toHaveProperty("tools");
+    expect(JSON.stringify(body)).toContain("untrusted DATA");
+    expect(JSON.stringify(body)).toContain("never a final grade");
+    expect(JSON.stringify(body)).toContain("Vietnamese followed by English");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["GEMINI", "OPENAI", "NVIDIA_NIM", "CUSTOM"] as const)("generates cited study guides through the admin-selected %s provider", async (providerType) => {
     const service = new AiProviderService(undefined, config);
     const model = providerType === "CUSTOM" ? "study-model" : service.getCatalog()[providerType][0]!.value;
