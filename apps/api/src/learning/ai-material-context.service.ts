@@ -16,11 +16,27 @@ export class AiMaterialContextService {
   private readonly pending = new Map<string, Promise<DocumentPage[]>>();
   constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma)) {}
 
-  /** Nạp ngữ cảnh server-side, trả lời có nguồn rồi xác nhận người hỏi vẫn được truy cập phiên bản đó. */
-  async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
+  /** Read saved status without provider work, checking source access on both sides of the lookup. */
+  async questionStatus(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): ReturnType<AiDocumentAnswerStore["status"]> {
+    const text = this.questionText(question, language);
+    const material = await this.requireMaterial(materialId, actorId, role);
+    await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
+    const status = await this.answers.status({ ownerId: actorId, materialId, version: material.version, question: text, language });
+    await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
+    return status;
+  }
+
+  /** Normalize and validate the common question identity for both read and generation paths. */
+  private questionText(question: string, language: string): string {
     const text = typeof question === "string" ? question.trim() : "";
     if (text.length < 2 || text.length > 2000) throw new BadRequestException("Câu hỏi cần từ 2 đến 2.000 ký tự.");
     if (!["VI", "EN", "BILINGUAL"].includes(language)) throw new BadRequestException("Ngôn ngữ AI không hợp lệ.");
+    return text;
+  }
+
+  /** Generate or replay a saved answer, rechecking current source access before returning it. */
+  async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
+    const text = this.questionText(question, language);
     const material = await this.requireMaterial(materialId, actorId, role);
     await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
     const result = await this.answers.generate({ ownerId: actorId, materialId, version: material.version, question: text, language }, async () => {
