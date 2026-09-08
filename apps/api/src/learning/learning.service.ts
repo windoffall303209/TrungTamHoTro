@@ -5731,10 +5731,11 @@ export class LearningService {
         const questionIds: string[] = [];
         for (const question of normalizedQuestions) {
           const contentHash = this.questionContentHash(question.content);
-          const existing = await transaction.question.findFirst({
-            where: { courseId, contentHash, status: "PUBLISHED" },
+          const candidates = await transaction.question.findMany({
+            where: { courseId, contentHash, status: "PUBLISHED", type: question.type, difficulty: question.difficulty, imageObjectKey: null },
             orderBy: { version: "desc" },
           });
+          const existing = candidates.find((candidate) => this.sameGeneratedQuestion(candidate, question));
           if (existing) {
             questionIds.push(existing.id);
             continue;
@@ -5818,7 +5819,8 @@ export class LearningService {
         (item) =>
           item.courseId === courseId &&
           item.status === "PUBLISHED" &&
-          this.questionContentHash(item.content) === contentHash,
+          this.questionContentHash(item.content) === contentHash &&
+          !item.imageUrl && !item.imageName && this.sameGeneratedQuestion(item, question),
       );
       if (existing) return existing.id;
       const questionId = id("question");
@@ -11282,6 +11284,11 @@ export class LearningService {
         latest.set(familyId, item);
     }
     return [...latest.values()].sort((a, b) => b.version - a.version);
+  }
+
+  /** Chỉ tái dùng câu ngân hàng khi nội dung, loại, lựa chọn, đáp án và độ khó khớp hoàn toàn. */
+  private sameGeneratedQuestion(existing: { content: string; type: string; difficulty: number; options: unknown; correctAnswers: unknown }, generated: { content: string; type: string; difficulty: number; options: string[]; correctAnswers: string[] }): boolean {
+    return existing.content === generated.content && existing.type === generated.type && existing.difficulty === generated.difficulty && JSON.stringify(existing.options) === JSON.stringify(generated.options) && JSON.stringify(existing.correctAnswers) === JSON.stringify(generated.correctAnswers);
   }
 
   /** Chuẩn hóa nội dung rồi băm để phát hiện câu hỏi trùng. */
