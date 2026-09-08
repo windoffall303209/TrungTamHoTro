@@ -12,6 +12,45 @@ describe("MaterialStudyGuide", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+  it("requires review confirmation to publish and preserves private content when withdrawing", async () => {
+    const draft = { id: "publish-draft", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN" }, editRevision: 2, publicationRevision: 4, publishedAt: null, publishedEditRevision: null, result: response };
+    apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: null }).mockResolvedValueOnce(draft)
+      .mockResolvedValueOnce({ publicationRevision: 5, publishedEditRevision: 2, publishedAt: "2026-09-08T11:00:00Z" })
+      .mockResolvedValueOnce({ publicationRevision: 6, publishedEditRevision: 2, publishedAt: null });
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={vi.fn()} openSource={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mở bản nháp" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phát hành bản đang xem" }));
+    expect(apiRequest).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Bạn xác nhận đã duyệt toàn bộ/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận duyệt và phát hành" }));
+    expect(await screen.findByText("Đã phát hành cho học viên có quyền xem học liệu")).toBeVisible();
+    expect(apiRequest.mock.calls[2]).toEqual(["/instructor/materials/material-1/ai-study-guides/publish-draft/publish", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedPublicationRevision: 4, expectedRevision: 2, confirmReview: true }) })]);
+    fireEvent.click(screen.getByRole("button", { name: "Thu hồi bộ ôn tập" }));
+    expect(apiRequest).toHaveBeenCalledTimes(3);
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận thu hồi" }));
+    expect(await screen.findByText("Chưa có bản phát hành cho học viên")).toBeVisible();
+    expect(apiRequest.mock.calls[3]?.[1].body).toBe(JSON.stringify({ expectedPublicationRevision: 5 }));
+    expect(screen.getByText("A key concept.")).toBeVisible();
+  });
+
+  it("shows unpublished edits and keeps the known publication state after a conflict", async () => {
+    const draft = { id: "conflict-draft", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN" }, editRevision: 2, publicationRevision: 1, publishedAt: "2026-09-08T11:00:00Z", publishedEditRevision: 0, result: response };
+    apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: null }).mockResolvedValueOnce(draft).mockRejectedValueOnce(new Error("Trạng thái đã thay đổi."));
+    const onBusyChange = vi.fn();
+    render(<MaterialStudyGuide materialId="material-1" onBusyChange={onBusyChange} openSource={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bản nháp đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mở bản nháp" }));
+    expect(await screen.findByText(/Bản nháp có chỉnh sửa chưa phát hành/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Phát hành bản đang xem" }));
+    fireEvent.click(screen.getByRole("button", { name: "Xác nhận duyệt và phát hành" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Trạng thái đã thay đổi");
+    expect(screen.getByText("Đã phát hành cho học viên có quyền xem học liệu")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Tải lại bản nháp và trạng thái" })).toBeEnabled();
+    expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    expect(apiRequest).toHaveBeenCalledTimes(3);
+  });
+
   it("opens the latest human revision and locks navigation until editing ends", async () => {
     const draft = { id: "edited-draft", state: "READY", sourceVersion: 3, createdAt: "2026-09-08T10:00:00Z", options: { cardCount: 1, language: "EN" } };
     apiRequest.mockResolvedValueOnce({ items: [draft], nextCursor: null }).mockResolvedValueOnce({ ...draft, result: response, editRevision: 2, editedResult: { ...response, summary: [{ text: "Human revision", citations: [source] }] } });

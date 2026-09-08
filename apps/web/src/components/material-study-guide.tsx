@@ -11,6 +11,9 @@ type Source = { id: string; materialId: string; version: number; name: string; p
 export type Guide = {
   draftId?: string;
   editRevision?: number;
+  publicationRevision?: number;
+  publishedEditRevision?: number | null;
+  publishedAt?: string | null;
   insufficientContext: boolean;
   summary: Array<{ text: string; citations: Source[] }>;
   flashcards: Array<{ front: string; back: string; citations: Source[] }>;
@@ -39,22 +42,26 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
   const [history, setHistory] = useState<DraftPage | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [editing, setEditing] = useState(false);
-  const locked = busy || reading || editing;
+  const [publishing, setPublishing] = useState(false);
+  const [publicationAction, setPublicationAction] = useState<"publish" | "unpublish" | null>(null);
+  const [publicationError, setPublicationError] = useState("");
+  const locked = busy || reading || editing || publishing || publicationAction !== null;
   useEffect(() => () => controllerRef.current?.abort(), []);
   useEffect(() => { if (guide) { resultHeading.current?.focus(); resultHeading.current?.scrollIntoView?.({ block: "start" }); } }, [guide]);
 
   /** Đọc lịch sử hoặc kết quả đã lưu, không tạo lại nội dung và không để yêu cầu đọc chạy vô hạn. */
   const readSaved = async (draftId?: string, cursor?: string) => {
-    if (inFlight.current || editing) return;
+    if (inFlight.current || editing || publicationAction) return;
     inFlight.current = true; setReading(true); onBusyChange(true); setHistoryError(""); setHistoryOpen(true);
     const controller = new AbortController(); controllerRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 30_000);
     const path = `/instructor/materials/${encodeURIComponent(materialId)}/ai-study-guides`;
     try {
       if (draftId) {
-        const draft = await apiRequest<DraftSummary & { result: Guide | null; editedResult?: Guide | null; editRevision?: number }>(`${path}/${encodeURIComponent(draftId)}`, { roleCode: session.roleCode, signal: controller.signal });
+        const draft = await apiRequest<DraftSummary & Pick<Guide, "publicationRevision" | "publishedAt" | "publishedEditRevision"> & { result: Guide | null; editedResult?: Guide | null; editRevision?: number }>(`${path}/${encodeURIComponent(draftId)}`, { roleCode: session.roleCode, signal: controller.signal });
         if (draft.state !== "READY" || !draft.result) throw new Error("Bản nháp chưa có kết quả để mở. Hãy làm mới lịch sử để kiểm tra trạng thái.");
-        setGuide({ ...(draft.editedResult ?? draft.result), draftId: draft.id, editRevision: draft.editRevision ?? 0 });
+        setGuide({ ...(draft.editedResult ?? draft.result), draftId: draft.id, editRevision: draft.editRevision ?? 0, publicationRevision: draft.publicationRevision, publishedAt: draft.publishedAt, publishedEditRevision: draft.publishedEditRevision });
+        setPublicationError("");
         setHistoryOpen(false);
       } else {
         const page = await apiRequest<DraftPage>(`${path}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { roleCode: session.roleCode, signal: controller.signal });
@@ -67,7 +74,7 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
   /** Kiểm tra số thẻ/khoảng trang trước khi gửi, khóa lặp và giải phóng giao diện khi hết thời gian chờ. */
   const generate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (inFlight.current || editing) return;
+    if (inFlight.current || editing || publicationAction) return;
     const cardCount = Number(count);
     const from = fromPage.trim() ? Number(fromPage) : undefined;
     const to = toPage.trim() ? Number(toPage) : undefined;
@@ -81,6 +88,19 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
       setGuide(await apiRequest<Guide>(`/instructor/materials/${encodeURIComponent(materialId)}/ai-study-guide`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ cardCount, language, fromPage: from, toPage: to }) }));
     } catch (cause) { setError(controller.signal.aborted ? "Đã hết thời gian chờ. Bạn có thể đóng cửa sổ. Máy chủ có thể vẫn đang xử lý; gửi lại có thể phát sinh phí mới." : cause instanceof Error ? cause.message : "Không tạo được bộ ôn tập. Hãy kiểm tra cấu hình AI và thử lại."); }
     finally { window.clearTimeout(timeout); controllerRef.current = null; inFlight.current = false; setBusy(false); onBusyChange(false); }
+  };
+
+  /** Gửi xác nhận duyệt/thu hồi với đúng revision đã xem; không đổi trạng thái lạc quan khi chưa có phản hồi. */
+  const changePublication = async () => {
+    if (inFlight.current || editing || !publicationAction || !guide?.draftId || guide.editRevision === undefined || guide.publicationRevision === undefined) return;
+    inFlight.current = true; setPublishing(true); onBusyChange(true); setPublicationError("");
+    const controller = new AbortController(); controllerRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
+    try {
+      const publication = await apiRequest<Pick<Guide, "publishedAt" | "publicationRevision" | "publishedEditRevision">>(`/instructor/materials/${encodeURIComponent(materialId)}/ai-study-guides/${encodeURIComponent(guide.draftId)}/${publicationAction}`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ expectedPublicationRevision: guide.publicationRevision, ...(publicationAction === "publish" ? { expectedRevision: guide.editRevision, confirmReview: true } : {}) }) });
+      setGuide({ ...guide, publishedAt: publication.publishedAt, publicationRevision: publication.publicationRevision, publishedEditRevision: publication.publishedEditRevision });
+    } catch (cause) { setPublicationError(controller.signal.aborted ? "Chưa xác nhận được trạng thái phát hành. Hãy mở lại bản nháp để kiểm tra trước khi thao tác tiếp." : cause instanceof Error ? cause.message : "Không cập nhật được trạng thái phát hành. Hãy mở lại bản nháp để kiểm tra."); }
+    finally { window.clearTimeout(timeout); controllerRef.current = null; inFlight.current = false; setPublishing(false); setPublicationAction(null); onBusyChange(false); }
   };
 
   return <div className="space-y-6">
@@ -119,13 +139,27 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
     </form>
     {guide ? <section aria-live="polite" className="border-t border-[var(--rule)] pt-5">
       <h3 ref={resultHeading} tabIndex={-1} className="text-lg font-bold">{guide.insufficientContext ? "Chưa đủ ngữ cảnh" : "Tóm tắt và thẻ ôn tập"}</h3>
-      {guide.draftId ? <p className="mt-2 text-sm text-[var(--ink-soft)]">Đã lưu bản nháp riêng. Có thể mở lại trong lịch sử; nội dung chưa được phát hành.</p> : null}
+      {guide.draftId ? <p className="mt-2 text-sm text-[var(--ink-soft)]">Đã lưu bản nháp riêng. Có thể mở lại trong lịch sử; chỉ bản được xác nhận phát hành mới được chia sẻ.</p> : null}
       <p className="mt-2 text-sm text-[var(--ink-soft)]"><span>Phiên bản</span> {guide.version} · <span>Đoạn nguồn đã dùng</span> {guide.coverage.selectedChunks}/{guide.coverage.totalChunks}</p>
       <p className="mt-2 text-sm leading-6">{guide.coverage.partial ? "Chỉ bao phủ một phần nội dung đã chọn. Hãy chọn khoảng trang hẹp hơn để ôn tập đầy đủ phần cần học." : "Đã dùng toàn bộ các đoạn trích xuất trong phạm vi đã chọn; vẫn cần đối chiếu bản gốc."}</p>
       <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{guide.warning}</p>
       {guide.editRevision ? <p className="mt-2 text-sm"><span>Bản chỉnh sửa</span> {guide.editRevision}</p> : null}
+      {guide.draftId && guide.publicationRevision !== undefined ? <section className="mt-5 space-y-3 border-y border-[var(--rule)] py-4" aria-label="Phát hành bộ ôn tập">
+        <p className="font-semibold">{guide.publishedAt ? "Đã phát hành cho học viên có quyền xem học liệu" : "Chưa có bản phát hành cho học viên"}</p>
+        {guide.publishedAt ? <p className="text-sm text-[var(--ink-soft)]"><span>Bản chỉnh sửa đã phát hành</span> {guide.publishedEditRevision ?? 0} · <time dateTime={guide.publishedAt} translate="no">{new Date(guide.publishedAt).toLocaleString(activeLocale())}</time></p> : null}
+        {guide.publishedAt && guide.publishedEditRevision !== guide.editRevision ? <p className="text-sm leading-6">Bản nháp có chỉnh sửa chưa phát hành. Học viên vẫn xem bản đã duyệt trước đó.</p> : null}
+        {publicationAction ? <div className="space-y-3" role="group" aria-label="Xác nhận phát hành">
+          <p className="max-w-[72ch] text-sm leading-6">{publicationAction === "publish" ? "Bạn xác nhận đã duyệt toàn bộ ý chính, câu hỏi, đáp án và nguồn trích dẫn? Nội dung đang xem sẽ được phát hành cho học viên có quyền xem học liệu này." : "Thu hồi bộ ôn tập này khỏi học viên? Bản nháp và nội dung chỉnh sửa của bạn vẫn được giữ."}</p>
+          <div className="flex flex-wrap gap-3"><Button type="button" loading={publishing} disabled={publishing} onClick={() => void changePublication()}>{publicationAction === "publish" ? "Xác nhận duyệt và phát hành" : "Xác nhận thu hồi"}</Button><Button type="button" variant="secondary" disabled={publishing} onClick={() => setPublicationAction(null)}>Hủy</Button></div>
+        </div> : <div className="flex flex-wrap gap-3">
+          {!guide.insufficientContext && (!guide.publishedAt || guide.publishedEditRevision !== guide.editRevision) ? <Button type="button" disabled={locked} onClick={() => { setPublicationError(""); setPublicationAction("publish"); }}>Phát hành bản đang xem</Button> : null}
+          {guide.publishedAt ? <Button type="button" variant="secondary" disabled={locked} onClick={() => { setPublicationError(""); setPublicationAction("unpublish"); }}>Thu hồi bộ ôn tập</Button> : null}
+        </div>}
+        {publicationError ? <p role="alert" className="text-sm leading-6 text-[var(--danger)]">{publicationError}</p> : null}
+        <Button type="button" variant="ghost" disabled={locked} onClick={() => void readSaved(guide.draftId)}>Tải lại bản nháp và trạng thái</Button>
+      </section> : null}
       {!guide.insufficientContext && guide.draftId && !editing ? <Button className="mt-4" type="button" variant="secondary" disabled={locked} onClick={() => { if (guide.editRevision === undefined) void readSaved(guide.draftId); else { setEditing(true); onBusyChange(true); } }}>{guide.editRevision === undefined ? "Mở bản nháp để chỉnh sửa" : "Chỉnh sửa bộ ôn tập"}</Button> : null}
-      {editing && guide.draftId && guide.editRevision !== undefined ? <StudyDraftEditor materialId={materialId} guide={{ ...guide, draftId: guide.draftId, editRevision: guide.editRevision }} onSaved={(saved) => { setGuide(saved); setEditing(false); onBusyChange(false); }} onCancel={() => { setEditing(false); onBusyChange(false); resultHeading.current?.focus(); }} /> : guide.insufficientContext ? <p className="mt-4 text-sm leading-6">Không đủ căn cứ để tạo số thẻ yêu cầu. Hãy giảm số thẻ hoặc chọn phạm vi trang khác.</p> : <>
+      {editing && guide.draftId && guide.editRevision !== undefined ? <StudyDraftEditor materialId={materialId} guide={{ ...guide, draftId: guide.draftId, editRevision: guide.editRevision }} onSaved={(saved) => { setGuide({ ...guide, ...saved }); setEditing(false); onBusyChange(false); }} onCancel={() => { setEditing(false); onBusyChange(false); resultHeading.current?.focus(); }} /> : guide.insufficientContext ? <p className="mt-4 text-sm leading-6">Không đủ căn cứ để tạo số thẻ yêu cầu. Hãy giảm số thẻ hoặc chọn phạm vi trang khác.</p> : <>
         <h4 className="mb-2 mt-6 font-bold">Ý chính</h4>
         <ul className="space-y-4">{guide.summary.map((item, index) => <li key={index} className="max-w-[72ch]"><p className="whitespace-pre-wrap break-words leading-7" translate="no">{item.text}</p><StudySources sources={item.citations} openSource={openSource} /></li>)}</ul>
         <h4 className="mb-1 mt-7 font-bold">Thẻ tự ôn tập</h4><p className="mb-3 text-sm text-[var(--ink-soft)]">Tự trả lời trước, sau đó mở thẻ để xem đáp án và nguồn.</p>
