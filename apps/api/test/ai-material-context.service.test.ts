@@ -12,6 +12,22 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("reopens a saved guide without calling providers and checks source access on every read", async () => {
+    const { learning, ai, material, service } = fixture();
+    const first = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "EN" });
+    const second = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "EN" });
+    expect(second.draftId).toBe(first.draftId);
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+    ai.resolveTask.mockRejectedValue(new Error("provider disabled"));
+    const draft = await service.getStudyDraft(material.id, first.draftId, "teacher", "INSTRUCTOR");
+    expect(draft.state).toBe("READY");
+    expect(draft.result?.version).toBe(material.version);
+    expect((await service.listStudyDrafts(material.id, "teacher", "INSTRUCTOR")).items).toHaveLength(1);
+    learning.createMaterialVersionAccess.mockRejectedValue(new Error("source access revoked"));
+    await expect(service.getStudyDraft(material.id, first.draftId, "teacher", "INSTRUCTOR")).rejects.toThrow("source access revoked");
+    await expect(service.getStudyDraft(material.id, first.draftId, "other-teacher", "INSTRUCTOR")).rejects.toMatchObject({ status: 404 });
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+  });
   it("creates study aids from authorized source and rechecks the exact version afterwards", async () => {
     const { learning, ai, material, service } = fixture();
     const result = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "EN" });
