@@ -10,6 +10,7 @@ import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto,
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "./learning.service.js";
 import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemptReview, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "./learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
+import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -205,18 +206,27 @@ export class ContentController {
   @Post("instructor/question-bank/scan-image") @RequirePermissions("question:manage")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 12 * 1024 * 1024, files: 1 } }))
   /** Gửi ảnh đề sang nhà cung cấp AI đã chọn để trích xuất câu hỏi có cấu trúc. */
-  scanQuestionImage(
-    @Body("providerId") providerId: string | undefined,
+  async scanQuestionImage(
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<QuestionScanResult> {
     if (!file) throw new BadRequestException("Cần chọn ảnh đề thi để quét.");
-    return this.aiProviders.scanImage({ providerId: providerId?.trim() || undefined, fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
+    const config = await this.aiProviders.resolveTask("SCAN_IMAGE");
+    return this.aiProviders.scanImage({ ...config, fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
   }
 
   @Get("instructor/question-bank/ai-providers") @RequirePermissions("question:manage")
   /** Chỉ trả các AI provider đang bật và đã có khóa để giao diện lựa chọn. */
-  async listQuestionScanProviders(): Promise<Awaited<ReturnType<AiProviderService["list"]>>> {
-    return (await this.aiProviders.list()).filter((item) => item.enabled && item.hasApiKey);
+  async listQuestionScanProviders(@Query("task") task?: string): Promise<Awaited<ReturnType<AiProviderService["list"]>>> {
+    const config = (await this.aiProviders.getTaskConfigs())[task === "GENERATE_EXAM" ? "GENERATE_EXAM" : "SCAN_IMAGE"];
+    if (!config) return [];
+    return (await this.aiProviders.list()).filter((item) => item.id === config.providerId && item.enabled && item.hasApiKey).map((item) => ({ ...item, model: config.model }));
+  }
+
+  @Get("instructor/question-bank/ai-providers/:providerId/models") @RequirePermissions("question:manage")
+  /** Trả danh sách model thuộc provider để giảng viên chọn riêng cho lần tạo hoặc quét hiện tại. */
+  async listQuestionProviderModels(@Param("providerId") providerId: string): ReturnType<AiProviderService["listModels"]> {
+    const configs = Object.values(await this.aiProviders.getTaskConfigs());
+    return configs.filter((item) => item.providerId === providerId).map((item) => ({ value: item.model, label: item.model, description: "Do quản trị viên cấu hình." }));
   }
 
   @Get("exams") @RequirePermissions("exam:view")
@@ -263,9 +273,10 @@ export class ContentController {
       const context = existing.aiContext ?? { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
       return { exam: existing, generatedQuestionCount: existing.questionIds.length, providerId: context.providerId ?? "reused", provider: context.provider ?? "Yêu cầu trước", model: context.model ?? "reused", context: { mode: context.mode, materialIds: context.materialIds, materialNames: [], sources: context.sources }, warnings: [...(context.warnings ?? []), "Đã trả lại đề từ yêu cầu AI hoàn tất trước đó; không tạo bản trùng."] };
     }
-    const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds);
+    const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds, input.contextMode === "WEB_SEARCH");
+    const aiTask = await this.aiProviders.resolveTask("GENERATE_EXAM");
     const generated = await this.aiProviders.generateExamDraft({
-      providerId: input.providerId,
+      ...aiTask,
       courseName: context.courseName,
       courseDescription: context.courseDescription,
       focus: input.focus.trim(),
@@ -288,9 +299,13 @@ export class ContentController {
     return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: generated.warnings };
   }
 
+  @Patch("instructor/exams/:examId/questions/:questionId") @RequirePermissions("exam:manage")
+  /** Sửa bản câu hỏi riêng của đề nháp được phân công. */
+  editExamQuestion(@Param("examId") examId: string, @Param("questionId") questionId: string, @Body() input: EditExamQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { return this.learning.editExamQuestion(examId, questionId, input, session.user.id); }
+
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
   /** Gửi đề duyệt hoặc tự động công bố theo chính sách hệ thống. */
-  publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { return this.learning.submitExamForReview(examId, session.user.id); }
+  publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession, @Body() input: SubmitExamDto = {}): Promise<LearningExam> { return this.learning.submitExamForReview(examId, session.user.id, input.confirmQuestions, input.expectedVersion); }
 
   @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
   /** Duyệt hoặc từ chối đề khi hệ thống đang dùng chế độ duyệt tay. */

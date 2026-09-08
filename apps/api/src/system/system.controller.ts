@@ -6,6 +6,13 @@ import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type LegalHoldView, type ModerationPolicy, type NotificationTemplate, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type SnapshotAssetAudit, type StorageCleanupFailure, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings, type TemplateTestDelivery } from "./system.service.js";
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "./ai-provider.service.js";
+
+class ConfigureAiTaskDto {
+  @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
+  @IsIn(["SCAN_IMAGE", "GENERATE_EXAM"]) task!: "SCAN_IMAGE" | "GENERATE_EXAM";
+  @IsString() @MinLength(1) @MaxLength(200) providerId!: string;
+  @IsString() @MinLength(1) @MaxLength(200) model!: string;
+}
 import { OutboxDeliveryService } from "../infrastructure/outbox-delivery.service.js";
 
 const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
@@ -42,12 +49,18 @@ export class SystemController {
   @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
   /** Trả catalog model/endpoint mặc định của các nhà cung cấp AI. */
   @Get("ai-providers/catalog") @RequirePermissions("system:configure") getAiProviderCatalog(): ReturnType<AiProviderService["getCatalog"]> { return this.aiProviders.getCatalog(); }
+  /** Trả phân công provider/model cho hai tác vụ AI. */
+  @Get("ai-tasks") @RequirePermissions("system:configure") getAiTasks(): ReturnType<AiProviderService["getTaskConfigs"]> { return this.aiProviders.getTaskConfigs(); }
+  /** Chỉ quản trị viên được đổi model thực thi tác vụ. */
+  @Post("ai-tasks") @RequirePermissions("system:configure") saveAiTask(@Body() input: ConfigureAiTaskDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiProviderService["configureTask"]> { return this.aiProviders.configureTask(input.task, input, session.user.id); }
   /** Liệt kê cấu hình AI ở dạng đã che API key. */
   @Get("ai-providers") @RequirePermissions("system:configure") listAiProviders(): Promise<AiProviderConfig[]> { return this.aiProviders.list(); }
   /** Tạo/cập nhật provider AI và mã hóa API key trước khi lưu. */
   @Post("ai-providers") @RequirePermissions("system:configure") configureAiProvider(@Body() input: ConfigureAiProviderDto, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.configure(input, session.user.id); }
   /** Gọi thử provider với request sức khỏe và lưu trạng thái kết nối. */
   @Post("ai-providers/:providerId/test") @RequirePermissions("system:configure") testAiProvider(@Param("providerId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.test(id, session.user.id); }
+  /** Tải danh sách model mà endpoint Custom công bố qua API OpenAI-compatible. */
+  @Get("ai-providers/:providerId/models") @RequirePermissions("system:configure") discoverAiProviderModels(@Param("providerId") id: string): ReturnType<AiProviderService["discoverModels"]> { return this.aiProviders.discoverModels(id); }
   /** Xóa cấu hình AI và secret liên quan. */
   @Delete("ai-providers/:providerId") @RequirePermissions("system:configure") async removeAiProvider(@Param("providerId") id: string): Promise<{ removed: true }> { await this.aiProviders.remove(id); return { removed: true }; }
   /** Bật hoặc tắt tích hợp phòng học. */

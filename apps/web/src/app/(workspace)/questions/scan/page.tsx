@@ -57,7 +57,7 @@ export default function ScanQuestionsPage() {
     if (!file || !providerId) return;
     setScanning(true);
     try {
-      const body = new FormData(); body.append("file", file); body.append("providerId", providerId);
+      const body = new FormData(); body.append("file", file);
       const result = await apiRequest<ScanResult>("/instructor/question-bank/scan-image", { method: "POST", roleCode: session.roleCode, body });
       setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);
     } catch (error) { notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
@@ -88,7 +88,7 @@ export default function ScanQuestionsPage() {
       <section className="grid gap-6 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] md:p-6">
         <div className="space-y-4">
           <Field label="Khóa học"><SearchableSelect aria-label="Tìm khóa học cho câu hỏi quét" onChange={setCourseId} options={courses.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, keywords: item.description }))} placeholder="Gõ mã hoặc tên khóa học…" value={courseId} /></Field>
-          <Field label="Nhà cung cấp AI"><SearchableSelect aria-label="Tìm nhà cung cấp AI" onChange={setProviderId} options={providers.map((item) => ({ value: item.id, label: item.name, description: `${item.model}${item.isDefault ? " · mặc định" : ""}`, keywords: `${item.provider} ${item.model}` }))} placeholder="Gõ tên hoặc model để lọc…" value={providerId} /></Field>
+          <p className="text-sm text-[var(--ink-soft)]">AI quét ảnh do quản trị viên cấu hình. Tải ảnh và kiểm tra kết quả trước khi lưu.</p>
           {!providers.length ? <p className="rounded-xl bg-[var(--warning-soft)] p-3 text-sm font-semibold text-[var(--warning-deep)]">Chưa có API key AI đang bật. Quản trị viên cần cấu hình tại Cấu hình → AI và quét đề.</p> : null}
           <label className="grid min-h-36 cursor-pointer place-items-center rounded-xl border border-dashed border-[var(--rule-strong)] bg-[var(--canvas)] p-5 text-center hover:border-[var(--accent)]"><input accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => chooseFile(event.target.files?.[0])} type="file" /><span><ImagePlus className="mx-auto text-[var(--accent-ink)]" size={28} /><strong className="mt-3 block">{file?.name ?? "Chọn ảnh đề thi"}</strong><small className="mt-1 block text-[var(--ink-soft)]">PNG, JPEG hoặc WebP · tối đa 12 MB</small></span></label>
           {previewUrl ? <Image alt="Ảnh đề chuẩn bị quét" className="max-h-[420px] w-full rounded-xl border border-[var(--rule)] bg-white object-contain" height={1200} src={previewUrl} unoptimized width={900} /> : null}
