@@ -99,6 +99,37 @@ describe("admin AI grading queue", () => {
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
   });
 
+  it("reads unlinked exam claims explicitly and drops cursors when changing scope", async () => {
+    const exam = { id: "unlinked-1", ownerId: "teacher", version: 1, state: "CLAIMED", createdAt: row.createdAt, updatedAt: row.updatedAt };
+    api.mockResolvedValueOnce({ items: [exam], nextCursor: "unlinked / 1" }).mockResolvedValueOnce({ items: [{ ...exam, id: "unlinked-2" }], nextCursor: null });
+    render(<AiGradingOperations />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
+    const scope = screen.getByRole("combobox", { name: "Phạm vi đối soát sinh đề" });
+    fireEvent.change(scope, { target: { value: "unlinked" } });
+    expect(api).not.toHaveBeenCalled();
+    expect(screen.getByText(/Khóa có thể đang được chuẩn bị/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    expect(scope).toBeDisabled();
+    await screen.findByText("unlinked-1");
+    expect(api.mock.calls[0]?.[0]).toBe("/admin/ai-operations/exams?limit=20&scope=unlinked");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("unlinked-2");
+    expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/exams?limit=20&scope=unlinked&cursor=unlinked+%2F+1");
+    fireEvent.change(scope, { target: { value: "canonical" } });
+    expect(screen.queryByText("unlinked-2")).not.toBeInTheDocument();
+    expect(api).toHaveBeenCalledTimes(2);
+    api.mockResolvedValueOnce({ items: [], nextCursor: null });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByRole("status");
+    expect(api.mock.calls[2]?.[0]).toBe("/admin/ai-operations/exams?limit=20");
+    expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
+    fireEvent.change(scope, { target: { value: "unlinked" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "study" } });
+    expect(screen.queryByRole("combobox", { name: "Phạm vi đối soát sinh đề" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
+    expect(screen.getByRole("combobox", { name: "Phạm vi đối soát sinh đề" })).toHaveValue("canonical");
+  });
+
   it("clears stale results on an error and permits a fresh first-page read", async () => {
     api.mockResolvedValueOnce({ items: [row], nextCursor: null }).mockRejectedValueOnce(new Error("Database offline"));
     render(<AiGradingOperations />);
