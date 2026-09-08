@@ -57,6 +57,30 @@ describe("admin AI grading queue", () => {
     expect(api).toHaveBeenCalledTimes(1);
   });
 
+  it("distinguishes saved AI drafts from completed exams and uses exam-only states", async () => {
+    api.mockResolvedValueOnce({ items: [{ id: "exam-request", ownerId: "teacher", version: 3, state: "READY", createdAt: row.createdAt, updatedAt: row.updatedAt }], nextCursor: null });
+    render(<AiGradingOperations />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
+    expect(screen.getByRole("option", { name: "Chưa hoàn tất lưu đề" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Đã giữ khóa, chưa bắt đầu sinh" })).toBeInTheDocument();
+    expect(api).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText("exam-request");
+    expect(screen.getByText("Đã có bản nháp AI, chưa xác nhận lưu đề", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Phiên bản tác vụ")).toBeInTheDocument();
+    expect(screen.queryByText("Phiên bản nguồn")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mã bài nộp")).not.toBeInTheDocument();
+    expect(api.mock.calls[0]?.[0]).toBe("/admin/ai-operations/exams?limit=20");
+    fireEvent.change(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" }), { target: { value: "COMPLETED" } });
+    api.mockResolvedValueOnce({ items: [], nextCursor: null });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText("Không có tác vụ AI trong trang và bộ lọc này.");
+    expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/exams?limit=20&state=COMPLETED");
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "grading" } });
+    expect(screen.queryByRole("option", { name: "Đã hoàn tất lưu đề" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" })).toHaveValue("");
+  });
+
   it("navigates cursor pages and resets old results when changing filters", async () => {
     api.mockResolvedValueOnce({ items: [row], nextCursor: "cursor / 1" }).mockResolvedValueOnce({ items: [{ ...row, id: "claim-2" }], nextCursor: null });
     render(<AiGradingOperations />);
