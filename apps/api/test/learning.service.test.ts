@@ -1596,6 +1596,28 @@ describe("LearningService", () => {
     await expect(service.getExamGenerationContext("class-web-01", "unauthorized-user", [], true)).rejects.toThrow();
   });
 
+  it.each(["same", "answer", "options", "type", "difficulty", "case"])("không tái dùng câu ngân hàng sai ngữ nghĩa: %s", async (variant) => {
+    const service = new LearningService();
+    const base = { courseId: "course-web", type: "SINGLE_CHOICE" as const, content: "Select the correct HTTP method for this operation.", options: ["GET", "POST"], correctAnswers: ["GET"], difficulty: 1 as const, tags: [] };
+    const original = await service.createQuestion(base);
+    const published = await service.publishQuestion(original.id);
+    if (published.status === "PENDING_REVIEW") await service.reviewQuestion(original.id, "APPROVE");
+    const generated = { ...base, confidence: 1, warnings: [],
+      ...(variant === "answer" ? { correctAnswers: ["POST"] } : {}),
+      ...(variant === "options" ? { options: ["POST", "GET"] } : {}),
+      ...(variant === "type" ? { type: "MULTIPLE_CHOICE" as const, correctAnswers: ["GET", "POST"] } : {}),
+      ...(variant === "difficulty" ? { difficulty: 2 as const } : {}),
+      ...(variant === "case" ? { content: base.content.toUpperCase() } : {}),
+    };
+    const exam = await service.createGeneratedExam({ classId: "class-web-01", title: "AI semantic identity", durationMinutes: 30, totalScore: 10, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z", attemptLimit: 1 }, [generated], base.courseId, { mode: "WEB_SEARCH", materialIds: [], sources: [] });
+    if (variant === "same") expect(exam.questionIds).toEqual([original.id]);
+    else {
+      expect(exam.questionIds[0]).not.toBe(original.id);
+      const stored = (await service.listQuestions({ courseId: base.courseId, status: "DRAFT" })).find((question) => question.id === exam.questionIds[0]);
+      expect(stored).toMatchObject({ type: generated.type, content: generated.content, options: generated.options, correctAnswers: generated.correctAnswers, difficulty: generated.difficulty });
+    }
+  });
+
   it("tạo đề AI nháp và gắn nguồn cho câu hỏi sinh tự động", async () => {
     const service = new LearningService();
     const context = await service.getExamGenerationContext("class-web-01");
