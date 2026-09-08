@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learning/ai-grading-store.service.js";
+import { AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const contextHash = "a".repeat(64);
@@ -60,5 +62,41 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
     expect(await restarted.find(identity)).toMatchObject({ state: "UNCERTAIN", result: null });
     await expect(restarted.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("paginates tied timestamps without leaking saved answers or duplicating rows after a state change", async () => {
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: ownerId } } as AuthenticatedSession;
+    const service = new AiGradingOperationsService(prisma);
+    // Ghim mốc tương lai riêng để fixture đứng trước dữ liệu khác mà không sửa các claim có sẵn.
+    const createdAt = new Date("2099-09-08T00:00:00Z");
+    const ids = ["a", "b", "c"].map((suffix) => `${assignmentId}-${suffix}`);
+    for (const [index, id] of ids.entries()) {
+      await prisma.aiGradingSuggestion.create({ data: {
+        id, ownerId, submissionId, fingerprint: randomUUID().replaceAll("-", "").padEnd(64, "0"),
+        contextHash, language: "VI", state: "UNCERTAIN", createdAt,
+        result: { ...result, feedback: `private fixture ${index}` },
+      } });
+    }
+    const first = await service.list({ limit: 1, state: "UNCERTAIN" }, session);
+    expect(first.items.map((item) => item.id)).toEqual([ids[2]]);
+    expect(first.nextCursor).toBe(ids[2]);
+    expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "ownerId", "submissionId", "language", "state", "createdAt", "updatedAt"].sort());
+    // Đổi trạng thái cursor không được làm mất vị trí phân trang theo thời điểm tạo.
+    await prisma.aiGradingSuggestion.update({ where: { id: ids[2]! }, data: { state: "READY" } });
+    const second = await new AiGradingOperationsService(prisma).list({ limit: 1, state: "UNCERTAIN", cursor: first.nextCursor! }, session);
+    expect(second.items.map((item) => item.id)).toEqual([ids[1]]);
+    const third = await service.list({ limit: 1, state: "UNCERTAIN", cursor: second.nextCursor! }, session);
+    expect(third.items.map((item) => item.id)).toEqual([ids[0]]);
+    expect(await prisma.aiGradingSuggestion.count({ where: { submissionId, id: { in: ids } } })).toBe(3);
+    const saved = await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { id: ids[0]! } });
+    expect(saved.result).toMatchObject({ feedback: "private fixture 0" });
+    // Dọn đúng một cursor fixture để kiểm tra hướng dẫn tải lại; không đụng claim người dùng.
+    await prisma.aiGradingSuggestion.delete({ where: { id: ids[1]! } });
+    await expect(service.list({ limit: 1, cursor: ids[1]! }, session)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("has the migrated status/time/ID index available to MySQL", async () => {
+    const indexes = await prisma.$queryRaw<Array<{ Column_name: string }>>`SHOW INDEX FROM ai_grading_suggestions WHERE Key_name = 'ai_grading_operations_state_created_id'`;
+    expect(indexes.map((item) => item.Column_name)).toEqual(["state", "created_at", "id"]);
   });
 });
