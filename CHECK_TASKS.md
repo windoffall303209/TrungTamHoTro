@@ -392,6 +392,13 @@ Phạm vi mã nguồn của CHAT-01…07, UX-01…04, WF-01…38, VERIFY-01…07
 
 Effort là kích thước công việc đã thực hiện để phục vụ hậu kiểm, không phải số giờ hay cam kết sprint được dựng lại sau sự kiện.
 
+## AI hỏi đáp tài liệu — lưu trả lời và chống gửi lặp (2026-09-08)
+
+- [x] Hỏi đáp tài liệu lưu kết quả riêng bằng claim database theo người tạo/tài liệu/phiên bản/câu hỏi đã trim/ngôn ngữ; không lưu nguyên câu hỏi trong khóa hoặc metadata claim. Unique insert trước trích xuất/trả lời; READY dùng lại sau restart, GENERATING/UNCERTAIN chặn gọi lại. Không fallback memory nếu database tắt/lỗi. Thông báo Việt–Anh.
+- [x] Nối vào `AiMaterialContextService.ask`: kiểm tra quyền tài liệu và phiên bản trước cache, ghim version khi chuẩn bị ngữ cảnh; kiểm tra lại quyền trước trả kết quả. Replay không resolve model hoặc gọi provider. Thiếu cấu hình/lỗi trong callback bị giữ UNCERTAIN một cách thận trọng, không tự mở khóa.
+- [x] Kiểm thử MySQL: cạnh tranh sáu service, replay sau restart, phân biệt chủ sở hữu/phiên bản/ngôn ngữ/câu hỏi, mất phản hồi và sai version kết quả; bốn integration case và một test database thiếu đạt. Test context bổ sung xác nhận quyền trước/sau replay, mất quyền và không resolve provider khi cache hit. Provider là giả lập, không phải UAT live.
+- [ ] Bổ sung lịch sử/GET trạng thái hỏi đáp và hàng đợi admin; chính sách giữ/xóa dữ liệu, khôi phục có bằng chứng và UAT provider thật. Phiên bản nguồn là ranh giới cache, thay cấu hình model không tự làm mất kết quả cũ.
+
 ## AI sinh đề — hoàn thiện chống tạo trùng (2026-09-08)
 
 - [x] Tiếp tục bước `SAVING` từ bản nháp đã lưu khi người dùng thử lại cùng nội dung: controller chỉ bật `idempotentSave` cho callback lưu đề có transaction và unique generationRequestId. Không hết hạn/xóa khóa, không gọi provider lại. CAS bảo vệ cập nhật trạng thái; nhiều lần lưu chồng nhau vẫn dựa trên unique constraint/rollback để chỉ có một đề. Callback khác mặc định không được tiếp tục SAVING.
