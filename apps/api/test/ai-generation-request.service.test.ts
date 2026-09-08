@@ -24,6 +24,19 @@ function sharedDatabase(): PrismaService {
 }
 
 describe("AI generation idempotency", () => {
+  it.each([null, [], "broken", { owner: "" }, { hash: "bad" }, { state: "UNKNOWN" }, { state: "READY" }, { state: "SAVING", prepared: {} }, { state: "COMPLETED" }, { canonicalRequestId: 123 }, { canonicalRequestId: " " }, { canonicalRequestId: "a".repeat(178) }])("rejects damaged persisted claims before any external callback: %j", async (damage) => {
+    const db = sharedDatabase();
+    const base = { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "CLAIMED" };
+    const value = damage && typeof damage === "object" && !Array.isArray(damage) ? { ...base, ...damage } : damage;
+    vi.spyOn(db.systemSetting, "findUnique").mockResolvedValue({ version: 1, value } as never);
+    const generate = vi.fn();
+    const save = vi.fn();
+    const recover = vi.fn();
+    await expect(new AiGenerationRequestService(db).run("id", "owner", {}, generate, save, recover)).rejects.toMatchObject({ status: 409 });
+    expect(generate).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+  });
   it.each(["disabled", "missing"])("refuses %s storage before provider, recovery or save", async (mode) => {
     const db = sharedDatabase();
     vi.spyOn(db, "isStartupConnectionEnabled").mockReturnValue(false);

@@ -394,6 +394,8 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 
 ## AI sinh đề — hoàn thiện chống tạo trùng (2026-09-08)
 
+- [x] Kiểm tra cấu trúc JSON khóa khi đọc: từ chối null/array/primitive, owner/hash/trạng thái không hợp lệ, mã gốc sai kiểu/rỗng/quá dài, READY/SAVING thiếu cấu trúc nháp và COMPLETED thiếu exam ID. Trả 409 có hướng dẫn đối soát Việt–Anh, không gọi callback provider/recover/save khi đọc khóa hỏng. Đây là kiểm tra cấu trúc tối thiểu, không thay thế xác thực từng câu hỏi khi lưu hoặc đối chiếu đề đã lưu.
+- [x] QA khóa hỏng: 28 unit test chống trùng đạt, MySQL 5/5 đạt; typecheck/lint đạt. Test thêm 12 dạng dữ liệu hỏng; provider/lưu đề được giả lập, không phải UAT AI live. Khôi phục có bằng chứng cho khóa hỏng vẫn chưa được mở tự động.
 - [x] Tách `CLAIMED` (chưa được phép gọi provider) khỏi `GENERATING`. Lỗi tra cứu đề cũ hoặc restart ở bước chuẩn bị được tiếp tục bằng compare-and-swap; chỉ worker thắng khóa mới được gọi AI.
 - [x] Giữ khóa theo người dùng/nội dung và mã yêu cầu gốc: nhiều tab/thiết bị gửi UUID khác nhau vẫn dùng chung kết quả; retry lưu sử dụng bản nháp đã cache, không sinh câu hỏi lại.
 - [x] Không giải phóng `GENERATING`/`UNCERTAIN` theo thời gian; tương thích claim `GENERATING` từ phiên bản cũ. Database lỗi thì từ chối, không chuyển sang memory để lách khóa.
