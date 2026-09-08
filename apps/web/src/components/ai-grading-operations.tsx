@@ -7,18 +7,26 @@ import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
 type State = "GENERATING" | "UNCERTAIN" | "READY";
-type Row = { id: string; ownerId: string; submissionId: string; language: string; state: State; createdAt: string; updatedAt: string };
+type Domain = "grading" | "study";
+type Row = { id: string; ownerId: string; state: State; createdAt: string; updatedAt: string } & ({ submissionId: string; language: string } | { materialId: string; sourceVersion: number });
 type Page = { items: Row[]; nextCursor: string | null };
 const labels: Record<State, string> = { GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý" };
 
 /** Giới hạn panel cho admin; đổi danh tính sẽ hủy trạng thái và dữ liệu phiên trước. */
 export function AiGradingOperations() {
   const { session } = useApp();
-  return session.roleCode === "SYSTEM_ADMIN" && session.permissions.includes("system:configure") ? <OperationsPanel key={session.user.id} /> : null;
+  const [domain, setDomain] = useState<Domain>("grading");
+  if (session.roleCode !== "SYSTEM_ADMIN" || !session.permissions.includes("system:configure")) return null;
+  return <div>
+    <div className="px-5 pt-6 md:px-6"><Field label="Loại tác vụ đối soát"><select className={inputClass} value={domain} onChange={(event) => setDomain(event.target.value as Domain)}>
+      <option value="grading">Gợi ý chấm bài</option><option value="study">Bộ ôn tập: tóm tắt và flashcard</option>
+    </select></Field></div>
+    <OperationsPanel key={`${session.user.id}:${domain}`} domain={domain} />
+  </div>;
 }
 
 /** Mở rộng cấu hình hiện có bằng hàng metadata đọc-only, không tạo một luồng chấm hoặc retry mới. */
-function OperationsPanel() {
+function OperationsPanel({ domain }: { domain: Domain }) {
   const { session } = useApp();
   const [state, setState] = useState<State | "">("");
   const [data, setData] = useState<Page | null>(null);
@@ -39,7 +47,7 @@ function OperationsPanel() {
       const query = new URLSearchParams({ limit: "20" });
       if (state) query.set("state", state);
       if (nextHistory.at(-1)) query.set("cursor", nextHistory.at(-1)!);
-      const response = await apiRequest<Page>(`/admin/ai-operations/grading?${query}`, { roleCode: session.roleCode, signal: controller.signal });
+      const response = await apiRequest<Page>(`/admin/ai-operations/${domain}?${query}`, { roleCode: session.roleCode, signal: controller.signal });
       if (request.current !== controller) return;
       setData(response); setHistory(nextHistory);
     } catch (cause) {
@@ -50,10 +58,11 @@ function OperationsPanel() {
     }
   }
 
-  return <section aria-label="Đối soát chấm AI" className="space-y-4 px-5 py-6 md:px-6">
+  const title = domain === "grading" ? "Đối soát chấm AI" : "Đối soát bộ ôn tập AI";
+  return <section aria-label={title} className="space-y-4 px-5 py-6 md:px-6">
     <div className="space-y-2">
-      <h3 className="text-lg font-bold">Đối soát chấm AI</h3>
-      <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Chỉ xem trạng thái và mã tác vụ, không xem bài làm hay điểm. Tác vụ đã bắt đầu có thể vẫn chạy hoặc bị gián đoạn; thời gian chờ lâu không chứng minh AI chưa xử lý.</p>
+      <h3 className="text-lg font-bold">{title}</h3>
+      <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Chỉ xem trạng thái và mã tác vụ, không xem bài làm, điểm hoặc nội dung bộ ôn tập. Tác vụ đã bắt đầu có thể vẫn chạy hoặc bị gián đoạn; thời gian chờ lâu không chứng minh AI chưa xử lý.</p>
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Không tự gọi lại hoặc xóa khóa. Giữ mã tác vụ để đối chiếu nhật ký trước khi quyết định bước tiếp theo.</p>
     </div>
     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
@@ -69,12 +78,12 @@ function OperationsPanel() {
     {error ? <p role="alert" className="text-sm text-[var(--danger)]">{error}</p> : null}
     {!data && !busy && !error ? <p className="text-sm text-[var(--ink-soft)]">Chọn trạng thái rồi tải danh sách để bắt đầu đối soát.</p> : null}
     {data ? <>
-      {!data.items.length ? <p role="status" className="text-sm text-[var(--ink-soft)]">Không có tác vụ chấm AI trong trang và bộ lọc này.</p> : <ul className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{data.items.map((row) => <li key={row.id} className="space-y-3 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{labels[row.state]}</p><span translate="no" className="text-sm text-[var(--ink-soft)]">{row.language}</span></div>
+      {!data.items.length ? <p role="status" className="text-sm text-[var(--ink-soft)]">Không có tác vụ AI trong trang và bộ lọc này.</p> : <ul className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{data.items.map((row) => <li key={row.id} className="space-y-3 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{labels[row.state]}</p>{"language" in row ? <span translate="no" className="text-sm text-[var(--ink-soft)]">{row.language}</span> : <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {row.sourceVersion}</p>}</div>
         <dl className="grid gap-3 text-sm md:grid-cols-3">
           <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã tác vụ</dt><dd translate="no" className="mt-1 select-text break-all">{row.id}</dd></div>
-          <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã giảng viên</dt><dd translate="no" className="mt-1 select-text break-all">{row.ownerId}</dd></div>
-          <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã bài nộp</dt><dd translate="no" className="mt-1 select-text break-all">{row.submissionId}</dd></div>
+          <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã người tạo</dt><dd translate="no" className="mt-1 select-text break-all">{row.ownerId}</dd></div>
+          <div className="min-w-0"><dt className="text-[var(--ink-soft)]">{"materialId" in row ? "Mã tài liệu" : "Mã bài nộp"}</dt><dd translate="no" className="mt-1 select-text break-all">{"materialId" in row ? row.materialId : row.submissionId}</dd></div>
         </dl>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-[var(--ink-soft)]"><p><span>Tạo lúc</span>: <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString(activeLocale())}</time></p><p><span>Cập nhật lúc</span>: <time dateTime={row.updatedAt}>{new Date(row.updatedAt).toLocaleString(activeLocale())}</time></p></div>
       </li>)}</ul>}
