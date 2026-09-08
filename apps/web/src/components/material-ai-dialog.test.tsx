@@ -15,6 +15,24 @@ describe("MaterialAiDialog", () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+  it("opens study mode without charging and prevents switching tools during generation", async () => {
+    let resolve!: (value: unknown) => void;
+    apiRequest.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const onClose = vi.fn();
+    render(<MaterialAiDialog material={material} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bộ ôn tập" }));
+    expect(apiRequest).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Tạo bộ ôn tập" }));
+    expect(screen.getByRole("button", { name: "Hỏi đáp" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    resolve({ insufficientContext: true, summary: [], flashcards: [], version: 3, warning: "Check source", coverage: { partial: false, selectedChunks: 1, totalChunks: 1, selectedPages: [1] } });
+    await screen.findByText("Chưa đủ ngữ cảnh");
+    expect(screen.getByRole("button", { name: "Hỏi đáp" })).toBeEnabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not request on open, trims input, sends language, and opens the cited version", async () => {
     apiRequest.mockResolvedValueOnce(response).mockResolvedValueOnce({ url: "/signed-source" });
     render(<MaterialAiDialog material={material} onClose={vi.fn()} />);

@@ -6,6 +6,7 @@ import { activeLocale } from "@/i18n/runtime";
 import { apiRequest, previewApiFile } from "@/lib/api-client";
 import type { Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { MaterialStudyGuide } from "@/components/material-study-guide";
 
 type Answer = {
   answer: string;
@@ -21,6 +22,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   const [question, setQuestion] = useState("");
   const [language, setLanguage] = useState<"VI" | "EN" | "BILINGUAL">(activeLocale() === "en-US" ? "EN" : "VI");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"QA" | "STUDY">("QA");
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ question: string; answer: Answer } | null>(null);
   const inFlight = useRef(false);
@@ -51,6 +53,9 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   };
 
   return <Modal open title="Hỏi đáp tài liệu" description={material.name} size="xl" onClose={() => { if (!inFlight.current) onClose(); }}>
+    <div role="group" aria-label="Công cụ AI tài liệu" className="mb-5 flex flex-wrap gap-2"><Button disabled={busy} aria-pressed={mode === "QA"} variant={mode === "QA" ? "primary" : "secondary"} onClick={() => setMode("QA")}>Hỏi đáp</Button><Button disabled={busy} aria-pressed={mode === "STUDY"} variant={mode === "STUDY" ? "primary" : "secondary"} onClick={() => setMode("STUDY")}>Bộ ôn tập</Button></div>
+    <div hidden={mode !== "STUDY"}><MaterialStudyGuide materialId={material.id} openSource={openSource} onBusyChange={(value) => { inFlight.current = value; setBusy(value); }} /></div>
+    <div hidden={mode !== "QA"}>
     <p className="mb-5 text-sm leading-6 text-[var(--ink-soft)]">AI chỉ trả lời từ tài liệu này, không tìm trên internet. Việc gửi câu hỏi có thể phát sinh phí trích xuất và trả lời theo cấu hình của quản trị viên.</p>
     <form onSubmit={(event) => void ask(event)} className="space-y-4">
       <Field label="Câu hỏi về tài liệu"><textarea className={inputClass} rows={3} required minLength={2} maxLength={2000} disabled={busy} value={question} onChange={(event) => setQuestion(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "material-ai-error" : undefined} /></Field>
@@ -74,5 +79,6 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
         </details>)}
       </div></div> : null}
     </section> : null}
+    </div>
   </Modal>;
 }
