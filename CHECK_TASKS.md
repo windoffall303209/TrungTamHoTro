@@ -392,6 +392,15 @@ Phạm vi mã nguồn của CHAT-01…07, UX-01…04, WF-01…38, VERIFY-01…07
 
 Effort là kích thước công việc đã thực hiện để phục vụ hậu kiểm, không phải số giờ hay cam kết sprint được dựng lại sau sự kiện.
 
+## AI sinh đề — hoàn thiện chống tạo trùng (2026-09-08)
+
+- [x] Tách `CLAIMED` (chưa được phép gọi provider) khỏi `GENERATING`. Lỗi tra cứu đề cũ hoặc restart ở bước chuẩn bị được tiếp tục bằng compare-and-swap; chỉ worker thắng khóa mới được gọi AI.
+- [x] Giữ khóa theo người dùng/nội dung và mã yêu cầu gốc: nhiều tab/thiết bị gửi UUID khác nhau vẫn dùng chung kết quả; retry lưu sử dụng bản nháp đã cache, không sinh câu hỏi lại.
+- [x] Không giải phóng `GENERATING`/`UNCERTAIN` theo thời gian; tương thích claim `GENERATING` từ phiên bản cũ. Database lỗi thì từ chối, không chuyển sang memory để lách khóa.
+- [x] Kiểm thử chuyên biệt: 14 unit test; 2 integration test trên MySQL `_test` xác nhận 8 worker cạnh tranh tiếp tục một claim, một lần generate/save, phát lại sau restart và chặn UUID mới khi mất phản hồi. Provider và hàm lưu đề trong integration là giả lập; unique insert/CAS/trạng thái dùng database thật. Chỉ dọn các claim fixture của lượt test.
+- [x] Hồi quy API: 335 test đạt, 11 skip ở lượt full suite; sau đó thêm hai test tương thích/lỗi database và chạy lại bộ chuyên biệt đạt 14/14. Typecheck/lint được kiểm tra riêng.
+- [ ] Đối soát admin cho lần gọi đã bắt đầu nhưng chưa rõ kết quả, cùng UAT provider live, vẫn là phạm vi riêng; không tự cấp phép gọi lại hoặc xóa khóa.
+
 ## AI grading — chống tạo trùng (2026-09-08)
 
 - [x] Lưu gợi ý chấm bằng bảng `ai_grading_suggestions`; khóa duy nhất theo giảng viên, bài nộp, hash ngữ cảnh/rubric/phiên bản và ngôn ngữ. Không dùng chung kết quả giữa các giảng viên.
