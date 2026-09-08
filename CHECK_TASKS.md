@@ -425,7 +425,9 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] QA panel đối soát: 9 test component, frontend tổng 100 đạt; typecheck/lint và catalog 2.170 chuỗi đạt. Browser mock desktop/mobile; bộ lọc mobile xếp dọc để không cắt nhãn. Detector không có finding, reviewer độc lập `ship` trong phạm vi ảnh/code đã xem; chưa kiểm tra AI live, giao diện tiếng Anh/dark hoặc screen reader độc lập.
 - [x] Backend đối soát bộ ôn tập: `GET /admin/ai-operations/study`, dùng cùng điều kiện admin/quyền cấu hình, bộ lọc và phân trang keyset như chấm bài. Chỉ select ID/người tạo/tài liệu/phiên bản nguồn/trạng thái/thời gian, không tải options/result/editedResult/publishedResult. Mốc phân trang chỉ tra trong bảng bộ ôn tập, không nhận cursor hàng đợi khác.
 - [x] QA đối soát học liệu: 34 HTTP test chung hai route đạt; bộ study MySQL 4/4 đạt, gồm metadata-only, cùng timestamp, đổi trạng thái cursor và kiểm tra index. Migration `20260908070000_ai_study_operations_index` đã áp dụng local + test không reset. API full 371 đạt/14 skip; typecheck/lint phần thay đổi đạt. Không gọi AI live.
-- [ ] Nối giao diện đối soát bộ ôn tập; mở rộng đối soát sinh đề, quy trình khôi phục có bằng chứng và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
+- [x] Nối bộ ôn tập vào panel đối soát admin: chọn loại tác vụ chấm bài hoặc tóm tắt/flashcard; hiển thị mã người tạo/tài liệu/phiên bản nguồn thay vì mã bài nộp/ngôn ngữ. Đổi loại remount panel, hủy request cũ và đặt lại bộ lọc/cursor; không tự fetch, không mang phản hồi muộn sang hàng đợi mới.
+- [x] QA chuyển loại hàng đợi: 11 test component, frontend tổng 102 đạt; typecheck/lint đạt; catalog 2.174 chuỗi không thiếu dịch. Browser mock desktop 1440×1000 và mobile 390×844 xác nhận metadata học liệu, phiên bản và phân trang; không phải UAT provider live. Giữ hệ giao diện cũ theo impeccable, không thay DESIGN.md.
+- [ ] Mở rộng đối soát sinh đề, quy trình khôi phục có bằng chứng và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh
 

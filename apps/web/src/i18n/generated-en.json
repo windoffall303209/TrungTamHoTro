@@ -1,4 +1,11 @@
 {
+  "Loại tác vụ đối soát": "Task type to reconcile",
+  "Bộ ôn tập: tóm tắt và flashcard": "Study guides: summaries and flashcards",
+  "Đối soát bộ ôn tập AI": "AI study guide reconciliation",
+  "Chỉ xem trạng thái và mã tác vụ, không xem bài làm, điểm hoặc nội dung bộ ôn tập. Tác vụ đã bắt đầu có thể vẫn chạy hoặc bị gián đoạn; thời gian chờ lâu không chứng minh AI chưa xử lý.": "View task status and identifiers only, not submissions, scores, or study guide content. A started task may still be running or may have been interrupted; a long wait does not prove that AI has not processed it.",
+  "Không có tác vụ AI trong trang và bộ lọc này.": "No AI tasks on this page with these filters.",
+  "Mã người tạo": "Creator ID",
+  "Mã tài liệu": "Material ID",
   "Đối soát chấm AI": "AI grading reconciliation",
   "Đã bắt đầu xử lý": "Processing started",
   "Chưa rõ kết quả": "Outcome uncertain",
