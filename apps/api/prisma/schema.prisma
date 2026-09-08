@@ -487,6 +487,7 @@ model AiGradingSuggestion {
   submission AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, submissionId, createdAt])
+  @@index([state, createdAt, id], map: "ai_grading_operations_state_created_id")
   @@map("ai_grading_suggestions")
 }
 
