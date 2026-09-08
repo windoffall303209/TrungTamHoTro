@@ -12,6 +12,29 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("rejects invalid questions before reading files or invoking extraction", async () => {
+    const { learning, ai, material, service } = fixture();
+    for (const question of ["  ", "x", "x".repeat(2001)]) {
+      await expect(service.ask(material.id, "teacher", "INSTRUCTOR", question, "VI")).rejects.toMatchObject({ status: 400 });
+    }
+    expect(learning.readMaterialVersionDownload).not.toHaveBeenCalled();
+    expect(ai.extractDocumentPages).not.toHaveBeenCalled();
+  });
+
+  it("requires the answer model before charging for extraction, after checking material access", async () => {
+    const { learning, ai, material, service } = fixture();
+    ai.resolveTask.mockRejectedValue(new Error("missing answer model"));
+    await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "HTTP là gì?", "VI")).rejects.toThrow("missing answer model");
+    expect(learning.listMaterials).toHaveBeenCalled();
+    expect(ai.resolveTask).toHaveBeenCalledExactlyOnceWith("DOCUMENT_QA");
+    expect(ai.extractDocumentPages).not.toHaveBeenCalled();
+    expect(learning.readMaterialVersionDownload).not.toHaveBeenCalled();
+    learning.listMaterials.mockResolvedValue([]);
+    ai.resolveTask.mockClear();
+    await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "HTTP là gì?", "VI")).rejects.toMatchObject({ status: 404 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+  });
+
   it("reuses extraction while checking access every time and invalidates a changed version", async () => {
     const { learning, ai, material, service } = fixture();
     const first = await service.prepare(material.id, "teacher", "INSTRUCTOR");

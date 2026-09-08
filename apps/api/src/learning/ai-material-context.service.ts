@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { LearningService } from "./learning.service.js";
 import { AiProviderService } from "../system/ai-provider.service.js";
@@ -14,16 +14,21 @@ export class AiMaterialContextService {
 
   /** Nạp ngữ cảnh server-side, trả lời có nguồn rồi xác nhận người hỏi vẫn được truy cập phiên bản đó. */
   async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
-    const context = await this.prepare(materialId, actorId, role, question);
-    const result = await this.ai.answerDocument(question, context.chunks, language);
+    const text = typeof question === "string" ? question.trim() : "";
+    if (text.length < 2 || text.length > 2000) throw new BadRequestException("Câu hỏi cần từ 2 đến 2.000 ký tự.");
+    if (!["VI", "EN", "BILINGUAL"].includes(language)) throw new BadRequestException("Ngôn ngữ AI không hợp lệ.");
+    const context = await this.prepare(materialId, actorId, role, text, true);
+    const result = await this.ai.answerDocument(text, context.chunks, language);
     await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
     return { ...result, warning: context.warning, version: context.version };
   }
 
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
-  async prepare(materialId: string, actorId: string, role: string, query?: string): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
+  async prepare(materialId: string, actorId: string, role: string, query?: string, requireAnswerModel = false): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
     const material = (await this.learning.listMaterials(role, undefined, actorId)).find((item) => item.id === materialId);
     if (!material || material.quarantinedAt) throw new NotFoundException("Không tìm thấy tài liệu được phép sử dụng cho AI.");
+    // Xác nhận đủ model trước khi trích xuất có phí, nhưng không tiết lộ cấu hình trước kiểm tra quyền.
+    if (requireAnswerModel) await this.ai.resolveTask("DOCUMENT_QA");
     const access = await this.learning.createMaterialVersionAccess(material.id, material.version, role, "PREVIEW", actorId);
     const url = new URL(access.url, "http://internal.invalid");
     const file = await this.learning.readMaterialVersionDownload(material.id, material.version, Number(url.searchParams.get("expires")), url.searchParams.get("signature") ?? "", role, "PREVIEW", actorId);
