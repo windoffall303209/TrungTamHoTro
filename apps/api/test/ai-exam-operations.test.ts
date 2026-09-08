@@ -65,13 +65,14 @@ describe("Exam operations HTTP contract", () => {
     expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["canonical", "unlinked"])("supports explicit %s scope with the same read-only contract", async (scope) => {
+  it.each(["canonical", "unlinked", "broken"])("supports explicit %s scope with the same read-only contract", async (scope) => {
     const response = await read(`?scope=${scope}&state=CLAIMED`);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(queryRaw).toHaveBeenCalledTimes(1);
     const sql = queryRaw.mock.calls[0]![0] as { sql: string };
     expect(sql.sql).toContain(scope === "unlinked" ? "NOT EXISTS" : "AND EXISTS");
+    if (scope === "broken") expect(sql.sql).toContain("FROM system_settings target");
   });
 
   it("fails explicitly when durable storage is disabled", async () => {
