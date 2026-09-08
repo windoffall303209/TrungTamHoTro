@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NotFoundException } from "@nestjs/common";
 import { AiMaterialContextService } from "../src/learning/ai-material-context.service.js";
 import type { LearningService } from "../src/learning/learning.service.js";
 import type { AiProviderService } from "../src/system/ai-provider.service.js";
@@ -25,6 +26,11 @@ describe("authorized material AI context", () => {
     await service.publishStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", input);
     ai.resolveTask.mockClear();
     expect((await service.getPublishedStudyDraft(material.id, saved.draftId, "student", "LEARNER")).result.summary[0]?.text).toBe("Summary");
+    expect((await service.listPublishedStudyDrafts(material.id, "student", "LEARNER")).items).toHaveLength(1);
+    learning.createMaterialVersionAccess.mockRejectedValueOnce(new NotFoundException("hidden source"));
+    expect((await service.listPublishedStudyDrafts(material.id, "student", "LEARNER")).items).toEqual([]);
+    learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(service.listPublishedStudyDrafts(material.id, "student", "LEARNER")).rejects.toThrow("database unavailable");
     expect(learning.createMaterialVersionAccess).toHaveBeenLastCalledWith(material.id, 1, "LEARNER", "PREVIEW", "student");
     learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("source hidden"));
     await expect(service.getPublishedStudyDraft(material.id, saved.draftId, "student", "LEARNER")).rejects.toThrow("source hidden");

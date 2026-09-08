@@ -11,6 +11,7 @@ export type StudyDraftSummary = DraftIdentity & { id: string; state: "GENERATING
 type Publication = { publishedResult: SavedStudyGuide | null; publishedAt: Date | null; publicationRevision: number; publishedEditRevision: number | null };
 type Draft = StudyDraftSummary & Publication & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
 export type PublishStudyDraft = { expectedRevision: number; expectedPublicationRevision: number; confirmReview: boolean };
+type PublishedSummary = { id: string; sourceVersion: number; publishedAt: Date; publicationRevision: number; language: StudyGuideOptions["language"] };
 
 @Injectable()
 /** Lưu bản nháp riêng, claim theo nội dung trong database trước khi gọi provider. */
@@ -104,6 +105,16 @@ export class AiStudyDraftService {
     const row = db ? await db.aiStudyDraft.findFirst({ where: { id, materialId, publishedAt: { not: null } }, select: { id: true, sourceVersion: true, publishedResult: true, publishedAt: true, publicationRevision: true } }) as unknown as Pick<Draft, "id" | "sourceVersion" | "publishedResult" | "publishedAt" | "publicationRevision"> | null : [...this.memory.values()].find((item) => item.id === id && item.materialId === materialId && item.publishedAt);
     if (!row?.publishedAt || !row.publishedResult) throw new NotFoundException("Không tìm thấy bộ ôn tập đã phát hành.");
     return structuredClone({ id: row.id, sourceVersion: row.sourceVersion, result: row.publishedResult, publishedAt: row.publishedAt, publicationRevision: row.publicationRevision });
+  }
+
+  /** Liệt kê metadata công khai theo ngày tạo ổn định; không tải JSON nội dung hay thông tin chủ bản nháp. */
+  async listPublished(materialId: string, cursor?: string): Promise<{ items: PublishedSummary[]; nextCursor: string | null }> {
+    const db = this.database();
+    const boundary = cursor ? db ? await db.aiStudyDraft.findFirst({ where: { id: cursor, materialId, publishedAt: { not: null } }, select: { id: true, createdAt: true } }) : [...this.memory.values()].find((row) => row.id === cursor && row.materialId === materialId && row.publishedAt) : undefined;
+    if (cursor && !boundary) throw new BadRequestException("Mốc danh sách ôn tập không còn hợp lệ. Hãy tải lại danh sách.");
+    const rows = db ? await db.aiStudyDraft.findMany({ where: { materialId, publishedAt: { not: null }, ...(boundary ? { OR: [{ createdAt: { lt: boundary.createdAt } }, { createdAt: boundary.createdAt, id: { lt: boundary.id } }] } : {}) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 21, select: { id: true, sourceVersion: true, publishedAt: true, publicationRevision: true, options: true } }) : [...this.memory.values()].filter((row) => row.materialId === materialId && row.publishedAt && (!boundary || row.createdAt < boundary.createdAt || (row.createdAt.getTime() === boundary.createdAt.getTime() && row.id < boundary.id))).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)).slice(0, 21);
+    const items = rows.slice(0, 20).map((row) => ({ id: row.id, sourceVersion: row.sourceVersion, publishedAt: row.publishedAt!, publicationRevision: row.publicationRevision, language: (row.options as unknown as StudyGuideOptions).language }));
+    return structuredClone({ items, nextCursor: rows.length > 20 ? items.at(-1)!.id : null });
   }
 
   /** CAS phát hành dùng revision riêng, đồng thời khóa đúng phiên bản nội dung khi xuất bản. */
