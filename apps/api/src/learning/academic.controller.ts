@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -37,15 +38,18 @@ import {
   CreateAssignmentDto,
   ExtendAssignmentDto,
   GradeAssignmentDto,
+  GradingAiRequestDto,
+  GradingAiStatusQueryDto,
   SubmissionRevisionQueryDto,
   SubmitAssignmentDto,
   UpdateAssignmentDto,
 } from "./academic.dto.js";
+import { AiGradingAssistService } from "./ai-grading-assist.service.js";
 
 @Controller()
 /** API học vụ cho bài tập, sổ điểm, lịch và thông báo; phiên hiện tại quyết định phạm vi lớp. */
 export class AcademicController {
-  constructor(private readonly academic: AcademicService) {}
+  constructor(private readonly academic: AcademicService, private readonly gradingAi: AiGradingAssistService) {}
 
   @Get("academic/assignments")
   @RequireAuthentication()
@@ -257,6 +261,30 @@ export class AcademicController {
       input.correctionReason,
       session,
     );
+  }
+
+  @Post("instructor/assignment-submissions/:submissionId/ai-suggestion")
+  @Header("Cache-Control", "no-store")
+  @RequirePermissions("exam:manage")
+  /** Sinh hoặc phát lại gợi ý riêng; service xác thực giảng viên/lớp và không tự lưu điểm. */
+  suggestGrading(
+    @Param("submissionId") submissionId: string,
+    @Body() input: GradingAiRequestDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): ReturnType<AiGradingAssistService["suggest"]> {
+    return this.gradingAi.suggest(submissionId, input.expectedSubmissionRevision, input.language, session);
+  }
+
+  @Get("instructor/assignment-submissions/:submissionId/ai-suggestion")
+  @Header("Cache-Control", "no-store")
+  @RequirePermissions("exam:manage")
+  /** Đọc trạng thái/kết quả đã lưu có kiểm tra quyền, tuyệt đối không gọi AI từ GET. */
+  gradingSuggestionStatus(
+    @Param("submissionId") submissionId: string,
+    @Query() query: GradingAiStatusQueryDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): ReturnType<AiGradingAssistService["inspect"]> {
+    return this.gradingAi.inspect(submissionId, query.expectedSubmissionRevision, query.language, session);
   }
 
   @Get("academic/classes/:classId/gradebook")
