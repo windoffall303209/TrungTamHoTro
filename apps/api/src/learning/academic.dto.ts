@@ -5,6 +5,7 @@ import {
   IsArray,
   IsDateString,
   IsInt,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -91,6 +92,18 @@ export class GradeAssignmentDto {
   @MinLength(3)
   @MaxLength(1000)
   correctionReason?: string;
+}
+
+/** Chỉ nhận phiên bản và ngôn ngữ; bài làm, rubric và model phải lấy từ hệ thống. */
+export class GradingAiRequestDto {
+  @IsInt() @Min(1) @Max(2_147_483_647) expectedSubmissionRevision!: number;
+  @IsIn(["VI", "EN", "BILINGUAL"]) language!: "VI" | "EN" | "BILINGUAL";
+}
+
+/** Chuẩn hóa riêng số nguyên dạng chuỗi trong query đọc trạng thái, không nhận ép kiểu tùy ý. */
+export class GradingAiStatusQueryDto extends GradingAiRequestDto {
+  @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)
+  declare expectedSubmissionRevision: number;
 }
 
 export class CreateAnnouncementDto {
