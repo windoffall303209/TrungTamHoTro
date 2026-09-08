@@ -1,4 +1,10 @@
 {
+  "Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.": "TXT files for AI grading must contain content and be no larger than 80,000 bytes.",
+  "Tệp TXT cho chấm AI phải được lưu bằng UTF-8 hợp lệ.": "TXT files for AI grading must use valid UTF-8 encoding.",
+  "Tệp TXT chứa ký tự điều khiển không được hỗ trợ cho chấm AI.": "The TXT file contains control characters that AI grading does not support.",
+  "Nội dung cho chấm AI phải có văn bản và không vượt quá 20.000 ký tự; hệ thống không tự cắt nội dung.": "AI grading requires text of no more than 20,000 characters in total; the system does not truncate the content.",
+  "Chấm AI hiện hỗ trợ văn bản và tệp TXT UTF-8. Hãy chấm thủ công các định dạng khác để không bỏ sót nội dung tệp.": "AI grading currently supports inline text and UTF-8 TXT files. Grade other formats manually so no file content is overlooked.",
+  "Dẫn chứng AI phải nằm nguyên vẹn trong một nguồn bài làm. Gợi ý chưa được chấp nhận.": "Each AI quote must appear in full within one submission source. The suggestion has not been accepted.",
   "Tệp bài nộp không khớp bản đã lưu. Không thể sử dụng nội dung; hãy liên hệ quản trị viên.": "The submission file does not match the stored version. Its contents cannot be used; contact an administrator.",
   "Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.": "The submission or file changed during download. Reopen the submission.",
   "AI hiện chỉ hỗ trợ bài làm văn bản không có tệp đính kèm. Hãy chấm bài này thủ công để không bỏ sót nội dung.": "AI currently supports text submissions without attachments. Grade this submission manually so no content is overlooked.",

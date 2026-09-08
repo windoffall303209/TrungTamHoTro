@@ -4,9 +4,10 @@ import { PrismaService } from "../database/prisma.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { GradingSuggestion } from "../system/ai-grading-suggestion.js";
 import type { ExamLanguage } from "../system/ai-provider.service.js";
+import type { GradingAnswerSource } from "./ai-grading-source.js";
 
 export type GradingIdentity = { ownerId: string; submissionId: string; contextHash: string; language: ExamLanguage };
-export type SavedGradingSuggestion = GradingSuggestion & { model: string; submissionRevision: number; assignmentVersion: number; contextHash: string };
+export type SavedGradingSuggestion = GradingSuggestion & { model: string; submissionRevision: number; assignmentVersion: number; contextHash: string; sources?: GradingAnswerSource[] };
 type Stored = GradingIdentity & { id: string; fingerprint: string; state: "GENERATING" | "READY" | "UNCERTAIN"; result: SavedGradingSuggestion | null };
 
 @Injectable()
