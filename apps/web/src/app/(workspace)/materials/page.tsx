@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
 import { MaterialAiDialog } from "@/components/material-ai-dialog";
+import { LearnerStudyDialog } from "@/components/learner-study-dialog";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -42,6 +43,7 @@ export default function MaterialsPage() {
   const [historyTarget, setHistoryTarget] = useState<Material | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Material | null>(null);
   const [aiTarget, setAiTarget] = useState<Material | null>(null);
+  const [studyTarget, setStudyTarget] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
   const [reviewReason, setReviewReason] = useState("");
   const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
@@ -268,6 +270,7 @@ export default function MaterialsPage() {
               <div className="flex flex-wrap gap-1 lg:justify-end">
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
                   {instructor && ["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(item.mimeType) && item.sizeBytes <= 12 * 1024 * 1024 ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setAiTarget(item)} variant="ghost">Hỏi AI</Button> : null}
+                  {session.roleCode === "LEARNER" && item.visibility === "PUBLISHED" ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setStudyTarget(item)} variant="ghost">Bộ ôn tập</Button> : null}
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
                   <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
                   {instructor ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
@@ -282,6 +285,7 @@ export default function MaterialsPage() {
         </div>
       </SectionState>
       {aiTarget ? <MaterialAiDialog key={`${aiTarget.id}:${aiTarget.version}`} material={aiTarget} onClose={() => setAiTarget(null)} /> : null}
+      {studyTarget ? <LearnerStudyDialog key={studyTarget.id} material={studyTarget} onClose={() => setStudyTarget(null)} /> : null}
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Môn học"><div className="rounded-xl bg-[var(--surface-muted)] px-4 py-3 text-sm font-bold text-[var(--ink)]">{selectedCourse ? `${selectedCourse.code} — ${selectedCourse.name}` : "Chưa chọn môn học"}</div></Field>
