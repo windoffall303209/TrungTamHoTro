@@ -24,6 +24,8 @@ const examStates = ["CLAIMED", "GENERATING", "READY", "SAVING", "COMPLETED", "UN
 export class ExamOperationsQueryDto extends OmitType(GradingOperationsQueryDto, ["state"] as const) {
   @IsOptional() @IsIn(examStates)
   state?: typeof examStates[number];
+  @IsOptional() @IsIn(["canonical", "unlinked"])
+  scope?: "canonical" | "unlinked";
 }
 
 const metadata = { id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true } as const;
@@ -76,18 +78,29 @@ export class AiGradingOperationsService {
   async listExams(query: ExamOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: ExamOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery({ ...query, state: undefined }, session);
     if (query.state !== undefined && !examStates.includes(query.state)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
-    const anchor = query.cursor ? (await this.examRows(Prisma.sql`r.\`key\` = ${`ai-generation:${query.cursor}`}`, 1))[0] : undefined;
+    if (query.scope !== undefined && !["canonical", "unlinked"].includes(query.scope)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
+    const scope = query.scope ?? "canonical";
+    const anchor = query.cursor ? (await this.examRows(Prisma.sql`r.\`key\` = ${`ai-generation:${query.cursor}`}`, 1, scope))[0] : undefined;
     if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
     const states = query.state ? [query.state] : examStates.filter((state) => state !== "COMPLETED");
     const stateFilter = Prisma.sql`JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN (${Prisma.join(states)})`;
     const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-generation:${anchor.id}`}))` : Prisma.empty;
-    const rows = await this.examRows(Prisma.sql`${stateFilter} ${position}`, limit + 1);
+    const rows = await this.examRows(Prisma.sql`${stateFilter} ${position}`, limit + 1, scope);
     const items = rows.slice(0, limit);
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
   /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
-  private examRows(filter: Prisma.Sql, limit: number): Promise<ExamOperation[]> {
+  private examRows(filter: Prisma.Sql, limit: number, scope: "canonical" | "unlinked"): Promise<ExamOperation[]> {
+    // Retry aliases share an owner/hash binding and must not be reported as unlinked claims.
+    const binding = Prisma.sql`EXISTS (
+      SELECT 1 FROM system_settings b
+      WHERE b.\`key\` LIKE 'ai-generation-content:%'
+        AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
+        AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
+        ${scope === "canonical" ? Prisma.sql`AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = SUBSTRING(r.\`key\`, 15)` : Prisma.empty}
+    )`;
+    const relationship = scope === "unlinked" ? Prisma.sql`NOT ${binding}` : binding;
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
       SELECT SUBSTRING(r.\`key\`, 15) AS id,
         JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.owner')) AS ownerId,
@@ -95,13 +108,7 @@ export class AiGradingOperationsService {
         r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
       FROM system_settings r
       WHERE r.\`key\` LIKE 'ai-generation:%'
-        AND EXISTS (
-          SELECT 1 FROM system_settings b
-          WHERE b.\`key\` LIKE 'ai-generation-content:%'
-            AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = SUBSTRING(r.\`key\`, 15)
-            AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
-            AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
-        )
+        AND ${relationship}
         AND ${filter}
       ORDER BY r.effective_at DESC, r.\`key\` DESC
       LIMIT ${limit}
