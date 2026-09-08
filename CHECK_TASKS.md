@@ -405,6 +405,7 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] UI giảng viên trong cửa sổ chấm bài: kiểm tra gợi ý đã lưu bằng GET, chỉ tạo có chủ ý khi chưa có yêu cầu; xem điểm/lý do/trích dẫn, xác nhận trước khi thay nội dung form. Việc lưu điểm vẫn là thao tác thủ công riêng. Timeout buộc đối soát GET, không tự POST lại; không hiện gợi ý cũ khi đổi bài/phiên bản/ngôn ngữ/danh tính.
 - [x] Chấm AI văn bản: 11 test component riêng, tổng 76 test frontend đạt; typecheck/lint và catalog 2.145 chuỗi đạt. Browser mock xác nhận copy điểm/phản hồi và modal mobile nằm trong viewport, không tràn ngang. Review độc lập `ship` ở phạm vi giao diện đã xem, không phải UAT provider live; ghi chú tại `docs/ai-grading-review.md`.
 - [ ] Mở rộng gợi ý chấm cho bài nộp đính kèm sau khi có pipeline trích xuất và đối chiếu đúng phiên bản tệp; hiện chặn rõ, không chấm bỏ sót tệp.
+- [x] Chuẩn bị nguồn tệp bài nộp: đường đọc dùng chung đối chiếu SHA-256/kích thước, kiểm tra lại quyền và metadata/phiên bản sau khi tải; hỗ trợ ghim revision cho caller nội bộ. 15 test nguồn xác nhận từ chối tệp sai bytes/metadata, bị gỡ và mất quyền trong khi tải. Đây chưa phải pipeline trích xuất/chấm tệp bằng AI.
 - [ ] Quy trình admin đối soát/khôi phục claim bị gián đoạn và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh

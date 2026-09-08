@@ -1,4 +1,5 @@
 import { Test } from "@nestjs/testing";
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
@@ -62,7 +63,7 @@ describe("AcademicService", () => {
     const storage = {
       put: vi.fn((objectKey: string, buffer: Buffer) => {
         storedFiles.set(objectKey, buffer);
-        return Promise.resolve({ objectKey, checksum: "sha256:test" });
+        return Promise.resolve({ objectKey, checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}` });
       }),
       get: vi.fn((objectKey: string) =>
         Promise.resolve(storedFiles.get(objectKey) ?? Buffer.alloc(0)),
