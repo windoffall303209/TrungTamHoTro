@@ -24,6 +24,39 @@ describe("admin AI grading queue", () => {
     expect(screen.queryByRole("button", { name: /Tạo|Xóa|Thử lại/ })).not.toBeInTheDocument();
   });
 
+  it("loads study metadata from its own endpoint and resets the prior filter and cursor", async () => {
+    api.mockResolvedValueOnce({ items: [row], nextCursor: "grading-cursor" });
+    render(<AiGradingOperations />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" }), { target: { value: "READY" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText(row.id);
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "study" } });
+    expect(screen.queryByText(row.id)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" })).toHaveValue("");
+    expect(api).toHaveBeenCalledTimes(1);
+    api.mockResolvedValueOnce({ items: [{ id: "study-1", ownerId: "owner-1", materialId: "material-1", sourceVersion: 3, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt }], nextCursor: null });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    expect(await screen.findByText("material-1")).toHaveAttribute("translate", "no");
+    expect(screen.getByText("Phiên bản nguồn")).toBeInTheDocument();
+    expect(screen.queryByText("Mã bài nộp")).not.toBeInTheDocument();
+    expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/study?limit=20");
+    expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
+  });
+
+  it("aborts the old queue request when switching domains and discards its late response", async () => {
+    let resolve!: (value: unknown) => void;
+    api.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    render(<AiGradingOperations />);
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    const signal = api.mock.calls[0]?.[1].signal as AbortSignal;
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "study" } });
+    expect(signal.aborted).toBe(true);
+    await act(async () => { resolve({ items: [row], nextCursor: "old-cursor" }); });
+    expect(screen.queryByText(row.id)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Đối soát bộ ôn tập AI" })).toBeInTheDocument();
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
   it("navigates cursor pages and resets old results when changing filters", async () => {
     api.mockResolvedValueOnce({ items: [row], nextCursor: "cursor / 1" }).mockResolvedValueOnce({ items: [{ ...row, id: "claim-2" }], nextCursor: null });
     render(<AiGradingOperations />);
@@ -33,11 +66,11 @@ describe("admin AI grading queue", () => {
     await screen.findByText("claim-2");
     expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/grading?limit=20&cursor=cursor+%2F+1");
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeEnabled();
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "READY" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" }), { target: { value: "READY" } });
     expect(screen.queryByText("claim-2")).not.toBeInTheDocument();
     api.mockResolvedValueOnce({ items: [], nextCursor: null });
     fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
-    expect(await screen.findByText("Không có tác vụ chấm AI trong trang và bộ lọc này.")).toHaveAttribute("role", "status");
+    expect(await screen.findByText("Không có tác vụ AI trong trang và bộ lọc này.")).toHaveAttribute("role", "status");
     expect(api.mock.calls[2]?.[0]).toBe("/admin/ai-operations/grading?limit=20&state=READY");
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
   });
