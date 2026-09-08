@@ -222,7 +222,8 @@ html.theme-changing *, html.theme-changing *::before, html.theme-changing *::aft
 .animate-rise { animation: rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .animate-slide-in { animation: slide-in 220ms ease-out both; }
 .animate-toast { animation: toast 180ms ease-out both; }
-.workspace-enter { animation: workspace-enter 460ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* Không giữ transform sau animation: hộp thoại fixed phải bám viewport, không bám chiều cao trang. */
+.workspace-enter { animation: workspace-enter 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 .section-ledger { overflow: hidden; border-block: 1px solid var(--rule-strong); background: color-mix(in srgb, var(--surface) 65%, transparent); }
 .section-ledger > * + * { border-top: 1px solid var(--rule); }
 .section-title { font-size: 1.25rem; font-weight: 700; line-height: 1.35; letter-spacing: -0.025em; color: var(--ink); }
