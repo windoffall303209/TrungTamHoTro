@@ -18,12 +18,17 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
   afterAll(async () => { if (prisma) await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } } }); await moduleRef?.close(); });
 
   it("allows one concurrent generation and replays after process replacement", async () => {
+    const reader = new AiDocumentAnswerStore(prisma);
+    expect(await reader.status(identity)).toEqual({ state: "NOT_REQUESTED" });
+    expect(await prisma.systemSetting.count({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } })).toBe(0);
     const generate = vi.fn(() => Promise.resolve(result));
     const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => new AiDocumentAnswerStore(prisma).generate(identity, generate)));
     expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
     for (const outcome of outcomes) if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
     expect(await new AiDocumentAnswerStore(prisma).generate({ ...identity, question: ` ${identity.question} ` }, generate)).toEqual(result);
     expect(generate).toHaveBeenCalledTimes(1);
+    expect(await reader.status(identity)).toEqual({ state: "READY", result });
+    expect(await reader.status({ ...identity, ownerId: `${ownerId}-other` })).toEqual({ state: "NOT_REQUESTED" });
     const rows = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
     expect(rows).toHaveLength(1);
     expect(JSON.stringify(rows)).not.toContain(identity.question);
@@ -44,6 +49,21 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toThrow("response lost");
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
+    expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "UNCERTAIN" });
+  });
+
+  it("reads GENERATING while the provider is pending and does not change the claim", async () => {
+    const next = { ...identity, question: "Pending question?" };
+    let finish!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const pending = new AiDocumentAnswerStore(prisma).generate(next, () => { started(); return new Promise((resolve) => { finish = (): void => resolve(result); }); });
+    await entered;
+    try {
+      const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+      expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "GENERATING" });
+      expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
+    } finally { finish(); await pending; }
   });
 
   it("rejects a mismatched source version without caching an answer as ready", async () => {

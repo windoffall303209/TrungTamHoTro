@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request } from "express";
@@ -26,8 +26,14 @@ export class ContentController {
   prepareMaterialContext(@Param("materialId") materialId: string, @Body() input: MaterialAiContextDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["prepare"]> { return this.materialAi.prepare(materialId, session.user.id, session.roleCode, input.query); }
 
   @Post("instructor/materials/:materialId/ai-question") @RequirePermissions("material:manage")
+  @Header("Cache-Control", "no-store")
   /** Hỏi đáp tài liệu của giảng viên với trích dẫn từ đúng ngữ cảnh server đã đọc. */
   askMaterial(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["ask"]> { return this.materialAi.ask(materialId, session.user.id, session.roleCode, input.question, input.language); }
+
+  @Post("instructor/materials/:materialId/ai-question/status") @RequirePermissions("material:manage")
+  @HttpCode(200) @Header("Cache-Control", "no-store")
+  /** Read-only status lookup uses a body so private question text is not put into URLs. */
+  questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language); }
 
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
   /** Tạo tóm tắt và thẻ ôn tập có nguồn từ học liệu giảng viên được phép xem. */
