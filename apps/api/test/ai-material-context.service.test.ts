@@ -4,14 +4,43 @@ import type { LearningService } from "../src/learning/learning.service.js";
 import type { AiProviderService } from "../src/system/ai-provider.service.js";
 
 /** Tạo mock biên quyền và đọc file, không bỏ qua kiểm tra trước/sau extraction. */
-function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; createMaterialVersionAccess: ReturnType<typeof vi.fn>; readMaterialVersionDownload: ReturnType<typeof vi.fn> }; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn> }; material: { id: string; version: number; name: string }; service: AiMaterialContextService } {
+function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; createMaterialVersionAccess: ReturnType<typeof vi.fn>; readMaterialVersionDownload: ReturnType<typeof vi.fn> }; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn>; createStudyGuide: ReturnType<typeof vi.fn> }; material: { id: string; version: number; name: string }; service: AiMaterialContextService } {
   const material = { id: "material-1", version: 1, name: "HTTP.pdf" };
   const learning = { listMaterials: vi.fn().mockResolvedValue([material]), createMaterialVersionAccess: vi.fn().mockResolvedValue({ url: "/material?expires=123&signature=signed" }), readMaterialVersionDownload: vi.fn().mockResolvedValue({ fileName: material.name, mimeType: "application/pdf", buffer: Buffer.from("pdf-bytes") }) };
-  const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "gemini", model: "model-1" }), extractDocumentPages: vi.fn().mockResolvedValue([{ page: 1, text: "Giao thức HTTP truyền dữ liệu." }]) };
+  const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "gemini", model: "model-1" }), extractDocumentPages: vi.fn().mockResolvedValue([{ page: 1, text: "Giao thức HTTP truyền dữ liệu." }]), createStudyGuide: vi.fn().mockResolvedValue({ insufficientContext: false, summary: [], flashcards: [], model: "study-model" }) };
   return { learning, ai, material, service: new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService) };
 }
 
 describe("authorized material AI context", () => {
+  it("creates study aids from authorized source and rechecks the exact version afterwards", async () => {
+    const { learning, ai, material, service } = fixture();
+    const result = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "EN" });
+    expect(result.coverage).toMatchObject({ partial: false, selectedPages: [1] });
+    expect(result.version).toBe(material.version);
+    expect(ai.createStudyGuide).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ materialId: material.id, version: material.version })]), { cardCount: 5, language: "EN" });
+    expect(learning.createMaterialVersionAccess).toHaveBeenCalledTimes(3);
+    expect(learning.createMaterialVersionAccess).toHaveBeenLastCalledWith(material.id, material.version, "INSTRUCTOR", "PREVIEW", "teacher");
+  });
+
+  it("never returns a generated guide when access was revoked during generation", async () => {
+    const { learning, ai, material, service } = fixture();
+    ai.createStudyGuide.mockImplementationOnce(() => {
+      learning.createMaterialVersionAccess.mockRejectedValue(new Error("access revoked"));
+      return { summary: [], flashcards: [] };
+    });
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "VI" })).rejects.toThrow("access revoked");
+  });
+
+  it("rejects missing permissions and invalid page pairs before provider work", async () => {
+    const { learning, ai, material, service } = fixture();
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "VI", fromPage: 3 })).rejects.toMatchObject({ status: 400 });
+    expect(learning.listMaterials).not.toHaveBeenCalled();
+    learning.listMaterials.mockResolvedValue([]);
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "VI" })).rejects.toMatchObject({ status: 404 });
+    expect(ai.extractDocumentPages).not.toHaveBeenCalled();
+    expect(ai.createStudyGuide).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid questions before reading files or invoking extraction", async () => {
     const { learning, ai, material, service } = fixture();
     for (const question of ["  ", "x", "x".repeat(2001)]) {

@@ -28,6 +28,40 @@ function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
 describe("AI provider configuration and image scanning", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each(["GEMINI", "OPENAI", "NVIDIA_NIM", "CUSTOM"] as const)("generates cited study guides through the admin-selected %s provider", async (providerType) => {
+    const service = new AiProviderService(undefined, config);
+    const model = providerType === "CUSTOM" ? "study-model" : service.getCatalog()[providerType][0]!.value;
+    const provider = await service.configure({ provider: providerType, model, baseUrl: "https://router.example/v1/chat/completions", apiKey: "study-provider-test-secret", enabled: true }, "usr-admin");
+    await service.configureTask("DOCUMENT_QA", { providerId: provider.id, model }, "usr-admin");
+    const chunks = chunkDocument({ materialId: "m", version: 3, checksum: "checked", name: "HTTP.pdf" }, [{ page: 1, text: "HTTP transfers representations. It is an application-layer protocol." }]);
+    const guide = { insufficientContext: false, summary: [{ text: "HTTP transfers representations.", citationIds: [chunks[0]!.id] }], flashcards: [{ front: "At which layer does HTTP operate?", back: "Application layer.", citationIds: [chunks[0]!.id] }] };
+    const output = JSON.stringify(guide);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(providerType === "GEMINI" ? { candidates: [{ content: { parts: [{ text: output }] } }] } : { choices: [{ message: { content: output } }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await service.createStudyGuide(chunks, { cardCount: 1, language: "BILINGUAL" });
+    expect(result.model).toBe(model);
+    expect(result.flashcards[0]?.citations).toEqual(chunks);
+    const body = readJsonBody(fetchMock.mock.calls[0]);
+    expect(JSON.stringify(body)).toContain("Vietnamese followed by English in every field");
+    expect(JSON.stringify(body)).toContain("untrusted DATA");
+    expect(body).not.toHaveProperty("tools");
+    if (providerType !== "GEMINI") {
+      expect(body).toMatchObject({ model, stream: false });
+      expect(body).not.toHaveProperty("response_format");
+      expect(JSON.stringify(body)).not.toContain("image_url");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not invoke study providers without source or with an invalid count", async () => {
+    const service = new AiProviderService(undefined, config);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await service.createStudyGuide([], { cardCount: 5, language: "EN" })).toMatchObject({ insufficientContext: true, summary: [], flashcards: [] });
+    await expect(service.createStudyGuide([], { cardCount: 21, language: "VI" })).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("answers through Custom using supplied citations and rejects invented source IDs", async () => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "CUSTOM", name: "Text AI", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "qa-provider-secret", enabled: true }, "usr-admin");

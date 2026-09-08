@@ -4,6 +4,7 @@ import { LearningService } from "./learning.service.js";
 import { AiProviderService } from "../system/ai-provider.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { chunkDocument, type ContextChunk, type DocumentPage, retrieveDocumentContext } from "../system/ai-document-context.js";
+import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions, type StudyContext, type StudyGuide } from "../system/ai-study-guide.js";
 
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
@@ -21,6 +22,16 @@ export class AiMaterialContextService {
     const result = await this.ai.answerDocument(text, context.chunks, language);
     await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
     return { ...result, warning: context.warning, version: context.version };
+  }
+
+  /** Tạo bộ ôn tập có độ bao phủ rõ ràng; kiểm tra quyền lần cuối trước khi trả nội dung. */
+  async study(materialId: string, actorId: string, role: string, options: StudyGuideOptions): Promise<StudyGuide & { model?: string; coverage: StudyContext["coverage"]; version: number; warning: string }> {
+    validateStudyGuideOptions(options);
+    const context = await this.prepare(materialId, actorId, role, undefined, true);
+    const selected = selectStudyContext(context.chunks, options);
+    const guide = await this.ai.createStudyGuide(selected.chunks, options);
+    await this.learning.createMaterialVersionAccess(materialId, context.version, role, "PREVIEW", actorId);
+    return { ...guide, coverage: selected.coverage, version: context.version, warning: context.warning };
   }
 
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
