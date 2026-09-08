@@ -1037,7 +1037,8 @@ export class ChatService {
         sizeBytes: Number(item.sizeBytes),
         canPreview:
           item.mimeType === "application/pdf" ||
-          item.mimeType.startsWith("image/"),
+          item.mimeType.startsWith("image/") ||
+          item.mimeType.startsWith("audio/"),
       })),
       mentionedUserIds: row.mentions.map((item) => item.mentionedUserId),
       context,
