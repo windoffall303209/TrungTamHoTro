@@ -21,7 +21,9 @@ describe("study draft human edits", () => {
     expect(second.items).toHaveLength(5);
     expect(second.nextCursor).toBeNull();
     expect(new Set([...first.items, ...second.items].map((item) => item.id)).size).toBe(25);
-    expect(first.items[0]).toEqual({ id: expect.any(String), sourceVersion: 1, publishedAt: expect.any(Date), publicationRevision: 1, language: "VI" });
+    expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "language", "publicationRevision", "publishedAt", "sourceVersion"]);
+    expect(first.items[0]).toMatchObject({ sourceVersion: 1, publicationRevision: 1, language: "VI" });
+    expect(first.items[0]?.publishedAt).toBeInstanceOf(Date);
     expect(first.items.some((item) => item.id === privateDraft.draftId)).toBe(false);
     expect((await service.listPublished("other-material")).items).toEqual([]);
     await expect(service.listPublished("other-material", first.nextCursor!)).rejects.toMatchObject({ status: 400 });
