@@ -402,7 +402,9 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] Migration bổ sung đã áp dụng cho database local và database `_test`; không reset dữ liệu.
 - [x] Nối HTTP cho gợi ý chấm: POST/GET `instructor/assignment-submissions/:submissionId/ai-suggestion`, chỉ nhận phiên bản bài nộp và VI/EN/BILINGUAL; GET không sinh AI, response `no-store`, quyền `exam:manage` và kiểm tra phân công trong service. Test HTTP dùng guard/validation thật, mock biên auth/service; không thay thế UAT live.
 - [x] Cấu hình admin có tác vụ riêng “Gợi ý chấm bài”, hỗ trợ Gemini/OpenAI/NIM/Custom, không yêu cầu Gemini phụ cho Custom văn bản. Có mô tả giới hạn, bản dịch Anh và kiểm thử lưu/khôi phục/lỗi/đổi provider. Frontend 65 test đạt; ảnh trình duyệt mock đã xem ở desktop 1440×1000 và mobile 390×844.
-- [ ] Nối UI giảng viên xem xét gợi ý chấm; API và cài đặt admin đã có nhưng chưa có điểm vào chấm bài trên frontend.
+- [x] UI giảng viên trong cửa sổ chấm bài: kiểm tra gợi ý đã lưu bằng GET, chỉ tạo có chủ ý khi chưa có yêu cầu; xem điểm/lý do/trích dẫn, xác nhận trước khi thay nội dung form. Việc lưu điểm vẫn là thao tác thủ công riêng. Timeout buộc đối soát GET, không tự POST lại; không hiện gợi ý cũ khi đổi bài/phiên bản/ngôn ngữ/danh tính.
+- [x] Chấm AI văn bản: 11 test component riêng, tổng 76 test frontend đạt; typecheck/lint và catalog 2.145 chuỗi đạt. Browser mock xác nhận copy điểm/phản hồi và modal mobile nằm trong viewport, không tràn ngang. Review độc lập `ship` ở phạm vi giao diện đã xem, không phải UAT provider live; ghi chú tại `docs/ai-grading-review.md`.
+- [ ] Mở rộng gợi ý chấm cho bài nộp đính kèm sau khi có pipeline trích xuất và đối chiếu đúng phiên bản tệp; hiện chặn rõ, không chấm bỏ sót tệp.
 - [ ] Quy trình admin đối soát/khôi phục claim bị gián đoạn và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh

@@ -24,6 +24,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
+import { AssignmentAiGrading } from "@/components/assignment-ai-grading";
 import { PageHeader } from "@/components/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
 import {
@@ -1310,7 +1311,7 @@ export default function AcademicPage() {
         </form>
       </Modal>
       <Modal
-        open={Boolean(reviewing)}
+        open={Boolean(reviewing) && !grading}
         onClose={() => setReviewing(null)}
         title={`Bài nộp · ${reviewing?.title ?? ""}`}
       >
@@ -1438,6 +1439,7 @@ export default function AcademicPage() {
               </ol>
             </details>
           ) : null}
+          {canTeach && grading && reviewing ? <AssignmentAiGrading assignment={reviewing} submission={grading} onUse={(scores, nextFeedback) => { setRubricScores(scores); setFeedback(nextFeedback); }} /> : null}
           {reviewing?.rubric.map((criterion) => (
             <Field
               key={criterion.id}
@@ -1448,7 +1450,7 @@ export default function AcademicPage() {
                 max={criterion.maxPoints}
                 min={0}
                 required
-                step="0.25"
+                step="0.01"
                 type="number"
                 value={rubricScores[criterion.id] ?? 0}
                 onChange={(event) =>
