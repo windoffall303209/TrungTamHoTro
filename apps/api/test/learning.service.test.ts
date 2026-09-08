@@ -1581,6 +1581,14 @@ describe("LearningService", () => {
     ).rejects.toThrow("tải lại");
   });
 
+  it("bỏ đọc tài liệu khi chọn web nhưng vẫn kiểm tra quyền lớp học", async () => {
+    const service = new LearningService();
+    const context = await service.getExamGenerationContext("class-web-01", "usr-instructor", [], true);
+    expect(context.sourceFiles).toEqual([]);
+    expect(context.courseId).toBe("course-web");
+    await expect(service.getExamGenerationContext("class-web-01", "unauthorized-user", [], true)).rejects.toThrow();
+  });
+
   it("tạo đề AI nháp và gắn nguồn cho câu hỏi sinh tự động", async () => {
     const service = new LearningService();
     const context = await service.getExamGenerationContext("class-web-01");
@@ -1639,10 +1647,18 @@ describe("LearningService", () => {
     await expect(service.submitExamForReview(exam.id)).rejects.toThrow(
       "câu hỏi trong đề phải được phê duyệt",
     );
-    await service.publishQuestion(exam.questionIds[0]!);
-    expect((await service.submitExamForReview(exam.id)).status).toBe(
+    const originalId = exam.questionIds[0]!;
+    await expect(service.editExamQuestion(exam.id, originalId, { content: "Nội dung hợp lệ", options: [], correctAnswers: ["Đáp án"], expectedVersion: exam.version }, "unauthorized")).rejects.toThrow();
+    const edited = await service.editExamQuestion(exam.id, originalId, { content: "HTTP được viết đầy đủ như thế nào?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], expectedVersion: exam.version }, "usr-instructor");
+    expect(edited.id).not.toBe(originalId);
+    expect(edited.status).toBe("DRAFT");
+    expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === originalId)?.content).toBe(generated?.content);
+    await expect(service.submitExamForReview(exam.id, "usr-instructor", true, 999)).rejects.toThrow("thay đổi");
+    expect((await service.submitExamForReview(exam.id, "usr-instructor", true)).status).toBe(
       "PENDING_REVIEW",
     );
+    expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === edited.id)?.status).toBe("PUBLISHED");
+    await expect(service.editExamQuestion(exam.id, edited.id, { content: "Không được sửa lúc chờ duyệt", options: [], correctAnswers: ["Đáp án"], expectedVersion: 2 }, "usr-instructor")).rejects.toThrow();
   });
 
   it("phân bổ điểm từng câu chính xác và dùng đúng trọng số khi chấm tự động", async () => {

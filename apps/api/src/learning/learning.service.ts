@@ -4398,10 +4398,47 @@ export class LearningService {
     };
   }
 
+  /** Sửa câu trong đề nháp bằng bản sao riêng; giữ nguyên các đề đang dùng câu gốc. */
+  async editExamQuestion(examId: string, questionId: string, input: { content: string; options: string[]; correctAnswers: string[]; expectedVersion: number }, actorId: string): Promise<LearningQuestion> {
+    const prisma = this.database();
+    if (prisma) return prisma.$transaction(async (tx) => {
+      const exam = await tx.exam.findFirst({ where: { id: examId, class: { instructors: { some: { instructorId: actorId } } } }, include: { class: true, questions: { include: { question: true } } } });
+      if (!exam) throw new NotFoundException("Không tìm thấy đề được phép sửa.");
+      if (exam.status !== "DRAFT" || exam.class.status === "CLOSED") throw new ConflictException("Chỉ sửa câu hỏi trong đề nháp của lớp đang hoạt động.");
+      const link = exam.questions.find((item) => item.questionId === questionId);
+      if (!link) throw new NotFoundException("Câu hỏi không còn thuộc đề. Hãy tải lại.");
+      if (exam.version !== input.expectedVersion) throw new ConflictException("Đề đã thay đổi. Hãy tải lại trước khi sửa.");
+      const normalized = this.validateQuestionInput({ ...this.mapQuestion(link.question), content: input.content, options: input.options, correctAnswers: input.correctAnswers });
+      const changed = await tx.exam.updateMany({ where: { id: examId, status: "DRAFT", version: input.expectedVersion }, data: { version: { increment: 1 } } });
+      if (changed.count !== 1) throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
+      const questionIdNew = id("question");
+      const question = await tx.question.create({ data: { id: questionIdNew, familyId: questionIdNew, courseId: link.question.courseId, authorId: actorId, type: normalized.type, content: normalized.content, contentHash: this.questionContentHash(normalized.content), options: normalized.options, correctAnswers: normalized.correctAnswers, difficulty: normalized.difficulty, tags: normalized.tags, status: "DRAFT", version: 1, imageObjectKey: link.question.imageObjectKey, imageName: link.question.imageName, imageMimeType: link.question.imageMimeType, imageSizeBytes: link.question.imageSizeBytes, imageChecksum: link.question.imageChecksum } });
+      await tx.examQuestion.update({ where: { examId_questionId: { examId, questionId } }, data: { questionId: question.id } });
+      await tx.auditLog.create({ data: { actorId, action: "EXAM_QUESTION_EDITED", entityType: "exam", entityId: examId, context: { oldQuestionId: questionId, questionId: question.id } } });
+      return this.mapQuestion(question);
+    });
+    const exam = this.findExam(examId);
+    const classItem = this.findClass(exam.classId);
+    if (!classItem.instructorIds.includes(actorId)) throw new NotFoundException("Không tìm thấy đề được phép sửa.");
+    if (exam.status !== "DRAFT" || classItem.status === "CLOSED" || exam.version !== input.expectedVersion) throw new ConflictException("Đề không còn được sửa hoặc đã thay đổi. Hãy tải lại.");
+    const original = this.questions.find((item) => item.id === questionId && exam.questionIds.includes(questionId));
+    if (!original) throw new NotFoundException("Câu hỏi không còn thuộc đề.");
+    const normalized = this.validateQuestionInput({ ...original, content: input.content, options: input.options, correctAnswers: input.correctAnswers });
+    const nextId = id("question");
+    const next: LearningQuestion = { ...original, ...normalized, id: nextId, familyId: nextId, status: "DRAFT", version: 1 };
+    this.questions.push(next);
+    exam.questionIds = exam.questionIds.map((value) => value === questionId ? next.id : value);
+    if (exam.questionScores) { exam.questionScores[next.id] = exam.questionScores[questionId]!; delete exam.questionScores[questionId]; }
+    exam.version += 1;
+    return this.cloneQuestion(next);
+  }
+
   /** Kiểm tra đề hoàn chỉnh rồi tự công bố hoặc đưa vào hàng đợi duyệt theo cấu hình. */
   async submitExamForReview(
     examId: string,
     actorId = "usr-instructor",
+    confirmQuestions = false,
+    expectedVersion?: number,
   ): Promise<LearningExam> {
     const approvalMode = await this.getExamApprovalMode();
     const nextStatus: LearningExam["status"] =
@@ -4423,7 +4460,7 @@ export class LearningService {
       const publishedQuestionCount = await prisma.examQuestion.count({
         where: { examId, question: { status: "PUBLISHED" } },
       });
-      if (publishedQuestionCount !== exam.questionIds.length)
+      if (!confirmQuestions && publishedQuestionCount !== exam.questionIds.length)
         throw new ConflictException(
           "Mọi câu hỏi trong đề phải được phê duyệt trước khi gửi duyệt đề.",
         );
@@ -4440,10 +4477,19 @@ export class LearningService {
           "Lịch đề không còn hợp lệ trong thời gian của lớp.",
         );
       return prisma.$transaction(async (transaction) => {
-        await transaction.exam.update({
-          where: { id: examId },
-          data: { status: nextStatus },
-        });
+        const changed = await transaction.exam.updateMany({ where: { id: examId, status: "DRAFT", version: expectedVersion ?? exam.version }, data: { status: nextStatus } });
+        if (changed.count !== 1) throw new ConflictException("Đề đã thay đổi. Hãy tải lại trước khi xác nhận.");
+        if (confirmQuestions) {
+          const linked = await transaction.examQuestion.findMany({ where: { examId }, include: { question: true } });
+          for (const { question } of linked) {
+            this.validateQuestionInput(this.mapQuestion(question));
+            if (question.status !== "PUBLISHED") {
+              if (question.authorId !== actorId) throw new ConflictException("Không thể xác nhận câu chưa duyệt của người khác. Hãy sửa thành bản riêng trong đề.");
+              await transaction.question.update({ where: { id: question.id }, data: { status: "PUBLISHED" } });
+              await transaction.auditLog.create({ data: { actorId, action: "QUESTION_CONFIRMED_WITH_EXAM", entityType: "question", entityId: question.id, context: { examId, version: question.version } } });
+            }
+          }
+        }
         if (approvalMode === "AUTO") {
           await transaction.auditLog.create({
             data: {
@@ -4476,7 +4522,7 @@ export class LearningService {
     if (!item.questionIds.length)
       throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
     if (
-      item.questionIds.some(
+      !confirmQuestions && item.questionIds.some(
         (questionId) =>
           this.questions.find((question) => question.id === questionId)
             ?.status !== "PUBLISHED",
@@ -4498,6 +4544,12 @@ export class LearningService {
       throw new ConflictException(
         "Lịch đề không còn hợp lệ trong thời gian của lớp.",
       );
+    if (expectedVersion !== undefined && item.version !== expectedVersion) throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
+    if (confirmQuestions) {
+      const linked = item.questionIds.map((questionId) => this.questions.find((question) => question.id === questionId));
+      for (const question of linked) { if (!question) throw new NotFoundException("Không tìm thấy câu hỏi."); this.validateQuestionInput(question); }
+      for (const question of linked) question!.status = "PUBLISHED";
+    }
     item.status = nextStatus;
     if (approvalMode === "AUTO")
       for (const recipientId of this.findClass(item.classId).instructorIds)
@@ -5432,6 +5484,7 @@ export class LearningService {
     classId: string,
     actorId = "usr-instructor",
     rawMaterialIds: string[] = [],
+    skipMaterials = false,
   ): Promise<ExamGenerationContext> {
     const supportedMimeTypes = [
       "application/pdf",
@@ -5471,6 +5524,7 @@ export class LearningService {
         throw new ConflictException(
           "Không tìm thấy phiên bản khóa học đã ghim cho lớp.",
         );
+      if (skipMaterials) return { courseId: classItem.courseId, courseName: courseSnapshot.name, courseDescription: courseSnapshot.description, sourceFiles: [] };
       const materials = await prisma.material.findMany({
         where: {
           id: materialIds.length ? { in: materialIds } : undefined,
@@ -5501,8 +5555,10 @@ export class LearningService {
       let totalBytes = 0;
       for (const material of materials) {
         const size = Number(material.sizeBytes);
-        if (sourceFiles.length >= 6 || totalBytes + size > maxTotalBytes)
+        if (sourceFiles.length >= 6 || totalBytes + size > maxTotalBytes) {
+          if (materialIds.length) throw new BadRequestException("Tài liệu đã chọn vượt giới hạn 6 tệp hoặc tổng 24 MB. Hãy giảm số tệp.");
           continue;
+        }
         try {
           const buffer = await this.readStoredFile(material.objectKey);
           sourceFiles.push({
@@ -5513,11 +5569,9 @@ export class LearningService {
           });
           totalBytes += buffer.length;
         } catch {
-          if (materialIds.length)
-            throw new ServiceUnavailableException(
-              `Không đọc được tài liệu đã chọn: ${material.name}.`,
-            );
-          // Tệp metadata bị mất khỏi storage không được dùng làm ngữ cảnh; AUTO sẽ chuyển sang web khi không còn tệp nào.
+          throw new ServiceUnavailableException(
+            `Không đọc được tài liệu ngữ cảnh: ${material.name}. Hãy kiểm tra tệp trước khi tạo đề.`,
+          );
         }
       }
       return {
@@ -5541,6 +5595,7 @@ export class LearningService {
       throw new ConflictException(
         "Không tìm thấy phiên bản khóa học đã ghim cho lớp.",
       );
+    if (skipMaterials) return { courseId: classItem.courseId, courseName: course.name, courseDescription: course.description, sourceFiles: [] };
     const sourceFiles: ExamSourceFile[] = [];
     let totalBytes = 0;
     const eligibleMaterials = this.materials.filter(
@@ -5581,11 +5636,9 @@ export class LearningService {
         });
         totalBytes += buffer.length;
       } catch {
-        if (materialIds.length)
-          throw new ServiceUnavailableException(
-            `Không đọc được tài liệu đã chọn: ${material.name}.`,
-          );
-        // Giữ cùng hành vi với DB: bỏ tệp thất lạc và để tầng AI quyết định fallback.
+        throw new ServiceUnavailableException(
+          `Không đọc được tài liệu ngữ cảnh: ${material.name}. Hãy kiểm tra tệp trước khi tạo đề.`,
+        );
       }
     }
     if (materialIds.length && sourceFiles.length !== materialIds.length)
