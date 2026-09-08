@@ -299,7 +299,7 @@ export class ContentController {
     });
 
       return { courseId: context.courseId, generated };
-    }, async ({ courseId, generated }) => {
+    }, async ({ courseId, generated }, canonicalRequestId) => {
     const exam = await this.learning.createGeneratedExam({
       classId: input.classId,
       title: input.title,
@@ -310,10 +310,10 @@ export class ContentController {
       attemptLimit: input.attemptLimit,
       shuffleQuestions: input.shuffleQuestions,
       randomSeed: input.randomSeed,
-    }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, input.clientRequestId, session.user.id);
+    }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, canonicalRequestId, session.user.id);
     return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: generated.warnings };
-    }, async () => {
-    const existing = await this.learning.getGeneratedExamByRequest(input.clientRequestId, input.classId, session.user.id);
+    }, async (canonicalRequestId) => {
+    const existing = await this.learning.getGeneratedExamByRequest(canonicalRequestId, input.classId, session.user.id);
     if (existing) {
       const context = existing.aiContext ?? { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
       return { exam: existing, generatedQuestionCount: existing.questionIds.length, providerId: context.providerId ?? "reused", provider: context.provider ?? "Yêu cầu trước", model: context.model ?? "reused", context: { mode: context.mode, materialIds: context.materialIds, materialNames: [], sources: context.sources }, warnings: [...(context.warnings ?? []), "Đã trả lại đề từ yêu cầu AI hoàn tất trước đó; không tạo bản trùng."] };
