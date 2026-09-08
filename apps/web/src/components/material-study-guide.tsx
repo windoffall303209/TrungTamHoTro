@@ -5,10 +5,12 @@ import { Button, Field, inputClass } from "@/components/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { StudyDraftEditor } from "./study-draft-editor";
 
 type Source = { id: string; materialId: string; version: number; name: string; page: number; text: string };
-type Guide = {
+export type Guide = {
   draftId?: string;
+  editRevision?: number;
   insufficientContext: boolean;
   summary: Array<{ text: string; citations: Source[] }>;
   flashcards: Array<{ front: string; back: string; citations: Source[] }>;
@@ -36,22 +38,23 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<DraftPage | null>(null);
   const [historyError, setHistoryError] = useState("");
-  const locked = busy || reading;
+  const [editing, setEditing] = useState(false);
+  const locked = busy || reading || editing;
   useEffect(() => () => controllerRef.current?.abort(), []);
   useEffect(() => { if (guide) { resultHeading.current?.focus(); resultHeading.current?.scrollIntoView?.({ block: "start" }); } }, [guide]);
 
   /** Đọc lịch sử hoặc kết quả đã lưu, không tạo lại nội dung và không để yêu cầu đọc chạy vô hạn. */
   const readSaved = async (draftId?: string, cursor?: string) => {
-    if (inFlight.current) return;
+    if (inFlight.current || editing) return;
     inFlight.current = true; setReading(true); onBusyChange(true); setHistoryError(""); setHistoryOpen(true);
     const controller = new AbortController(); controllerRef.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 30_000);
     const path = `/instructor/materials/${encodeURIComponent(materialId)}/ai-study-guides`;
     try {
       if (draftId) {
-        const draft = await apiRequest<DraftSummary & { result: Guide | null }>(`${path}/${encodeURIComponent(draftId)}`, { roleCode: session.roleCode, signal: controller.signal });
+        const draft = await apiRequest<DraftSummary & { result: Guide | null; editedResult?: Guide | null; editRevision?: number }>(`${path}/${encodeURIComponent(draftId)}`, { roleCode: session.roleCode, signal: controller.signal });
         if (draft.state !== "READY" || !draft.result) throw new Error("Bản nháp chưa có kết quả để mở. Hãy làm mới lịch sử để kiểm tra trạng thái.");
-        setGuide({ ...draft.result, draftId: draft.id });
+        setGuide({ ...(draft.editedResult ?? draft.result), draftId: draft.id, editRevision: draft.editRevision ?? 0 });
         setHistoryOpen(false);
       } else {
         const page = await apiRequest<DraftPage>(`${path}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`, { roleCode: session.roleCode, signal: controller.signal });
@@ -64,7 +67,7 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
   /** Kiểm tra số thẻ/khoảng trang trước khi gửi, khóa lặp và giải phóng giao diện khi hết thời gian chờ. */
   const generate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (inFlight.current) return;
+    if (inFlight.current || editing) return;
     const cardCount = Number(count);
     const from = fromPage.trim() ? Number(fromPage) : undefined;
     const to = toPage.trim() ? Number(toPage) : undefined;
@@ -120,7 +123,9 @@ export function MaterialStudyGuide({ materialId, onBusyChange, openSource }: { m
       <p className="mt-2 text-sm text-[var(--ink-soft)]"><span>Phiên bản</span> {guide.version} · <span>Đoạn nguồn đã dùng</span> {guide.coverage.selectedChunks}/{guide.coverage.totalChunks}</p>
       <p className="mt-2 text-sm leading-6">{guide.coverage.partial ? "Chỉ bao phủ một phần nội dung đã chọn. Hãy chọn khoảng trang hẹp hơn để ôn tập đầy đủ phần cần học." : "Đã dùng toàn bộ các đoạn trích xuất trong phạm vi đã chọn; vẫn cần đối chiếu bản gốc."}</p>
       <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{guide.warning}</p>
-      {guide.insufficientContext ? <p className="mt-4 text-sm leading-6">Không đủ căn cứ để tạo số thẻ yêu cầu. Hãy giảm số thẻ hoặc chọn phạm vi trang khác.</p> : <>
+      {guide.editRevision ? <p className="mt-2 text-sm"><span>Bản chỉnh sửa</span> {guide.editRevision}</p> : null}
+      {!guide.insufficientContext && guide.draftId && !editing ? <Button className="mt-4" type="button" variant="secondary" disabled={locked} onClick={() => { if (guide.editRevision === undefined) void readSaved(guide.draftId); else { setEditing(true); onBusyChange(true); } }}>{guide.editRevision === undefined ? "Mở bản nháp để chỉnh sửa" : "Chỉnh sửa bộ ôn tập"}</Button> : null}
+      {editing && guide.draftId && guide.editRevision !== undefined ? <StudyDraftEditor materialId={materialId} guide={{ ...guide, draftId: guide.draftId, editRevision: guide.editRevision }} onSaved={(saved) => { setGuide(saved); setEditing(false); onBusyChange(false); }} onCancel={() => { setEditing(false); onBusyChange(false); resultHeading.current?.focus(); }} /> : guide.insufficientContext ? <p className="mt-4 text-sm leading-6">Không đủ căn cứ để tạo số thẻ yêu cầu. Hãy giảm số thẻ hoặc chọn phạm vi trang khác.</p> : <>
         <h4 className="mb-2 mt-6 font-bold">Ý chính</h4>
         <ul className="space-y-4">{guide.summary.map((item, index) => <li key={index} className="max-w-[72ch]"><p className="whitespace-pre-wrap break-words leading-7" translate="no">{item.text}</p><StudySources sources={item.citations} openSource={openSource} /></li>)}</ul>
         <h4 className="mb-1 mt-7 font-bold">Thẻ tự ôn tập</h4><p className="mb-3 text-sm text-[var(--ink-soft)]">Tự trả lời trước, sau đó mở thẻ để xem đáp án và nguồn.</p>
