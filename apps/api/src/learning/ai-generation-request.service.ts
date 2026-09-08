@@ -7,6 +7,24 @@ import type { AiGeneratedExamResult } from "./learning.types.js";
 type Prepared = { courseId: string; generated: GeneratedExamDraft };
 type RecordValue = { owner: string; hash: string; canonicalRequestId?: string; state: "CLAIMED" | "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
 
+/** Reject damaged stored claims before they can authorize provider execution or replay an empty result. */
+function validRecord(value: unknown): value is RecordValue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.owner !== "string" || !record.owner.length || typeof record.hash !== "string" || !/^[a-f0-9]{64}$/.test(record.hash)) return false;
+  if (typeof record.state !== "string" || !["CLAIMED", "GENERATING", "READY", "SAVING", "COMPLETED", "UNCERTAIN"].includes(record.state)) return false;
+  if (record.canonicalRequestId !== undefined && (typeof record.canonicalRequestId !== "string" || !record.canonicalRequestId.trim() || record.canonicalRequestId.length > 177)) return false;
+  if (record.state === "READY" || record.state === "SAVING") {
+    const prepared = record.prepared as Partial<Prepared> | null | undefined;
+    if (!prepared || typeof prepared !== "object" || typeof prepared.courseId !== "string" || !prepared.courseId.length || !prepared.generated || typeof prepared.generated !== "object" || Array.isArray(prepared.generated)) return false;
+  }
+  if (record.state === "COMPLETED") {
+    const result = record.result as Partial<AiGeneratedExamResult> | null | undefined;
+    if (!result || typeof result !== "object" || !result.exam || typeof result.exam.id !== "string" || !result.exam.id.length) return false;
+  }
+  return true;
+}
+
 /** Chuẩn hóa thứ tự khóa để cùng request không bị coi khác do cách serialize JSON. */
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -78,7 +96,9 @@ export class AiGenerationRequestService {
   /** Đọc trạng thái đã lưu mà không phụ thuộc process đang xử lý request đầu tiên. */
   private async read(key: string): Promise<{ version: number; value: RecordValue } | undefined> {
     const row = await this.prisma.systemSetting.findUnique({ where: { key } });
-    return row ? { version: row.version, value: row.value as unknown as RecordValue } : undefined;
+    if (!row) return undefined;
+    if (!Number.isSafeInteger(row.version) || row.version < 1 || !validRecord(row.value)) throw new ConflictException("Dữ liệu khóa sinh đề AI không hợp lệ. Giữ mã yêu cầu và liên hệ quản trị viên đối soát; không tạo yêu cầu mới.");
+    return { version: row.version, value: row.value };
   }
 
   /** Chuyển trạng thái bằng compare-and-swap để chỉ một worker được tiếp tục. */
