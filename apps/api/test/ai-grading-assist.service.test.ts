@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { testGradingStore } from "./ai-grading-store.fixture.js";
 import { AcademicService } from "../src/learning/academic.service.js";
 import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
@@ -19,7 +20,7 @@ function fixture(): {
   const prisma = { assignmentSubmission: { findUnique: vi.fn().mockImplementation(() => Promise.resolve(structuredClone(row))) }, classInstructor: { findMany: vi.fn().mockResolvedValue([{ classId: "class" }]) }, learningClass: { findUnique: vi.fn().mockResolvedValue({ status: "ACTIVE" }) } };
   const academic = new AcademicService(prisma as unknown as PrismaService, {} as ObjectStorageService, {} as AntivirusService);
   const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "provider", model: "configured-model" }), suggestGrading: vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ insufficientEvidence: false, feedback: "Review this suggestion", criteria: [], suggestedTotal: 4, requiresHumanReview: true, model: "configured-model" }) };
-  return { row, prisma, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService) };
+  return { row, prisma, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore()) };
 }
 
 describe("authorized AI grading context", () => {

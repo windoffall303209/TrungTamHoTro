@@ -1,4 +1,5 @@
 {
+  "Gợi ý chấm AI yêu cầu database bền vững để chống gửi trùng.": "AI grading suggestions require durable database storage to prevent duplicate requests.",
   "Đối soát hỏi đáp AI": "AI document answer reconciliation",
   "Đã lưu câu trả lời": "Answer saved",
   "Hàng đợi không hiển thị câu hỏi, câu trả lời hoặc trích dẫn riêng. Đã lưu chỉ phản ánh trạng thái lưu trữ, không xác nhận nội dung đúng. Phiên bản tác vụ không phải phiên bản tài liệu.": "This queue does not display private questions, answers or citations. Saved reflects storage status, not content accuracy. The task version is not the document version.",
