@@ -664,6 +664,10 @@ model AiStudyDraft {
   result        Json?
   editedResult  Json?             @map("edited_result")
   editRevision  Int               @default(0) @map("edit_revision")
+  publishedResult Json?           @map("published_result")
+  publishedAt DateTime?           @map("published_at")
+  publicationRevision Int         @default(0) @map("publication_revision")
+  publishedEditRevision Int?      @map("published_edit_revision")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
   owner         User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
