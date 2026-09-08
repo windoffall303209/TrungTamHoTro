@@ -5710,11 +5710,6 @@ export class LearningService {
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
-        const existingExam = await transaction.exam.findUnique({ where: { generationRequestId: clientRequestId }, include: { questions: { orderBy: { position: "asc" } } } });
-        if (existingExam) {
-          if (existingExam.classId !== input.classId) throw new ConflictException("Mã yêu cầu AI đã được dùng cho lớp khác.");
-          return this.mapExam(existingExam);
-        }
         const classItem = await transaction.learningClass.findFirst({
           where: {
             id: input.classId,
@@ -5726,6 +5721,12 @@ export class LearningService {
           throw new NotFoundException(
             "Không tìm thấy lớp học được phép tạo đề.",
           );
+        // Idempotency replays still require current access to the same class and course.
+        const existingExam = await transaction.exam.findUnique({ where: { generationRequestId: clientRequestId }, include: { questions: { orderBy: { position: "asc" } } } });
+        if (existingExam) {
+          if (existingExam.classId !== input.classId) throw new ConflictException("Mã yêu cầu AI đã được dùng cho lớp khác.");
+          return this.mapExam(existingExam);
+        }
         if (classItem.status === "CLOSED")
           throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
         const questionIds: string[] = [];

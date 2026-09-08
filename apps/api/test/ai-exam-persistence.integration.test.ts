@@ -79,4 +79,24 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated MySQL", () => {
     expect(await prisma.question.count({ where: { courseId: fixture } })).toBe(before);
     expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: exam.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
   });
+
+  it("rechecks class access before replaying a persisted exam", async () => {
+    const requestId = randomUUID();
+    const input = { classId: fixture, title: "Authorized replay", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const generated = { type: "SHORT_ANSWER" as const, content: `Access question ${requestId}`, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
+    const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
+    const exam = await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture);
+    await expect(learning.createGeneratedExam(input, [generated], fixture, context, requestId, `${fixture}-outsider`)).rejects.toMatchObject({ status: 404 });
+    await expect(learning.createGeneratedExam(input, [generated], `${fixture}-wrong-course`, context, requestId, fixture)).rejects.toMatchObject({ status: 404 });
+    await prisma.classInstructor.delete({ where: { classId_instructorId: { classId: fixture, instructorId: fixture } } });
+    try {
+      await expect(learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture)).rejects.toMatchObject({ status: 404 });
+      expect(await learning.getGeneratedExamByRequest(requestId, fixture, fixture)).toBeUndefined();
+    } finally {
+      await prisma.classInstructor.create({ data: { classId: fixture, instructorId: fixture, assignedBy: fixture } });
+    }
+    expect((await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture)).id).toBe(exam.id);
+    expect(await prisma.exam.count({ where: { generationRequestId: requestId } })).toBe(1);
+    expect(await prisma.question.count({ where: { courseId: fixture, content: generated.content } })).toBe(1);
+  });
 });
