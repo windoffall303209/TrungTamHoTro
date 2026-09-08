@@ -1,5 +1,9 @@
 import { ValidationPipe, VersioningType, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname } from "node:path";
 import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
@@ -7,6 +11,8 @@ import { HttpExceptionFilter } from "../src/common/http-exception.filter.js";
 import { ResponseInterceptor } from "../src/common/response.interceptor.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { EmailDeliveryService, type SendEmailInput } from "../src/infrastructure/email-delivery.service.js";
+import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
+import type { Environment } from "../src/config/environment.js";
 
 const suffix = `${process.pid}-${Date.now().toString(36)}`;
 const username = `verify-${suffix}`.slice(0, 32);
@@ -24,8 +30,12 @@ describe("Đăng ký và xác minh email qua API", () => {
   let prisma: PrismaService;
   let baseUrl: string;
   const sentEmails: SendEmailInput[] = [];
+  let storageRoot: string | undefined;
 
+  // Keep HTTP/auth/database real, but use an isolated real local store instead of live Cloudinary.
   beforeAll(async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), "wind-auth-storage-"));
+    const storageConfig = new ConfigService<Environment, true>({ STORAGE_PROVIDER: "local", STORAGE_ROOT: storageRoot, CLOUDINARY_FOLDER: "test", CLOUDINARY_CLOUD_NAME: "", CLOUDINARY_API_KEY: "", CLOUDINARY_API_SECRET: "" });
     const emailDelivery = {
       send: vi.fn((input: SendEmailInput) => {
         sentEmails.push(input);
@@ -35,6 +45,8 @@ describe("Đăng ký và xác minh email qua API", () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(EmailDeliveryService)
       .useValue(emailDelivery)
+      .overrideProvider(ObjectStorageService)
+      .useValue(new ObjectStorageService(storageConfig))
       .compile();
     app = module.createNestApplication();
     app.setGlobalPrefix("api");
@@ -48,9 +60,14 @@ describe("Đăng ký và xác minh email qua API", () => {
     prisma = app.get(PrismaService);
   }, 30_000);
 
+  // Remove only this run's temporary storage, including when an assertion fails before avatar deletion.
   afterAll(async () => {
-    if (prisma) await prisma.user.deleteMany({ where: { email: { in: [email, correctedEmail, legacyOldEmail, legacyNewEmail] } } });
-    if (app) await app.close();
+    try {
+      if (prisma) await prisma.user.deleteMany({ where: { email: { in: [email, correctedEmail, legacyOldEmail, legacyNewEmail] } } });
+    } finally {
+      if (app) await app.close();
+      if (storageRoot && dirname(resolve(storageRoot)) === resolve(tmpdir()) && resolve(storageRoot).startsWith(join(resolve(tmpdir()), "wind-auth-storage-"))) await rm(storageRoot, { recursive: true, force: true });
+    }
   }, 30_000);
 
   it("giữ tài khoản ở trạng thái chờ cho tới khi mã 6 số hợp lệ", async () => {
