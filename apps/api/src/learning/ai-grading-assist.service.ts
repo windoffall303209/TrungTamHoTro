@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Optional } from "@nestjs/common";
+import { ConflictException, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { AiProviderService, type ExamLanguage } from "../system/ai-provider.service.js";
@@ -18,7 +18,11 @@ export class AiGradingAssistService {
     const input = validateGradingInput({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
     const identity = { ownerId: session.user.id, submissionId, contextHash, language };
     if (!await this.store.find(identity)) await this.ai.resolveTask("GRADING_ASSIST");
-    const suggestion = await this.store.generate(identity, async () => ({ ...await this.ai.suggestGrading(input), submissionRevision: context.submissionRevision, assignmentVersion: context.assignmentVersion, contextHash }));
+    const suggestion = await this.store.generate(identity, async () => {
+      const result = await this.ai.suggestGrading(input);
+      if (context.sources && result.criteria.some((item) => item.evidence.some((quote) => !context.sources!.some((source) => source.text.includes(quote))))) throw new ServiceUnavailableException("Dẫn chứng AI phải nằm nguyên vẹn trong một nguồn bài làm. Gợi ý chưa được chấp nhận.");
+      return { ...result, submissionRevision: context.submissionRevision, assignmentVersion: context.assignmentVersion, contextHash, ...(context.sources ? { sources: context.sources } : {}) };
+    });
     const current = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
     if (createHash("sha256").update(JSON.stringify(current)).digest("hex") !== contextHash) throw new ConflictException("Bài làm hoặc rubric đã thay đổi trong lúc AI xử lý. Gợi ý chưa được áp dụng; hãy tải lại bài.");
     return suggestion;
