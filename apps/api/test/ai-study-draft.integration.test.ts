@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { AiStudyDraftService, type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
+import { AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const result: SavedStudyGuide = { insufficientContext: true, summary: [], flashcards: [], version: 1, warning: "Integration fixture", coverage: { totalChunks: 1, selectedChunks: 1, selectedPages: [1], partial: false, fromPage: null, toPage: null } };
@@ -29,6 +31,32 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
   afterAll(async () => {
     if (prisma) await prisma.material.deleteMany({ where: { id: materialId } });
     if (moduleRef) await moduleRef.close();
+  });
+
+  it("reads only operations metadata with stable pagination and a migrated index", async () => {
+    const service = new AiGradingOperationsService(prisma);
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: ownerId } } as AuthenticatedSession;
+    const ids = [`${materialId}-a`, `${materialId}-b`];
+    for (const id of ids) await prisma.aiStudyDraft.create({ data: {
+      id, ownerId, materialId, sourceVersion: 1, fingerprint: randomUUID().replaceAll("-", "").padEnd(64, "0"),
+      state: "GENERATING", createdAt: new Date("2099-09-08T00:00:00Z"),
+      options: { private: "private options" }, result: { private: "private answer" }, editedResult: { private: "private edit" }, publishedResult: { private: "published answer" },
+    } });
+    try {
+      const first = await service.listStudy({ limit: 1 }, session);
+      expect(first.items.map((item) => item.id)).toEqual([ids[1]]);
+      expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "ownerId", "materialId", "sourceVersion", "state", "createdAt", "updatedAt"].sort());
+      await prisma.aiStudyDraft.update({ where: { id: ids[1]! }, data: { state: "READY" } });
+      const second = await service.listStudy({ limit: 1, cursor: first.nextCursor! }, session);
+      expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
+      expect((await prisma.aiStudyDraft.findUniqueOrThrow({ where: { id: ids[0]! } })).editedResult).toEqual({ private: "private edit" });
+      await expect(service.listStudy({ limit: 1, cursor: "other-domain-cursor" }, session)).rejects.toMatchObject({ status: 400 });
+      const indexes = await prisma.$queryRaw<Array<{ Column_name: string }>>`SHOW INDEX FROM ai_study_drafts WHERE Key_name = 'ai_study_operations_state_created_id'`;
+      expect(indexes.map((item) => item.Column_name)).toEqual(["state", "created_at", "id"]);
+    } finally {
+      // Chỉ xóa hai claim fixture, không ảnh hưởng số lượng bản nháp ở các ca còn lại.
+      await prisma.aiStudyDraft.deleteMany({ where: { id: { in: ids }, materialId } });
+    }
   });
 
   it("calls the generator once across workers and reloads the same draft after restart", async () => {

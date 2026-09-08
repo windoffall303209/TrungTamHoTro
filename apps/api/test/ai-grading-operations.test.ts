@@ -9,9 +9,8 @@ import type { Prisma } from "../src/generated/prisma/client.js";
 import { AiGradingOperationsController, AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
 
 const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: "admin" } } as AuthenticatedSession;
-const record = { id: "claim", ownerId: "teacher", submissionId: "submission", language: "VI", state: "GENERATING", createdAt: new Date("2026-09-08"), updatedAt: new Date("2026-09-08") };
-
-describe("AI grading operations with HTTP validation and real authorization service", () => {
+describe.each(["grading", "study"])("AI %s operations with HTTP validation and real authorization service", (domain) => {
+  const record = { id: "claim", ownerId: "teacher", ...(domain === "grading" ? { submissionId: "submission", language: "VI" } : { materialId: "material", sourceVersion: 2 }), state: "GENERATING", createdAt: new Date("2026-09-08"), updatedAt: new Date("2026-09-08") };
   let app: INestApplication;
   let url: string;
   const enabled = vi.fn(() => true);
@@ -22,7 +21,7 @@ describe("AI grading operations with HTTP validation and real authorization serv
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [AiGradingOperationsController], providers: [
       AiGradingOperationsService,
-      { provide: PrismaService, useValue: { isStartupConnectionEnabled: enabled, aiGradingSuggestion: { findMany, findUnique } } },
+      { provide: PrismaService, useValue: { isStartupConnectionEnabled: enabled, [domain === "grading" ? "aiGradingSuggestion" : "aiStudyDraft"]: { findMany, findUnique } } },
       { provide: AuthService, useValue: {
         readToken: (cookie?: string): string | undefined => cookie,
         resolve: (token?: string): AuthenticatedSession => {
@@ -37,7 +36,7 @@ describe("AI grading operations with HTTP validation and real authorization serv
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
     await app.listen(0, "127.0.0.1");
-    url = `${await app.getUrl()}/admin/ai-operations/grading`;
+    url = `${await app.getUrl()}/admin/ai-operations/${domain}`;
   });
   // Đóng HTTP server test sau khi hoàn thành.
   afterAll(async () => { await app?.close(); });
@@ -54,7 +53,7 @@ describe("AI grading operations with HTTP validation and real authorization serv
     const args = findMany.mock.calls[0]?.[0];
     expect(args?.take).toBe(21);
     expect(args?.where?.state).toEqual({ in: ["GENERATING", "UNCERTAIN"] });
-    expect(args?.select).toEqual({ id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true });
+    expect(args?.select).toEqual({ id: true, ownerId: true, ...(domain === "grading" ? { submissionId: true, language: true } : { materialId: true, sourceVersion: true }), state: true, createdAt: true, updatedAt: true });
     expect(findUnique).not.toHaveBeenCalled();
   });
 
