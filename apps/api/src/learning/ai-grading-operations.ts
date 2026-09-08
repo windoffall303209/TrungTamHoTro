@@ -33,11 +33,41 @@ const metadata = { id: true, ownerId: true, submissionId: true, language: true, 
 type GradingOperation = { id: string; ownerId: string; submissionId: string; language: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type StudyOperation = { id: string; ownerId: string; materialId: string; sourceVersion: number; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type ExamOperation = { id: string; ownerId: string; state: typeof examStates[number]; version: number; createdAt: Date; updatedAt: Date };
+type DocumentAnswerOperation = Omit<ExamOperation, "state"> & { state: "GENERATING" | "READY" | "UNCERTAIN" };
 
 @Injectable()
 /** Chỉ đọc metadata claim bền vững; không trả bài làm, điểm, phản hồi, hash hoặc cấu hình bí mật. */
 export class AiGradingOperationsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Inspect private answer claims without loading questions, answers, citations or provider configuration. */
+  async listDocumentAnswers(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
+    const limit = this.validateQuery(query, session);
+    const anchor = query.cursor ? (await this.documentAnswerRows(Prisma.sql`r.\`key\` = ${`ai-doc-answer:${query.cursor}`}`, 1))[0] : undefined;
+    if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
+    const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-doc-answer:${anchor.id}`}))` : Prisma.empty;
+    const rows = await this.documentAnswerRows(Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`, limit + 1);
+    const items = rows.slice(0, limit);
+    return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
+  }
+
+  /** Project only operational metadata in SQL; malformed states remain visible as uncertain, never retried. */
+  private documentAnswerRows(filter: Prisma.Sql, limit: number): Promise<DocumentAnswerOperation[]> {
+    return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
+      SELECT SUBSTRING(r.\`key\`, 15) AS id, r.updated_by AS ownerId,
+        r.claim_state AS state, r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      FROM (
+        SELECT \`key\`, updated_by, version, effective_at, updated_at,
+          CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('GENERATING', 'READY')
+            THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
+        FROM system_settings WHERE \`key\` LIKE 'ai-doc-answer:%'
+      ) r
+      WHERE ${filter}
+      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      LIMIT ${limit}
+    `);
+  }
 
   /** Phân trang keyset theo thời điểm tạo và ID; admin xem trạng thái mà không tác động lần gọi AI. */
   async list(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: GradingOperation[]; nextCursor: string | null }> {
@@ -141,6 +171,14 @@ export class AiGradingOperationsService {
 /** API đối soát read-only; không có route reset, retry hoặc xóa claim. */
 export class AiGradingOperationsController {
   constructor(private readonly operations: AiGradingOperationsService) {}
+
+  @Get("document-answers")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Expose answer claim metadata to system administrators without replaying or resetting AI work. */
+  documentAnswers(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listDocumentAnswers"]> {
+    return this.operations.listDocumentAnswers(query, session);
+  }
 
   @Get("grading")
   @RequirePermissions("system:configure")
