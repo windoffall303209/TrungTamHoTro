@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { AiDocumentAnswerStore } from "../src/learning/ai-document-answer-store.js";
+import { AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
@@ -72,6 +74,31 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toMatchObject({ status: 409 });
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists private answer metadata with stable keysets and no database mutations", async () => {
+    const stamp = new Date("2090-01-01T00:00:00Z");
+    const ids = ["a", "b", "c"].map((prefix) => `${prefix}${randomUUID()}`);
+    const states = ["GENERATING", "UNCERTAIN", "UNKNOWN"];
+    for (const [index, id] of ids.entries()) await prisma.systemSetting.create({ data: {
+      key: `ai-doc-answer:${id}`, updatedBy: ownerId, effectiveAt: stamp,
+      value: { state: states[index], question: "private question sentinel", result: { answer: "private answer sentinel", citations: ["private citation sentinel"] } },
+    } });
+    const operations = new AiGradingOperationsService(prisma);
+    const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"] } as AuthenticatedSession;
+    const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+    const page = await operations.listDocumentAnswers({ limit: 2 }, admin);
+    expect(page.items.map((item) => item.id)).toEqual([ids[2], ids[1]]);
+    expect(page.items.map((item) => item.state)).toEqual(["UNCERTAIN", "UNCERTAIN"]);
+    expect(page.nextCursor).toBe(ids[1]);
+    expect(Object.keys(page.items[0]!).sort()).toEqual(["createdAt", "id", "ownerId", "state", "updatedAt", "version"]);
+    expect(JSON.stringify(page)).not.toContain("sentinel");
+    const next = await operations.listDocumentAnswers({ limit: 1, cursor: page.nextCursor! }, admin);
+    expect(next.items[0]?.id).toBe(ids[0]);
+    const ready = await operations.listDocumentAnswers({ limit: 50, state: "READY" }, admin);
+    expect(ready.items.every((item) => item.state === "READY")).toBe(true);
+    await expect(operations.listDocumentAnswers({ limit: 2, cursor: "missing-cursor" }, admin)).rejects.toMatchObject({ status: 400 });
+    expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
   });
 });
 
