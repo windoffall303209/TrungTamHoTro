@@ -7,7 +7,7 @@ import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learn
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const contextHash = "a".repeat(64);
-const result: SavedGradingSuggestion = { insufficientEvidence: true, feedback: "Integration fixture", criteria: [], suggestedTotal: null, requiresHumanReview: true, model: "mock", submissionRevision: 1, assignmentVersion: 1, contextHash };
+const result: SavedGradingSuggestion = { insufficientEvidence: true, feedback: "Integration fixture", criteria: [], suggestedTotal: null, requiresHumanReview: true, model: "mock", submissionRevision: 1, assignmentVersion: 1, contextHash, sources: [{ attachmentId: "fixture-file", name: "bài-làm.txt", checksum: "sha256:fixture", text: "Nguồn bài làm UTF-8 🌿" }] };
 
 describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () => {
   let moduleRef: TestingModule;
