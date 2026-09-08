@@ -427,7 +427,10 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 - [x] QA đối soát học liệu: 34 HTTP test chung hai route đạt; bộ study MySQL 4/4 đạt, gồm metadata-only, cùng timestamp, đổi trạng thái cursor và kiểm tra index. Migration `20260908070000_ai_study_operations_index` đã áp dụng local + test không reset. API full 371 đạt/14 skip; typecheck/lint phần thay đổi đạt. Không gọi AI live.
 - [x] Nối bộ ôn tập vào panel đối soát admin: chọn loại tác vụ chấm bài hoặc tóm tắt/flashcard; hiển thị mã người tạo/tài liệu/phiên bản nguồn thay vì mã bài nộp/ngôn ngữ. Đổi loại remount panel, hủy request cũ và đặt lại bộ lọc/cursor; không tự fetch, không mang phản hồi muộn sang hàng đợi mới.
 - [x] QA chuyển loại hàng đợi: 11 test component, frontend tổng 102 đạt; typecheck/lint đạt; catalog 2.174 chuỗi không thiếu dịch. Browser mock desktop 1440×1000 và mobile 390×844 xác nhận metadata học liệu, phiên bản và phân trang; không phải UAT provider live. Giữ hệ giao diện cũ theo impeccable, không thay DESIGN.md.
-- [ ] Mở rộng đối soát sinh đề, quy trình khôi phục có bằng chứng và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
+- [x] Backend đối soát sinh đề: `GET /admin/ai-operations/exams`, chỉ admin có quyền cấu hình; hỗ trợ CLAIMED/GENERATING/READY/SAVING/COMPLETED/UNCERTAIN, mặc định không lấy COMPLETED. SQL tham số hóa chỉ chiếu metadata của request gốc có content binding khớp owner/hash; UUID retry và binding không thành hàng tác vụ. Không tải prepared/result hoặc đề/đáp án vào API. Phân trang theo thời điểm tạo claim + key, cursor alias/không tồn tại bị chặn.
+- [x] Kiểm thử sinh đề: 21 HTTP test route/DTO/guard/service thật với biên SQL mock; bộ MySQL sinh đề 3/3 đạt, gồm loại alias, đổi trạng thái cursor, metadata không lộ JSON riêng và cursor chứa chuỗi SQL không mở rộng truy vấn. API full 392 đạt/15 skip; typecheck/lint phần mới đạt; không gọi provider thật.
+- [ ] Nối giao diện hàng đợi sinh đề; bổ sung đối soát claim mồ côi chưa có content binding và đánh giá hiệu năng SQL JSON trên lượng claim lớn. API hiện chỉ liệt kê tác vụ gốc có liên kết hợp lệ, không coi đó là toàn bộ lỗi lưu trữ.
+- [ ] Quy trình khôi phục có bằng chứng và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
 
 ## L. Trung tâm song ngữ Việt–Anh
 
