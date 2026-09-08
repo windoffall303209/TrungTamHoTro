@@ -24,23 +24,31 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"QA" | "STUDY">("QA");
   const [error, setError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<{ question: string; answer: Answer } | null>(null);
   const inFlight = useRef(false);
 
   /** Khóa gửi lặp tức thời và giữ câu hỏi khi API lỗi; không tự động retry yêu cầu trả phí. */
-  const ask = async (event: React.FormEvent) => {
+  const ask = async (event: React.SyntheticEvent, checkOnly = false) => {
     event.preventDefault();
     if (inFlight.current) return;
     const text = question.trim();
     if (text.length < 2 || text.length > 2000) { setError("Câu hỏi cần từ 2 đến 2.000 ký tự."); return; }
     inFlight.current = true;
-    setBusy(true); setError(""); setResult(null);
+    setBusy(true); setChecking(checkOnly); setError(""); setStatusMessage(""); setResult(null);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 120_000);
     try {
+      if (checkOnly) {
+        const status = await apiRequest<{ state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: Answer }>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question/status`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language }) });
+        if (status.state === "READY") setResult({ question: text, answer: status.result });
+        else setStatusMessage(status.state === "NOT_REQUESTED" ? "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới." : status.state === "GENERATING" ? "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau." : "Kết quả chưa xác định. Liên hệ quản trị viên đối soát; không tự gọi lại AI.");
+        return;
+      }
       const answer = await apiRequest<Answer>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language }) });
       setResult({ question: text, answer });
-    } catch (cause) { setError(controller.signal.aborted ? "Đã hết thời gian chờ. Bạn có thể đóng cửa sổ. Máy chủ có thể vẫn đang xử lý; gửi lại có thể phát sinh phí mới." : cause instanceof Error ? cause.message : "Không lấy được câu trả lời. Hãy kiểm tra cấu hình AI và thử lại."); }
+    } catch (cause) { setError(controller.signal.aborted ? "Đã hết thời gian chờ. Máy chủ có thể vẫn đang xử lý. Dùng Kiểm tra kết quả để đọc trạng thái, không gọi AI mới." : cause instanceof Error ? cause.message : "Không lấy được câu trả lời. Hãy kiểm tra cấu hình AI và thử lại."); }
     finally { window.clearTimeout(timeout); inFlight.current = false; setBusy(false); }
   };
 
@@ -57,13 +65,15 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
     <div hidden={mode !== "STUDY"}><MaterialStudyGuide materialId={material.id} openSource={openSource} onBusyChange={(value) => { inFlight.current = value; setBusy(value); }} /></div>
     <div hidden={mode !== "QA"}>
     <p className="mb-5 text-sm leading-6 text-[var(--ink-soft)]">AI chỉ trả lời từ tài liệu này, không tìm trên internet. Việc gửi câu hỏi có thể phát sinh phí trích xuất và trả lời theo cấu hình của quản trị viên.</p>
-    <form onSubmit={(event) => void ask(event)} className="space-y-4">
+    <form onSubmit={(event) => void ask(event)} onChange={() => { setStatusMessage(""); setResult(null); }} className="space-y-4">
       <Field label="Câu hỏi về tài liệu"><textarea className={inputClass} rows={3} required minLength={2} maxLength={2000} disabled={busy} value={question} onChange={(event) => setQuestion(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "material-ai-error" : undefined} /></Field>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <Field label="Ngôn ngữ trả lời"><select className={inputClass} disabled={busy} value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
-        <Button type="submit" loading={busy} disabled={busy || question.trim().length < 2}>{busy ? "Đang đọc và trả lời…" : "Gửi câu hỏi"}</Button>
+        <Button type="button" variant="secondary" disabled={busy || question.trim().length < 2} onClick={(event) => void ask(event, true)}>Kiểm tra kết quả</Button>
+        <Button type="submit" loading={busy && !checking} disabled={busy || question.trim().length < 2}>{busy && !checking ? "Đang đọc và trả lời…" : "Gửi câu hỏi"}</Button>
       </div>
-      {busy ? <p role="status" className="text-sm text-[var(--ink-soft)]">Lần đầu có thể lâu hơn vì cần trích xuất tài liệu. Vui lòng giữ cửa sổ này mở.</p> : null}
+      {busy ? <p role="status" className="text-sm text-[var(--ink-soft)]">{checking ? "Đang kiểm tra kết quả đã lưu, không gọi AI mới…" : "Lần đầu có thể lâu hơn vì cần trích xuất tài liệu. Vui lòng giữ cửa sổ này mở."}</p> : null}
+      {statusMessage ? <p role="status" className="text-sm leading-6 text-[var(--ink-soft)]">{statusMessage}</p> : null}
       {error ? <p role="alert" id="material-ai-error" className="text-sm text-[var(--danger)]">{error}</p> : null}
     </form>
     {result ? <section className="mt-7 border-t border-[var(--rule)] pt-5" aria-live="polite">

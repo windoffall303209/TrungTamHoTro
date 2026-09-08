@@ -1,4 +1,10 @@
 {
+  "Kiểm tra kết quả": "Check saved result",
+  "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới.": "No saved answer exists. You can submit the question to generate one.",
+  "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau.": "The request is processing or was interrupted. Check again later.",
+  "Kết quả chưa xác định. Liên hệ quản trị viên đối soát; không tự gọi lại AI.": "The outcome is uncertain. Contact an administrator for reconciliation; do not call AI again.",
+  "Đang kiểm tra kết quả đã lưu, không gọi AI mới…": "Checking saved results without calling AI…",
+  "Đã hết thời gian chờ. Máy chủ có thể vẫn đang xử lý. Dùng Kiểm tra kết quả để đọc trạng thái, không gọi AI mới.": "The request timed out. The server may still be processing it. Use Check saved result to read its status without calling AI again.",
   "Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.": "AI document Q&A requires durable database storage to prevent duplicate requests.",
   "Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.": "The AI question is processing or its outcome is uncertain. Do not resubmit and risk duplicate charges; contact an administrator for reconciliation.",
   "Phiên bản câu trả lời AI không khớp tài liệu yêu cầu.": "The AI answer version does not match the requested document.",
