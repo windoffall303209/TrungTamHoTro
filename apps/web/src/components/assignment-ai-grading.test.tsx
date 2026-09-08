@@ -10,10 +10,79 @@ vi.mock("@/providers/app-provider", () => ({ useApp: () => ({ session: { user: {
 const assignment = { id: "assignment", version: 3, maxScore: 5, rubric: [{ id: "r1", title: "Accuracy", description: "Correct layer", maxPoints: 5 }] } as Assignment;
 const submission = { id: "submission", revision: 2, content: "HTTP is an application-layer protocol.", attachments: [] } as unknown as AssignmentSubmission;
 const result = { insufficientEvidence: false, feedback: "Good explanation", suggestedTotal: 4.5, requiresHumanReview: true, model: "admin-model", submissionRevision: 2, assignmentVersion: 3, criteria: [{ criterionId: "r1", suggestedPoints: 4.5, reasoning: "The correct layer is identified.", evidence: [submission.content] }] };
+const txt = { id: "file", originalName: "answer.txt", mimeType: "text/plain", sizeBytes: 100, createdAt: "2026-09-08", canPreview: false };
+const source = { attachmentId: "file", name: "answer.txt", checksum: `sha256:${"a".repeat(64)}`, text: submission.content };
 
 describe("instructor AI grading review", () => {
   beforeEach(() => { vi.resetAllMocks(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+  it("reviews attachment-only TXT sources and copies scores only after confirmation", async () => {
+    api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [source] } });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [txt] }} onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    await screen.findByText("Nguồn dùng để chấm");
+    expect(screen.getByText(source.text, { selector: "p" })).toHaveAttribute("translate", "no");
+    expect(screen.getAllByText("answer.txt")).toHaveLength(2);
+    expect(onUse).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Đưa gợi ý vào biểu mẫu" }));
+    expect(onUse).toHaveBeenCalledExactlyOnceWith({ r1: 4.5 }, result.feedback);
+    expect(api).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    undefined, [], [source, source], [{ ...source, attachmentId: "other" }],
+    [{ ...source, checksum: "missing" }], [{ ...source, name: "different.txt" }],
+    [{ ...source, text: "not the quoted answer" }],
+  ])("rejects missing, mismatched or duplicate TXT sources %#", async (sources) => {
+    api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources } });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [txt] }} onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(onUse).not.toHaveBeenCalled();
+  });
+
+  it("requires both inline content and TXT sources, including for insufficient-evidence results", async () => {
+    api.mockResolvedValueOnce({ state: "READY", result: { ...result, insufficientEvidence: true, sources: [source] } });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [txt] }} onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
+  });
+
+  it("creates a TXT suggestion without uploading source text or choosing a model in the request", async () => {
+    api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce({ ...result, sources: [source] });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [{ ...txt, sizeBytes: 80000 }] }} onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" }));
+    await screen.findByText("Nguồn dùng để chấm");
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(api).toHaveBeenLastCalledWith("/instructor/assignment-submissions/submission/ai-suggestion", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedSubmissionRevision: 2, language: "VI" }) }));
+    expect(onUse).not.toHaveBeenCalled();
+  });
+
+  it("shows inline and file sources without permitting quotes across their boundary", async () => {
+    const inline = { attachmentId: null, name: "Inline", checksum: null, text: "Inline answer." };
+    api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [inline, source] } });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: inline.text, attachments: [txt] }} onUse={onUse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    await screen.findByText("Nguồn dùng để chấm");
+    expect(screen.getByText("Nội dung nhập trực tiếp")).toBeInTheDocument();
+    expect(screen.getByText(inline.text)).toHaveAttribute("translate", "no");
+    api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [inline, source], criteria: [{ ...result.criteria[0], evidence: [`${inline.text}\n\n${source.text}`] }] } });
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(onUse).not.toHaveBeenCalled();
+  });
+
+  it.each([{ ...txt, mimeType: "application/pdf" }, { ...txt, originalName: "answer.pdf" }, { ...txt, sizeBytes: 80001 }, { ...txt, sizeBytes: 0 }])("blocks unsupported or oversized attachments before requesting AI %#", (file) => {
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [txt, file] }} onUse={onUse} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByText(/Bài có định dạng khác cần chấm thủ công/)).toBeInTheDocument();
+    expect(api).not.toHaveBeenCalled();
+  });
 
   it("does not fetch automatically and requires review before changing the manual form", async () => {
     api.mockResolvedValueOnce({ state: "READY", result });
