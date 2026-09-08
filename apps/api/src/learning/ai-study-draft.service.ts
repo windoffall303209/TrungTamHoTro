@@ -3,11 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { StudyContext, StudyGuide, StudyGuideOptions } from "../system/ai-study-guide.js";
+import { validateStudyDraftEdit } from "./ai-study-draft-edit.js";
 
 export type SavedStudyGuide = StudyGuide & { model?: string; coverage: StudyContext["coverage"]; version: number; warning: string };
 type DraftIdentity = { ownerId: string; materialId: string; sourceVersion: number; options: StudyGuideOptions };
 export type StudyDraftSummary = DraftIdentity & { id: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
-type Draft = StudyDraftSummary & { fingerprint: string; result: SavedStudyGuide | null };
+type Draft = StudyDraftSummary & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
 
 @Injectable()
 /** Lưu bản nháp riêng, claim theo nội dung trong database trước khi gọi provider. */
@@ -19,7 +20,7 @@ export class AiStudyDraftService {
   async generate(identity: DraftIdentity, generate: () => Promise<SavedStudyGuide>): Promise<SavedStudyGuide & { draftId: string }> {
     const fingerprint = createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
     const now = new Date();
-    const initial: Draft = { ...identity, id: `study-${randomUUID()}`, fingerprint, state: "GENERATING", result: null, createdAt: now, updatedAt: now };
+    const initial: Draft = { ...identity, id: `study-${randomUUID()}`, fingerprint, state: "GENERATING", result: null, editedResult: null, editRevision: 0, createdAt: now, updatedAt: now };
     const db = this.database();
     let claimed = false;
     if (db) {
@@ -53,6 +54,24 @@ export class AiStudyDraftService {
     const row = db ? await db.aiStudyDraft.findFirst({ where: { id, ownerId, materialId } }) as unknown as Draft | null : structuredClone([...this.memory.values()].find((item) => item.id === id && item.ownerId === ownerId && item.materialId === materialId));
     if (!row) throw new NotFoundException("Không tìm thấy bản nháp ôn tập được phép xem.");
     return row;
+  }
+
+  /** Lưu chỉnh sửa riêng bằng CAS; giữ nguyên kết quả AI gốc và từ chối ghi đè bản sửa mới hơn. */
+  async edit(id: string, ownerId: string, materialId: string, input: unknown): Promise<{ editedResult: SavedStudyGuide; editRevision: number }> {
+    const row = await this.get(id, ownerId, materialId);
+    if (row.state !== "READY" || !row.result || row.result.insufficientContext) throw new ConflictException("Bản ôn tập chưa có nội dung đủ căn cứ để chỉnh sửa.");
+    const edit = validateStudyDraftEdit(input, row.result);
+    if (row.editRevision !== edit.expectedRevision) throw new ConflictException("Bản ôn tập đã được sửa ở nơi khác. Hãy tải lại trước khi lưu.");
+    const db = this.database();
+    if (db) {
+      const saved = await db.aiStudyDraft.updateMany({ where: { id, ownerId, materialId, state: "READY", editRevision: edit.expectedRevision }, data: { editedResult: edit.result as unknown as Prisma.InputJsonValue, editRevision: { increment: 1 } } });
+      if (saved.count !== 1) throw new ConflictException("Bản ôn tập đã được sửa ở nơi khác. Hãy tải lại trước khi lưu.");
+    } else {
+      const current = this.memory.get(row.fingerprint)!;
+      if (current.editRevision !== edit.expectedRevision) throw new ConflictException("Bản ôn tập đã được sửa ở nơi khác. Hãy tải lại trước khi lưu.");
+      this.memory.set(row.fingerprint, { ...current, editedResult: structuredClone(edit.result), editRevision: current.editRevision + 1, updatedAt: new Date() });
+    }
+    return { editedResult: structuredClone(edit.result), editRevision: edit.expectedRevision + 1 };
   }
 
   /** Phân trang lịch sử chỉ với metadata; không tải nội dung nguồn của mọi bản nháp vào danh sách. */

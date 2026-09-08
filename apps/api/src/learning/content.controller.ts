@@ -13,7 +13,7 @@ import { AiProviderService, type QuestionScanResult } from "../system/ai-provide
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
-import { EditExamQuestionDto, SubmitExamDto } from "./learning.dto.js";
+import { EditExamQuestionDto, EditStudyDraftDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -40,6 +40,10 @@ export class ContentController {
   @Get("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
   /** Mở lại bộ ôn tập đã lưu sau khi xác nhận quyền đối với phiên bản nguồn. */
   getStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getStudyDraft"]> { return this.materialAi.getStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
+
+  /** Chỉnh sửa bản ôn tập riêng, giữ nguồn gốc và phát hiện xung đột chỉnh sửa. */
+  @Patch("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
+  editStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: EditStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["editStudyDraft"]> { return this.materialAi.editStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
