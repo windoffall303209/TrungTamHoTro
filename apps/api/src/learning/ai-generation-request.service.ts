@@ -5,7 +5,7 @@ import type { GeneratedExamDraft } from "../system/ai-provider.service.js";
 import type { AiGeneratedExamResult } from "./learning.types.js";
 
 type Prepared = { courseId: string; generated: GeneratedExamDraft };
-type RecordValue = { owner: string; hash: string; state: "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
+type RecordValue = { owner: string; hash: string; canonicalRequestId?: string; state: "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
 
 /** Chuẩn hóa thứ tự khóa để cùng request không bị coi khác do cách serialize JSON. */
 function canonical(value: unknown): string {
@@ -21,15 +21,26 @@ export class AiGenerationRequestService {
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
   /** Giữ một lần gọi provider; retry bước lưu từ bản nháp đã cache và trả lại kết quả hoàn tất. */
-  async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared) => Promise<AiGeneratedExamResult>, recover: () => Promise<AiGeneratedExamResult | undefined>): Promise<AiGeneratedExamResult> {
-    const key = `ai-generation:${requestId}`;
+  async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared, canonicalRequestId: string) => Promise<AiGeneratedExamResult>, recover: (canonicalRequestId: string) => Promise<AiGeneratedExamResult | undefined>): Promise<AiGeneratedExamResult> {
+    const requestKey = `ai-generation:${requestId}`;
     const hash = createHash("sha256").update(canonical(payload)).digest("hex");
     const initial: RecordValue = { owner, hash, state: "GENERATING" };
-    const claimed = await this.claim(key, initial);
+    const requestClaimed = await this.claim(requestKey, initial);
+    const request = await this.read(requestKey);
+    if (!request || request.value.owner !== owner || request.value.hash !== hash) throw new ConflictException("Mã yêu cầu AI đã được dùng cho nội dung hoặc tài khoản khác. Không gửi lại với dữ liệu đã thay đổi.");
+    // Unique insert theo người dùng + nội dung bảo vệ cả các tab/thiết bị dùng UUID khác nhau.
+    const fingerprint = createHash("sha256").update(canonical({ owner, hash })).digest("hex");
+    const fingerprintKey = `ai-generation-content:${fingerprint}`;
+    await this.claim(fingerprintKey, { ...initial, canonicalRequestId: requestId });
+    const binding = await this.read(fingerprintKey);
+    if (!binding?.value.canonicalRequestId || binding.value.owner !== owner || binding.value.hash !== hash) throw new ConflictException("Không xác nhận được mã yêu cầu AI gốc. Hãy thử lại cùng yêu cầu.");
+    const canonicalRequestId = binding.value.canonicalRequestId;
+    const key = `ai-generation:${canonicalRequestId}`;
+    const claimed = requestClaimed && canonicalRequestId === requestId;
     let row = await this.read(key);
     if (!row || row.value.owner !== owner || row.value.hash !== hash) throw new ConflictException("Mã yêu cầu AI đã được dùng cho nội dung hoặc tài khoản khác. Không gửi lại với dữ liệu đã thay đổi.");
     if (row.value.state === "COMPLETED") return row.value.result!;
-    const recovered = await recover();
+    const recovered = await recover(canonicalRequestId);
     if (recovered) {
       await this.replace(key, row.version, { ...row.value, state: "COMPLETED", result: recovered });
       return recovered;
@@ -50,7 +61,7 @@ export class AiGenerationRequestService {
     if (!await this.replace(key, row.version, { ...row.value, state: "SAVING" })) throw new ConflictException("Yêu cầu AI đang được lưu. Hãy thử lấy lại kết quả.");
     const savingVersion = row.version + 1;
     let result: AiGeneratedExamResult;
-    try { result = await save(row.value.prepared!); }
+    try { result = await save(row.value.prepared!, canonicalRequestId); }
     catch (error) { await this.replace(key, savingVersion, { ...row.value, state: "READY" }); throw error; }
     await this.replace(key, savingVersion, { ...row.value, state: "COMPLETED", result });
     return result;
