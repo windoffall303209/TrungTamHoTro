@@ -15,6 +15,23 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("reads answer status only after validation and source authorization", async () => {
+    const { learning, ai, material } = fixture();
+    const status = vi.fn().mockResolvedValue({ state: "NOT_REQUESTED" });
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { status } as unknown as AiDocumentAnswerStore);
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", " ", "VI")).rejects.toMatchObject({ status: 400 });
+    expect(status).not.toHaveBeenCalled();
+    expect(await service.questionStatus(material.id, "teacher", "INSTRUCTOR", " HTTP? ", "VI")).toEqual({ state: "NOT_REQUESTED" });
+    expect(status).toHaveBeenCalledExactlyOnceWith({ ownerId: "teacher", materialId: material.id, version: 1, question: "HTTP?", language: "VI" });
+    expect(learning.createMaterialVersionAccess).toHaveBeenCalledTimes(2);
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    status.mockImplementationOnce(() => { learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("revoked during lookup")); return Promise.resolve({ state: "READY", result: {} }); });
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "HTTP?", "VI")).rejects.toThrow("revoked during lookup");
+    status.mockClear();
+    learning.listMaterials.mockResolvedValue([]);
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "HTTP?", "VI")).rejects.toMatchObject({ status: 404 });
+    expect(status).not.toHaveBeenCalled();
+  });
   it("checks source access before and after replaying a saved answer without resolving providers", async () => {
     const { learning, ai, material } = fixture();
     const result = { answer: "Cached", insufficientContext: false, citations: [], version: 1, warning: "Review source" };
