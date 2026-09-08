@@ -8,6 +8,12 @@ import { useApp } from "@/providers/app-provider";
 
 type State = "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
 type Domain = "grading" | "study" | "exams";
+type ExamScope = "canonical" | "unlinked" | "broken";
+const scopeHelp: Record<ExamScope, string> = {
+  canonical: "Chỉ liệt kê tác vụ sinh đề gốc có liên kết hợp lệ; không liệt kê từng mã thử lại hoặc khóa thiếu liên kết. Có bản nháp AI không đồng nghĩa đề đã được lưu hoặc phát hành.",
+  unlinked: "Nhóm này gồm khóa chưa có liên kết nội dung khớp người tạo và yêu cầu, không gồm mã thử lại đã liên kết. Khóa có thể đang được chuẩn bị, chưa chắc là lỗi. Nếu liên kết xuất hiện trong lúc phân trang, hãy tải lại danh sách. Không tự xóa khóa hoặc gọi lại AI.",
+  broken: "Nhóm này gồm yêu cầu có liên kết nhưng mã gốc thiếu, sai định dạng hoặc trỏ tới yêu cầu không còn hợp lệ. Nhiều mã thử lại có thể cùng bị ảnh hưởng; số hàng không phải số lần gọi AI. Giữ mã yêu cầu để đối soát, không tự sửa liên kết hoặc gọi lại AI.",
+};
 type Row = { id: string; ownerId: string; state: State; createdAt: string; updatedAt: string } & ({ submissionId: string; language: string } | { materialId: string; sourceVersion: number } | { version: number });
 type Page = { items: Row[]; nextCursor: string | null };
 const labels: Record<State, string> = { GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý", CLAIMED: "Đã giữ khóa, chưa bắt đầu sinh", SAVING: "Đang lưu đề hoặc bị gián đoạn", COMPLETED: "Đã hoàn tất lưu đề" };
@@ -29,7 +35,7 @@ export function AiGradingOperations() {
 function OperationsPanel({ domain }: { domain: Domain }) {
   const { session } = useApp();
   const [state, setState] = useState<State | "">("");
-  const [scope, setScope] = useState<"canonical" | "unlinked">("canonical");
+  const [scope, setScope] = useState<ExamScope>("canonical");
   const [data, setData] = useState<Page | null>(null);
   const [history, setHistory] = useState<string[]>([""]);
   const [busy, setBusy] = useState(false);
@@ -46,7 +52,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     const timer = window.setTimeout(() => controller.abort(), 30_000);
     try {
       const query = new URLSearchParams({ limit: "20" });
-      if (domain === "exams" && scope === "unlinked") query.set("scope", scope);
+      if (domain === "exams" && scope !== "canonical") query.set("scope", scope);
       if (state) query.set("state", state);
       if (nextHistory.at(-1)) query.set("cursor", nextHistory.at(-1)!);
       const response = await apiRequest<Page>(`/admin/ai-operations/${domain}?${query}`, { roleCode: session.roleCode, signal: controller.signal });
@@ -67,11 +73,12 @@ function OperationsPanel({ domain }: { domain: Domain }) {
       <h3 className="text-lg font-bold">{title}</h3>
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Chỉ xem trạng thái và mã tác vụ, không xem bài làm, điểm hoặc nội dung bộ ôn tập. Tác vụ đã bắt đầu có thể vẫn chạy hoặc bị gián đoạn; thời gian chờ lâu không chứng minh AI chưa xử lý.</p>
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Không tự gọi lại hoặc xóa khóa. Giữ mã tác vụ để đối chiếu nhật ký trước khi quyết định bước tiếp theo.</p>
-      {domain === "exams" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">{scope === "canonical" ? "Chỉ liệt kê tác vụ sinh đề gốc có liên kết hợp lệ; không liệt kê từng mã thử lại hoặc khóa thiếu liên kết. Có bản nháp AI không đồng nghĩa đề đã được lưu hoặc phát hành." : "Nhóm này gồm khóa chưa có liên kết nội dung khớp người tạo và yêu cầu, không gồm mã thử lại đã liên kết. Khóa có thể đang được chuẩn bị, chưa chắc là lỗi. Nếu liên kết xuất hiện trong lúc phân trang, hãy tải lại danh sách. Không tự xóa khóa hoặc gọi lại AI."}</p> : null}
+      {domain === "exams" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">{scopeHelp[scope]}</p> : null}
     </div>
-    {domain === "exams" ? <Field label="Phạm vi đối soát sinh đề"><select className={inputClass} value={scope} disabled={busy} onChange={(event) => { setScope(event.target.value as "canonical" | "unlinked"); setData(null); setHistory([""]); setError(""); }}>
+    {domain === "exams" ? <Field label="Phạm vi đối soát sinh đề"><select className={inputClass} value={scope} disabled={busy} onChange={(event) => { setScope(event.target.value as ExamScope); setData(null); setHistory([""]); setError(""); }}>
       <option value="canonical">Yêu cầu gốc đã liên kết</option>
       <option value="unlinked">Khóa thiếu liên kết</option>
+      <option value="broken">Liên kết hỏng</option>
     </select></Field> : null}
     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
       <div className="min-w-0 flex-1"><Field label="Trạng thái tác vụ AI"><select className={inputClass} value={state} disabled={busy} onChange={(event) => { setState(event.target.value as State | ""); setData(null); setHistory([""]); setError(""); }}>

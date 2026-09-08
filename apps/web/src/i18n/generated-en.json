@@ -1,4 +1,6 @@
 {
+  "Liên kết hỏng": "Broken bindings",
+  "Nhóm này gồm yêu cầu có liên kết nhưng mã gốc thiếu, sai định dạng hoặc trỏ tới yêu cầu không còn hợp lệ. Nhiều mã thử lại có thể cùng bị ảnh hưởng; số hàng không phải số lần gọi AI. Giữ mã yêu cầu để đối soát, không tự sửa liên kết hoặc gọi lại AI.": "This group contains requests with bindings whose original request ID is missing, malformed, or points to an invalid request. Several retry IDs may be affected; the row count is not the number of AI calls. Keep request IDs for reconciliation; do not repair bindings or call AI again without verification.",
   "Phạm vi đối soát sinh đề": "Exam reconciliation scope",
   "Yêu cầu gốc đã liên kết": "Linked original requests",
   "Khóa thiếu liên kết": "Unlinked claims",
