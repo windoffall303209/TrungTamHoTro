@@ -5,7 +5,7 @@ import { AiProviderService } from "../system/ai-provider.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { chunkDocument, type ContextChunk, type DocumentPage, retrieveDocumentContext } from "../system/ai-document-context.js";
 import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions } from "../system/ai-study-guide.js";
-import { AiStudyDraftService, type SavedStudyGuide } from "./ai-study-draft.service.js";
+import { AiStudyDraftService, type SavedStudyGuide, type PublishStudyDraft } from "./ai-study-draft.service.js";
 import type { LearningMaterial } from "./learning.types.js";
 
 @Injectable()
@@ -61,6 +61,29 @@ export class AiMaterialContextService {
   async editStudyDraft(materialId: string, draftId: string, actorId: string, role: string, input: unknown): ReturnType<AiStudyDraftService["edit"]> {
     await this.getStudyDraft(materialId, draftId, actorId, role);
     return this.drafts.edit(draftId, actorId, materialId, input);
+  }
+
+  /** Chỉ phát hành bản đã duyệt từ phiên bản hiện tại của học liệu đang công khai cho lớp. */
+  async publishStudyDraft(materialId: string, draftId: string, actorId: string, role: string, input: PublishStudyDraft): ReturnType<AiStudyDraftService["publish"]> {
+    const material = await this.requireMaterial(materialId, actorId, role);
+    const draft = await this.getStudyDraft(materialId, draftId, actorId, role);
+    if (material.visibility !== "PUBLISHED" || material.version !== draft.sourceVersion) throw new ConflictException("Cần phát hành phiên bản học liệu hiện tại trước khi phát hành bộ ôn tập tương ứng.");
+    return this.drafts.publish(draftId, actorId, materialId, input);
+  }
+
+  /** Chủ bản nháp có thể thu hồi ngay cả khi học liệu đã ẩn hoặc phiên bản nguồn không còn tải được. */
+  async unpublishStudyDraft(materialId: string, draftId: string, actorId: string, role: string, revision: number): ReturnType<AiStudyDraftService["unpublish"]> {
+    await this.requireMaterial(materialId, actorId, role);
+    return this.drafts.unpublish(draftId, actorId, materialId, revision);
+  }
+
+  /** Học viên chỉ nhận snapshot đã phát hành khi còn quyền theo lớp và đúng phiên bản nguồn. */
+  async getPublishedStudyDraft(materialId: string, draftId: string, actorId: string, role: string): ReturnType<AiStudyDraftService["getPublished"]> {
+    const material = await this.requireMaterial(materialId, actorId, role);
+    if (material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy bộ ôn tập đã phát hành.");
+    const published = await this.drafts.getPublished(draftId, materialId);
+    await this.learning.createMaterialVersionAccess(materialId, published.sourceVersion, role, "PREVIEW", actorId);
+    return published;
   }
 
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */

@@ -8,7 +8,9 @@ import { validateStudyDraftEdit } from "./ai-study-draft-edit.js";
 export type SavedStudyGuide = StudyGuide & { model?: string; coverage: StudyContext["coverage"]; version: number; warning: string };
 type DraftIdentity = { ownerId: string; materialId: string; sourceVersion: number; options: StudyGuideOptions };
 export type StudyDraftSummary = DraftIdentity & { id: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
-type Draft = StudyDraftSummary & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
+type Publication = { publishedResult: SavedStudyGuide | null; publishedAt: Date | null; publicationRevision: number; publishedEditRevision: number | null };
+type Draft = StudyDraftSummary & Publication & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
+export type PublishStudyDraft = { expectedRevision: number; expectedPublicationRevision: number; confirmReview: boolean };
 
 @Injectable()
 /** Lưu bản nháp riêng, claim theo nội dung trong database trước khi gọi provider. */
@@ -20,7 +22,7 @@ export class AiStudyDraftService {
   async generate(identity: DraftIdentity, generate: () => Promise<SavedStudyGuide>): Promise<SavedStudyGuide & { draftId: string }> {
     const fingerprint = createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
     const now = new Date();
-    const initial: Draft = { ...identity, id: `study-${randomUUID()}`, fingerprint, state: "GENERATING", result: null, editedResult: null, editRevision: 0, createdAt: now, updatedAt: now };
+    const initial: Draft = { ...identity, id: `study-${randomUUID()}`, fingerprint, state: "GENERATING", result: null, editedResult: null, editRevision: 0, publishedResult: null, publishedAt: null, publicationRevision: 0, publishedEditRevision: null, createdAt: now, updatedAt: now };
     const db = this.database();
     let claimed = false;
     if (db) {
@@ -72,6 +74,50 @@ export class AiStudyDraftService {
       this.memory.set(row.fingerprint, { ...current, editedResult: structuredClone(edit.result), editRevision: current.editRevision + 1, updatedAt: new Date() });
     }
     return { editedResult: structuredClone(edit.result), editRevision: edit.expectedRevision + 1 };
+  }
+
+  /** Phát hành snapshot được người tạo xác nhận; sửa nháp sau đó không làm đổi nội dung học viên đang thấy. */
+  async publish(id: string, ownerId: string, materialId: string, input: PublishStudyDraft): Promise<Publication> {
+    const row = await this.get(id, ownerId, materialId);
+    if (input.confirmReview !== true || !Number.isInteger(input.expectedRevision) || input.expectedRevision < 0 || input.expectedRevision > 2147483646 || !Number.isInteger(input.expectedPublicationRevision) || input.expectedPublicationRevision < 0 || input.expectedPublicationRevision > 2147483646) throw new BadRequestException("Cần xác nhận đã duyệt nội dung và phiên bản trước khi phát hành.");
+    const result = row.editedResult ?? row.result;
+    if (row.state !== "READY" || !result || result.insufficientContext || !result.summary.length || !result.flashcards.length) throw new ConflictException("Bộ ôn tập chưa đủ nội dung để phát hành.");
+    // Chạy lại quy tắc nội dung/nguồn cho cả bản AI chưa sửa trước khi chụp snapshot.
+    validateStudyDraftEdit({ expectedRevision: row.editRevision, summary: result.summary.map((item) => ({ text: item.text, citationIds: item.citations.map((source) => source.id) })), flashcards: result.flashcards.map((item) => ({ front: item.front, back: item.back, citationIds: item.citations.map((source) => source.id) })) }, row.result!);
+    const publication = { publishedResult: structuredClone(result), publishedAt: new Date(), publicationRevision: row.publicationRevision + 1, publishedEditRevision: row.editRevision };
+    await this.changePublication(row, input.expectedPublicationRevision, publication, input.expectedRevision);
+    return publication;
+  }
+
+  /** Thu hồi bản phát hành, giữ bản nháp riêng và dùng revision để tránh ghi đè thao tác đồng thời. */
+  async unpublish(id: string, ownerId: string, materialId: string, expectedPublicationRevision: number): Promise<Publication> {
+    const row = await this.get(id, ownerId, materialId);
+    if (!Number.isInteger(expectedPublicationRevision) || expectedPublicationRevision < 0 || expectedPublicationRevision > 2147483646) throw new BadRequestException("Phiên bản phát hành không hợp lệ.");
+    const publication = { publishedResult: row.publishedResult, publishedAt: null, publicationRevision: row.publicationRevision + 1, publishedEditRevision: row.publishedEditRevision };
+    await this.changePublication(row, expectedPublicationRevision, publication);
+    return publication;
+  }
+
+  /** Chỉ trả snapshot phát hành, không trả bản nháp, fingerprint hoặc danh tính người tạo. */
+  async getPublished(id: string, materialId: string): Promise<{ id: string; sourceVersion: number; result: SavedStudyGuide; publishedAt: Date; publicationRevision: number }> {
+    const db = this.database();
+    const row = db ? await db.aiStudyDraft.findFirst({ where: { id, materialId, publishedAt: { not: null } }, select: { id: true, sourceVersion: true, publishedResult: true, publishedAt: true, publicationRevision: true } }) as unknown as Pick<Draft, "id" | "sourceVersion" | "publishedResult" | "publishedAt" | "publicationRevision"> | null : [...this.memory.values()].find((item) => item.id === id && item.materialId === materialId && item.publishedAt);
+    if (!row?.publishedAt || !row.publishedResult) throw new NotFoundException("Không tìm thấy bộ ôn tập đã phát hành.");
+    return structuredClone({ id: row.id, sourceVersion: row.sourceVersion, result: row.publishedResult, publishedAt: row.publishedAt, publicationRevision: row.publicationRevision });
+  }
+
+  /** CAS phát hành dùng revision riêng, đồng thời khóa đúng phiên bản nội dung khi xuất bản. */
+  private async changePublication(row: Draft, expected: number, publication: Publication, expectedEdit?: number): Promise<void> {
+    if (row.publicationRevision !== expected || (expectedEdit !== undefined && row.editRevision !== expectedEdit)) throw new ConflictException("Bản ôn tập hoặc trạng thái phát hành đã thay đổi. Hãy tải lại.");
+    const db = this.database();
+    if (db) {
+      const updated = await db.aiStudyDraft.updateMany({ where: { id: row.id, ownerId: row.ownerId, materialId: row.materialId, publicationRevision: expected, ...(expectedEdit !== undefined ? { editRevision: expectedEdit, state: "READY" } : {}) }, data: { publishedAt: publication.publishedAt, publicationRevision: publication.publicationRevision, publishedEditRevision: publication.publishedEditRevision, ...(publication.publishedResult ? { publishedResult: publication.publishedResult as unknown as Prisma.InputJsonValue } : {}) } });
+      if (updated.count !== 1) throw new ConflictException("Bản ôn tập hoặc trạng thái phát hành đã thay đổi. Hãy tải lại.");
+    } else {
+      const current = this.memory.get(row.fingerprint)!;
+      if (current.publicationRevision !== expected || (expectedEdit !== undefined && current.editRevision !== expectedEdit)) throw new ConflictException("Bản ôn tập hoặc trạng thái phát hành đã thay đổi. Hãy tải lại.");
+      this.memory.set(row.fingerprint, { ...current, ...structuredClone(publication), updatedAt: new Date() });
+    }
   }
 
   /** Phân trang lịch sử chỉ với metadata; không tải nội dung nguồn của mọi bản nháp vào danh sách. */
