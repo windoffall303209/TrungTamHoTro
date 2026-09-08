@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const points = z.number().min(0).max(1000).refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7);
 const inputSchema = z.object({
-  instructions: z.string().trim().min(5).max(10000),
+  instructions: z.string().trim().min(5).max(16000),
   answer: z.string().trim().min(1).max(20000),
   language: z.enum(["VI", "EN", "BILINGUAL"]),
   rubric: z.array(z.object({ id: z.string().min(1).max(191), title: z.string().trim().min(2).max(120), description: z.string().trim().min(2).max(500), maxPoints: points.refine((value) => value >= 0.25) }).strict()).min(1).max(20),
