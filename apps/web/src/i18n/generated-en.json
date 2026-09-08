@@ -1,4 +1,13 @@
 {
+  "Đã giữ khóa, chưa bắt đầu sinh": "Lock acquired; generation not started",
+  "Đang lưu đề hoặc bị gián đoạn": "Saving exam or interrupted",
+  "Đã hoàn tất lưu đề": "Exam saving completed",
+  "Đối soát sinh đề AI": "AI exam generation reconciliation",
+  "Đã có bản nháp AI, chưa xác nhận lưu đề": "AI draft available; exam saving not confirmed",
+  "Chỉ liệt kê tác vụ sinh đề gốc có liên kết hợp lệ; không liệt kê từng mã thử lại hoặc khóa thiếu liên kết. Có bản nháp AI không đồng nghĩa đề đã được lưu hoặc phát hành.": "Only original exam-generation tasks with valid bindings are listed, not individual retry IDs or unbound locks. An AI draft does not mean that the exam has been saved or published.",
+  "Chưa hoàn tất lưu đề": "Exam saving not completed",
+  "Phiên bản tác vụ": "Task version",
+  "Có bản nháp AI": "AI draft available",
   "Loại tác vụ đối soát": "Task type to reconcile",
   "Bộ ôn tập: tóm tắt và flashcard": "Study guides: summaries and flashcards",
   "Đối soát bộ ôn tập AI": "AI study guide reconciliation",

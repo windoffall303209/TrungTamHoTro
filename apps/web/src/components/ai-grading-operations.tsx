@@ -6,11 +6,11 @@ import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
-type State = "GENERATING" | "UNCERTAIN" | "READY";
-type Domain = "grading" | "study";
-type Row = { id: string; ownerId: string; state: State; createdAt: string; updatedAt: string } & ({ submissionId: string; language: string } | { materialId: string; sourceVersion: number });
+type State = "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
+type Domain = "grading" | "study" | "exams";
+type Row = { id: string; ownerId: string; state: State; createdAt: string; updatedAt: string } & ({ submissionId: string; language: string } | { materialId: string; sourceVersion: number } | { version: number });
 type Page = { items: Row[]; nextCursor: string | null };
-const labels: Record<State, string> = { GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý" };
+const labels: Record<State, string> = { GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý", CLAIMED: "Đã giữ khóa, chưa bắt đầu sinh", SAVING: "Đang lưu đề hoặc bị gián đoạn", COMPLETED: "Đã hoàn tất lưu đề" };
 
 /** Giới hạn panel cho admin; đổi danh tính sẽ hủy trạng thái và dữ liệu phiên trước. */
 export function AiGradingOperations() {
@@ -19,7 +19,7 @@ export function AiGradingOperations() {
   if (session.roleCode !== "SYSTEM_ADMIN" || !session.permissions.includes("system:configure")) return null;
   return <div>
     <div className="px-5 pt-6 md:px-6"><Field label="Loại tác vụ đối soát"><select className={inputClass} value={domain} onChange={(event) => setDomain(event.target.value as Domain)}>
-      <option value="grading">Gợi ý chấm bài</option><option value="study">Bộ ôn tập: tóm tắt và flashcard</option>
+      <option value="grading">Gợi ý chấm bài</option><option value="study">Bộ ôn tập: tóm tắt và flashcard</option><option value="exams">Sinh đề thi</option>
     </select></Field></div>
     <OperationsPanel key={`${session.user.id}:${domain}`} domain={domain} />
   </div>;
@@ -58,19 +58,23 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     }
   }
 
-  const title = domain === "grading" ? "Đối soát chấm AI" : "Đối soát bộ ôn tập AI";
+  const title = domain === "grading" ? "Đối soát chấm AI" : domain === "study" ? "Đối soát bộ ôn tập AI" : "Đối soát sinh đề AI";
+  const readyLabel = domain === "exams" ? "Đã có bản nháp AI, chưa xác nhận lưu đề" : labels.READY;
   return <section aria-label={title} className="space-y-4 px-5 py-6 md:px-6">
     <div className="space-y-2">
       <h3 className="text-lg font-bold">{title}</h3>
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Chỉ xem trạng thái và mã tác vụ, không xem bài làm, điểm hoặc nội dung bộ ôn tập. Tác vụ đã bắt đầu có thể vẫn chạy hoặc bị gián đoạn; thời gian chờ lâu không chứng minh AI chưa xử lý.</p>
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Không tự gọi lại hoặc xóa khóa. Giữ mã tác vụ để đối chiếu nhật ký trước khi quyết định bước tiếp theo.</p>
+      {domain === "exams" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Chỉ liệt kê tác vụ sinh đề gốc có liên kết hợp lệ; không liệt kê từng mã thử lại hoặc khóa thiếu liên kết. Có bản nháp AI không đồng nghĩa đề đã được lưu hoặc phát hành.</p> : null}
     </div>
     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
       <div className="min-w-0 flex-1"><Field label="Trạng thái tác vụ AI"><select className={inputClass} value={state} disabled={busy} onChange={(event) => { setState(event.target.value as State | ""); setData(null); setHistory([""]); setError(""); }}>
-        <option value="">Đang xử lý hoặc chưa rõ kết quả</option>
+        <option value="">{domain === "exams" ? "Chưa hoàn tất lưu đề" : "Đang xử lý hoặc chưa rõ kết quả"}</option>
+        {domain === "exams" ? <option value="CLAIMED">Đã giữ khóa, chưa bắt đầu sinh</option> : null}
         <option value="GENERATING">Đã bắt đầu xử lý</option>
         <option value="UNCERTAIN">Chưa rõ kết quả</option>
-        <option value="READY">Đã lưu gợi ý</option>
+        <option value="READY">{domain === "exams" ? "Có bản nháp AI" : readyLabel}</option>
+        {domain === "exams" ? <><option value="SAVING">Đang lưu đề hoặc bị gián đoạn</option><option value="COMPLETED">Đã hoàn tất lưu đề</option></> : null}
       </select></Field></div>
       <Button type="button" variant="secondary" disabled={busy} onClick={() => void load([""])}>Tải lại danh sách</Button>
     </div>
@@ -79,11 +83,11 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     {!data && !busy && !error ? <p className="text-sm text-[var(--ink-soft)]">Chọn trạng thái rồi tải danh sách để bắt đầu đối soát.</p> : null}
     {data ? <>
       {!data.items.length ? <p role="status" className="text-sm text-[var(--ink-soft)]">Không có tác vụ AI trong trang và bộ lọc này.</p> : <ul className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{data.items.map((row) => <li key={row.id} className="space-y-3 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{labels[row.state]}</p>{"language" in row ? <span translate="no" className="text-sm text-[var(--ink-soft)]">{row.language}</span> : <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {row.sourceVersion}</p>}</div>
-        <dl className="grid gap-3 text-sm md:grid-cols-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{row.state === "READY" ? readyLabel : labels[row.state]}</p>{"language" in row ? <span translate="no" className="text-sm text-[var(--ink-soft)]">{row.language}</span> : "sourceVersion" in row ? <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {row.sourceVersion}</p> : <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản tác vụ</span>: {row.version}</p>}</div>
+        <dl className={`grid gap-3 text-sm ${domain === "exams" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
           <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã tác vụ</dt><dd translate="no" className="mt-1 select-text break-all">{row.id}</dd></div>
           <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã người tạo</dt><dd translate="no" className="mt-1 select-text break-all">{row.ownerId}</dd></div>
-          <div className="min-w-0"><dt className="text-[var(--ink-soft)]">{"materialId" in row ? "Mã tài liệu" : "Mã bài nộp"}</dt><dd translate="no" className="mt-1 select-text break-all">{"materialId" in row ? row.materialId : row.submissionId}</dd></div>
+          {"materialId" in row || "submissionId" in row ? <div className="min-w-0"><dt className="text-[var(--ink-soft)]">{"materialId" in row ? "Mã tài liệu" : "Mã bài nộp"}</dt><dd translate="no" className="mt-1 select-text break-all">{"materialId" in row ? row.materialId : row.submissionId}</dd></div> : null}
         </dl>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-[var(--ink-soft)]"><p><span>Tạo lúc</span>: <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString(activeLocale())}</time></p><p><span>Cập nhật lúc</span>: <time dateTime={row.updatedAt}>{new Date(row.updatedAt).toLocaleString(activeLocale())}</time></p></div>
       </li>)}</ul>}
