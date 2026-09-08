@@ -66,6 +66,17 @@ describe("authorized material AI context", () => {
     expect(ai.extractDocumentPages).not.toHaveBeenCalled();
   });
 
+  it("requires current material and exact source-version access before accepting an edit", async () => {
+    const { learning, ai, material, service } = fixture();
+    const saved = await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 5, language: "VI" });
+    ai.resolveTask.mockClear();
+    learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("version access revoked"));
+    await expect(service.editStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", {})).rejects.toThrow("version access revoked");
+    learning.listMaterials.mockResolvedValue([]);
+    await expect(service.editStudyDraft(material.id, saved.draftId, "teacher", "INSTRUCTOR", {})).rejects.toMatchObject({ status: 404 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+  });
+
   it("requires the answer model before charging for extraction, after checking material access", async () => {
     const { learning, ai, material, service } = fixture();
     ai.resolveTask.mockRejectedValue(new Error("missing answer model"));

@@ -62,4 +62,19 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
     expect(generate).toHaveBeenCalledTimes(1);
     expect(await prisma.aiStudyDraft.count({ where: { materialId, state: "UNCERTAIN" } })).toBe(1);
   });
+
+  it("persists human edits separately and allows only one concurrent revision update", async () => {
+    const identity = { ownerId, materialId, sourceVersion: 1, options: { cardCount: 3, language: "EN" as const } };
+    const source = { id: "source-fixture", materialId, version: 1, checksum: "fixture", name: "Fixture", page: 1, start: 0, end: 8, text: "Evidence" };
+    const original = { ...result, insufficientContext: false, summary: [{ text: "Original", citations: [source] }], flashcards: [{ front: "Question", back: "Answer", citations: [source] }] };
+    const saved = await new AiStudyDraftService(prisma).generate(identity, () => Promise.resolve(original));
+    const input = { expectedRevision: 0, summary: [{ text: "Edited", citationIds: [source.id] }], flashcards: [{ front: "Revised question", back: "Revised answer", citationIds: [source.id] }] };
+    const attempts = await Promise.allSettled(Array.from({ length: 4 }, () => new AiStudyDraftService(prisma).edit(saved.draftId, ownerId, materialId, input)));
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    for (const attempt of attempts) if (attempt.status === "rejected") expect(attempt.reason).toMatchObject({ status: 409 });
+    const reopened = await new AiStudyDraftService(prisma).get(saved.draftId, ownerId, materialId);
+    expect(reopened.editRevision).toBe(1);
+    expect(reopened.result).toEqual(original);
+    expect(reopened.editedResult?.summary[0]?.text).toBe("Edited");
+  });
 });
