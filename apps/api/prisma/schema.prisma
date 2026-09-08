@@ -228,6 +228,7 @@ model User {
   chatMemberships          ChatConversationMember[]
   chatMessages             ChatMessage[]        @relation("ChatMessageSender")
   aiStudyDrafts            AiStudyDraft[]
+  aiGradingSuggestions     AiGradingSuggestion[]
 
   @@map("users")
 }
@@ -457,11 +458,36 @@ model AssignmentSubmission {
   attachments  AssignmentSubmissionAttachment[]
   revisions    AssignmentSubmissionRevision[]
   gradeChanges AssignmentGradeChange[]
+  aiSuggestions AiGradingSuggestion[]
   updatedAt    DateTime                   @updatedAt @map("updated_at")
 
   @@unique([assignmentId, learnerId])
   @@index([learnerId, status])
   @@map("assignment_submissions")
+}
+
+enum AiGradingSuggestionState {
+  GENERATING
+  READY
+  UNCERTAIN
+}
+
+model AiGradingSuggestion {
+  id String @id @default(cuid())
+  fingerprint String @unique @db.Char(64)
+  ownerId String @map("owner_id")
+  submissionId String @map("submission_id")
+  contextHash String @map("context_hash") @db.Char(64)
+  language String @db.VarChar(16)
+  state AiGradingSuggestionState @default(GENERATING)
+  result Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  submission AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, submissionId, createdAt])
+  @@map("ai_grading_suggestions")
 }
 
 model AssignmentSubmissionRevision {

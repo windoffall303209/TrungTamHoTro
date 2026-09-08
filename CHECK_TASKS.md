@@ -392,6 +392,17 @@ Phạm vi mã nguồn của CHAT-01…07, UX-01…04, WF-01…38, VERIFY-01…07
 
 Effort là kích thước công việc đã thực hiện để phục vụ hậu kiểm, không phải số giờ hay cam kết sprint được dựng lại sau sự kiện.
 
+## AI grading — chống tạo trùng (2026-09-08)
+
+- [x] Lưu gợi ý chấm bằng bảng `ai_grading_suggestions`; khóa duy nhất theo giảng viên, bài nộp, hash ngữ cảnh/rubric/phiên bản và ngôn ngữ. Không dùng chung kết quả giữa các giảng viên.
+- [x] Claim database trước khi gọi provider; yêu cầu đồng thời bị chặn, kết quả `READY` được phát lại kể cả sau khi khởi động lại service hoặc provider bị tắt.
+- [x] Kiểm tra đầu vào/cấu hình trước khi claim; kiểm tra quyền và nguồn trước khi đọc kết quả, tái kiểm tra sau khi sinh; không tự ghi điểm.
+- [x] Lỗi chưa rõ kết quả chuyển `UNCERTAIN`; không tự retry/TTL để tránh tính phí trùng. Nếu tiến trình chết giữa chừng, claim `GENERATING` vẫn chặn gọi lại; không giả định provider chưa xử lý.
+- [x] Kiểm thử: 17 unit test ở hai bộ grading assist/store; 2 integration test MySQL riêng xác nhận cạnh tranh 6 worker, phát lại sau khi tạo lại service và giữ trạng thái không rõ kết quả. Provider trong các test là giả lập, không phải UAT AI live.
+- [x] Migration bổ sung đã áp dụng cho database local và database `_test`; không reset dữ liệu.
+- [ ] Nối service gợi ý chấm vào HTTP/UI, cấu hình admin và luồng giảng viên xem xét; phần chống trùng trong mục này mới thuộc backend service.
+- [ ] Quy trình admin đối soát/khôi phục claim bị gián đoạn và kiểm thử provider live; chưa cho tự xóa claim hoặc gọi lại mù.
+
 ## L. Trung tâm song ngữ Việt–Anh
 
 | Mã | Trạng thái | Kết quả triển khai và nghiệm thu |
