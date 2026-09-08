@@ -194,7 +194,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     : !/^\d{6}$/.test(verificationCode)));
 
   return <main className="relative grid min-h-screen place-items-center bg-[var(--canvas)] px-5 py-10 text-[var(--ink)]">
-    <div className="absolute right-5 top-5 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
+    <div className="absolute right-5 top-5 z-20 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
     <section className="w-full max-w-[31rem] border-y border-[var(--rule-strong)] bg-[var(--surface)]/75 px-5 py-8 sm:px-8">
       <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
       {done ? <div aria-live="polite">

@@ -101,7 +101,7 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
       <p className="relative text-xs text-[var(--nav-subtle)]">Wind EDU · Sổ giáo vụ số</p>
     </section>
     <section className="relative flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
-      <div className="absolute right-5 top-5 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
+      <div className="absolute right-5 top-5 z-20 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
       <div className="w-full max-w-[30rem] animate-rise">
         <Link className="mb-10 inline-flex items-center gap-2 font-bold lg:hidden" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
         <h1 className="text-[2rem] font-bold leading-tight tracking-[-0.03em]">{challengeToken ? "Xác thực hai bước" : registering ? "Tạo tài khoản học viên" : "Chào mừng quay lại"}</h1>
