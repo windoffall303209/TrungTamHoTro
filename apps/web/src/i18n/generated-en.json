@@ -1,4 +1,8 @@
 {
+  "Phạm vi đối soát sinh đề": "Exam reconciliation scope",
+  "Yêu cầu gốc đã liên kết": "Linked original requests",
+  "Khóa thiếu liên kết": "Unlinked claims",
+  "Nhóm này gồm khóa chưa có liên kết nội dung khớp người tạo và yêu cầu, không gồm mã thử lại đã liên kết. Khóa có thể đang được chuẩn bị, chưa chắc là lỗi. Nếu liên kết xuất hiện trong lúc phân trang, hãy tải lại danh sách. Không tự xóa khóa hoặc gọi lại AI.": "This group contains claims without a content binding matching the creator and request, excluding linked retry IDs. A claim may still be in preparation and is not necessarily an error. If a binding appears during pagination, reload the list. Do not delete claims or call AI again without reconciliation.",
   "Sinh đề AI yêu cầu database bền vững để chống tạo trùng. Liên hệ quản trị viên kiểm tra kết nối.": "AI exam generation requires durable database storage to prevent duplicates. Contact an administrator to check the connection.",
   "Đã giữ khóa, chưa bắt đầu sinh": "Lock acquired; generation not started",
   "Đang lưu đề hoặc bị gián đoạn": "Saving exam or interrupted",
