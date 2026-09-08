@@ -227,6 +227,7 @@ model User {
   classAnnouncements       ClassAnnouncement[] @relation("AnnouncementAuthor")
   chatMemberships          ChatConversationMember[]
   chatMessages             ChatMessage[]        @relation("ChatMessageSender")
+  aiStudyDrafts            AiStudyDraft[]
 
   @@map("users")
 }
@@ -638,11 +639,36 @@ model MaterialVersion {
   visibility MaterialVisibility
   createdBy  String             @map("created_by") @db.VarChar(191)
   material   Material           @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  aiStudyDrafts AiStudyDraft[]
   createdAt  DateTime           @default(now()) @map("created_at")
 
   @@unique([materialId, version])
   @@index([createdAt])
   @@map("material_versions")
+}
+
+enum AiStudyDraftState {
+  GENERATING
+  READY
+  UNCERTAIN
+}
+
+model AiStudyDraft {
+  id            String            @id @default(cuid())
+  fingerprint   String            @unique @db.Char(64)
+  ownerId       String            @map("owner_id")
+  materialId    String            @map("material_id")
+  sourceVersion Int               @map("source_version")
+  state         AiStudyDraftState  @default(GENERATING)
+  options       Json
+  result        Json?
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  owner         User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  source        MaterialVersion   @relation(fields: [materialId, sourceVersion], references: [materialId, version], onDelete: Cascade)
+
+  @@index([ownerId, materialId, createdAt, id])
+  @@map("ai_study_drafts")
 }
 
 model FileReview {
