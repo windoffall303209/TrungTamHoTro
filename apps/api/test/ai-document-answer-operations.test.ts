@@ -14,13 +14,17 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
   let url: string;
   const queryRaw = vi.fn();
   const enabled = vi.fn(() => true);
+  const transaction = vi.fn();
+  const findUnique = vi.fn();
+  const updateMany = vi.fn();
+  const auditCreate = vi.fn();
   const row = { id: "a".repeat(64), ownerId: "teacher", state: "GENERATING", version: 1, createdAt: new Date("2026-09-08"), updatedAt: new Date("2026-09-08") };
 
   // Exercise real controller, service, DTO and guard; replace authentication and the SQL boundary only.
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [AiGradingOperationsController], providers: [
       AiGradingOperationsService,
-      { provide: PrismaService, useValue: { isStartupConnectionEnabled: enabled, $queryRaw: queryRaw } },
+      { provide: PrismaService, useValue: { isStartupConnectionEnabled: enabled, $queryRaw: queryRaw, $transaction: transaction } },
       { provide: AuthService, useValue: {
         readToken: (cookie?: string): string | undefined => cookie,
         resolve: (token?: string): AuthenticatedSession => {
@@ -39,7 +43,13 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
   });
   // Close the test server without touching application data.
   afterAll(async () => { await app?.close(); });
-  beforeEach(() => { vi.resetAllMocks(); queryRaw.mockResolvedValue([row]); enabled.mockReturnValue(true); });
+  beforeEach(() => {
+    vi.resetAllMocks(); queryRaw.mockResolvedValue([row]); enabled.mockReturnValue(true); updateMany.mockResolvedValue({ count: 1 }); auditCreate.mockResolvedValue({});
+    const request = { materialId: "material", version: 1, question: "Why HTTPS?", language: "EN" };
+    findUnique.mockResolvedValue({ key: `${prefix}${row.id}`, value: { state: "UNCERTAIN", request }, version: 1, effectiveAt: row.createdAt, updatedBy: row.ownerId, updatedAt: row.updatedAt });
+    const transactionClient = { systemSetting: { findUnique, updateMany }, auditLog: { create: auditCreate } };
+    transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
+  });
   // Read the metadata endpoint with a fixture identity.
   const read = (query = "", cookie = "admin"): Promise<Response> => fetch(`${url}${query}`, { headers: { cookie } });
 
@@ -83,5 +93,14 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
     enabled.mockReturnValue(false);
     expect((await read()).status).toBe(503);
     expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it.runIf(route === "document-answers")("validates recovery evidence through the HTTP contract before storage", async () => {
+    const endpoint = `${url}/${row.id}/reconcile-not-processed`;
+    const valid = { expectedVersion: 1, evidenceReference: "provider-log-001", evidenceNote: "Provider confirms this request was neither accepted nor billed.", checkedAt: "2026-09-08T01:00:00.000Z" };
+    for (const body of [{ ...valid, expectedVersion: 0 }, { ...valid, evidenceReference: "short" }, { ...valid, evidenceNote: "too short" }, { ...valid, extra: true }]) {
+      expect((await fetch(endpoint, { method: "POST", headers: { cookie: "admin", "content-type": "application/json" }, body: JSON.stringify(body) })).status).toBe(400);
+    }
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

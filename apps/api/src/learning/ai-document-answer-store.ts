@@ -7,10 +7,11 @@ import { Prisma } from "../generated/prisma/client.js";
 
 export type SavedDocumentAnswer = Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number };
 export type DocumentAnswerIdentity = { ownerId: string; materialId: string; version: number; question: string; language: "VI" | "EN" | "BILINGUAL" };
-type Claim = { state: "GENERATING" | "READY" | "UNCERTAIN"; result?: SavedDocumentAnswer };
+type AnswerRequest = Pick<DocumentAnswerIdentity, "materialId" | "version" | "question" | "language">;
+type Claim = { state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; request?: AnswerRequest; result?: SavedDocumentAnswer };
 export type DocumentAnswerStatus = { state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: SavedDocumentAnswer };
 type HistoryScope = Pick<DocumentAnswerIdentity, "ownerId" | "materialId" | "version">;
-type HistoryItem = { id: string; question: string; language: DocumentAnswerIdentity["language"]; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date };
+type HistoryItem = { id: string; question: string; language: DocumentAnswerIdentity["language"]; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date };
 
 const sourceSchema = z.object({
   id: z.string().min(1), materialId: z.string().min(1), version: z.number().int().positive(),
@@ -55,7 +56,7 @@ export class AiDocumentAnswerStore {
       SELECT SUBSTRING(r.\`key\`, 15) AS id,
         JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.question')) AS question,
         JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.language')) AS language,
-        CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN ('GENERATING', 'READY')
+        CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
           THEN JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) ELSE 'UNCERTAIN' END AS state,
         r.effective_at AS createdAt
       FROM system_settings r
@@ -79,6 +80,7 @@ export class AiDocumentAnswerStore {
     const row = await this.prisma.systemSetting.findUnique({ where: { key: this.key(identity) }, select: { value: true } });
     if (!row) return { state: "NOT_REQUESTED" };
     const claim = row.value as Claim | null;
+    if (claim?.state === "RETRY_AUTHORIZED") return { state: "NOT_REQUESTED" };
     const result = claim?.state === "READY" ? readAnswer(claim.result, identity) : undefined;
     if (result) return { state: "READY", result };
     return { state: claim?.state === "GENERATING" ? "GENERATING" : "UNCERTAIN" };
@@ -102,10 +104,18 @@ export class AiDocumentAnswerStore {
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
     }
-    const row = await this.prisma.systemSetting.findUnique({ where: { key } });
-    const claim = row?.value as Claim | undefined;
+    let row = await this.prisma.systemSetting.findUnique({ where: { key } });
+    let claim = row?.value as Claim | undefined;
     const cached = claim?.state === "READY" ? readAnswer(claim.result, identity) : undefined;
     if (cached) return cached;
+    if (!claimed && row && claim?.state === "RETRY_AUTHORIZED" && row.updatedBy === identity.ownerId && this.sameRequest(claim.request, request)) {
+      const reopened = await this.prisma.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: identity.ownerId }, data: { value: { state: "GENERATING", request }, version: { increment: 1 } } });
+      claimed = reopened.count === 1;
+      if (claimed) {
+        row = { ...row, version: row.version + 1, value: { state: "GENERATING", request } };
+        claim = row.value as Claim;
+      }
+    }
     if (!claimed || !row || claim?.state !== "GENERATING") throw new ConflictException("Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.");
     try {
       const generated = await generate();
@@ -119,5 +129,14 @@ export class AiDocumentAnswerStore {
       await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "UNCERTAIN", request }, version: { increment: 1 } } });
       throw error;
     }
+  }
+
+  /** Xác nhận metadata riêng của claim vẫn đúng toàn bộ fingerprint trước khi tiêu thụ quyền retry. */
+  private sameRequest(stored: AnswerRequest | undefined, expected: AnswerRequest): boolean {
+    return Boolean(stored
+      && stored.materialId === expected.materialId
+      && stored.version === expected.version
+      && stored.question === expected.question
+      && stored.language === expected.language);
   }
 }
