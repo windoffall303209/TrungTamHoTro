@@ -7,7 +7,7 @@ import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
 type State = "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
-type Domain = "grading" | "study" | "exams" | "document-answers";
+type Domain = "grading" | "study" | "exams" | "document-answers" | "extractions";
 type ExamScope = "canonical" | "unlinked" | "broken";
 const scopeHelp: Record<ExamScope, string> = {
   canonical: "Chỉ liệt kê tác vụ sinh đề gốc có liên kết hợp lệ; không liệt kê từng mã thử lại hoặc khóa thiếu liên kết. Có bản nháp AI không đồng nghĩa đề đã được lưu hoặc phát hành.",
@@ -25,7 +25,7 @@ export function AiGradingOperations() {
   if (session.roleCode !== "SYSTEM_ADMIN" || !session.permissions.includes("system:configure")) return null;
   return <div>
     <div className="px-5 pt-6 md:px-6"><Field label="Loại tác vụ đối soát"><select className={inputClass} value={domain} onChange={(event) => setDomain(event.target.value as Domain)}>
-      <option value="grading">Gợi ý chấm bài</option><option value="study">Bộ ôn tập: tóm tắt và flashcard</option><option value="exams">Sinh đề thi</option><option value="document-answers">Hỏi đáp tài liệu</option>
+      <option value="grading">Gợi ý chấm bài</option><option value="study">Bộ ôn tập: tóm tắt và flashcard</option><option value="exams">Sinh đề thi</option><option value="document-answers">Hỏi đáp tài liệu</option><option value="extractions">Trích xuất tài liệu OCR</option>
     </select></Field></div>
     <OperationsPanel key={`${session.user.id}:${domain}`} domain={domain} />
   </div>;
@@ -66,8 +66,8 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     }
   }
 
-  const title = domain === "grading" ? "Đối soát chấm AI" : domain === "study" ? "Đối soát bộ ôn tập AI" : domain === "document-answers" ? "Đối soát hỏi đáp AI" : "Đối soát sinh đề AI";
-  const readyLabel = domain === "exams" ? "Đã có bản nháp AI, chưa xác nhận lưu đề" : domain === "document-answers" ? "Đã lưu câu trả lời" : labels.READY;
+  const title = domain === "grading" ? "Đối soát chấm AI" : domain === "study" ? "Đối soát bộ ôn tập AI" : domain === "document-answers" ? "Đối soát hỏi đáp AI" : domain === "extractions" ? "Đối soát trích xuất OCR" : "Đối soát sinh đề AI";
+  const readyLabel = domain === "exams" ? "Đã có bản nháp AI, chưa xác nhận lưu đề" : domain === "document-answers" ? "Đã lưu câu trả lời" : domain === "extractions" ? "Đã lưu trích xuất" : labels.READY;
   return <section aria-label={title} className="space-y-4 px-5 py-6 md:px-6">
     <div className="space-y-2">
       <h3 className="text-lg font-bold">{title}</h3>
@@ -75,6 +75,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
       <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Không tự gọi lại hoặc xóa khóa. Giữ mã tác vụ để đối chiếu nhật ký trước khi quyết định bước tiếp theo.</p>
       {domain === "exams" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">{scopeHelp[scope]}</p> : null}
       {domain === "document-answers" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Hàng đợi không hiển thị câu hỏi, câu trả lời hoặc trích dẫn riêng. Đã lưu chỉ phản ánh trạng thái lưu trữ, không xác nhận nội dung đúng. Phiên bản tác vụ không phải phiên bản tài liệu.</p> : null}
+      {domain === "extractions" ? <p className="max-w-3xl text-sm leading-6 text-[var(--ink-soft)]">Hàng đợi không hiển thị nội dung trang OCR. Đã lưu bao gồm cache cũ, không xác nhận trích xuất đầy đủ hoặc chính xác. Phiên bản tác vụ không phải phiên bản tài liệu.</p> : null}
     </div>
     {domain === "exams" ? <Field label="Phạm vi đối soát sinh đề"><select className={inputClass} value={scope} disabled={busy} onChange={(event) => { setScope(event.target.value as ExamScope); setData(null); setHistory([""]); setError(""); }}>
       <option value="canonical">Yêu cầu gốc đã liên kết</option>
@@ -98,7 +99,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     {data ? <>
       {!data.items.length ? <p role="status" className="text-sm text-[var(--ink-soft)]">Không có tác vụ AI trong trang và bộ lọc này.</p> : <ul className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{data.items.map((row) => <li key={row.id} className="space-y-3 py-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">{row.state === "READY" ? readyLabel : labels[row.state]}</p>{"language" in row ? <span translate="no" className="text-sm text-[var(--ink-soft)]">{row.language}</span> : "sourceVersion" in row ? <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {row.sourceVersion}</p> : <p className="text-sm text-[var(--ink-soft)]"><span>Phiên bản tác vụ</span>: {row.version}</p>}</div>
-        <dl className={`grid gap-3 text-sm ${domain === "exams" || domain === "document-answers" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+        <dl className={`grid gap-3 text-sm ${domain === "exams" || domain === "document-answers" || domain === "extractions" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
           <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã tác vụ</dt><dd translate="no" className="mt-1 select-text break-all">{row.id}</dd></div>
           <div className="min-w-0"><dt className="text-[var(--ink-soft)]">Mã người tạo</dt><dd translate="no" className="mt-1 select-text break-all">{row.ownerId}</dd></div>
           {"materialId" in row || "submissionId" in row ? <div className="min-w-0"><dt className="text-[var(--ink-soft)]">{"materialId" in row ? "Mã tài liệu" : "Mã bài nộp"}</dt><dd translate="no" className="mt-1 select-text break-all">{"materialId" in row ? row.materialId : row.submissionId}</dd></div> : null}

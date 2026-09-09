@@ -12,25 +12,26 @@ describe("admin AI grading queue", () => {
   beforeEach(() => { vi.resetAllMocks(); session.roleCode = "SYSTEM_ADMIN"; session.permissions = ["system:configure"]; session.user.id = "admin"; });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
-  it("reads and paginates document answers without exposing content or exam controls", async () => {
+  it.each(["document-answers", "extractions"])("reads and paginates %s without exposing content or exam controls", async (domain) => {
     const answer = { id: "a".repeat(64), ownerId: "teacher", state: "READY", version: 3, createdAt: row.createdAt, updatedAt: row.updatedAt };
     api.mockResolvedValueOnce({ items: [answer], nextCursor: answer.id }).mockResolvedValueOnce({ items: [{ ...answer, id: "b".repeat(64) }], nextCursor: null });
     render(<AiGradingOperations />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "document-answers" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: domain } });
     expect(api).not.toHaveBeenCalled();
     expect(screen.queryByRole("combobox", { name: "Phạm vi đối soát sinh đề" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Đã hoàn tất lưu đề" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" }), { target: { value: "READY" } });
     fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
     expect(await screen.findByText(answer.id)).toHaveAttribute("translate", "no");
-    expect(screen.getByText("Đã lưu câu trả lời", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(domain === "extractions" ? "Đã lưu trích xuất" : "Đã lưu câu trả lời", { selector: "p" })).toBeInTheDocument();
+    if (domain === "extractions") expect(screen.getByText(/Đã lưu bao gồm cache cũ/)).toBeInTheDocument();
     expect(screen.getByText("Phiên bản tác vụ")).toBeInTheDocument();
     expect(screen.queryByText("Mã tài liệu")).not.toBeInTheDocument();
-    expect(api.mock.calls[0]?.[0]).toBe("/admin/ai-operations/document-answers?limit=20&state=READY");
+    expect(api.mock.calls[0]?.[0]).toBe(`/admin/ai-operations/${domain}?limit=20&state=READY`);
     expect(api.mock.calls[0]?.[1]).not.toHaveProperty("method");
     fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
     await screen.findByText("b".repeat(64));
-    expect(api.mock.calls[1]?.[0]).toBe(`/admin/ai-operations/document-answers?limit=20&state=READY&cursor=${answer.id}`);
+    expect(api.mock.calls[1]?.[0]).toBe(`/admin/ai-operations/${domain}?limit=20&state=READY&cursor=${answer.id}`);
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Tạo|Xóa|Thử lại/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" }), { target: { value: "UNCERTAIN" } });
@@ -69,7 +70,7 @@ describe("admin AI grading queue", () => {
     expect(screen.getByRole("button", { name: "Trang trước" })).toBeDisabled();
   });
 
-  it.each(["study", "document-answers"])("aborts the old queue when switching to %s and discards its late response", async (domain) => {
+  it.each(["study", "document-answers", "extractions"])("aborts the old queue when switching to %s and discards its late response", async (domain) => {
     let resolve!: (value: unknown) => void;
     api.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
     render(<AiGradingOperations />);
@@ -79,7 +80,7 @@ describe("admin AI grading queue", () => {
     expect(signal.aborted).toBe(true);
     await act(async () => { resolve({ items: [row], nextCursor: "old-cursor" }); });
     expect(screen.queryByText(row.id)).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: domain === "study" ? "Đối soát bộ ôn tập AI" : "Đối soát hỏi đáp AI" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: domain === "study" ? "Đối soát bộ ôn tập AI" : domain === "extractions" ? "Đối soát trích xuất OCR" : "Đối soát hỏi đáp AI" })).toBeInTheDocument();
     expect(api).toHaveBeenCalledTimes(1);
   });
 
