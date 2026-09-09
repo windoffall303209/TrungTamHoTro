@@ -18,14 +18,17 @@ describe("DashboardHome", () => {
       ? [{ status: "ACTIVE" }, { status: "CLOSED" }]
       : path === "/learner/exams"
         ? [{ availabilityStatus: "AVAILABLE" }, { availabilityStatus: "CLOSED" }]
-        : [{ attempt: { id: "attempt-1" } }]));
+        : path === "/academic/assignments"
+          ? [{ status: "PUBLISHED", dueAt: "2099-01-01T00:00:00.000Z" }, { status: "CLOSED", dueAt: "2099-01-01T00:00:00.000Z" }]
+          : [{ attempt: { id: "attempt-1" } }]));
 
     render(<DashboardHome />);
-    await waitFor(() => expect(screen.getByText("bài có thể thực hiện")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("bài tập và bài thi cần làm")).toBeInTheDocument());
     expect(screen.getByText("Kho học liệu")).toBeInTheDocument();
     expect(screen.queryByText("Ngân hàng câu hỏi")).not.toBeInTheDocument();
-    expect(screen.getAllByText("1", { selector: "p" })).toHaveLength(3);
-    expect(apiRequest).toHaveBeenCalledTimes(3);
+    expect(screen.getAllByText("1", { selector: "p" })).toHaveLength(2);
+    expect(screen.getByText("2", { selector: "p" })).toBeInTheDocument();
+    expect(apiRequest).toHaveBeenCalledTimes(4);
   });
 
   it("hiển thị trạng thái suy giảm thay vì số liệu dựng sẵn cho quản trị", async () => {

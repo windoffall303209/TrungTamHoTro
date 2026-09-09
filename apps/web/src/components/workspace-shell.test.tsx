@@ -10,6 +10,9 @@ vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequ
 vi.mock("@/providers/app-provider", () => ({
   useApp: () => useApp(),
 }));
+vi.mock("@/providers/i18n-provider", () => ({
+  useI18n: () => ({ locale: "vi-VN", setLocale: vi.fn(), t: (value: string) => value, formatDateTime: (value: string) => new Date(value).toLocaleString("vi-VN"), formatNumber: (value: number) => String(value) }),
+}));
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard", useRouter: () => ({ replace: vi.fn() }) }));
 
 describe("WorkspaceShell", () => {
@@ -61,6 +64,14 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: /Đọc tất cả/i }));
     await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/notifications/notice-1/read", { method: "PATCH", roleCode: "LEARNER" }));
     await waitFor(() => expect(screen.getByText("Đã đọc tất cả")).toBeInTheDocument());
+  });
+
+  it("đóng bảng thông báo khi bấm ra ngoài", async () => {
+    render(<WorkspaceShell><p>Nội dung bên ngoài</p></WorkspaceShell>);
+    fireEvent.click(await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" }));
+    expect(screen.getByRole("region", { name: "Trung tâm thông báo" })).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByText("Nội dung bên ngoài"));
+    expect(screen.queryByRole("region", { name: "Trung tâm thông báo" })).not.toBeInTheDocument();
   });
 
   it("đưa thông tin người dùng lên header và mở menu tài khoản khi rê chuột", async () => {

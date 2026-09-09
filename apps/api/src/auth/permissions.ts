@@ -1,7 +1,9 @@
+/** Danh mục vai trò ổn định được dùng xuyên suốt API, giao diện và dữ liệu seed. */
 export const ROLE_CODES = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] as const;
 
 export type RoleCode = (typeof ROLE_CODES)[number];
 
+/** Danh mục quyền theo tài nguyên; PermissionGuard đối chiếu các mã này trên từng route. */
 export const PERMISSIONS = [
   "user:view",
   "user:create",
@@ -32,6 +34,7 @@ export const PERMISSIONS = [
 
 export type PermissionCode = (typeof PERMISSIONS)[number];
 
+/** Ma trận quyền mặc định khi khởi tạo hệ thống; quyền thực tế của phiên vẫn đọc từ cơ sở dữ liệu. */
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   SYSTEM_ADMIN: [...PERMISSIONS],
   CENTER_MANAGER: [

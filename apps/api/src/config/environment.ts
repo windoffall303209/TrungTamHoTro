@@ -46,6 +46,11 @@ const environmentSchema = z.object({
 
 export type Environment = z.infer<typeof environmentSchema>;
 
+/**
+ * Chuẩn hóa và xác thực toàn bộ biến môi trường trước khi ứng dụng khởi động.
+ * Ngoài schema cơ bản, hàm kiểm tra các nhóm cấu hình phải xuất hiện đồng thời và
+ * tăng yêu cầu bảo mật khi chạy production để tránh khởi động với mặc định phát triển.
+ */
 export function validateEnvironment(config: Record<string, unknown>): Environment {
   const result = environmentSchema.safeParse(config);
 

@@ -16,6 +16,7 @@ export interface EmailDeliveryResult {
   acceptedAt: string;
 }
 
+/** Chuẩn hóa địa chỉ người gửi sang email thuần hoặc dạng `Tên <email>` mà Resend nhận. */
 export function normalizeResendSender(value: string): string {
   const sender = value.trim();
   if (!sender) return "";
@@ -27,21 +28,28 @@ export function normalizeResendSender(value: string): string {
 }
 
 @Injectable()
+/** Boundary duy nhất gửi transactional email qua Resend. */
 export class EmailDeliveryService {
   private readonly apiKey: string;
   private readonly from: string;
   private readonly client?: Resend;
 
+  /** Tạo Resend client chỉ khi có API key; sender vẫn được kiểm tra ngay lúc bootstrap. */
   constructor(config: ConfigService<Environment, true>) {
     this.apiKey = config.get("RESEND_API_KEY", { infer: true });
     this.from = normalizeResendSender(config.get("RESEND_FROM", { infer: true }));
     this.client = this.apiKey ? new Resend(this.apiKey) : undefined;
   }
 
+  /** Cho luồng nghiệp vụ biết email delivery có sẵn trước khi tạo yêu cầu gửi. */
   isConfigured(): boolean {
     return Boolean(this.client && this.from);
   }
 
+  /**
+   * Gửi plain-text email với idempotency key để retry không tạo thư trùng.
+   * Lỗi provider được đổi thành ServiceUnavailableException, không trả chi tiết API key.
+   */
   async send(input: SendEmailInput): Promise<EmailDeliveryResult> {
     if (!this.client || !this.from) {
       throw new ServiceUnavailableException("Resend chưa được cấu hình. Cần RESEND_API_KEY và RESEND_FROM.");

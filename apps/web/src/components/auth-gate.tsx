@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useApp } from "@/providers/app-provider";
 
+/** Chờ khôi phục phiên và chuyển người chưa đăng nhập về login kèm đường dẫn quay lại. */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { authenticated, authLoading } = useApp();
   const router = useRouter();

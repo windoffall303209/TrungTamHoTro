@@ -3,6 +3,10 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:
 const VERSION = "v1";
 const SALT = "wind-edu-provider-secrets-v1";
 
+/**
+ * Mã hóa secret bằng AES-256-GCM với IV ngẫu nhiên và key dẫn xuất qua scrypt.
+ * Payload chứa version, IV, authentication tag và ciphertext để có thể luân chuyển format.
+ */
 export function encryptSecret(value: string, encryptionSecret: string): string {
   const iv = randomBytes(12);
   const key = scryptSync(encryptionSecret, SALT, 32);
@@ -11,6 +15,7 @@ export function encryptSecret(value: string, encryptionSecret: string): string {
   return [VERSION, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
 
+/** Xác thực và giải mã payload của `encryptSecret`; GCM sẽ từ chối dữ liệu bị chỉnh sửa. */
 export function decryptSecret(payload: string, encryptionSecret: string): string {
   const [version, encodedIv, encodedTag, encodedCiphertext] = payload.split(".");
   if (version !== VERSION || !encodedIv || !encodedTag || !encodedCiphertext) throw new Error("Dữ liệu khóa API không hợp lệ.");

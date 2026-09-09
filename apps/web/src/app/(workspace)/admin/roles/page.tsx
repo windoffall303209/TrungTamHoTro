@@ -17,6 +17,8 @@ const permissionGroups: Array<{ name: string; permissions: Array<{ code: Permiss
   { name: "Tương tác & vận hành", permissions: [{ code: "forum:view", label: "Xem diễn đàn" }, { code: "forum:post", label: "Đăng bài" }, { code: "forum:moderate", label: "Kiểm duyệt" }, { code: "session:view", label: "Xem buổi học" }, { code: "session:manage", label: "Quản lý buổi học" }, { code: "report:view", label: "Xem báo cáo" }, { code: "support:create", label: "Tạo ticket" }, { code: "support:manage", label: "Xử lý ticket" }, { code: "system:configure", label: "Cấu hình hệ thống" }] },
 ];
 
+/** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
+/** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
 export default function RolesPage() {
   const { session, notify } = useApp();
   const canView = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "role:view");
@@ -26,6 +28,8 @@ export default function RolesPage() {
   const [draft, setDraft] = useState<PermissionCode[]>([]);
   const [saving, setSaving] = useState(false);
 
+  /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
+  /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
   const load = useCallback(async () => {
     try { const data = await apiRequest<IdentityRole[]>("/admin/roles", { roleCode: session.roleCode }); setRoles(data); const initial = data.find((role) => role.code === "CENTER_MANAGER") ?? data[0]; if (initial) { setSelectedCode(initial.code); setDraft([...initial.permissions]); } }
     catch (error) { notify(error instanceof Error ? error.message : "Không tải được ma trận quyền.", "error"); }
@@ -33,10 +37,14 @@ export default function RolesPage() {
   useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
   const selected = useMemo(() => roles.find((role) => role.code === selectedCode), [roles, selectedCode]);
 
+  /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
+  /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
   const toggle = (code: PermissionCode) => {
     if (!canUpdate) return;
     setDraft((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
   };
+  /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
+  /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
   const save = async () => {
     setSaving(true);
     try {

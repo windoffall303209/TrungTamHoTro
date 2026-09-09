@@ -1,5 +1,7 @@
 "use client";
 
+import { activeLocale } from "@/i18n/runtime";
+
 import { CheckCircle2, FileJson, LockKeyhole, RefreshCw, UserCheck } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
@@ -13,6 +15,7 @@ import { useApp } from "@/providers/app-provider";
 
 type AppealDecision = "APPROVE" | "REJECT";
 
+/** Cung cấp màn hình đối soát điểm danh, khóa dữ liệu và xử lý khiếu nại. */
 export default function AttendancePage() {
   const { session, notify } = useApp();
   const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
@@ -26,6 +29,7 @@ export default function AttendancePage() {
   const [appealForm, setAppealForm] = useState({ decision: "APPROVE" as AppealDecision, resolution: "", status: "PRESENT", attendedMinutes: 0 });
   const recordPagination = usePagination(review?.records ?? []);
 
+  /** Nạp bản đối soát chi tiết của một buổi học cùng các sai lệch cần xử lý. */
   const loadReview = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
     setLoading(true);
@@ -38,6 +42,7 @@ export default function AttendancePage() {
     }
   }, [notify, session.roleCode]);
 
+  /** Nạp danh sách buổi có quyền quản lý và giữ lựa chọn hiện tại nếu còn hợp lệ. */
   const loadSessions = useCallback(async () => {
     if (!canManage) return;
     try {
@@ -56,6 +61,7 @@ export default function AttendancePage() {
     return () => window.clearTimeout(timer);
   }, [loadSessions]);
 
+  /** Tổng hợp nhanh trạng thái điểm danh để trình bày KPI của buổi đang xem. */
   const statistics = useMemo(() => {
     const records = review?.records ?? [];
     return {
@@ -66,6 +72,7 @@ export default function AttendancePage() {
     };
   }, [review]);
 
+  /** Đồng bộ dữ liệu tham dự từ nhà cung cấp họp trực tuyến vào bản điểm danh. */
   const syncProvider = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedId) return;
@@ -94,6 +101,7 @@ export default function AttendancePage() {
     }
   };
 
+  /** Khóa bảng điểm danh sau đối soát để ngăn chỉnh sửa ngoài quy trình khiếu nại. */
   const lockAttendance = async () => {
     if (!selectedId || !window.confirm("Khóa kỳ điểm danh? Sau khi khóa, mọi đồng bộ và điều chỉnh sẽ bị từ chối.")) return;
     try {
@@ -105,12 +113,14 @@ export default function AttendancePage() {
     }
   };
 
+  /** Mở biểu mẫu xử lý khiếu nại với trạng thái hiện tại của bản ghi tương ứng. */
   const openAppeal = (appeal: AttendanceAppeal) => {
     const current = review?.records.find((item) => item.learnerId === appeal.learnerId);
     setResolving(appeal);
     setAppealForm({ decision: "APPROVE", resolution: "", status: current?.status ?? "PRESENT", attendedMinutes: current?.attendedMinutes ?? 0 });
   };
 
+  /** Chấp nhận hoặc từ chối khiếu nại và cập nhật bản ghi điểm danh liên quan. */
   const resolveAppeal = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!resolving) return;
@@ -142,12 +152,12 @@ export default function AttendancePage() {
       <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
-            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString("vi-VN") }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
+            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString(activeLocale()) }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
           </Field>
           <Button disabled={!selectedId} onClick={() => void loadReview(selectedId)} variant="secondary"><RefreshCw size={16} />Làm mới</Button>
           <Button disabled={!review || Boolean(review.session.attendanceLockedAt) || statistics.openAppeals > 0} onClick={() => void lockAttendance()} variant="danger"><LockKeyhole size={16} />Khóa điểm danh</Button>
         </div>
-        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString("vi-VN")} bởi {review.session.attendanceLockedById}.</p> : null}
+        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString(activeLocale())} bởi {review.session.attendanceLockedById}.</p> : null}
       </section>
 
       <div className="metric-ledger mt-6">

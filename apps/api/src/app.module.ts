@@ -12,6 +12,7 @@ import { LearningModule } from "./learning/learning.module.js";
 import { SystemModule } from "./system/system.module.js";
 import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
+import { MaintenanceGuard } from "./system/maintenance.guard.js";
 
 @Module({
   imports: [
@@ -39,9 +40,14 @@ import { ObservabilityModule } from "./observability/observability.module.js";
     HealthModule,
     SystemModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: MaintenanceGuard },
+  ],
 })
+/** Module gốc ghép cấu hình, hạ tầng và các miền nghiệp vụ của API. */
 export class AppModule implements NestModule {
+  /** Gắn request ID cho mọi route trước khi request đi qua guard/interceptor. */
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware).forRoutes("{*path}");
   }

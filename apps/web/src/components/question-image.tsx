@@ -9,6 +9,7 @@ interface QuestionImageProps {
   imageUrl?: string;
 }
 
+/** Hiển thị ảnh câu hỏi từ blob cục bộ hoặc endpoint API có cookie phiên. */
 export function QuestionImage({ alt = "Hình minh họa cho câu hỏi", className = "", imageUrl }: QuestionImageProps) {
   if (!imageUrl) return null;
   const source = imageUrl.startsWith("blob:") ? imageUrl : publicApiUrl(imageUrl);

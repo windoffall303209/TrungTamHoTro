@@ -1,7 +1,9 @@
+/** Các phân hệ dùng chung mà client và API có thể tham chiếu bằng khóa ổn định. */
 export type ModuleKey = "storage" | "question-bank" | "forum" | "live-class";
 
 export type ModuleReadiness = "foundation-ready" | "planned";
 
+/** Metadata tối thiểu mô tả trạng thái sẵn sàng của một phân hệ giảng dạy. */
 export interface TeachingModule {
   key: ModuleKey;
   name: string;
@@ -9,6 +11,7 @@ export interface TeachingModule {
   readiness: ModuleReadiness;
 }
 
+/** Hợp đồng phản hồi thành công, luôn gắn request ID và thời điểm xử lý. */
 export interface ApiEnvelope<T> {
   data: T;
   meta: {
@@ -17,6 +20,7 @@ export interface ApiEnvelope<T> {
   };
 }
 
+/** Hợp đồng lỗi ổn định để client hiển thị và truy vết mà không phụ thuộc framework API. */
 export interface ApiErrorEnvelope {
   error: {
     code: string;
