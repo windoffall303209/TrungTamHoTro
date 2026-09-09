@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { AuthService, type AuthenticatedSession } from "../src/auth/auth.service.js";
 import { PermissionGuard } from "../src/auth/permission.guard.js";
 import { PrismaService } from "../src/database/prisma.service.js";
+import { Prisma } from "../src/generated/prisma/client.js";
 import { AiGradingOperationsController, AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
 
 const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: "admin" } } as AuthenticatedSession;
@@ -154,6 +155,47 @@ describe("Exam claim evidence reconciliation", () => {
     queryRaw.mockResolvedValue(bindings);
     updateMany.mockResolvedValue(update);
     await expect(service.reconcileExamNotProcessed("request-1", currentInput as typeof input, admin)).rejects.toThrow();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Grading claim evidence reconciliation", () => {
+  const updatedAt = new Date("2026-09-08T01:00:00.000Z");
+  const row = { id: "grading-ai-1", ownerId: "teacher-1", submissionId: "submission-1", language: "VI", state: "UNCERTAIN" as const, createdAt: new Date("2026-09-08T00:00:00.000Z"), updatedAt };
+  const findUnique = vi.fn();
+  const updateMany = vi.fn();
+  const auditCreate = vi.fn<(args: { data: { actorId: string; action: string; entityId: string; context: Record<string, unknown> } }) => Promise<object>>();
+  const transaction = vi.fn();
+  const database = { isStartupConnectionEnabled: () => true, $transaction: transaction } as unknown as PrismaService;
+  const service = new AiGradingOperationsService(database);
+  const input = { expectedUpdatedAt: updatedAt.toISOString(), evidenceReference: "provider-log-grading-001", evidenceNote: "Provider dashboard confirms no grading request was accepted or billed.", checkedAt: "2026-09-08T02:00:00.000Z", providerRequestId: "provider-grading-1" };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    findUnique.mockResolvedValue(row);
+    updateMany.mockResolvedValue({ count: 1 });
+    auditCreate.mockResolvedValue({});
+    const transactionClient = { aiGradingSuggestion: { findUnique, updateMany }, auditLog: { create: auditCreate } };
+    transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
+  });
+
+  it("moves one unchanged grading claim to RETRY_AUTHORIZED and audits the evidence", async () => {
+    const result = await service.reconcileGradingNotProcessed(row.id, input, admin);
+
+    expect(result).toMatchObject({ id: row.id, state: "RETRY_AUTHORIZED" });
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: row.id, state: "UNCERTAIN", updatedAt }, data: { state: "RETRY_AUTHORIZED", result: Prisma.JsonNull } });
+    expect(auditCreate.mock.calls[0]?.[0].data).toMatchObject({ actorId: "admin", action: "AI_GRADING_RETRY_AUTHORIZED", entityId: row.id, context: { evidenceReference: input.evidenceReference, providerRequestId: input.providerRequestId } });
+  });
+
+  it.each([
+    ["stale version", { ...input, expectedUpdatedAt: "2026-09-08T00:59:00.000Z" }, row, { count: 1 }],
+    ["unsafe state", input, { ...row, state: "READY" }, { count: 1 }],
+    ["stale evidence", { ...input, checkedAt: "2026-09-08T00:59:00.000Z" }, row, { count: 1 }],
+    ["CAS race", input, row, { count: 0 }],
+  ])("refuses %s without writing an audit", async (_name, currentInput, currentRow, update) => {
+    findUnique.mockResolvedValue(currentRow);
+    updateMany.mockResolvedValue(update);
+    await expect(service.reconcileGradingNotProcessed(row.id, currentInput, admin)).rejects.toThrow();
     expect(auditCreate).not.toHaveBeenCalled();
   });
 });

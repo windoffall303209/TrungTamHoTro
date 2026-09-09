@@ -43,9 +43,23 @@ export class ReconcileExamNotProcessedDto {
   providerRequestId?: string;
 }
 
+/** Bằng chứng cùng mốc cập nhật cho claim AI lưu trong bảng có updatedAt làm khóa CAS. */
+export class ReconcileAiOperationNotProcessedDto {
+  @IsISO8601({ strict: true })
+  expectedUpdatedAt!: string;
+  @IsString() @MinLength(8) @MaxLength(191)
+  evidenceReference!: string;
+  @IsString() @MinLength(20) @MaxLength(2_000)
+  evidenceNote!: string;
+  @IsISO8601({ strict: true })
+  checkedAt!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191)
+  providerRequestId?: string;
+}
+
 const metadata = { id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true } as const;
-type GradingOperation = { id: string; ownerId: string; submissionId: string; language: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
-type StudyOperation = { id: string; ownerId: string; materialId: string; sourceVersion: number; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
+type GradingOperation = { id: string; ownerId: string; submissionId: string; language: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
+type StudyOperation = { id: string; ownerId: string; materialId: string; sourceVersion: number; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type ExamOperation = { id: string; ownerId: string; state: typeof examStates[number]; version: number; createdAt: Date; updatedAt: Date };
 type DocumentAnswerOperation = Omit<ExamOperation, "state"> & { state: "GENERATING" | "READY" | "UNCERTAIN" };
 
@@ -129,6 +143,37 @@ export class AiGradingOperationsService {
     });
     const items = rows.slice(0, limit);
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
+  }
+
+  /** Mở lại đúng một claim chấm AI bằng CAS updatedAt sau khi admin xác nhận provider chưa xử lý. */
+  async reconcileGradingNotProcessed(id: string, input: ReconcileAiOperationNotProcessedDto, session: AuthenticatedSession): Promise<GradingOperation> {
+    this.validateQuery({ limit: 1 }, session);
+    if (!id || id.length > 191 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new BadRequestException("Mã tác vụ chấm AI không hợp lệ.");
+    const evidenceReference = input.evidenceReference.trim();
+    const evidenceNote = input.evidenceNote.trim();
+    const providerRequestId = input.providerRequestId?.trim() || undefined;
+    if (evidenceReference.length < 8 || evidenceNote.length < 20) throw new BadRequestException("Bằng chứng đối soát AI chưa đầy đủ.");
+    const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+    const checkedAt = new Date(input.checkedAt);
+    const now = new Date();
+    if (!Number.isFinite(expectedUpdatedAt.getTime()) || !Number.isFinite(checkedAt.getTime()) || checkedAt.getTime() > now.getTime() + 5 * 60_000) throw new BadRequestException("Thời điểm kiểm tra bằng chứng AI không hợp lệ.");
+    return this.prisma.$transaction(async (transaction) => {
+      const row = await transaction.aiGradingSuggestion.findUnique({ where: { id }, select: metadata });
+      if (!row) throw new BadRequestException("Không tìm thấy tác vụ chấm AI cần đối soát.");
+      if (row.updatedAt.getTime() !== expectedUpdatedAt.getTime()) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      if (row.state !== "GENERATING" && row.state !== "UNCERTAIN") throw new ConflictException("Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.");
+      if (checkedAt < row.updatedAt) throw new BadRequestException("Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.");
+      const updated = await transaction.aiGradingSuggestion.updateMany({ where: { id, state: row.state, updatedAt: row.updatedAt }, data: { state: "RETRY_AUTHORIZED", result: Prisma.JsonNull } });
+      if (updated.count !== 1) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      await transaction.auditLog.create({ data: {
+        actorId: session.user.id,
+        action: "AI_GRADING_RETRY_AUTHORIZED",
+        entityType: "ai_grading_suggestion",
+        entityId: id,
+        context: { previousState: row.state, previousUpdatedAt: row.updatedAt.toISOString(), evidenceReference, evidenceNote, checkedAt: checkedAt.toISOString(), ...(providerRequestId ? { providerRequestId } : {}) },
+      } });
+      return { ...row, state: "RETRY_AUTHORIZED", updatedAt: now };
+    });
   }
 
   /** Đọc metadata bộ ôn tập, tuyệt đối không select options/result hoặc nội dung đã sửa/phát hành. */
@@ -309,6 +354,14 @@ export class AiGradingOperationsController {
   /** Liệt kê mặc định những yêu cầu đang xử lý hoặc chưa rõ kết quả, chỉ cho admin hệ thống. */
   list(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["list"]> {
     return this.operations.list(query, session);
+  }
+
+  @Post("grading/:id/reconcile-not-processed")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Ghi bằng chứng rồi cho phép đúng một yêu cầu cùng fingerprint thử lại chấm AI. */
+  reconcileGradingNotProcessed(@Param("id") id: string, @Body() input: ReconcileAiOperationNotProcessedDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["reconcileGradingNotProcessed"]> {
+    return this.operations.reconcileGradingNotProcessed(id, input, session);
   }
 
   @Get("study")

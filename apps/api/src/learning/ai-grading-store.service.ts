@@ -1,14 +1,14 @@
 import { ConflictException, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import type { GradingSuggestion } from "../system/ai-grading-suggestion.js";
 import type { ExamLanguage } from "../system/ai-provider.service.js";
 import type { GradingAnswerSource } from "./ai-grading-source.js";
 
 export type GradingIdentity = { ownerId: string; submissionId: string; contextHash: string; language: ExamLanguage };
 export type SavedGradingSuggestion = GradingSuggestion & { model: string; submissionRevision: number; assignmentVersion: number; contextHash: string; sources?: GradingAnswerSource[] };
-type Stored = GradingIdentity & { id: string; fingerprint: string; state: "GENERATING" | "READY" | "UNCERTAIN"; result: SavedGradingSuggestion | null };
+type Stored = GradingIdentity & { id: string; fingerprint: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; result: SavedGradingSuggestion | null };
 
 @Injectable()
 /** Claim bền vững cho mỗi ngữ cảnh bài nộp; không fallback sang memory khi database bị lỗi. */
@@ -34,6 +34,10 @@ export class AiGradingStoreService {
     const row = await this.find(identity);
     if (!row) throw new ConflictException("Không xác nhận được yêu cầu gợi ý chấm AI.");
     if (row.state === "READY" && row.result) return { ...row.result, suggestionId: row.id };
+    if (!claimed && row.state === "RETRY_AUTHORIZED") {
+      const reopened = await db.aiGradingSuggestion.updateMany({ where: { id: row.id, state: "RETRY_AUTHORIZED" }, data: { state: "GENERATING", result: Prisma.JsonNull } });
+      claimed = reopened.count === 1;
+    }
     if (!claimed) throw new ConflictException(row.state === "UNCERTAIN" ? "Lần gợi ý chấm trước chưa rõ kết quả. Hệ thống không tự gọi lại AI để tránh phí trùng." : "Gợi ý chấm đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại trạng thái.");
     try {
       const result = await generate();
