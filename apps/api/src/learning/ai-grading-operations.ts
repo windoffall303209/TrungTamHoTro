@@ -7,6 +7,7 @@ import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { OmitType } from "@nestjs/swagger";
+import { createHash } from "node:crypto";
 
 /** Bộ lọc hữu hạn cho hàng đợi đối soát; không nhận nội dung bài làm hoặc thông số provider. */
 export class GradingOperationsQueryDto {
@@ -61,7 +62,7 @@ const metadata = { id: true, ownerId: true, submissionId: true, language: true, 
 type GradingOperation = { id: string; ownerId: string; submissionId: string; language: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type StudyOperation = { id: string; ownerId: string; materialId: string; sourceVersion: number; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type ExamOperation = { id: string; ownerId: string; state: typeof examStates[number]; version: number; createdAt: Date; updatedAt: Date };
-type DocumentAnswerOperation = Omit<ExamOperation, "state"> & { state: "GENERATING" | "READY" | "UNCERTAIN" };
+type DocumentAnswerOperation = Omit<ExamOperation, "state"> & { state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN" };
 
 @Injectable()
 /** Chỉ đọc metadata claim bền vững; không trả bài làm, điểm, phản hồi, hash hoặc cấu hình bí mật. */
@@ -88,7 +89,7 @@ export class AiGradingOperationsService {
       FROM (
         SELECT \`key\`, updated_by, version, effective_at, updated_at,
           CASE WHEN JSON_TYPE(value) = 'ARRAY' THEN 'READY'
-            WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('GENERATING', 'READY')
+            WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
             THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
         FROM system_settings WHERE \`key\` LIKE 'ai-doc:%'
       ) r
@@ -117,7 +118,7 @@ export class AiGradingOperationsService {
         r.claim_state AS state, r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
       FROM (
         SELECT \`key\`, updated_by, version, effective_at, updated_at,
-          CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('GENERATING', 'READY')
+          CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
             THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
         FROM system_settings WHERE \`key\` LIKE 'ai-doc-answer:%'
       ) r
@@ -125,6 +126,37 @@ export class AiGradingOperationsService {
       ORDER BY r.effective_at DESC, r.\`key\` DESC
       LIMIT ${limit}
     `);
+  }
+
+  /** Mở lại đúng claim hỏi đáp đã được ràng buộc với người dùng, tài liệu, phiên bản, câu hỏi và ngôn ngữ. */
+  async reconcileDocumentAnswerNotProcessed(id: string, input: ReconcileExamNotProcessedDto, session: AuthenticatedSession): Promise<DocumentAnswerOperation> {
+    this.validateQuery({ limit: 1 }, session);
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new BadRequestException("Mã tác vụ hỏi đáp tài liệu AI không hợp lệ.");
+    const evidence = this.validateSettingRecoveryEvidence(input);
+    const key = `ai-doc-answer:${id}`;
+    return this.prisma.$transaction(async (transaction) => {
+      const row = await transaction.systemSetting.findUnique({ where: { key } });
+      if (!row) throw new BadRequestException("Không tìm thấy tác vụ hỏi đáp tài liệu AI cần đối soát.");
+      if (row.version !== input.expectedVersion) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      const value = this.readSettingClaim(row.value);
+      const request = value.request;
+      if (!request || (value.state !== "GENERATING" && value.state !== "UNCERTAIN")) throw new ConflictException("Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.");
+      const materialId = typeof request.materialId === "string" ? request.materialId : "";
+      const version = typeof request.version === "number" && Number.isSafeInteger(request.version) ? request.version : 0;
+      const question = typeof request.question === "string" ? request.question.trim() : "";
+      const language = typeof request.language === "string" ? request.language : "";
+      const fingerprint = createHash("sha256").update(JSON.stringify(["v1", row.updatedBy, materialId, version, question, language])).digest("hex");
+      if (!materialId || version < 1 || question.length < 2 || question.length > 2_000 || !["VI", "EN", "BILINGUAL"].includes(language) || fingerprint !== id) throw new ConflictException("Dữ liệu ràng buộc hỏi đáp AI không hợp lệ. Không thể mở lại tự động.");
+      if (evidence.checkedAt < row.updatedAt) throw new BadRequestException("Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.");
+      const normalizedRequest = { materialId, version, question, language };
+      const updated = await transaction.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: row.updatedBy }, data: { value: { state: "RETRY_AUTHORIZED", request: normalizedRequest }, version: { increment: 1 } } });
+      if (updated.count !== 1) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      await transaction.auditLog.create({ data: {
+        actorId: session.user.id, action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityType: "ai_document_answer", entityId: id,
+        context: { previousState: value.state, previousVersion: row.version, ...this.evidenceContext(evidence) },
+      } });
+      return { id, ownerId: row.updatedBy, state: "RETRY_AUTHORIZED", version: row.version + 1, createdAt: row.effectiveAt, updatedAt: new Date() };
+    });
   }
 
   /** Phân trang keyset theo thời điểm tạo và ID; admin xem trạng thái mà không tác động lần gọi AI. */
@@ -357,6 +389,30 @@ export class AiGradingOperationsService {
     if (!Number.isFinite(expectedUpdatedAt.getTime()) || !Number.isFinite(checkedAt.getTime()) || checkedAt.getTime() > Date.now() + 5 * 60_000) throw new BadRequestException("Thời điểm kiểm tra bằng chứng AI không hợp lệ.");
     return { expectedUpdatedAt, checkedAt, evidenceReference, evidenceNote, ...(providerRequestId ? { providerRequestId } : {}) };
   }
+
+  /** Kiểm tra bằng chứng cho claim dùng version làm khóa CAS. */
+  private validateSettingRecoveryEvidence(input: ReconcileExamNotProcessedDto): { checkedAt: Date; evidenceReference: string; evidenceNote: string; providerRequestId?: string } {
+    const evidenceReference = input.evidenceReference.trim();
+    const evidenceNote = input.evidenceNote.trim();
+    const providerRequestId = input.providerRequestId?.trim() || undefined;
+    const checkedAt = new Date(input.checkedAt);
+    if (evidenceReference.length < 8 || evidenceNote.length < 20) throw new BadRequestException("Bằng chứng đối soát AI chưa đầy đủ.");
+    if (!Number.isFinite(checkedAt.getTime()) || checkedAt.getTime() > Date.now() + 5 * 60_000) throw new BadRequestException("Thời điểm kiểm tra bằng chứng AI không hợp lệ.");
+    return { checkedAt, evidenceReference, evidenceNote, ...(providerRequestId ? { providerRequestId } : {}) };
+  }
+
+  /** Đọc phần metadata tối thiểu của claim JSON, không chiếu nội dung kết quả riêng tư. */
+  private readSettingClaim(value: Prisma.JsonValue): { state: unknown; request?: Record<string, unknown> } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new ConflictException("Dữ liệu khóa AI không hợp lệ. Không thể mở lại tự động.");
+    const claim = value as Record<string, unknown>;
+    const request = claim.request;
+    return { state: claim.state, ...(request && typeof request === "object" && !Array.isArray(request) ? { request: request as Record<string, unknown> } : {}) };
+  }
+
+  /** Chuẩn hóa metadata bằng chứng trước khi ghi audit. */
+  private evidenceContext(evidence: { checkedAt: Date; evidenceReference: string; evidenceNote: string; providerRequestId?: string }): Record<string, string> {
+    return { evidenceReference: evidence.evidenceReference, evidenceNote: evidence.evidenceNote, checkedAt: evidence.checkedAt.toISOString(), ...(evidence.providerRequestId ? { providerRequestId: evidence.providerRequestId } : {}) };
+  }
 }
 
 @Controller("admin/ai-operations")
@@ -378,6 +434,14 @@ export class AiGradingOperationsController {
   /** Expose answer claim metadata to system administrators without replaying or resetting AI work. */
   documentAnswers(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listDocumentAnswers"]> {
     return this.operations.listDocumentAnswers(query, session);
+  }
+
+  @Post("document-answers/:id/reconcile-not-processed")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Cho phép đúng một lượt hỏi lại sau khi đã xác minh provider chưa xử lý yêu cầu gốc. */
+  reconcileDocumentAnswerNotProcessed(@Param("id") id: string, @Body() input: ReconcileExamNotProcessedDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["reconcileDocumentAnswerNotProcessed"]> {
+    return this.operations.reconcileDocumentAnswerNotProcessed(id, input, session);
   }
 
   @Get("grading")
