@@ -145,8 +145,8 @@ export class AiProviderService {
     const model = input.model.trim();
     if (task === "DOCUMENT_CONTEXT" && provider.provider !== "GEMINI") throw new BadRequestException("Trích xuất tài liệu hiện cần provider Gemini.");
     if (!provider.encryptedApiKey || !model) throw new BadRequestException("Cần provider đang bật, API key và model cho tác vụ AI.");
+    this.assertModelIdentifier(provider.provider, model);
     if (task === "GENERATE_EXAM") await this.readyExamProvider(provider.id, model);
-    else if (provider.provider !== "CUSTOM" && !providerCatalog[provider.provider].some((item) => item.value === model)) throw new BadRequestException("Model không thuộc nhà cung cấp đã chọn.");
     if (task === "GENERATE_EXAM" && provider.provider === "CUSTOM") {
       const helper = input.contextProviderId ? await this.requireReady(input.contextProviderId, true) : undefined;
       if (!helper || helper.provider !== "GEMINI" || !helper.encryptedApiKey) throw new BadRequestException("Sinh đề Custom cần chọn Gemini đang bật để tìm web và đọc tài liệu.");
@@ -165,6 +165,7 @@ export class AiProviderService {
     if (!selected) throw new BadRequestException("Quản trị viên chưa cấu hình AI cho tác vụ này trong Cấu hình hệ thống.");
     const provider = await this.requireReady(selected.providerId, true);
     if (!provider.encryptedApiKey) throw new BadRequestException("Provider AI của tác vụ chưa có API key.");
+    this.assertModelIdentifier(provider.provider, selected.model);
     return selected;
   }
 
@@ -290,7 +291,7 @@ export class AiProviderService {
     const current = input.id ? await this.findStored(input.id) : (await this.readAll()).find((item) => item.provider === input.provider && input.provider !== "CUSTOM");
     const model = input.model.trim();
     if (!model) throw new BadRequestException("Cần chọn hoặc nhập model AI.");
-    if (input.provider !== "CUSTOM" && !providerCatalog[input.provider].some((item) => item.value === model)) throw new BadRequestException("Model không thuộc danh sách được hỗ trợ của nhà cung cấp.");
+    this.assertModelIdentifier(input.provider, model);
     const apiKey = input.apiKey?.trim();
     if (!current?.encryptedApiKey && !apiKey) throw new BadRequestException("Cần nhập API key cho nhà cung cấp.");
     const builtIn = input.provider === "CUSTOM" ? undefined : defaults[input.provider];
@@ -374,7 +375,9 @@ export class AiProviderService {
     if (!(["image/png", "image/jpeg", "image/webp"] as string[]).includes(input.mimeType)) throw new BadRequestException("Chỉ hỗ trợ ảnh PNG, JPEG hoặc WebP.");
     if (!input.buffer.length || input.buffer.length > 12 * 1024 * 1024) throw new BadRequestException("Ảnh quét phải có dung lượng từ 1 byte đến 12 MB.");
     const provider = input.providerId ? await this.requireReady(input.providerId, true) : await this.defaultProvider();
-    const selected = { ...provider, model: input.model ?? provider.model };
+    const model = input.model?.trim() || provider.model;
+    this.assertModelIdentifier(provider.provider, model);
+    const selected = { ...provider, model };
     const raw = await this.invoke(selected, input.buffer, input.mimeType, input.fileName);
     const questions = this.normalizeQuestions(raw);
     if (!questions.length) throw new BadRequestException("AI không nhận diện được câu hỏi nào. Hãy dùng ảnh rõ hơn hoặc đổi model.");
@@ -615,7 +618,7 @@ export class AiProviderService {
     if (selected.provider !== "GEMINI" && selected.provider !== "OPENAI" && selected.provider !== "CUSTOM") throw new BadRequestException("Provider đã chọn chưa hỗ trợ tạo đề từ tài liệu và Internet.");
     if (!selected.enabled || !selected.encryptedApiKey) throw new BadRequestException("Provider AI chưa bật hoặc chưa có API key.");
     const model = requestedModel?.trim() || selected.model;
-    if (!model || (selected.provider !== "CUSTOM" && !providerCatalog[selected.provider].some((item) => item.value === model))) throw new BadRequestException("Model đã chọn không thuộc nhà cung cấp AI này.");
+    this.assertModelIdentifier(selected.provider, model);
     return { ...selected, model };
   }
 
@@ -951,6 +954,14 @@ export class AiProviderService {
       label: (displayName || fallback?.label || value).slice(0, 200),
       description: (upstreamDescription || fallback?.description || (owner ? `Provider owner: ${owner}` : "Model do endpoint nhà cung cấp công bố.")).slice(0, 500),
     };
+  }
+  /** Chấp nhận model mới do provider công bố nhưng chặn ID rỗng, traversal và nhầm rõ model OpenAI vào Gemini. */
+  private assertModelIdentifier(provider: AiProviderType, model: string): void {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(model)
+      || model.includes("..")
+      || (provider === "GEMINI" && !/^(gemini|gemma)-/i.test(model))) {
+      throw new BadRequestException("Định danh model không hợp lệ cho nhà cung cấp đã chọn.");
+    }
   }
   /** Chuyển mã lỗi upstream thành trạng thái API rõ nguyên nhân mà không làm lộ phản hồi nhạy cảm. */
   private throwProviderHttpError(status: number, operation: string): never {
