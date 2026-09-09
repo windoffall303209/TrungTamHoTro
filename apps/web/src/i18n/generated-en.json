@@ -2834,5 +2834,17 @@
   "Tôi xác nhận đã kiểm tra provider và có bằng chứng yêu cầu này chưa được xử lý hoặc tính phí.": "I confirm that I checked the provider and have evidence that this request was not processed or billed.",
   "Endpoint nhà cung cấp không trả về danh sách model hợp lệ.": "The provider endpoint did not return a valid model list.",
   "Không thể kết nối nhà cung cấp để tải danh sách model.": "Could not connect to the provider to load its model list.",
-  "Định danh model không hợp lệ cho nhà cung cấp đã chọn.": "The model identifier is invalid for the selected provider."
+  "Định danh model không hợp lệ cho nhà cung cấp đã chọn.": "The model identifier is invalid for the selected provider.",
+  "{{0}} model từ tài khoản provider. Danh sách phản ánh quyền của API key hiện tại, không bảo đảm mọi model hỗ trợ tác vụ này.": "{{0}} models from the provider account. This list reflects the current API key's access and does not guarantee that every model supports this task.",
+  "Đây là danh sách gợi ý tích hợp, chưa xác nhận model khả dụng cho API key hiện tại.": "This is a curated integration list; it does not confirm which models the current API key can access.",
+  "Hãy lưu cấu hình và API key trước khi tải danh sách model.": "Save the configuration and API key before loading the model list.",
+  "Không tải được danh sách model từ nhà cung cấp.": "Could not load the model list from the provider.",
+  "Lưu cấu hình cùng API key trước để tải danh sách model thực tế.": "Save the configuration with an API key before loading the live model list.",
+  "Model đang được cấu hình; hãy kiểm tra lại khả dụng.": "This model is currently configured; verify that it is still available.",
+  "model từ tài khoản provider. Danh sách phản ánh quyền của API key hiện tại, không bảo đảm mọi model hỗ trợ tác vụ này.": "models from the provider account. This list reflects the current API key's access and does not guarantee that every model supports this task.",
+  "Nhập model": "Enter model",
+  "Nhập model {{0}}": "Enter {{0}} model",
+  "Nhập thủ công hoặc lưu provider rồi tải danh sách từ endpoint /models.": "Enter a model manually, or save the provider and load the list from its /models endpoint.",
+  "Tải danh sách từ tài khoản provider để biết API key hiện tại nhìn thấy model nào. Bạn vẫn có thể nhập model thủ công.": "Load models from the provider account to see what the current API key can access. You can still enter a model manually.",
+  "Tải model từ tài khoản": "Load models from account"
 }
