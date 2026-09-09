@@ -43,7 +43,7 @@ export function MaterialQuestionHistory({ materialId, version, disabled, onSelec
 
   return <details className="mb-5 border-y border-[var(--rule)] py-3">
     <summary className="cursor-pointer py-2 font-semibold">Lịch sử câu hỏi của bạn</summary>
-    <p className="my-3 text-sm leading-6 text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {version}. <span>Chỉ hiện câu hỏi đã lưu lịch sử của phiên bản này. Chọn câu hỏi rồi dùng Kiểm tra kết quả để đọc lại, không gọi AI mới.</span></p>
+    <p className="my-3 text-sm leading-6 text-[var(--ink-soft)]"><span>Phiên bản nguồn</span>: {selectedVersion || "—"}. <span>Chỉ hiện câu hỏi đã lưu lịch sử của phiên bản này. Chọn câu hỏi rồi dùng Kiểm tra kết quả để đọc lại, không gọi AI mới.</span></p>
     <div className="my-3 max-w-xs"><Field label="Phiên bản lịch sử"><input type="number" min={1} max={version} step={1} className={inputClass} value={selectedVersion} disabled={disabled || busy} aria-invalid={!validVersion} onChange={(event) => { setSelectedVersion(event.target.value); setPage(null); setCursors([""]); setError(""); }} /></Field></div>
     <Button type="button" variant="secondary" disabled={disabled || busy || !validVersion} onClick={() => void load([""])}>Tải lịch sử câu hỏi</Button>
     {busy ? <p role="status" className="mt-3 text-sm">Đang đọc lịch sử hỏi đáp…</p> : null}
