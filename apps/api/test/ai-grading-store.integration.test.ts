@@ -16,6 +16,7 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
   let prisma: PrismaService;
   let ownerId: string;
   let submissionId: string;
+  let retryClaimId: string | undefined;
   const assignmentId = `grading-test-${randomUUID()}`;
 
   // Tạo bài nộp riêng trong database test; không gọi provider hoặc sửa điểm của dữ liệu seed.
@@ -30,7 +31,10 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
 
   // Xóa đúng bài tập fixture và các bản ghi phụ thuộc qua cascade.
   afterAll(async () => {
-    if (prisma) await prisma.assignment.deleteMany({ where: { id: assignmentId } });
+    if (prisma) {
+      if (retryClaimId) await prisma.auditLog.deleteMany({ where: { entityId: retryClaimId, action: "AI_GRADING_RETRY_AUTHORIZED" } });
+      await prisma.assignment.deleteMany({ where: { id: assignmentId } });
+    }
     if (moduleRef) await moduleRef.close();
   });
 
@@ -62,6 +66,27 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
     expect(await restarted.find(identity)).toMatchObject({ state: "UNCERTAIN", result: null });
     await expect(restarted.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses evidence authorization once across concurrent retries", async () => {
+    const identity = { ownerId, submissionId, contextHash, language: "BILINGUAL" as const };
+    await expect(new AiGradingStoreService(prisma).generate(identity, () => Promise.reject(new Error("provider did not acknowledge")))).rejects.toThrow("provider did not acknowledge");
+    const claim = await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { fingerprint: (await new AiGradingStoreService(prisma).find(identity))!.fingerprint } });
+    retryClaimId = claim.id;
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: ownerId } } as AuthenticatedSession;
+    await new AiGradingOperationsService(prisma).reconcileGradingNotProcessed(claim.id, {
+      expectedUpdatedAt: claim.updatedAt.toISOString(),
+      evidenceReference: `provider-log-${assignmentId}`,
+      evidenceNote: "Provider dashboard confirms this grading request was not accepted or billed.",
+      checkedAt: new Date(claim.updatedAt.getTime() + 1_000).toISOString(),
+    }, session);
+    const generate = vi.fn().mockResolvedValue(result);
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiGradingStoreService(prisma).generate(identity, generate)));
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(generate).toHaveBeenCalledOnce();
+    expect(await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { id: claim.id } })).toMatchObject({ state: "READY" });
+    expect(await prisma.auditLog.count({ where: { entityId: claim.id, action: "AI_GRADING_RETRY_AUTHORIZED" } })).toBe(1);
   });
 
   it("paginates tied timestamps without leaking saved answers or duplicating rows after a state change", async () => {
