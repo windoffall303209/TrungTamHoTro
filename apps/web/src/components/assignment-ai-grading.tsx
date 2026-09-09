@@ -15,6 +15,14 @@ type Suggestion = {
 };
 type Status = { state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; result?: Suggestion | null };
 type Props = { assignment: Assignment; submission: AssignmentSubmission; onUse: (scores: Record<string, number>, feedback: string) => void };
+const OCR_TYPES: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i };
+
+/** Mirror server attachment limits for immediate guidance; the server remains authoritative. */
+function supportedAttachment(file: AssignmentSubmission["attachments"][number]): boolean {
+  if (!Number.isFinite(file.sizeBytes) || file.sizeBytes <= 0) return false;
+  if (file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)) return file.sizeBytes <= 80_000;
+  return Boolean(Object.hasOwn(OCR_TYPES, file.mimeType) && OCR_TYPES[file.mimeType]!.test(file.originalName) && file.sizeBytes <= 12 * 1024 * 1024);
+}
 
 /** Tách vòng đời theo bài nộp/phiên bản để không mang gợi ý của bài trước sang bài tiếp theo. */
 export function AssignmentAiGrading(props: Props) {
@@ -61,7 +69,8 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
   const [reviewed, setReviewed] = useState(false);
   const [used, setUsed] = useState(false);
   const request = useRef<AbortController | null>(null);
-  const unavailable = submission.attachments.length > 5 || submission.attachments.some((file) => file.mimeType !== "text/plain" || !/\.txt$/i.test(file.originalName) || !Number.isFinite(file.sizeBytes) || file.sizeBytes <= 0 || file.sizeBytes > 80000) || (!submission.attachments.length && !submission.content.trim());
+  const hasOcrSource = submission.attachments.some((file) => Object.hasOwn(OCR_TYPES, file.mimeType));
+  const unavailable = submission.attachments.length > 5 || submission.attachments.some((file) => !supportedAttachment(file)) || submission.attachments.reduce((sum, file) => sum + file.sizeBytes, 0) > 24 * 1024 * 1024 || (!submission.attachments.length && !submission.content.trim());
   useEffect(() => () => { request.current?.abort(); request.current = null; }, []);
 
   /** GET đối soát trạng thái; POST chỉ tạo từ trạng thái chưa yêu cầu, timeout buộc đọc lại thay vì gửi lặp. */
@@ -100,8 +109,9 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
   return <section aria-label="Gợi ý chấm AI" className="space-y-4 border-y border-[var(--rule)] py-5">
     <h3 className="font-bold">Gợi ý chấm AI</h3>
     <p className="text-sm leading-6 text-[var(--ink-soft)]">Gợi ý riêng cho giảng viên, không phải điểm chính thức. AI có thể sai; hãy đối chiếu từng tiêu chí và bài làm.</p>
-    {unavailable ? <p className="text-sm text-[var(--ink-soft)]">AI hỗ trợ văn bản và tối đa 5 tệp TXT UTF-8, mỗi tệp không quá 80.000 byte. Bài có định dạng khác cần chấm thủ công để không bỏ sót nội dung.</p> : <>
-      {submission.attachments.length ? <p className="text-sm leading-6 text-[var(--ink-soft)]">AI đọc toàn bộ phần nhập trực tiếp và các tệp TXT. Tổng giới hạn là 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.</p> : null}
+    {unavailable ? <p className="text-sm text-[var(--ink-soft)]">AI hỗ trợ tối đa 5 tệp TXT, PDF, PNG, JPEG hoặc WebP; tối đa 12 MB mỗi PDF/ảnh và 24 MB toàn bộ tệp. Word và bài vượt giới hạn cần chấm thủ công để không bỏ sót nội dung.</p> : <>
+      {submission.attachments.length ? <p className="text-sm leading-6 text-[var(--ink-soft)]">AI đọc toàn bộ phần nhập trực tiếp và mọi tệp hỗ trợ. Tổng văn bản sau đọc tối đa 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.</p> : null}
+      {hasOcrSource ? <p className="text-sm leading-6 text-[var(--ink-soft)]">PDF và ảnh được AI trích xuất thành văn bản, có thể nhận sai chữ, công thức hoặc bố cục. Tạo gợi ý có thể phát sinh cả phí OCR và phí chấm; hãy mở nguồn bên dưới để đối chiếu trước khi dùng.</p> : null}
       <Field label="Ngôn ngữ gợi ý"><select className={inputClass} disabled={busy} value={language} onChange={(event) => { setLanguage(event.target.value as typeof language); setStatus(null); setError(""); setReviewed(false); setUsed(false); }}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
       <div className="flex flex-wrap gap-3">
         <Button type="button" variant="secondary" disabled={busy} onClick={() => void load(false)}>{busy ? "Đang xử lý gợi ý…" : "Kiểm tra gợi ý đã lưu"}</Button>
@@ -115,7 +125,9 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
         <p className="break-words text-sm text-[var(--ink-soft)]"><span>Model</span>: <span translate="no">{result.model}</span></p>
         {result.sources?.length ? <div className="space-y-2">
           <h4 className="font-semibold">Nguồn dùng để chấm</h4>
-          <p className="text-sm text-[var(--ink-soft)]">Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý.</p>
+          <p className="text-sm text-[var(--ink-soft)]">{hasOcrSource
+            ? "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản PDF/ảnh vẫn là kết quả OCR chưa được xác minh độc lập; mở từng nguồn để kiểm tra trước khi dùng gợi ý."
+            : "Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý."}</p>
           {result.sources.map((source) => <details key={source.attachmentId ?? "inline"} className="border-b border-[var(--rule)] py-2">
             <summary className="cursor-pointer break-words py-2 text-sm font-semibold">{source.attachmentId ? <span translate="no">{source.name}</span> : <span>Nội dung nhập trực tiếp</span>}</summary>
             <p translate="no" className="max-h-64 overflow-auto whitespace-pre-wrap break-words py-3 text-sm leading-6" tabIndex={0}>{source.text}</p>
