@@ -2833,5 +2833,6 @@
   "Tác vụ:": "Task:",
   "Tôi xác nhận đã kiểm tra provider và có bằng chứng yêu cầu này chưa được xử lý hoặc tính phí.": "I confirm that I checked the provider and have evidence that this request was not processed or billed.",
   "Endpoint nhà cung cấp không trả về danh sách model hợp lệ.": "The provider endpoint did not return a valid model list.",
-  "Không thể kết nối nhà cung cấp để tải danh sách model.": "Could not connect to the provider to load its model list."
+  "Không thể kết nối nhà cung cấp để tải danh sách model.": "Could not connect to the provider to load its model list.",
+  "Định danh model không hợp lệ cho nhà cung cấp đã chọn.": "The model identifier is invalid for the selected provider."
 }
