@@ -168,7 +168,7 @@ export class AiGradingOperationsService {
   /** Mở lại claim chỉ sau xác nhận có bằng chứng rằng provider chưa xử lý yêu cầu, đồng thời ghi audit nguyên tử. */
   async reconcileExamNotProcessed(id: string, input: ReconcileExamNotProcessedDto, session: AuthenticatedSession): Promise<ExamOperation> {
     this.validateQuery({ limit: 1 }, session);
-    if (!id || id.length > 177 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new BadRequestException("Mã tác vụ sinh đề AI không hợp lệ.");
+    if (!id || id.length > 86 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new BadRequestException("Mã tác vụ sinh đề AI không hợp lệ.");
     const evidenceReference = input.evidenceReference.trim();
     const evidenceNote = input.evidenceNote.trim();
     const providerRequestId = input.providerRequestId?.trim() || undefined;
