@@ -327,6 +327,21 @@ describe("AI provider configuration and image scanning", () => {
     await expect(service.listModels(provider.id)).rejects.toMatchObject({ status: 503 });
   });
 
+  it.each(["declared", "streamed"] as const)("rejects %s oversized provider model responses", async (responseMode) => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "OPENAI", model: "gpt-4o-mini", apiKey: "oversized-model-list-secret", enabled: true }, "usr-admin");
+    const oversizedPayload = JSON.stringify({ data: [{ id: "gpt-account-model", description: "x".repeat(2 * 1024 * 1024) }] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(oversizedPayload, {
+      status: 200,
+      headers: responseMode === "declared" ? { "content-length": String(Buffer.byteLength(oversizedPayload)) } : undefined,
+    })));
+
+    await expect(service.listModels(provider.id)).rejects.toMatchObject({
+      status: 503,
+      message: "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.",
+    });
+  });
+
   it("keeps provider validation errors as actionable 400 responses", async () => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "CUSTOM", name: "Router", model: "vision", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-9012", enabled: true }, "usr-admin");
