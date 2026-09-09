@@ -1,5 +1,6 @@
 import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, Length, Matches } from "class-validator";
 
+/** Dữ liệu đăng nhập; lớp validation chặn dữ liệu sai trước khi AuthService kiểm tra thông tin bí mật. */
 export class LoginDto {
   @IsString()
   @Length(4, 191, { message: "Tài khoản phải có từ 4 đến 191 ký tự." })
@@ -14,6 +15,7 @@ export class LoginDto {
   rememberMe?: boolean;
 }
 
+/** Dữ liệu tạo tài khoản học viên, gồm quy tắc định dạng tài khoản và độ mạnh mật khẩu. */
 export class RegisterDto {
   @IsString()
   @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
@@ -34,6 +36,7 @@ export class RegisterDto {
   password!: string;
 }
 
+/** Các trường hồ sơ người dùng được phép tự cập nhật. */
 export class UpdateProfileDto {
   @IsString()
   @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
@@ -52,6 +55,7 @@ export class UpdateProfileDto {
   locale!: string;
 }
 
+/** Dữ liệu đổi mật khẩu bằng mật khẩu hiện tại hoặc thử thách email đối với tài khoản Google. */
 export class ChangePasswordDto {
   @IsOptional()
   @IsString()
@@ -141,12 +145,14 @@ export class ChangeVerificationEmailDto {
   password!: string;
 }
 
+/** Mã TOTP sáu chữ số dùng chung cho các bước xác nhận MFA. */
 export class MfaCodeDto {
   @IsString()
   @Matches(/^\d{6}$/, { message: "Mã xác thực phải gồm 6 chữ số." })
   code!: string;
 }
 
+/** Mục đích nghiệp vụ của mã xác thực email nâng cao trước thao tác nhạy cảm. */
 export class SecurityEmailChallengeDto {
   @IsIn(["PASSWORD_CHANGE", "MFA_SETUP", "MFA_DISABLE"], { message: "Mục đích xác thực email không hợp lệ." })
   purpose!: "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE";

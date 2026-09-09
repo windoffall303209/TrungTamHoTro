@@ -1,7 +1,10 @@
 "use client";
 
-import { Bell, Eye, EyeOff, Flag, Lock, MessageCircle, Paperclip, Pencil, Pin, Plus, Send, ShieldCheck, Trash2, Unlock } from "lucide-react";
+import { activeLocale } from "@/i18n/runtime";
+
+import { Eye, EyeOff, Flag, Lock, MessageCircle, Paperclip, Pencil, Pin, Plus, Send, ShieldCheck, Trash2, Unlock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
@@ -12,7 +15,6 @@ import type {
   ContentReport,
   ForumPost,
   ForumTopic,
-  LearningNotification,
   LearningClass,
   Material,
   ModerationContext,
@@ -20,8 +22,10 @@ import type {
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+/** Điều phối thảo luận lớp, thông báo, báo cáo nội dung và quy trình kiểm duyệt. */
 export default function ForumPage() {
   const { session, notify } = useApp();
+  const searchParams = useSearchParams();
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
@@ -31,7 +35,6 @@ export default function ForumPage() {
   const [reports, setReports] = useState<ContentReport[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
-  const [notifications, setNotifications] = useState<LearningNotification[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -62,6 +65,7 @@ export default function ForumPage() {
   });
   const topicPagination = usePagination(topics);
   const postPagination = usePagination(posts);
+  /** Nạp các lớp, chủ đề và hàng đợi kiểm duyệt phù hợp với vai trò. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
@@ -69,7 +73,7 @@ export default function ForumPage() {
     setSelected(null);
     setPosts([]);
     try {
-      const [topicData, classData, reportData, materialData, notificationData] = await Promise.all([
+      const [topicData, classData, reportData, materialData] = await Promise.all([
         apiRequest<ForumTopic[]>("/forum/topics", {
           roleCode: session.roleCode,
         }),
@@ -84,15 +88,13 @@ export default function ForumPage() {
         learner
           ? apiRequest<Material[]>("/materials", { roleCode: session.roleCode })
           : Promise.resolve([]),
-        learner
-          ? apiRequest<LearningNotification[]>("/learner/notifications", { roleCode: session.roleCode })
-          : Promise.resolve([]),
       ]);
       setTopics(topicData);
       setClasses(classData);
       setReports(reportData);
       setMaterials(materialData);
-      setNotifications(notificationData);
+      const requestedClassId = searchParams.get("classId");
+      if (requestedClassId && classData.some((item) => item.id === requestedClassId)) setForm((current) => ({ ...current, classId: requestedClassId }));
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tải được diễn đàn.",
@@ -101,11 +103,12 @@ export default function ForumPage() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, learner, manager, notify, session.roleCode]);
+  }, [allowed, learner, manager, notify, searchParams, session.roleCode]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  /** Chọn chủ đề và nạp toàn bộ bài viết trong luồng thảo luận đó. */
   const choose = useCallback(async (topic: ForumTopic) => {
     setSelected(topic);
     setAttachmentIds([]);
@@ -125,12 +128,14 @@ export default function ForumPage() {
     }
   }, [notify, session.roleCode]);
   useEffect(() => {
-    const firstTopic = topics[0];
+    const requestedClassId = searchParams.get("classId");
+    const firstTopic = topics.find((topic) => topic.classId === requestedClassId) ?? topics[0];
     if (!selected && firstTopic) {
       const timer = window.setTimeout(() => void choose(firstTopic), 0);
       return () => window.clearTimeout(timer);
     }
-  }, [choose, selected, topics]);
+  }, [choose, searchParams, selected, topics]);
+  /** Tạo chủ đề mới trong lớp đang chọn rồi mở ngay luồng vừa tạo. */
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -157,6 +162,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Đăng bài hoặc phản hồi vào chủ đề hiện tại và đồng bộ lại luồng. */
   const createPost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected) return;
@@ -184,6 +190,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Lưu nội dung chỉnh sửa của bài viết thuộc quyền người dùng. */
   const updatePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingPost || !selected) return;
@@ -192,6 +199,7 @@ export default function ForumPage() {
       setEditingPost(null); setEditBody(""); notify("Đã sửa phản hồi và lưu lịch sử phiên bản."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không sửa được phản hồi.", "error"); }
   };
+  /** Xóa mềm bài viết sau xác nhận rồi nạp lại chủ đề để phản ánh trạng thái. */
   const deletePost = async (item: ForumPost) => {
     if (!selected) return;
     try {
@@ -199,6 +207,7 @@ export default function ForumPage() {
       notify("Đã xóa mềm phản hồi; cấu trúc hội thoại vẫn được giữ."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không xóa được phản hồi.", "error"); }
   };
+  /** Áp dụng thao tác kiểm duyệt ở cấp chủ đề cùng lý do bắt buộc. */
   const moderateTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !topicAction) return;
@@ -207,6 +216,7 @@ export default function ForumPage() {
       setSelected(updated); setTopics((current) => current.map((item) => item.id === updated.id ? updated : item)); setTopicAction(null); setTopicReason(""); notify("Đã cập nhật trạng thái chủ đề và ghi audit.");
     } catch (error) { notify(error instanceof Error ? error.message : "Không điều phối được chủ đề.", "error"); }
   };
+  /** Ẩn bài vi phạm và lưu lý do phục vụ nhật ký kiểm duyệt. */
   const hidePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!hideTarget || !selected) return;
@@ -215,20 +225,7 @@ export default function ForumPage() {
       setHideTarget(null); setHideReason(""); notify("Đã ẩn phản hồi và ghi lý do kiểm duyệt."); await choose(selected);
     } catch (error) { notify(error instanceof Error ? error.message : "Không ẩn được phản hồi.", "error"); }
   };
-  const markNotificationRead = async (item: LearningNotification) => {
-    if (item.readAt) return;
-    try {
-      const updated = await apiRequest<LearningNotification>(
-        `/learner/notifications/${item.id}/read`,
-        { method: "PATCH", roleCode: session.roleCode },
-      );
-      setNotifications((current) =>
-        current.map((candidate) => candidate.id === item.id ? updated : candidate),
-      );
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không cập nhật được thông báo.", "error");
-    }
-  };
+  /** Gửi báo cáo nội dung vào hàng đợi xử lý của quản trị viên. */
   const report = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reportTarget) return;
@@ -253,6 +250,7 @@ export default function ForumPage() {
       );
     }
   };
+  /** Mở hồ sơ kiểm duyệt và nạp ngữ cảnh nội dung bị báo cáo. */
   const openModeration = async (item: ContentReport) => {
     try {
       setSubmitting(true);
@@ -270,6 +268,7 @@ export default function ForumPage() {
       setSubmitting(false);
     }
   };
+  /** Kết luận báo cáo bằng quyết định và biện pháp xử lý được chọn. */
   const resolve = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!moderationTarget) return;
@@ -286,6 +285,7 @@ export default function ForumPage() {
       setSubmitting(false);
     }
   };
+  /** Gửi khiếu nại đối với quyết định kiểm duyệt để chuyển sang vòng xem xét tiếp theo. */
   const appeal = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!appealTarget) return;
@@ -318,25 +318,6 @@ export default function ForumPage() {
           ) : undefined
         }
       />
-      {learner && notifications.length ? (
-        <section className="mb-6 border-y border-slate-200 py-3">
-          <div className="flex items-center gap-2 text-sm font-bold text-sky-700">
-            <Bell size={14} /> Thông báo diễn đàn
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {notifications.map((item) => (
-              <button
-                className={`min-h-11 rounded-xl px-3 py-2 text-xs font-bold ${item.readAt ? "bg-[var(--surface-muted)] text-[var(--ink-soft)]" : "bg-[var(--accent-soft-strong)] text-[var(--accent-ink)]"}`}
-                key={item.id}
-                onClick={() => void markNotificationRead(item)}
-                type="button"
-              >
-                {item.title}{item.readAt ? " · Đã đọc" : " · Mới"}
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
       {manager && reports.length ? (
         <section className="mb-7">
           <h2 className="mb-3 text-lg font-extrabold tracking-tight text-rose-700">
@@ -435,9 +416,9 @@ export default function ForumPage() {
                           </div>
                         ) : null}
                         <p className="mt-2 text-[10px] font-bold text-slate-400">
-                          {new Date(item.createdAt).toLocaleString("vi-VN")}{item.editedAt ? ` · đã sửa ${item.editCount ?? 1} lần` : ""}{item.deletedAt ? " · đã xóa mềm" : ""}
+                          {new Date(item.createdAt).toLocaleString(activeLocale())}{item.editedAt ? ` · đã sửa ${item.editCount ?? 1} lần` : ""}{item.deletedAt ? " · đã xóa mềm" : ""}
                         </p>
-                        {!item.deletedAt && item.status === "VISIBLE" ? <div className="mt-2 flex flex-wrap gap-1">{learner && !selected.isLocked ? <><button className="action-link" onClick={() => setReplyTo(item)} type="button">Trả lời</button>{item.authorId === "usr-learner" ? <><button className="action-link text-amber-700" onClick={() => { setEditingPost(item); setEditBody(item.body); }} type="button"><Pencil size={12} />Sửa</button><button className="action-link text-rose-700" onClick={() => void deletePost(item)} type="button"><Trash2 size={12} />Xóa</button></> : null}</> : null}{instructor ? <button className="action-link text-rose-700" onClick={() => setHideTarget(item)} type="button"><EyeOff size={12} />Ẩn có lý do</button> : null}</div> : null}
+                        {!item.deletedAt && item.status === "VISIBLE" ? <div className="mt-2 flex flex-wrap gap-1">{learner && !selected.isLocked ? <><button className="action-link" onClick={() => setReplyTo(item)} type="button">Trả lời</button>{item.authorId === session.user.id ? <><button className="action-link text-amber-700" onClick={() => { setEditingPost(item); setEditBody(item.body); }} type="button"><Pencil size={12} />Sửa</button><button className="action-link text-rose-700" onClick={() => void deletePost(item)} type="button"><Trash2 size={12} />Xóa</button></> : null}</> : null}{instructor ? <button className="action-link text-rose-700" onClick={() => setHideTarget(item)} type="button"><EyeOff size={12} />Ẩn có lý do</button> : null}</div> : null}
                       </article>
                     ))
                   ) : (
@@ -484,7 +465,7 @@ export default function ForumPage() {
                           onChange={(event) => setMentionedUserIds(Array.from(event.target.selectedOptions, (option) => option.value))}
                         >
                           {[...(classes.find((item) => item.id === selected.classId)?.learnerIds ?? []), ...(classes.find((item) => item.id === selected.classId)?.instructorIds ?? [])]
-                            .filter((userId) => userId !== "usr-learner")
+                            .filter((userId) => userId !== session.user.id)
                             .map((userId) => <option key={userId} value={userId}>{userId}</option>)}
                         </select>
                       </Field>

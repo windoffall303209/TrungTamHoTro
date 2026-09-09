@@ -1,3 +1,4 @@
+/** Hợp đồng phiên, vai trò và quyền dùng chung cho RBAC phía giao diện. */
 export type RoleCode = "SYSTEM_ADMIN" | "CENTER_MANAGER" | "INSTRUCTOR" | "LEARNER";
 
 export type PermissionCode =
@@ -16,6 +17,7 @@ export interface SessionUser {
   email: string;
   roleName: string;
   avatarUrl?: string | null;
+  locale?: "vi-VN" | "en-US";
 }
 
 export interface SessionData {
@@ -61,7 +63,9 @@ export interface IdentityUser {
   displayName: string;
   email: string;
   roleCode: RoleCode;
+  roleCodes: RoleCode[];
   status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
+  invitationSent?: boolean;
   createdAt: string;
   updatedAt: string;
 }

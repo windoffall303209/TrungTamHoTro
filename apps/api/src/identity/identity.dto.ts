@@ -1,10 +1,37 @@
-import { ArrayUnique, IsArray, IsEmail, IsIn, IsOptional, IsString, Length, Matches } from "class-validator";
-import { PERMISSIONS, ROLE_CODES, type PermissionCode, type RoleCode } from "../auth/permissions.js";
+import {
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  MinLength,
+} from "class-validator";
+import { Transform, type TransformFnParams } from "class-transformer";
+import {
+  PERMISSIONS,
+  ROLE_CODES,
+  type PermissionCode,
+  type RoleCode,
+} from "../auth/permissions.js";
 import type { AccountStatus } from "./identity.types.js";
 
+/** Chuẩn hóa query vai trò từ mảng hoặc chuỗi phân tách bằng dấu phẩy. */
+function normalizeRoleCodes(value: unknown): string[] {
+  const values: unknown[] = Array.isArray(value) ? value as unknown[] : String(value).split(",");
+  return values.map((item) => String(item).trim()).filter(Boolean);
+}
+
+/** Dữ liệu quản trị dùng để tạo người dùng và gán một hoặc nhiều vai trò ban đầu. */
 export class CreateUserDto {
   @IsString()
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự hợp lệ." })
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, {
+    message: "Tài khoản phải có 4–32 ký tự hợp lệ.",
+  })
   username!: string;
 
   @IsString()
@@ -18,11 +45,19 @@ export class CreateUserDto {
   roleCode!: RoleCode;
 
   @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsIn(ROLE_CODES, { each: true })
+  roleCodes?: RoleCode[];
+
+  @IsOptional()
   @IsString()
   @Length(8, 128)
   initialPassword?: string;
 }
 
+/** Các thuộc tính tài khoản quản trị viên được phép thay đổi. */
 export class UpdateUserDto {
   @IsOptional()
   @IsString()
@@ -34,10 +69,47 @@ export class UpdateUserDto {
   roleCode?: RoleCode;
 
   @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsIn(ROLE_CODES, { each: true })
+  roleCodes?: RoleCode[];
+
+  @IsOptional()
   @IsIn(["ACTIVE", "INACTIVE", "LOCKED"])
   status?: AccountStatus;
+
+  @IsOptional()
+  @IsString()
+  @Length(64, 64)
+  impactToken?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  handoffUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(5)
+  @MaxLength(1000)
+  handoffReason?: string;
 }
 
+/** Trạng thái đích dùng để xem trước ảnh hưởng trước khi lưu. */
+export class UserChangeImpactQueryDto {
+  @IsOptional() @IsIn(ROLE_CODES) roleCode?: RoleCode;
+  @IsOptional()
+  @Transform(({ value }: TransformFnParams) => normalizeRoleCodes(value as unknown))
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsIn(ROLE_CODES, { each: true })
+  roleCodes?: RoleCode[];
+  @IsOptional() @IsIn(["ACTIVE", "INACTIVE", "LOCKED"]) status?: AccountStatus;
+}
+
+/** Hợp đồng nội bộ gồm vai trò và tập quyền duy nhất đã kiểm tra theo danh mục. */
 export class UpdateRolePermissionsDto {
   @IsIn(ROLE_CODES)
   roleCode!: RoleCode;
@@ -48,6 +120,7 @@ export class UpdateRolePermissionsDto {
   permissions!: PermissionCode[];
 }
 
+/** Body cập nhật quyền; roleCode được lấy từ tham số đường dẫn. */
 export class UpdatePermissionsBodyDto {
   @IsArray()
   @ArrayUnique()

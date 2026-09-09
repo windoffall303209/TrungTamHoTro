@@ -23,6 +23,7 @@ if (!["http:", "https:"].includes(target.protocol)) throw new Error("--url chỉ
 const durations = [];
 let nextIndex = 0;
 let failed = 0;
+/** Lấy tuần tự chỉ mục dùng chung, gửi request và thu thời gian của từng mẫu tải. */
 async function worker() {
   while (nextIndex < total) {
     const index = nextIndex++;
@@ -42,6 +43,7 @@ async function worker() {
 
 await Promise.all(Array.from({ length: Math.min(concurrency, total) }, () => worker()));
 durations.sort((a, b) => a - b);
+/** Lấy percentile theo nearest-rank trên dãy thời gian đã sắp xếp. */
 const percentile = (value) => durations[Math.min(durations.length - 1, Math.ceil(durations.length * value) - 1)] ?? 0;
 const result = { url: target.toString(), requests: total, concurrency, failed, p50Ms: Math.round(percentile(0.5) * 100) / 100, p95Ms: Math.round(percentile(0.95) * 100) / 100, p99Ms: Math.round(percentile(0.99) * 100) / 100 };
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
