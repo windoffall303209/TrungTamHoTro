@@ -59,8 +59,8 @@ export class SystemController {
   @Post("ai-providers") @RequirePermissions("system:configure") configureAiProvider(@Body() input: ConfigureAiProviderDto, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.configure(input, session.user.id); }
   /** Gọi thử provider với request sức khỏe và lưu trạng thái kết nối. */
   @Post("ai-providers/:providerId/test") @RequirePermissions("system:configure") testAiProvider(@Param("providerId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<AiProviderConfig> { return this.aiProviders.test(id, session.user.id); }
-  /** Tải danh sách model mà endpoint Custom công bố qua API OpenAI-compatible. */
-  @Get("ai-providers/:providerId/models") @RequirePermissions("system:configure") discoverAiProviderModels(@Param("providerId") id: string): ReturnType<AiProviderService["discoverModels"]> { return this.aiProviders.discoverModels(id); }
+  /** Tải danh sách model provider hiện công bố; Gemini dùng models.list, provider khác dùng OpenAI-compatible /models. */
+  @Get("ai-providers/:providerId/models") @RequirePermissions("system:configure") discoverAiProviderModels(@Param("providerId") id: string): ReturnType<AiProviderService["listModels"]> { return this.aiProviders.listModels(id); }
   /** Xóa cấu hình AI và secret liên quan. */
   @Delete("ai-providers/:providerId") @RequirePermissions("system:configure") async removeAiProvider(@Param("providerId") id: string): Promise<{ removed: true }> { await this.aiProviders.remove(id); return { removed: true }; }
   /** Bật hoặc tắt tích hợp phòng học. */

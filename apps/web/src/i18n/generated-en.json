@@ -2831,5 +2831,7 @@
   "Nêu nguồn nhật ký đã kiểm tra và căn cứ xác nhận provider chưa xử lý yêu cầu.": "State which logs were checked and why they prove the provider did not process the request.",
   "Nếu provider đã xử lý nhưng phản hồi bị mất, mở lại có thể tạo thêm chi phí và nội dung trùng.": "If the provider processed the request but its response was lost, reopening may create duplicate content and charges.",
   "Tác vụ:": "Task:",
-  "Tôi xác nhận đã kiểm tra provider và có bằng chứng yêu cầu này chưa được xử lý hoặc tính phí.": "I confirm that I checked the provider and have evidence that this request was not processed or billed."
+  "Tôi xác nhận đã kiểm tra provider và có bằng chứng yêu cầu này chưa được xử lý hoặc tính phí.": "I confirm that I checked the provider and have evidence that this request was not processed or billed.",
+  "Endpoint nhà cung cấp không trả về danh sách model hợp lệ.": "The provider endpoint did not return a valid model list.",
+  "Không thể kết nối nhà cung cấp để tải danh sách model.": "Could not connect to the provider to load its model list."
 }
