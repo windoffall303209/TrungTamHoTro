@@ -108,6 +108,39 @@ describe("admin AI grading queue", () => {
     expect(screen.getByRole("combobox", { name: "Trạng thái tác vụ AI" })).toHaveValue("");
   });
 
+  it("reopens an uncertain canonical exam claim only after explicit evidence and confirmation", async () => {
+    const exam = { id: "exam-uncertain", ownerId: "teacher", version: 7, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt };
+    api.mockResolvedValueOnce({ items: [exam], nextCursor: null }).mockResolvedValueOnce({ ...exam, version: 8, state: "CLAIMED", updatedAt: "2026-09-09T02:00:00Z" });
+    render(<AiGradingOperations />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText(exam.id);
+    fireEvent.click(screen.getByRole("button", { name: "Mở lại bằng bằng chứng" }));
+    expect(screen.getByRole("dialog", { name: "Đối soát tác vụ sinh đề" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ghi bằng chứng và mở lại" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Mã bằng chứng hoặc nhật ký" }), { target: { value: "provider-log-001" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Mã yêu cầu provider — nếu có" }), { target: { value: "provider-request-001" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Kết quả kiểm tra" }), { target: { value: "Provider dashboard confirms the request was not accepted or billed." } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Ghi bằng chứng và mở lại" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Hệ thống chưa gọi AI");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Đã giữ khóa, chưa bắt đầu sinh", { selector: "p" })).toBeInTheDocument();
+    expect(api.mock.calls[1]?.[0]).toBe("/admin/ai-operations/exams/exam-uncertain/reconcile-not-processed");
+    expect(api.mock.calls[1]?.[1]).toMatchObject({ roleCode: "SYSTEM_ADMIN", method: "POST" });
+    expect(JSON.parse(String(api.mock.calls[1]?.[1].body))).toMatchObject({ expectedVersion: 7, evidenceReference: "provider-log-001", providerRequestId: "provider-request-001", evidenceNote: "Provider dashboard confirms the request was not accepted or billed." });
+  });
+
+  it.each(["unlinked", "broken"])("does not offer evidence recovery outside the canonical scope: %s", async (selectedScope) => {
+    api.mockResolvedValueOnce({ items: [{ id: "affected", ownerId: "teacher", version: 2, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt }], nextCursor: null });
+    render(<AiGradingOperations />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: "exams" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Phạm vi đối soát sinh đề" }), { target: { value: selectedScope } });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText("affected");
+    expect(screen.queryByRole("button", { name: "Mở lại bằng bằng chứng" })).not.toBeInTheDocument();
+  });
+
   it("navigates cursor pages and resets old results when changing filters", async () => {
     api.mockResolvedValueOnce({ items: [row], nextCursor: "cursor / 1" }).mockResolvedValueOnce({ items: [{ ...row, id: "claim-2" }], nextCursor: null });
     render(<AiGradingOperations />);
