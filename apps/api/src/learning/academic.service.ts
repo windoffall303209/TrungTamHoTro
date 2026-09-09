@@ -963,7 +963,7 @@ export class AcademicService {
       if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
       return base;
     }
-    if (submission.attachments.length > 5 || submission.attachments.some((file) => !(file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)) && !(readDocument && isGradingDocument(file.mimeType, file.originalName)))) throw new BadRequestException("Chấm AI hiện hỗ trợ văn bản và tệp TXT UTF-8. Hãy chấm thủ công các định dạng khác để không bỏ sót nội dung tệp.");
+    if (submission.attachments.length > 5 || submission.attachments.some((file) => !(file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)) && !(readDocument && isGradingDocument(file.mimeType, file.originalName)))) throw new BadRequestException("Chấm AI hỗ trợ văn bản, TXT, DOCX, PDF và ảnh PNG/JPEG/WebP. Hãy chấm thủ công Word DOC cũ hoặc định dạng khác để không bỏ sót nội dung tệp.");
     if (submission.attachments.some((file) => file.mimeType === "text/plain" && (file.sizeBytes <= 0n || file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT)))) throw new BadRequestException("Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.");
     if (submission.attachments.some((file) => file.sizeBytes <= 0n || file.sizeBytes > 12n * 1024n * 1024n) || submission.attachments.reduce((sum, file) => sum + file.sizeBytes, 0n) > 24n * 1024n * 1024n) throw new BadRequestException("Tệp trích xuất cho chấm AI phải từ 1 byte đến 12 MB, tổng không quá 24 MB.");
     const sources: GradingAnswerSource[] = submission.content.trim() ? [{ attachmentId: null, name: "Nội dung bài làm", checksum: null, text: submission.content }] : [];
