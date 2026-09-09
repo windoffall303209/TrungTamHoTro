@@ -40,6 +40,36 @@ type DocumentAnswerOperation = Omit<ExamOperation, "state"> & { state: "GENERATI
 export class AiGradingOperationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** List OCR metadata only; READY is a storage label, not an independent assessment of transcription accuracy. */
+  async listExtractions(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
+    const limit = this.validateQuery(query, session);
+    const anchor = query.cursor ? (await this.extractionRows(Prisma.sql`r.\`key\` = ${`ai-doc:${query.cursor}`}`, 1))[0] : undefined;
+    if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
+    const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-doc:${anchor.id}`}))` : Prisma.empty;
+    const rows = await this.extractionRows(Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`, limit + 1);
+    const items = rows.slice(0, limit);
+    return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
+  }
+
+  /** Project claim metadata without loading pages; legacy array snapshots are listed under READY. */
+  private extractionRows(filter: Prisma.Sql, limit: number): Promise<DocumentAnswerOperation[]> {
+    return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
+      SELECT SUBSTRING(r.\`key\`, 8) AS id, r.updated_by AS ownerId,
+        r.claim_state AS state, r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      FROM (
+        SELECT \`key\`, updated_by, version, effective_at, updated_at,
+          CASE WHEN JSON_TYPE(value) = 'ARRAY' THEN 'READY'
+            WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('GENERATING', 'READY')
+            THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
+        FROM system_settings WHERE \`key\` LIKE 'ai-doc:%'
+      ) r
+      WHERE ${filter}
+      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      LIMIT ${limit}
+    `);
+  }
+
   /** Inspect private answer claims without loading questions, answers, citations or provider configuration. */
   async listDocumentAnswers(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery(query, session);
@@ -171,6 +201,14 @@ export class AiGradingOperationsService {
 /** API đối soát read-only; không có route reset, retry hoặc xóa claim. */
 export class AiGradingOperationsController {
   constructor(private readonly operations: AiGradingOperationsService) {}
+
+  @Get("extractions")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Expose read-only OCR reconciliation to system administrators without document text. */
+  extractions(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listExtractions"]> {
+    return this.operations.listExtractions(query, session);
+  }
 
   @Get("document-answers")
   @RequirePermissions("system:configure")
