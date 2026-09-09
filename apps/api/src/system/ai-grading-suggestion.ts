@@ -16,12 +16,21 @@ const outputSchema = z.object({
 export type GradingSuggestionInput = z.infer<typeof inputSchema>;
 export type GradingSuggestion = z.infer<typeof outputSchema> & { suggestedTotal: number | null; requiresHumanReview: true };
 
+/** Validate assignment rules before chargeable extraction, using the same schema as final grading input. */
+export function validateGradingDefinition(raw: unknown): Pick<GradingSuggestionInput, "instructions" | "rubric"> {
+  const parsed = inputSchema.pick({ instructions: true, rubric: true }).safeParse(raw);
+  if (!parsed.success) throw new BadRequestException("Bài làm hoặc rubric cho gợi ý chấm AI không hợp lệ.");
+  const input = parsed.data;
+  if (new Set(input.rubric.map((criterion) => criterion.id)).size !== input.rubric.length || input.rubric.reduce((sum, criterion) => sum + Math.round(criterion.maxPoints * 100), 0) > 100000) throw new BadRequestException("Rubric phải có mã tiêu chí duy nhất và tổng điểm không vượt 1.000.");
+  return input;
+}
+
 /** Xác thực rubric và bài làm trước khi gọi provider; không tự cắt mất nội dung để chấm. */
 export function validateGradingInput(raw: unknown): GradingSuggestionInput {
   const parsed = inputSchema.safeParse(raw);
   if (!parsed.success) throw new BadRequestException("Bài làm hoặc rubric cho gợi ý chấm AI không hợp lệ.");
   const input = parsed.data;
-  if (new Set(input.rubric.map((criterion) => criterion.id)).size !== input.rubric.length || input.rubric.reduce((sum, criterion) => sum + Math.round(criterion.maxPoints * 100), 0) > 100000) throw new BadRequestException("Rubric phải có mã tiêu chí duy nhất và tổng điểm không vượt 1.000.");
+  validateGradingDefinition({ instructions: input.instructions, rubric: input.rubric });
   return input;
 }
 
