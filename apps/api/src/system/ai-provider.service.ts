@@ -124,6 +124,7 @@ const defaults: Record<Exclude<AiProviderType, "CUSTOM">, { name: string; model:
   NVIDIA_NIM: { name: "NVIDIA NIM", model: "meta/muse-glimmer-30b", baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions" },
   OPENAI: { name: "OpenAI", model: "gpt-5.6-terra", baseUrl: "https://api.openai.com/v1/chat/completions" },
 };
+const MAX_PROVIDER_MODEL_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 @Injectable()
 /** Quản lý cấu hình AI đã mã hóa và điều phối scan ảnh qua Gemini, NVIDIA NIM, OpenAI hoặc endpoint custom. */
@@ -353,8 +354,8 @@ export class AiProviderService {
         : { accept: "application/json", authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(30_000),
     }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối nhà cung cấp để tải danh sách model."); });
-    const payload = await response.json().catch(() => undefined) as { data?: unknown; models?: unknown } | undefined;
     if (!response.ok) this.throwProviderHttpError(response.status, "tải danh sách model");
+    const payload = await this.readProviderModelPayload(response);
     const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
     const curated = provider.provider === "CUSTOM" ? new Map<string, AiModelOption>() : new Map(providerCatalog[provider.provider].map((item) => [item.value, item]));
     const models = new Map<string, AiModelOption>();
@@ -954,6 +955,43 @@ export class AiProviderService {
       label: (displayName || fallback?.label || value).slice(0, 200),
       description: (upstreamDescription || fallback?.description || (owner ? `Provider owner: ${owner}` : "Model do endpoint nhà cung cấp công bố.")).slice(0, 500),
     };
+  }
+  /** Đọc JSON danh sách model theo luồng có giới hạn để endpoint lỗi không làm chiếm bộ nhớ tùy ý. */
+  private async readProviderModelPayload(response: Response): Promise<{ data?: unknown; models?: unknown } | undefined> {
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_PROVIDER_MODEL_RESPONSE_BYTES) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new ServiceUnavailableException("Danh sách model từ nhà cung cấp vượt giới hạn an toàn.");
+    }
+    if (!response.body) return undefined;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > MAX_PROVIDER_MODEL_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new ServiceUnavailableException("Danh sách model từ nhà cung cấp vượt giới hạn an toàn.");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      return JSON.parse(new TextDecoder().decode(bytes)) as { data?: unknown; models?: unknown };
+    } catch {
+      return undefined;
+    }
   }
   /** Chấp nhận model mới do provider công bố nhưng chặn ID rỗng, traversal và nhầm rõ model OpenAI vào Gemini. */
   private assertModelIdentifier(provider: AiProviderType, model: string): void {
