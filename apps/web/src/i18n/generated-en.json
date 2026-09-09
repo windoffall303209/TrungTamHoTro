@@ -1,4 +1,5 @@
 {
+  "Phiên bản tài liệu không hợp lệ.": "The document version is invalid.",
   "Admin cần chọn Gemini hỗ trợ ngữ cảnh cho model Custom.": "The administrator must select Gemini context support for the Custom model.",
   "AI không trả lời tài liệu bằng văn bản hợp lệ.": "The AI did not return a valid text answer for the document.",
   "AI trả lời nhưng không cung cấp trích dẫn. Kết quả chưa được chấp nhận.": "The AI answered without citations. The result has not been accepted.",
