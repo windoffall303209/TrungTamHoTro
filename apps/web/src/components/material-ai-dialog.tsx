@@ -27,6 +27,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [checking, setChecking] = useState(false);
+  const [answerVersion, setAnswerVersion] = useState(material.version);
   const [result, setResult] = useState<{ question: string; answer: Answer } | null>(null);
   const inFlight = useRef(false);
   const questionInput = useRef<HTMLTextAreaElement>(null);
@@ -35,6 +36,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   const ask = async (event: React.SyntheticEvent, checkOnly = false) => {
     event.preventDefault();
     if (inFlight.current) return;
+    if (!checkOnly && answerVersion !== material.version) return;
     const text = question.trim();
     if (text.length < 2 || text.length > 2000) { setError("Câu hỏi cần từ 2 đến 2.000 ký tự."); return; }
     inFlight.current = true;
@@ -43,7 +45,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
     const timeout = window.setTimeout(() => controller.abort(), 120_000);
     try {
       if (checkOnly) {
-        const status = await apiRequest<{ state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: Answer }>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question/status`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language }) });
+        const status = await apiRequest<{ state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: Answer }>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question/status`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language, ...(answerVersion !== material.version ? { version: answerVersion } : {}) }) });
         if (status.state === "READY") setResult({ question: text, answer: status.result });
         else setStatusMessage(status.state === "NOT_REQUESTED" ? "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới." : status.state === "GENERATING" ? "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau." : "Kết quả chưa xác định. Liên hệ quản trị viên đối soát; không tự gọi lại AI.");
         return;
@@ -69,15 +71,16 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
     <p className="mb-5 text-sm leading-6 text-[var(--ink-soft)]">AI chỉ trả lời từ tài liệu này, không tìm trên internet. Việc gửi câu hỏi có thể phát sinh phí trích xuất và trả lời theo cấu hình của quản trị viên.</p>
     {mode === "QA" ? <MaterialQuestionHistory key={`${session.user?.id}:${material.id}:${material.version}`} materialId={material.id} version={material.version} disabled={busy} onSelect={(entry) => {
       if (inFlight.current) return;
-      setQuestion(entry.question); setLanguage(entry.language); setError(""); setStatusMessage(""); setResult(null);
+      setQuestion(entry.question); setLanguage(entry.language); setAnswerVersion(entry.version); setError(""); setStatusMessage(""); setResult(null);
       questionInput.current?.focus();
     }} /> : null}
+    {answerVersion !== material.version ? <div className="mb-4 space-y-2"><p className="text-sm"><span>Chỉ đọc kết quả phiên bản cũ</span>: {answerVersion}</p><Button type="button" variant="secondary" disabled={busy} onClick={() => { setAnswerVersion(material.version); setResult(null); setStatusMessage(""); }}>Dùng phiên bản hiện tại</Button></div> : null}
     <form onSubmit={(event) => void ask(event)} onChange={() => { setStatusMessage(""); setResult(null); }} className="space-y-4">
       <Field label="Câu hỏi về tài liệu"><textarea ref={questionInput} className={inputClass} rows={3} required minLength={2} maxLength={2000} disabled={busy} value={question} onChange={(event) => setQuestion(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "material-ai-error" : undefined} /></Field>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <Field label="Ngôn ngữ trả lời"><select className={inputClass} disabled={busy} value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
         <Button type="button" variant="secondary" disabled={busy || question.trim().length < 2} onClick={(event) => void ask(event, true)}>Kiểm tra kết quả</Button>
-        <Button type="submit" loading={busy && !checking} disabled={busy || question.trim().length < 2}>{busy && !checking ? "Đang đọc và trả lời…" : "Gửi câu hỏi"}</Button>
+        <Button type="submit" loading={busy && !checking} disabled={busy || question.trim().length < 2 || answerVersion !== material.version}>{busy && !checking ? "Đang đọc và trả lời…" : "Gửi câu hỏi"}</Button>
       </div>
       {busy ? <p role="status" className="text-sm text-[var(--ink-soft)]">{checking ? "Đang kiểm tra kết quả đã lưu, không gọi AI mới…" : "Lần đầu có thể lâu hơn vì cần trích xuất tài liệu. Vui lòng giữ cửa sổ này mở."}</p> : null}
       {statusMessage ? <p role="status" className="text-sm leading-6 text-[var(--ink-soft)]">{statusMessage}</p> : null}

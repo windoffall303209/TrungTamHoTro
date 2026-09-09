@@ -12,6 +12,25 @@ const material = { id: "material-1", name: "Lesson.pdf", version: 4 } as Materia
 const response = { answer: "Answer <script>unsafe()</script>", warning: "Verify original", version: 3, insufficientContext: false, citations: [{ id: "chunk-1", materialId: "material-1", version: 3, name: "Lesson.pdf", page: 2, text: "Source passage" }] };
 
 describe("MaterialAiDialog", () => {
+  it("reads an older version without allowing generation until explicitly returning to current", async () => {
+    apiRequest.mockResolvedValueOnce({ items: [{ id: "a".repeat(64), question: "Old question?", language: "EN", state: "READY", createdAt: "2026-09-09T00:00:00Z" }], nextCursor: null });
+    render(<MaterialAiDialog material={material} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Lịch sử câu hỏi của bạn"));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Phiên bản lịch sử" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lịch sử câu hỏi" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Chọn câu hỏi này" }));
+    expect(apiRequest.mock.calls[0]?.[0]).toBe("/instructor/materials/material-1/ai-questions?version=2");
+    expect(screen.getByRole("button", { name: "Gửi câu hỏi" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    apiRequest.mockResolvedValueOnce({ state: "NOT_REQUESTED" });
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra kết quả" }));
+    await screen.findByText("Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới.");
+    expect(apiRequest).toHaveBeenLastCalledWith("/instructor/materials/material-1/ai-question/status", expect.objectContaining({ body: JSON.stringify({ question: "Old question?", language: "EN", version: 2 }) }));
+    fireEvent.click(screen.getByRole("button", { name: "Dùng phiên bản hiện tại" }));
+    expect(screen.getByRole("button", { name: "Gửi câu hỏi" })).toBeEnabled();
+    expect(apiRequest).toHaveBeenCalledTimes(2);
+  });
   it("restores a historical question and language without sending it automatically", async () => {
     apiRequest.mockResolvedValueOnce({ items: [{ id: "a".repeat(64), question: "Historical question?", language: "EN", state: "READY", createdAt: "2026-09-09T00:00:00Z" }], nextCursor: null });
     render(<MaterialAiDialog material={material} onClose={vi.fn()} />);
