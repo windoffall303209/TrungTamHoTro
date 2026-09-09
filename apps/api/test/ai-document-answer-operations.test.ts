@@ -9,7 +9,7 @@ import { AiGradingOperationsController, AiGradingOperationsService } from "../sr
 
 const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: "admin" } } as AuthenticatedSession;
 
-describe("Document answer operations HTTP contract", () => {
+describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route: "extractions", prefix: "ai-doc:" }])("Document operations HTTP contract: $route", ({ route, prefix }) => {
   let app: INestApplication;
   let url: string;
   const queryRaw = vi.fn();
@@ -35,7 +35,7 @@ describe("Document answer operations HTTP contract", () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
     await app.listen(0, "127.0.0.1");
-    url = `${await app.getUrl()}/admin/ai-operations/document-answers`;
+    url = `${await app.getUrl()}/admin/ai-operations/${route}`;
   });
   // Close the test server without touching application data.
   afterAll(async () => { await app?.close(); });
@@ -50,8 +50,8 @@ describe("Document answer operations HTTP contract", () => {
     expect(await response.json()).toEqual({ items: [JSON.parse(JSON.stringify(row))], nextCursor: null });
     expect(queryRaw).toHaveBeenCalledTimes(1);
     const sql = queryRaw.mock.calls[0]![0] as { sql: string; values: unknown[] };
-    expect(sql.sql).toContain("LIKE 'ai-doc-answer:%'");
-    expect(sql.sql).not.toMatch(/\$\.(result|question|citations)|SELECT\s+\*/i);
+    expect(sql.sql).toContain(`LIKE '${prefix}%'`);
+    expect(sql.sql).not.toMatch(/\$\.(result|question|citations|pages)|SELECT\s+\*/i);
     expect(sql.values.at(-1)).toBe(21);
     if (!query) expect(sql.values).toEqual(["GENERATING", "UNCERTAIN", 21]);
   });
@@ -63,7 +63,7 @@ describe("Document answer operations HTTP contract", () => {
     expect(await response.json()).toMatchObject({ items: [{ id: row.id }], nextCursor: row.id });
     const sql = queryRaw.mock.calls[1]![0] as { sql: string; values: unknown[] };
     expect(sql.sql).toContain("r.effective_at <");
-    expect(sql.values).toEqual(["READY", row.createdAt, row.createdAt, `ai-doc-answer:${row.id}`, 2]);
+    expect(sql.values).toEqual(["READY", row.createdAt, row.createdAt, `${prefix}${row.id}`, 2]);
   });
 
   it.each(["?state=FAILED", "?state=COMPLETED", "?limit=0", "?limit=51", "?limit=1.5", "?limit=1e1", "?limit=1&limit=2", "?cursor=", "?question=private", "?ownerId=teacher", "?model=override"])("rejects malformed or extra input before SQL: %s", async (query) => {

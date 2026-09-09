@@ -4,11 +4,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { AiDocumentExtractionStore } from "../src/learning/ai-document-extraction-store.js";
+import { AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
   const ownerId = `extraction-test-${randomUUID()}`;
-  const keys = ["race", "uncertain", "legacy"].map((name) => `ai-doc:${createHash("sha256").update(`${ownerId}:${name}`).digest("hex")}`);
+  const keys = ["race", "uncertain", "legacy", "operations-a", "operations-b", "operations-legacy"].map((name) => `ai-doc:${createHash("sha256").update(`${ownerId}:${name}`).digest("hex")}`);
   const pages = [{ page: 1, text: "Synthetic OCR result; no real provider invoked." }];
   let moduleRef: TestingModule;
   let prisma: PrismaService;
@@ -48,5 +50,27 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
     expect(await new AiDocumentExtractionStore(prisma).generate(keys[2]!, ownerId, extract)).toEqual({ pages, cached: true });
     expect(await prisma.systemSetting.findUnique({ where: { key: keys[2] } })).toEqual(before);
     expect(extract).not.toHaveBeenCalled();
+  });
+
+  it("paginates metadata without reading document pages or changing records", async () => {
+    const operationKeys = keys.slice(3, 5).sort().reverse();
+    for (const key of operationKeys) await prisma.systemSetting.create({ data: {
+      key, updatedBy: ownerId, effectiveAt: new Date("2099-01-01T00:00:00Z"),
+      value: { state: "UNKNOWN", pages: [{ page: 1, text: "private OCR sentinel" }] },
+    } });
+    await prisma.systemSetting.create({ data: { key: keys[5]!, updatedBy: ownerId, effectiveAt: new Date("2099-01-02T00:00:00Z"), value: pages } });
+    const operations = new AiGradingOperationsService(prisma);
+    const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"] } as AuthenticatedSession;
+    const before = await prisma.systemSetting.findMany({ where: { key: { in: keys } }, orderBy: { key: "asc" } });
+    const first = await operations.listExtractions({ limit: 1 }, admin);
+    expect(first.items[0]).toMatchObject({ id: operationKeys[0]!.slice(7), ownerId, state: "UNCERTAIN" });
+    expect(Object.keys(first.items[0]!).sort()).toEqual(["createdAt", "id", "ownerId", "state", "updatedAt", "version"]);
+    expect(JSON.stringify(first)).not.toContain("sentinel");
+    const next = await operations.listExtractions({ limit: 1, cursor: first.nextCursor! }, admin);
+    expect(next.items[0]?.id).toBe(operationKeys[1]!.slice(7));
+    const ready = await operations.listExtractions({ limit: 1, state: "READY" }, admin);
+    expect(ready.items[0]?.id).toBe(keys[5]!.slice(7));
+    await expect(operations.listExtractions({ limit: 1, cursor: "missing" }, admin)).rejects.toMatchObject({ status: 400 });
+    expect(await prisma.systemSetting.findMany({ where: { key: { in: keys } }, orderBy: { key: "asc" } })).toEqual(before);
   });
 });
