@@ -52,6 +52,34 @@ describe("private study drafts", () => {
     expect((await service.list(identity.ownerId, identity.materialId)).items[0]?.state).toBe("UNCERTAIN");
   });
 
+  it("allows one caller to consume an authorized retry without creating a second draft", async () => {
+    let state = "RETRY_AUTHORIZED";
+    let storedResult: SavedStudyGuide | null = null;
+    const row = { ...identity, id: "study-authorized", fingerprint: "f".repeat(64), state, result: storedResult, editedResult: null, publishedResult: null, publishedAt: null, publicationRevision: 0, publishedEditRevision: null, editRevision: 0 };
+    const prisma = { isStartupConnectionEnabled: (): boolean => true, aiStudyDraft: {
+      create: vi.fn().mockRejectedValue({ code: "P2002" }),
+      findUnique: vi.fn().mockImplementation(() => Promise.resolve({ ...row, state, result: storedResult })),
+      updateMany: vi.fn().mockImplementation(({ where, data }: { where: { state: string }; data: { state: string; result?: SavedStudyGuide | null } }) => {
+        if (where.state !== state) return Promise.resolve({ count: 0 });
+        state = data.state;
+        storedResult = data.result ?? null;
+        return Promise.resolve({ count: 1 });
+      }),
+    } };
+    let release!: (value: SavedStudyGuide) => void;
+    const generate = vi.fn(() => new Promise<SavedStudyGuide>((resolve) => { release = resolve; }));
+    const service = new AiStudyDraftService(prisma as unknown as PrismaService);
+
+    const first = service.generate(identity, generate);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+    await expect(service.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
+    release(result);
+
+    await expect(first).resolves.toEqual({ ...result, draftId: row.id });
+    expect(generate).toHaveBeenCalledOnce();
+    expect(state).toBe("READY");
+  });
+
   it("paginates without exposing generated source text or skipping tied timestamps", async () => {
     const service = testStudyDraft();
     for (let page = 1; page <= 25; page++) await service.generate({ ...identity, options: { ...identity.options, fromPage: page, toPage: page } }, () => Promise.resolve(result));

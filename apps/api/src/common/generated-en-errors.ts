@@ -688,5 +688,8 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.": "The provider model list exceeds the safe response-size limit.",
   "Danh mục retention không được hỗ trợ.": "This retention category is not supported.",
   "Không tìm thấy tác vụ chấm AI cần đối soát.": "The AI grading task to reconcile was not found.",
-  "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid."
+  "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid.",
+  "Bộ ôn tập đã phát hành không được mở lại tác vụ sinh AI.": "A published study guide cannot have its AI generation task reopened.",
+  "Không tìm thấy tác vụ bộ ôn tập AI cần đối soát.": "The AI study-guide task to reconcile was not found.",
+  "Mã tác vụ bộ ôn tập AI không hợp lệ.": "The AI study-guide task ID is invalid."
 });
