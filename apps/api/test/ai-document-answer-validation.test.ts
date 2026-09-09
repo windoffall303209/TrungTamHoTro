@@ -3,6 +3,7 @@ import type { PrismaService } from "../src/database/prisma.service.js";
 import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/learning/ai-document-answer-store.js";
 
 const identity = { ownerId: "owner", materialId: "material", version: 2, question: "Explain this?", language: "VI" as const };
+const request = { materialId: identity.materialId, version: identity.version, question: identity.question, language: identity.language };
 const source = { id: "chunk", materialId: "material", version: 2, checksum: "checksum", name: "Lesson.pdf", page: 1, start: 0, end: 7, text: "Context" };
 const answer = { answer: "Explanation", insufficientContext: false, version: 2, warning: "Check source", citations: [source] };
 
@@ -39,7 +40,7 @@ describe("Document answer integrity", () => {
     const generate = vi.fn().mockResolvedValue(value);
     await expect(store.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
-    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "UNCERTAIN" }, version: { increment: 1 } } }));
+    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "UNCERTAIN", request }, version: { increment: 1 } } }));
   });
 
   it.each([answer, { ...answer, answer: "Insufficient evidence", insufficientContext: true, citations: [] }])("replays valid answers and removes undeclared fields", async (result) => {
@@ -56,6 +57,6 @@ describe("Document answer integrity", () => {
     const { store, updateMany } = fixture({ state: "GENERATING" }, false);
     const generated = { ...answer, hidden: "not part of contract" } as SavedDocumentAnswer;
     expect(await store.generate(identity, () => Promise.resolve(generated))).toEqual(answer);
-    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "READY", result: answer }, version: { increment: 1 } } }));
+    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "READY", request, result: answer }, version: { increment: 1 } } }));
   });
 });

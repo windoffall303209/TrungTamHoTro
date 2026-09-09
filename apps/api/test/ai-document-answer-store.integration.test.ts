@@ -33,7 +33,8 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     expect(await reader.status({ ...identity, ownerId: `${ownerId}-other` })).toEqual({ state: "NOT_REQUESTED" });
     const rows = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
     expect(rows).toHaveLength(1);
-    expect(JSON.stringify(rows)).not.toContain(identity.question);
+    expect(rows[0]?.key).not.toContain(identity.question);
+    expect(rows[0]?.value).toMatchObject({ request: { materialId: identity.materialId, version: identity.version, question: identity.question, language: identity.language } });
   });
 
   it("isolates owners, versions, languages and questions", async () => {
@@ -52,6 +53,8 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "UNCERTAIN" });
+    const records = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
+    expect(records.some((record) => JSON.stringify(record.value).includes(next.question))).toBe(true);
   });
 
   it("reads GENERATING while the provider is pending and does not change the claim", async () => {
