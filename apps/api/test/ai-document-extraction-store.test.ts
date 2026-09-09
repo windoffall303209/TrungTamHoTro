@@ -7,6 +7,31 @@ const key = `ai-doc:${"a".repeat(64)}`;
 const pages = [{ page: 1, text: "Verified source text" }];
 
 describe("durable document extraction", () => {
+  it.each([
+    [undefined, "NOT_REQUESTED"], [pages, "READY"], [{ state: "READY", pages }, "READY"],
+    [{ state: "GENERATING" }, "GENERATING"], [{ state: "UNCERTAIN" }, "UNCERTAIN"],
+    [{ state: "READY", pages: [] }, "UNCERTAIN"], [null, "UNCERTAIN"], [{ state: "UNKNOWN" }, "UNCERTAIN"],
+  ])("reads state without mutating claims %#", async (value, expected) => {
+    const { prisma, rows, systemSetting } = extractionDatabase();
+    if (value !== undefined) rows.set(key, { key, value, version: 3 });
+    const before = structuredClone([...rows]);
+    const status = await new AiDocumentExtractionStore(prisma).status(key);
+    expect(status.state).toBe(expected);
+    if (status.state === "READY") { expect(status.pages).toEqual(pages); status.pages[0]!.text = "changed externally"; }
+    expect([...rows]).toEqual(before);
+    expect(systemSetting.create).not.toHaveBeenCalled();
+    expect(systemSetting.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid read keys and missing durable storage", async () => {
+    const { prisma, systemSetting } = extractionDatabase();
+    for (const invalid of ["", "ai-doc:wrong", `ai-doc-answer:${"a".repeat(64)}`]) {
+      await expect(new AiDocumentExtractionStore(prisma).status(invalid)).rejects.toMatchObject({ status: 400 });
+    }
+    expect(systemSetting.findUnique).not.toHaveBeenCalled();
+    await expect(new AiDocumentExtractionStore().status(key)).rejects.toMatchObject({ status: 503 });
+  });
+
   it("blocks another worker and replays after store replacement without another provider call", async () => {
     const { prisma } = extractionDatabase();
     const store = new AiDocumentExtractionStore(prisma);
