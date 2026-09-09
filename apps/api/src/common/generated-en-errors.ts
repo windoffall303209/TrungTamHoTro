@@ -685,5 +685,6 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Yêu cầu khôi phục không còn ở trạng thái chờ duyệt.": "The restore request is no longer pending.",
   "Yêu cầu phúc khảo đã được người khác nhận hoặc đã kết thúc.": "The appeal request has been received by someone else or has ended.",
   "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status.",
-  "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.": "The provider model list exceeds the safe response-size limit."
+  "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.": "The provider model list exceeds the safe response-size limit.",
+  "Danh mục retention không được hỗ trợ.": "This retention category is not supported."
 });
