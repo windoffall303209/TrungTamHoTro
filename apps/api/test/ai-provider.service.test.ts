@@ -179,7 +179,7 @@ describe("AI provider configuration and image scanning", () => {
     await service.configureTask("GENERATE_EXAM", { providerId: provider.id, model: "gemini-2.5-pro" }, "usr-admin");
     expect((await service.resolveTask("SCAN_IMAGE")).model).toBe("gemini-2.5-flash");
     expect((await service.resolveTask("GENERATE_EXAM")).model).toBe("gemini-2.5-pro");
-    await expect(service.configureTask("GENERATE_EXAM", { providerId: provider.id, model: "invalid" }, "usr-admin")).rejects.toThrow();
+    await expect(service.configureTask("GENERATE_EXAM", { providerId: provider.id, model: "invalid model" }, "usr-admin")).rejects.toThrow();
     await service.configure({ id: provider.id, provider: "GEMINI", model: provider.model, enabled: false }, "usr-admin");
     await expect(service.resolveTask("SCAN_IMAGE")).rejects.toThrow("bị tắt");
   });
@@ -297,6 +297,27 @@ describe("AI provider configuration and image scanning", () => {
     expect(Object.fromEntries(new Headers(readFetchOptions(fetchMock.mock.calls[0]).headers))).toEqual({ accept: "application/json", authorization: "Bearer compatible-model-list-secret" });
   });
 
+  it.each([
+    ["GEMINI", "gemini-account-visible-new"],
+    ["OPENAI", "gpt-account-visible-new"],
+    ["NVIDIA_NIM", "organization/account-visible-new"],
+  ] as const)("accepts a newly discovered %s model without requiring a catalog release", async (providerType, model) => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: providerType, model, apiKey: "new-model-secret", enabled: true }, "usr-admin");
+    expect(provider.model).toBe(model);
+    expect(await service.configureTask("GRADING_ASSIST", { providerId: provider.id, model }, "usr-admin")).toEqual({ providerId: provider.id, model });
+  });
+
+  it.each([
+    ["OPENAI", "bad model"],
+    ["OPENAI", "../escape"],
+    ["OPENAI", "a".repeat(201)],
+    ["GEMINI", "gpt-4o-mini"],
+  ] as const)("rejects unsafe or clearly cross-provider model identifiers for %s", async (providerType, model) => {
+    const service = new AiProviderService(undefined, config);
+    await expect(service.configure({ provider: providerType, model, apiKey: "invalid-model-secret", enabled: true }, "usr-admin")).rejects.toThrow("Định danh model");
+  });
+
   it("fails explicitly when a provider model endpoint is unreachable or returns no usable IDs", async () => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "OPENAI", model: "gpt-4o-mini", apiKey: "openai-model-list-secret", enabled: true }, "usr-admin");
@@ -334,11 +355,11 @@ describe("AI provider configuration and image scanning", () => {
     expect(readJsonBody(fetchMock.mock.calls[0])).toMatchObject({ model: "gpt-4o-mini", tools: [{ type: "web_search" }] });
   });
 
-  it("rejects a model that does not belong to the selected provider", async () => {
+  it("rejects an obvious OpenAI model override for a Gemini provider", async () => {
     const service = new AiProviderService(undefined, config);
     const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-secret-invalid-model", enabled: true }, "usr-admin");
 
-    await expect(service.generateExamDraft({ providerId: provider.id, model: "gpt-4o-mini", courseName: "Lập trình web", courseDescription: "HTTP", focus: "Khái niệm HTTP cơ bản", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] })).rejects.toThrow("không thuộc nhà cung cấp");
+    await expect(service.generateExamDraft({ providerId: provider.id, model: "gpt-4o-mini", courseName: "Lập trình web", courseDescription: "HTTP", focus: "Khái niệm HTTP cơ bản", difficulty: 1, distribution: [{ type: "SHORT_ANSWER", count: 1 }], contextMode: "WEB_SEARCH", sourceFiles: [] })).rejects.toThrow("Định danh model");
   });
 
   it("uses Gemini Google Search before requesting structured questions", async () => {
