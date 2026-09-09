@@ -1,4 +1,10 @@
 {
+  "Khóa trích xuất tài liệu AI không hợp lệ.": "The AI document extraction key is invalid.",
+  "Trích xuất AI yêu cầu database bền vững để chống gọi trùng.": "AI extraction requires durable database storage to prevent duplicate calls.",
+  "Không xác nhận được khóa trích xuất AI. Không gửi lại yêu cầu.": "The AI extraction claim could not be confirmed. Do not resubmit the request.",
+  "Trích xuất AI đang xử lý hoặc chưa rõ kết quả. Không tự gọi lại; liên hệ quản trị viên đối soát.": "AI extraction is processing or its outcome is uncertain. Do not retry; contact an administrator for reconciliation.",
+  "Nội dung trích xuất AI không hợp lệ hoặc chưa đầy đủ. Không tự gọi lại.": "The AI extraction is invalid or incomplete. Do not retry automatically.",
+  "Không xác nhận được việc lưu trích xuất AI. Không gửi lại yêu cầu.": "Saving the AI extraction could not be confirmed. Do not resubmit the request.",
   "Phiên bản cũ chưa có câu trả lời đã lưu. Chọn Dùng phiên bản hiện tại nếu muốn gửi câu hỏi mới.": "No answer is saved for this older version. Select Use the current version to submit a new question.",
   "Phiên bản lịch sử": "History version",
   "Chỉ đọc kết quả phiên bản cũ": "Read-only results from an older version",
