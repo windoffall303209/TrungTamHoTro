@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { testGradingStore } from "./ai-grading-store.fixture.js";
+import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcademicService } from "../src/learning/academic.service.js";
 import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
@@ -33,6 +34,42 @@ function fixture(): {
 }
 
 describe("TXT attachment grading context", () => {
+  it("grades mixed PDF/TXT work with durable OCR and inspects without another paid call", async () => {
+    const { row, academic, ai, files } = fixture();
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    const extractDocumentPages = vi.fn().mockResolvedValue([{ page: 1, text: files.get("file1")!.toString() }]);
+    const provider = { ...ai, extractDocumentPages };
+    const { prisma } = extractionDatabase();
+    const store = testGradingStore();
+    const service = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, prisma);
+    await expect(service.inspect("submission", 2, "VI", session)).rejects.toMatchObject({ status: 409 });
+    expect(extractDocumentPages).not.toHaveBeenCalled();
+    const saved = await service.suggest("submission", 2, "VI", session);
+    expect(saved.sources?.map((source) => source.attachmentId)).toEqual([null, "file1", "file2"]);
+    ai.resolveTask.mockRejectedValue(new Error("disabled provider"));
+    const restarted = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, prisma);
+    expect((await restarted.inspect("submission", 2, "VI", session)).result?.sources).toEqual(saved.sources);
+    expect(await restarted.suggest("submission", 2, "VI", session)).toEqual(saved);
+    expect(extractDocumentPages).toHaveBeenCalledTimes(1);
+    expect(ai.suggestGrading).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["empty rubric", "duplicate rubric", "invalid language"])("rejects %s before OCR configuration, source download or claims", async (change) => {
+    const { row, academic, ai, storage } = fixture();
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    if (change === "empty rubric") row.assignment.rubric = [];
+    if (change === "duplicate rubric") row.assignment.rubric.push({ ...row.assignment.rubric[0]! });
+    const { prisma, rows } = extractionDatabase();
+    const service = new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore(), prisma);
+    await expect(service.suggest("submission", 2, change === "invalid language" ? "INVALID" as "VI" : "VI", session)).rejects.toMatchObject({ status: 400 });
+    expect(storage.get).not.toHaveBeenCalled();
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    expect(ai.suggestGrading).not.toHaveBeenCalled();
+    expect(rows.size).toBe(0);
+  });
+
   it("combines verified PDF extraction with every TXT and inline source", async () => {
     const { row, academic, files } = fixture();
     row.attachments[0]!.originalName = "answer.pdf";

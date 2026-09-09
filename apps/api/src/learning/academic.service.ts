@@ -12,6 +12,7 @@ import { PrismaService } from "../database/prisma.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
 import { combineGradingSources, decodeGradingText, GRADING_TEXT_BYTE_LIMIT, isGradingDocument, type GradingAnswerSource, type GradingDocumentReader } from "./ai-grading-source.js";
+import { validateGradingDefinition } from "../system/ai-grading-suggestion.js";
 
 export interface RubricCriterion {
   id: string;
@@ -957,6 +958,7 @@ export class AcademicService {
     await this.requireTeachingAccess(submission.assignment.classId, session, true);
     if (submission.revision !== expectedSubmissionRevision) throw new ConflictException("Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.");
     const base = { submissionId: submission.id, submissionRevision: submission.revision, assignmentVersion: submission.assignment.version, instructions: [submission.assignment.title, submission.assignment.description, submission.assignment.instructions].join("\n\n"), answer: submission.content, rubric: this.rubric(submission.assignment.rubric) };
+    validateGradingDefinition({ instructions: base.instructions, rubric: submission.assignment.rubric });
     if (!submission.attachments.length) {
       if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
       return base;
