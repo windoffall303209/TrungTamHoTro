@@ -53,7 +53,7 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
   // Read the metadata endpoint with a fixture identity.
   const read = (query = "", cookie = "admin"): Promise<Response> => fetch(`${url}${query}`, { headers: { cookie } });
 
-  it.each(["", "?state=GENERATING", "?state=READY", "?state=UNCERTAIN"])("reads bounded metadata without caching: %s", async (query) => {
+  it.each(["", "?state=RETRY_AUTHORIZED", "?state=GENERATING", "?state=READY", "?state=UNCERTAIN"])("reads bounded metadata without caching: %s", async (query) => {
     const response = await read(query);
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");

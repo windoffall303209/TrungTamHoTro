@@ -131,6 +131,30 @@ describe("admin AI grading queue", () => {
     expect(JSON.parse(String(api.mock.calls[1]?.[1].body))).toMatchObject({ expectedVersion: 7, evidenceReference: "provider-log-001", providerRequestId: "provider-request-001", evidenceNote: "Provider dashboard confirms the request was not accepted or billed." });
   });
 
+  it.each([
+    ["grading", { ...row }, "expectedUpdatedAt", row.updatedAt],
+    ["study", { id: "study-retry", ownerId: "teacher-1", materialId: "material-1", sourceVersion: 2, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt }, "expectedUpdatedAt", row.updatedAt],
+    ["document-answers", { id: "a".repeat(64), ownerId: "teacher-1", version: 4, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt }, "expectedVersion", 4],
+    ["extractions", { id: "b".repeat(64), ownerId: "teacher-1", version: 5, state: "GENERATING", createdAt: row.createdAt, updatedAt: row.updatedAt }, "expectedVersion", 5],
+  ] as const)("opens %s only with evidence and sends its authoritative CAS token", async (domain, claim, tokenName, tokenValue) => {
+    api.mockResolvedValueOnce({ items: [claim], nextCursor: null }).mockResolvedValueOnce({ ...claim, state: "RETRY_AUTHORIZED", updatedAt: "2026-09-09T02:00:00Z" });
+    render(<AiGradingOperations />);
+    if (domain !== "grading") fireEvent.change(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" }), { target: { value: domain } });
+    fireEvent.click(screen.getByRole("button", { name: "Tải lại danh sách" }));
+    await screen.findByText(claim.id);
+    fireEvent.click(screen.getByRole("button", { name: "Mở lại bằng bằng chứng" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Mã bằng chứng hoặc nhật ký" }), { target: { value: "provider-log-001" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Kết quả kiểm tra" }), { target: { value: "Provider dashboard confirms the request was not accepted or billed." } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Ghi bằng chứng và mở lại" }));
+    expect(await screen.findByText("Đã cho phép thử lại", { selector: "p" })).toBeInTheDocument();
+    expect(api.mock.calls[1]?.[0]).toBe(`/admin/ai-operations/${domain}/${claim.id}/reconcile-not-processed`);
+    const body = JSON.parse(String(api.mock.calls[1]?.[1].body)) as Record<string, unknown>;
+    expect(body[tokenName]).toBe(tokenValue);
+    expect(body).not.toHaveProperty(tokenName === "expectedVersion" ? "expectedUpdatedAt" : "expectedVersion");
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["unlinked", "broken"])("does not offer evidence recovery outside the canonical scope: %s", async (selectedScope) => {
     api.mockResolvedValueOnce({ items: [{ id: "affected", ownerId: "teacher", version: 2, state: "UNCERTAIN", createdAt: row.createdAt, updatedAt: row.updatedAt }], nextCursor: null });
     render(<AiGradingOperations />);
