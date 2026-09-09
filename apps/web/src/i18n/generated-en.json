@@ -2807,5 +2807,14 @@
   "Lần phát hành": "Publication revision",
   "Chỉ bao phủ một phần nội dung đã chọn. Hãy đối chiếu tài liệu gốc để học đầy đủ.": "Only part of the selected content is covered. Refer to the original document for complete study coverage.",
   "Tải bộ ôn tập quá thời gian chờ. Hãy thử tải lại.": "Loading the study guide timed out. Try loading again.",
-  "Không tải được bộ ôn tập. Hãy thử lại.": "Could not load the study guide. Please try again."
+  "Không tải được bộ ôn tập. Hãy thử lại.": "Could not load the study guide. Please try again.",
+  "Mã tác vụ sinh đề AI không hợp lệ.": "The AI exam generation task ID is invalid.",
+  "Bằng chứng đối soát AI chưa đầy đủ.": "The AI reconciliation evidence is incomplete.",
+  "Thời điểm kiểm tra bằng chứng AI không hợp lệ.": "The AI evidence verification time is invalid.",
+  "Không tìm thấy tác vụ sinh đề AI cần đối soát.": "The AI exam generation task to reconcile was not found.",
+  "Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.": "The AI task has changed. Reload the list before reconciling it.",
+  "Dữ liệu khóa sinh đề AI không hợp lệ. Không thể mở lại tự động.": "The AI exam generation claim is invalid and cannot be reopened automatically.",
+  "Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.": "Only processing or uncertain tasks can be reopened with evidence.",
+  "Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.": "The evidence must be verified after the task's latest update.",
+  "Tác vụ không có liên kết nội dung hợp lệ; chưa thể mở lại để tránh tạo trùng.": "The task has no valid content binding and cannot be reopened without risking duplicates."
 }

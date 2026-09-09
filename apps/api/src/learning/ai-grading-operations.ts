@@ -1,6 +1,6 @@
-import { BadRequestException, Controller, ForbiddenException, Get, Header, Injectable, Query, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Header, Injectable, Param, Post, Query, ServiceUnavailableException } from "@nestjs/common";
 import { Transform } from "class-transformer";
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsISO8601, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
@@ -27,6 +27,20 @@ export class ExamOperationsQueryDto extends OmitType(GradingOperationsQueryDto, 
   state?: typeof examStates[number];
   @IsOptional() @IsIn(examScopes)
   scope?: typeof examScopes[number];
+}
+
+/** Bằng chứng vận hành bắt buộc trước khi mở lại một claim có kết quả chưa xác định. */
+export class ReconcileExamNotProcessedDto {
+  @IsInt() @Min(1)
+  expectedVersion!: number;
+  @IsString() @MinLength(8) @MaxLength(191)
+  evidenceReference!: string;
+  @IsString() @MinLength(20) @MaxLength(2_000)
+  evidenceNote!: string;
+  @IsISO8601({ strict: true })
+  checkedAt!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191)
+  providerRequestId?: string;
 }
 
 const metadata = { id: true, ownerId: true, submissionId: true, language: true, state: true, createdAt: true, updatedAt: true } as const;
@@ -151,6 +165,56 @@ export class AiGradingOperationsService {
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
+  /** Mở lại claim chỉ sau xác nhận có bằng chứng rằng provider chưa xử lý yêu cầu, đồng thời ghi audit nguyên tử. */
+  async reconcileExamNotProcessed(id: string, input: ReconcileExamNotProcessedDto, session: AuthenticatedSession): Promise<ExamOperation> {
+    this.validateQuery({ limit: 1 }, session);
+    if (!id || id.length > 177 || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new BadRequestException("Mã tác vụ sinh đề AI không hợp lệ.");
+    const evidenceReference = input.evidenceReference.trim();
+    const evidenceNote = input.evidenceNote.trim();
+    const providerRequestId = input.providerRequestId?.trim() || undefined;
+    if (evidenceReference.length < 8 || evidenceNote.length < 20) throw new BadRequestException("Bằng chứng đối soát AI chưa đầy đủ.");
+    const checkedAt = new Date(input.checkedAt);
+    const now = new Date();
+    if (!Number.isFinite(checkedAt.getTime()) || checkedAt.getTime() > now.getTime() + 5 * 60_000) throw new BadRequestException("Thời điểm kiểm tra bằng chứng AI không hợp lệ.");
+    const key = `ai-generation:${id}`;
+    return this.prisma.$transaction(async (transaction) => {
+      const row = await transaction.systemSetting.findUnique({ where: { key } });
+      if (!row) throw new BadRequestException("Không tìm thấy tác vụ sinh đề AI cần đối soát.");
+      if (row.version !== input.expectedVersion) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      if (!row.value || typeof row.value !== "object" || Array.isArray(row.value)) throw new ConflictException("Dữ liệu khóa sinh đề AI không hợp lệ. Không thể mở lại tự động.");
+      const value = row.value as Record<string, unknown>;
+      const owner = typeof value.owner === "string" ? value.owner : "";
+      const hash = typeof value.hash === "string" ? value.hash : "";
+      const state = typeof value.state === "string" ? value.state : "";
+      if (!owner || !/^[a-f0-9]{64}$/.test(hash) || !["GENERATING", "UNCERTAIN"].includes(state)) throw new ConflictException("Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.");
+      if (checkedAt < row.updatedAt) throw new BadRequestException("Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.");
+      const bindings = await transaction.$queryRaw<Array<{ present: number }>>(Prisma.sql`
+        SELECT 1 AS present
+        FROM system_settings b
+        WHERE b.\`key\` LIKE 'ai-generation-content:%'
+          AND JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
+          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = ${id}
+          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.owner')) = ${owner}
+          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.hash')) = ${hash}
+        LIMIT 1
+      `);
+      if (!bindings.length) throw new ConflictException("Tác vụ không có liên kết nội dung hợp lệ; chưa thể mở lại để tránh tạo trùng.");
+      const updated = await transaction.systemSetting.updateMany({
+        where: { key, version: input.expectedVersion },
+        data: { value: { owner, hash, state: "CLAIMED" }, version: { increment: 1 }, updatedBy: session.user.id },
+      });
+      if (updated.count !== 1) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      await transaction.auditLog.create({ data: {
+        actorId: session.user.id,
+        action: "AI_EXAM_RETRY_AUTHORIZED",
+        entityType: "ai_generation_request",
+        entityId: id,
+        context: { previousState: state, previousVersion: row.version, evidenceReference, evidenceNote, checkedAt: checkedAt.toISOString(), ...(providerRequestId ? { providerRequestId } : {}) },
+      } });
+      return { id, ownerId: owner, state: "CLAIMED", version: row.version + 1, createdAt: row.effectiveAt, updatedAt: now };
+    });
+  }
+
   /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
   private examRows(filter: Prisma.Sql, limit: number, scope: typeof examScopes[number]): Promise<ExamOperation[]> {
     if (scope === "canonical") return this.canonicalExamRows(filter, limit);
@@ -219,7 +283,7 @@ export class AiGradingOperationsService {
 }
 
 @Controller("admin/ai-operations")
-/** API đối soát read-only; không có route reset, retry hoặc xóa claim. */
+/** API đối soát metadata và mở lại claim bằng bằng chứng; không xóa claim hoặc tự gọi provider. */
 export class AiGradingOperationsController {
   constructor(private readonly operations: AiGradingOperationsService) {}
 
@@ -261,5 +325,13 @@ export class AiGradingOperationsController {
   /** Đọc request sinh đề theo phạm vi đối soát, không trả câu hỏi/đáp án và không gọi provider. */
   exams(@Query() query: ExamOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listExams"]> {
     return this.operations.listExams(query, session);
+  }
+
+  @Post("exams/:id/reconcile-not-processed")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Ghi nhận bằng chứng provider chưa xử lý rồi mở lại claim; lần gọi AI kế tiếp vẫn do người tạo chủ động thực hiện. */
+  reconcileExamNotProcessed(@Param("id") id: string, @Body() input: ReconcileExamNotProcessedDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["reconcileExamNotProcessed"]> {
+    return this.operations.reconcileExamNotProcessed(id, input, session);
   }
 }
