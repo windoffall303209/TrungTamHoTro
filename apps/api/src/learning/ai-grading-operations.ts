@@ -11,8 +11,8 @@ import { createHash } from "node:crypto";
 
 /** Bộ lọc hữu hạn cho hàng đợi đối soát; không nhận nội dung bài làm hoặc thông số provider. */
 export class GradingOperationsQueryDto {
-  @IsOptional() @IsIn(["GENERATING", "READY", "UNCERTAIN"])
-  state?: "GENERATING" | "READY" | "UNCERTAIN";
+  @IsOptional() @IsIn(["RETRY_AUTHORIZED", "GENERATING", "READY", "UNCERTAIN"])
+  state?: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN";
   @IsOptional() @IsString() @MinLength(1) @MaxLength(191)
   cursor?: string;
   @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)
@@ -398,7 +398,7 @@ export class AiGradingOperationsService {
     if (session.roleCode !== "SYSTEM_ADMIN" || !session.permissions.includes("system:configure")) throw new ForbiddenException("Chỉ quản trị viên hệ thống được đối soát tác vụ AI.");
     if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Đối soát tác vụ AI yêu cầu database bền vững.");
     const limit = query.limit ?? 20;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (query.state !== undefined && !["GENERATING", "READY", "UNCERTAIN"].includes(query.state)) || (query.cursor !== undefined && (typeof query.cursor !== "string" || !query.cursor.length || query.cursor.length > 191))) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (query.state !== undefined && !["RETRY_AUTHORIZED", "GENERATING", "READY", "UNCERTAIN"].includes(query.state)) || (query.cursor !== undefined && (typeof query.cursor !== "string" || !query.cursor.length || query.cursor.length > 191))) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
     return limit;
   }
 
