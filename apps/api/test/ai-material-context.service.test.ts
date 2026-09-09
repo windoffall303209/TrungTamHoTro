@@ -16,6 +16,20 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("checks the selected historical version on both sides of status lookup", async () => {
+    const { learning, ai, material } = fixture();
+    learning.listMaterials.mockResolvedValue([{ ...material, version: 4 }]);
+    const status = vi.fn().mockResolvedValue({ state: "NOT_REQUESTED" });
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { status } as unknown as AiDocumentAnswerStore);
+    await service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 2);
+    expect(status).toHaveBeenCalledExactlyOnceWith({ ownerId: "teacher", materialId: material.id, version: 2, question: "Old question?", language: "EN" });
+    expect(learning.createMaterialVersionAccess.mock.calls).toEqual(Array.from({ length: 2 }, () => [material.id, 2, "INSTRUCTOR", "PREVIEW", "teacher"]));
+    status.mockClear();
+    learning.createMaterialVersionAccess.mockRejectedValue(new NotFoundException("Old version revoked"));
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 2)).rejects.toMatchObject({ status: 404 });
+    expect(status).not.toHaveBeenCalled();
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+  });
   it("reads private history with exact source-version authorization before and after storage", async () => {
     const { learning, ai, material } = fixture();
     const list = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
