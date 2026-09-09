@@ -16,6 +16,13 @@ function readJsonBody(call: unknown[] | undefined): Record<string, unknown> {
   return JSON.parse(body) as Record<string, unknown>;
 }
 
+/** Đọc RequestInit từ fetch mock để test header mà không dựa vào giá trị any của mock framework. */
+function readFetchOptions(call: unknown[] | undefined): RequestInit {
+  const options = call?.[1];
+  if (!options || typeof options !== "object") throw new Error("Fetch mock không nhận được RequestInit.");
+  return options as RequestInit;
+}
+
 /** Trả danh sách content đầu tiên trong payload Responses đã được kiểm tra kiểu. */
 function readResponseInputContent(payload: Record<string, unknown>): unknown[] {
   const input = Array.isArray(payload.input) ? payload.input as unknown[] : [];
@@ -251,6 +258,52 @@ describe("AI provider configuration and image scanning", () => {
     expect(models.map((item) => item.value)).toEqual(["model-a", "model-b"]);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://router.example/v1/models");
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ authorization: "Bearer custom-secret-5678" });
+  });
+
+  it("discovers only generateContent models from Gemini with official authentication and metadata", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-model-list-secret", enabled: true }, "usr-admin");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ models: [
+      { name: "models/text-embedding-004", displayName: "Embedding", supportedGenerationMethods: ["embedContent"] },
+      { name: "models/gemini-live-new", displayName: "Gemini Live New", description: "Available to this key.", supportedGenerationMethods: ["generateContent"] },
+      { name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] },
+      { name: "models/gemini-live-new", supportedGenerationMethods: ["generateContent"] },
+      { name: "models/bad model", supportedGenerationMethods: ["generateContent"] },
+    ] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await service.listModels(provider.id);
+
+    expect(models.map((item) => item.value)).toEqual(["gemini-2.5-flash", "gemini-live-new"]);
+    expect(models[0]?.label).toBe("Gemini 2.5 Flash");
+    expect(models[0]?.description).toContain("JSON");
+    expect(models[1]).toEqual({ value: "gemini-live-new", label: "Gemini Live New", description: "Available to this key." });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
+    expect(Object.fromEntries(new Headers(readFetchOptions(fetchMock.mock.calls[0]).headers))).toEqual({ accept: "application/json", "x-goog-api-key": "gemini-model-list-secret" });
+  });
+
+  it.each([
+    ["OPENAI", "gpt-live-account-model", "https://api.openai.com/v1/models"],
+    ["NVIDIA_NIM", "nvidia/account-model", "https://integrate.api.nvidia.com/v1/models"],
+  ] as const)("discovers account-visible %s models from its OpenAI-compatible endpoint", async (providerType, discoveredModel, expectedUrl) => {
+    const service = new AiProviderService(undefined, config);
+    const configuredModel = service.getCatalog()[providerType][0]!.value;
+    const provider = await service.configure({ provider: providerType, model: configuredModel, apiKey: "compatible-model-list-secret", enabled: true }, "usr-admin");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: discoveredModel, owned_by: "account-owner" }, { id: discoveredModel }, { id: "bad model" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await service.listModels(provider.id)).toEqual([{ value: discoveredModel, label: discoveredModel, description: "Provider owner: account-owner" }]);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(expectedUrl);
+    expect(Object.fromEntries(new Headers(readFetchOptions(fetchMock.mock.calls[0]).headers))).toEqual({ accept: "application/json", authorization: "Bearer compatible-model-list-secret" });
+  });
+
+  it("fails explicitly when a provider model endpoint is unreachable or returns no usable IDs", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "OPENAI", model: "gpt-4o-mini", apiKey: "openai-model-list-secret", enabled: true }, "usr-admin");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await expect(service.listModels(provider.id)).rejects.toMatchObject({ status: 503 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "bad model" }] }), { status: 200 })));
+    await expect(service.listModels(provider.id)).rejects.toMatchObject({ status: 503 });
   });
 
   it("keeps provider validation errors as actionable 400 responses", async () => {
