@@ -7,6 +7,7 @@ import { PermissionGuard } from "../src/auth/permission.guard.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { Prisma } from "../src/generated/prisma/client.js";
 import { AiGradingOperationsController, AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import { createHash } from "node:crypto";
 
 const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: "admin" } } as AuthenticatedSession;
 
@@ -196,6 +197,48 @@ describe("Grading claim evidence reconciliation", () => {
     findUnique.mockResolvedValue(currentRow);
     updateMany.mockResolvedValue(update);
     await expect(service.reconcileGradingNotProcessed(row.id, currentInput, admin)).rejects.toThrow();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Document answer evidence reconciliation", () => {
+  const ownerId = "teacher-1";
+  const request = { materialId: "material-1", version: 2, question: "Why does HTTPS matter?", language: "EN" };
+  const id = createHash("sha256").update(JSON.stringify(["v1", ownerId, request.materialId, request.version, request.question, request.language])).digest("hex");
+  const updatedAt = new Date("2026-09-08T01:00:00.000Z");
+  const row = { key: `ai-doc-answer:${id}`, value: { state: "UNCERTAIN", request }, version: 3, effectiveAt: new Date("2026-09-08T00:00:00.000Z"), updatedBy: ownerId, updatedAt };
+  const findUnique = vi.fn();
+  const updateMany = vi.fn();
+  const auditCreate = vi.fn();
+  const transaction = vi.fn();
+  const service = new AiGradingOperationsService({ isStartupConnectionEnabled: () => true, $transaction: transaction } as unknown as PrismaService);
+  const input = { expectedVersion: 3, evidenceReference: "provider-log-answer-001", evidenceNote: "Provider dashboard confirms no document answer request was accepted.", checkedAt: "2026-09-08T02:00:00.000Z" };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    findUnique.mockResolvedValue(row);
+    updateMany.mockResolvedValue({ count: 1 });
+    auditCreate.mockResolvedValue({});
+    const transactionClient = { systemSetting: { findUnique, updateMany }, auditLog: { create: auditCreate } };
+    transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
+  });
+
+  it("authorizes the exact fingerprint without changing its owner or request", async () => {
+    await expect(service.reconcileDocumentAnswerNotProcessed(id, input, admin)).resolves.toMatchObject({ id, ownerId, state: "RETRY_AUTHORIZED", version: 4 });
+    expect(updateMany).toHaveBeenCalledWith({ where: { key: row.key, version: 3, updatedBy: ownerId }, data: { value: { state: "RETRY_AUTHORIZED", request }, version: { increment: 1 } } });
+    expect(auditCreate.mock.calls[0]?.[0].data).toMatchObject({ action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: id, context: { previousState: "UNCERTAIN", previousVersion: 3 } });
+  });
+
+  it.each([
+    ["wrong hash", "f".repeat(64), row, input, { count: 1 }],
+    ["changed version", id, row, { ...input, expectedVersion: 2 }, { count: 1 }],
+    ["unsafe state", id, { ...row, value: { state: "READY", request } }, input, { count: 1 }],
+    ["stale evidence", id, row, { ...input, checkedAt: "2026-09-08T00:59:00.000Z" }, { count: 1 }],
+    ["CAS race", id, row, input, { count: 0 }],
+  ])("refuses %s without audit", async (_name, currentId, currentRow, currentInput, update) => {
+    findUnique.mockResolvedValue(currentRow);
+    updateMany.mockResolvedValue(update);
+    await expect(service.reconcileDocumentAnswerNotProcessed(currentId, currentInput, admin)).rejects.toThrow();
     expect(auditCreate).not.toHaveBeenCalled();
   });
 });

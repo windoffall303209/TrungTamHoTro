@@ -1,5 +1,5 @@
 import { Test, type TestingModule } from "@nestjs/testing";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
@@ -17,7 +17,14 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
   // Load real database services without calling AI providers.
   beforeAll(async () => { moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile(); prisma = moduleRef.get(PrismaService); });
   // Remove only this run's hashed answer records.
-  afterAll(async () => { if (prisma) await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } } }); await moduleRef?.close(); });
+  afterAll(async () => {
+    if (prisma) {
+      const rows = await prisma.systemSetting.findMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } }, select: { key: true } });
+      await prisma.auditLog.deleteMany({ where: { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: { in: rows.map((row) => row.key.slice(14)) } } });
+      await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } } });
+    }
+    await moduleRef?.close();
+  });
 
   it("allows one concurrent generation and replays after process replacement", async () => {
     const reader = new AiDocumentAnswerStore(prisma);
@@ -55,6 +62,25 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "UNCERTAIN" });
     const records = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
     expect(records.some((record) => JSON.stringify(record.value).includes(next.question))).toBe(true);
+  });
+
+  it("consumes one evidence-authorized retry across concurrent workers", async () => {
+    const next = { ...identity, question: "Recovered uncertain fixture?" };
+    const first = vi.fn().mockRejectedValue(new Error("response lost"));
+    await expect(new AiDocumentAnswerStore(prisma).generate(next, first)).rejects.toThrow("response lost");
+    const id = createHash("sha256").update(JSON.stringify(["v1", next.ownerId, next.materialId, next.version, next.question, next.language])).digest("hex");
+    const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-doc-answer:${id}` } });
+    const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: null } } as unknown as AuthenticatedSession;
+    await new AiGradingOperationsService(prisma).reconcileDocumentAnswerNotProcessed(id, {
+      expectedVersion: claim.version, evidenceReference: "provider-dashboard-fixture", evidenceNote: "Provider fixture confirms that the original request was not accepted.", checkedAt: new Date(claim.updatedAt.getTime() + 1_000).toISOString(),
+    }, admin);
+    expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "NOT_REQUESTED" });
+    const retry = vi.fn(() => Promise.resolve(result));
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiDocumentAnswerStore(prisma).generate(next, retry)));
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(await prisma.auditLog.count({ where: { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: id } })).toBe(1);
+    expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "READY", result });
   });
 
   it("reads GENERATING while the provider is pending and does not change the claim", async () => {
