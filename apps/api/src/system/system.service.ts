@@ -35,6 +35,8 @@ const templateVariables: Record<string, readonly string[]> = {
   FORUM_MENTION: ["topicTitle", "authorName"],
   SUPPORT_UPDATED: ["ticketId", "status", "resolution"],
 };
+const retentionCategories = ["AUDIT", "SUPPORT", "LEARNING", "AI_RESULTS"] as const;
+type RetentionCategory = typeof retentionCategories[number];
 
 const defaultSettings = (): SystemSettings => ({
   centerName: "Trung tâm hỗ trợ giảng dạy Wind EDU",
@@ -347,8 +349,7 @@ export class SystemService {
 
   /** Tính cutoff và số bản ghi sẽ tác động, đồng thời phản ánh legal hold hiện tại. */
   async previewRetention(categoryInput: string): Promise<RetentionPreview> {
-    const category = categoryInput.trim().toUpperCase();
-    if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
+    const category = this.retentionCategory(categoryInput);
     const policy = await this.getLatestRetentionPolicy(category);
     const settings = await this.getSettings();
     const retentionDays = policy?.retentionDays ?? settings.retentionDays;
@@ -365,8 +366,7 @@ export class SystemService {
 
   /** Validate phê duyệt/ngày hiệu lực, tạo version kế tiếp và ghi audit chính sách. */
   async createRetentionPolicy(input: { category: string; retentionDays: number; action: "ARCHIVE" | "DELETE"; approvedBy: string; effectiveAt?: string }, actorId = "usr-admin"): Promise<RetentionPolicyView> {
-    const category = input.category.trim().toUpperCase(); const approvedBy = input.approvedBy.trim();
-    if (!category) throw new BadRequestException("Cần chọn loại dữ liệu.");
+    const category = this.retentionCategory(input.category); const approvedBy = input.approvedBy.trim();
     if (input.retentionDays < 30 || input.retentionDays > 3650) throw new BadRequestException("Thời hạn lưu phải từ 30 đến 3650 ngày.");
     if (approvedBy.length < 3) throw new BadRequestException("Cần người phê duyệt chính sách.");
     const effectiveAt = input.effectiveAt ? new Date(input.effectiveAt) : new Date(); if (Number.isNaN(effectiveAt.getTime())) throw new BadRequestException("Thời điểm hiệu lực không hợp lệ.");
@@ -386,7 +386,7 @@ export class SystemService {
 
   /** Đặt legal hold đang hoạt động cho danh mục để chặn retention job. */
   async createLegalHold(categoryInput: string, reasonInput: string, actorId = "usr-admin"): Promise<object> {
-    const category = categoryInput.trim().toUpperCase(); const reason = reasonInput.trim(); if (!category || reason.length < 5) throw new BadRequestException("Loại dữ liệu và lý do legal hold là bắt buộc.");
+    const category = this.retentionCategory(categoryInput); const reason = reasonInput.trim(); if (reason.length < 5) throw new BadRequestException("Loại dữ liệu và lý do legal hold là bắt buộc.");
     const prisma = this.database();
     if (prisma) {
       const item = await prisma.legalHold.create({ data: { id: `legal-hold-${randomUUID()}`, category, reason, createdBy: actorId } });
@@ -467,7 +467,7 @@ export class SystemService {
   private async previewRetentionPolicy(policy: Pick<RetentionPolicyView, "category" | "retentionDays" | "action">): Promise<RetentionPreview> {
     const cutoffAt = new Date(Date.now() - policy.retentionDays * 86_400_000);
     const prisma = this.database();
-    const estimatedRows = prisma ? await this.countRetentionRows(prisma, policy.category, cutoffAt) : policy.category === "AUDIT" ? 12_840 : policy.category === "LEARNING" ? 3_260 : 840;
+    const estimatedRows = prisma ? await this.countRetentionRows(prisma, policy.category, cutoffAt) : policy.category === "AUDIT" ? 12_840 : policy.category === "LEARNING" ? 3_260 : policy.category === "AI_RESULTS" ? 0 : 840;
     const hasLegalHold = prisma ? Boolean(await prisma.legalHold.findFirst({ where: { category: policy.category, active: true } })) : this.legalHolds.some((item) => item.category === policy.category && item.active);
     const legalHoldRows = hasLegalHold ? estimatedRows : 0;
     return { category: policy.category, retentionDays: policy.retentionDays, action: policy.action, estimatedRows, legalHoldRows, deletableRows: estimatedRows - legalHoldRows, cutoffAt: cutoffAt.toISOString() };
@@ -1115,6 +1115,14 @@ export class SystemService {
     if (category === "AUDIT") return prisma.auditLog.count({ where: { createdAt: { lt: cutoffAt } } });
     if (category === "SUPPORT") return prisma.supportTicket.count({ where: { createdAt: { lt: cutoffAt }, status: "CLOSED" } });
     if (category === "LEARNING") return prisma.learningClass.count({ where: { archivedAt: { lt: cutoffAt } } });
+    if (category === "AI_RESULTS") {
+      const [settings, grading, study] = await Promise.all([
+        this.aiResultSettings(prisma, cutoffAt),
+        prisma.aiGradingSuggestion.count({ where: { state: "READY", updatedAt: { lt: cutoffAt } } }),
+        prisma.aiStudyDraft.count({ where: { state: "READY", publishedAt: null, updatedAt: { lt: cutoffAt } } }),
+      ]);
+      return settings.length + grading + study;
+    }
     return 0;
   }
 
@@ -1152,8 +1160,19 @@ export class SystemService {
         ...classItem.materials.flatMap((material) => [material.objectKey, ...material.versions.map((version) => version.objectKey)]),
         ...classItem.assignments.flatMap((assignment) => assignment.submissions.flatMap((submission) => submission.attachments.map((attachment) => attachment.objectKey))),
       ]);
+    } else if (category === "AI_RESULTS") {
+      const [settings, grading, study] = await Promise.all([
+        this.aiResultSettings(prisma, cutoffAt),
+        prisma.aiGradingSuggestion.findMany({ where: { state: "READY", updatedAt: { lt: cutoffAt } }, orderBy: { updatedAt: "asc" } }),
+        prisma.aiStudyDraft.findMany({ where: { state: "READY", publishedAt: null, updatedAt: { lt: cutoffAt } }, orderBy: { updatedAt: "asc" } }),
+      ]);
+      records = [
+        ...settings.map((record) => ({ entity: "system_setting_ai_result", record })),
+        ...grading.map((record) => ({ entity: "ai_grading_suggestion", record })),
+        ...study.map((record) => ({ entity: "ai_study_draft", record })),
+      ];
     } else {
-      throw new BadRequestException("Retention chỉ hỗ trợ AUDIT, SUPPORT hoặc LEARNING.");
+      throw new BadRequestException("Danh mục retention không được hỗ trợ.");
     }
 
     let archiveObjectKey: string | undefined;
@@ -1179,6 +1198,17 @@ export class SystemService {
       if (category === "AUDIT") await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoffAt } } });
       if (category === "SUPPORT") await prisma.supportTicket.deleteMany({ where: { id: { in: (records as Array<{ id: string }>).map((item) => item.id) } } });
       if (category === "LEARNING") await prisma.learningClass.deleteMany({ where: { id: { in: (records as Array<{ id: string }>).map((item) => item.id) } } });
+      if (category === "AI_RESULTS") {
+        const grouped = records as Array<{ entity: string; record: { id?: string; key?: string } }>;
+        const settingKeys = grouped.filter((item) => item.entity === "system_setting_ai_result").flatMap((item) => item.record.key ? [item.record.key] : []);
+        const gradingIds = grouped.filter((item) => item.entity === "ai_grading_suggestion").flatMap((item) => item.record.id ? [item.record.id] : []);
+        const studyIds = grouped.filter((item) => item.entity === "ai_study_draft").flatMap((item) => item.record.id ? [item.record.id] : []);
+        await prisma.$transaction([
+          prisma.systemSetting.deleteMany({ where: { key: { in: settingKeys } } }),
+          prisma.aiGradingSuggestion.deleteMany({ where: { id: { in: gradingIds } } }),
+          prisma.aiStudyDraft.deleteMany({ where: { id: { in: studyIds } } }),
+        ]);
+      }
     }
 
     let removedObjects = 0;
@@ -1190,6 +1220,28 @@ export class SystemService {
       }
     } else objectCleanupFailures = new Set(objectKeys).size;
     return { affectedRows: records.length, archiveObjectKey, archiveChecksum, removedObjects, objectCleanupFailures };
+  }
+
+  /** Lấy riêng cache OCR/hỏi đáp READY quá hạn; claim đang chạy hoặc chưa rõ kết quả luôn được giữ lại để đối soát. */
+  private async aiResultSettings(prisma: PrismaService, cutoffAt: Date): Promise<Array<Prisma.SystemSettingGetPayload<Record<string, never>>>> {
+    const candidates = await prisma.systemSetting.findMany({
+      where: {
+        updatedAt: { lt: cutoffAt },
+        OR: [{ key: { startsWith: "ai-doc:" } }, { key: { startsWith: "ai-doc-answer:" } }],
+      },
+      orderBy: { updatedAt: "asc" },
+    });
+    return candidates.filter((item) => {
+      if (!item.value || typeof item.value !== "object" || Array.isArray(item.value)) return item.key.startsWith("ai-doc:") && Array.isArray(item.value);
+      return (item.value as Record<string, unknown>).state === "READY";
+    });
+  }
+
+  /** Chuẩn hóa danh mục retention và chặn policy không có executor tương ứng. */
+  private retentionCategory(value: string): RetentionCategory {
+    const category = value.trim().toUpperCase();
+    if (!retentionCategories.includes(category as RetentionCategory)) throw new BadRequestException("Danh mục retention không được hỗ trợ.");
+    return category as RetentionCategory;
   }
 
   /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
