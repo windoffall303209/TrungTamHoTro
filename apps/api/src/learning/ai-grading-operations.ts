@@ -153,6 +153,7 @@ export class AiGradingOperationsService {
 
   /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
   private examRows(filter: Prisma.Sql, limit: number, scope: typeof examScopes[number]): Promise<ExamOperation[]> {
+    if (scope === "canonical") return this.canonicalExamRows(filter, limit);
     // Broken bindings can affect several retry IDs; this scope reports affected requests, not distinct jobs.
     const brokenTarget = Prisma.sql`AND NOT EXISTS (
       SELECT 1 FROM system_settings target
@@ -169,7 +170,6 @@ export class AiGradingOperationsService {
       WHERE b.\`key\` LIKE 'ai-generation-content:%'
         AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
         AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
-        ${scope === "canonical" ? Prisma.sql`AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = SUBSTRING(r.\`key\`, 15)` : Prisma.empty}
         ${scope === "broken" ? brokenTarget : Prisma.empty}
     )`;
     const relationship = scope === "unlinked" ? Prisma.sql`NOT ${binding}` : binding;
@@ -183,6 +183,27 @@ export class AiGradingOperationsService {
         AND ${relationship}
         AND ${filter}
       ORDER BY r.effective_at DESC, r.\`key\` DESC
+      LIMIT ${limit}
+    `);
+  }
+
+  /** Start canonical reconciliation from bindings, then perform one primary-key lookup per target claim. */
+  private canonicalExamRows(filter: Prisma.Sql, limit: number): Promise<ExamOperation[]> {
+    return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
+      SELECT DISTINCT SUBSTRING(r.\`key\`, 15) AS id,
+        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.owner')) AS ownerId,
+        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) AS state,
+        r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      FROM system_settings b
+      JOIN system_settings r
+        ON r.\`key\` = CONCAT('ai-generation:', JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')))
+        AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
+        AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
+      WHERE b.\`key\` LIKE 'ai-generation-content:%'
+        AND JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
+        AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId'))) > 0
+        AND ${filter}
+      ORDER BY createdAt DESC, id DESC
       LIMIT ${limit}
     `);
   }
