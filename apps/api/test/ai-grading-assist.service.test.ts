@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { testGradingStore } from "./ai-grading-store.fixture.js";
+import type { AiGradingStoreService } from "../src/learning/ai-grading-store.service.js";
 import { AcademicService } from "../src/learning/academic.service.js";
 import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
@@ -14,16 +15,44 @@ const session = { roleCode: "INSTRUCTOR", permissions: ["exam:manage"], user: { 
 function fixture(): {
   row: { id: string; content: string; revision: number; learnerId: string; score: number; attachments: Array<{ id: string }>; assignment: { classId: string; version: number; title: string; description: string; instructions: string; rubric: Array<{ id: string; title: string; description: string; maxPoints: number }> } };
   prisma: { assignmentSubmission: { findUnique: ReturnType<typeof vi.fn> }; classInstructor: { findMany: ReturnType<typeof vi.fn> }; learningClass: { findUnique: ReturnType<typeof vi.fn> } };
-  academic: AcademicService; ai: { resolveTask: ReturnType<typeof vi.fn>; suggestGrading: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> }; service: AiGradingAssistService;
+  academic: AcademicService; store: AiGradingStoreService; ai: { resolveTask: ReturnType<typeof vi.fn>; suggestGrading: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> }; service: AiGradingAssistService;
 } {
   const row = { id: "submission", content: "HTTP is an application-layer protocol.", revision: 2, learnerId: "private-learner", score: 4, attachments: [] as Array<{ id: string }>, assignment: { classId: "class", version: 3, title: "HTTP assignment", description: "Explain the protocol.", instructions: "Name the correct network layer.", rubric: [{ id: "r1", title: "Accuracy", description: "Correct layer", maxPoints: 5 }] } };
   const prisma = { assignmentSubmission: { findUnique: vi.fn().mockImplementation(() => Promise.resolve(structuredClone(row))) }, classInstructor: { findMany: vi.fn().mockResolvedValue([{ classId: "class" }]) }, learningClass: { findUnique: vi.fn().mockResolvedValue({ status: "ACTIVE" }) } };
   const academic = new AcademicService(prisma as unknown as PrismaService, {} as ObjectStorageService, {} as AntivirusService);
   const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "provider", model: "configured-model" }), suggestGrading: vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ insufficientEvidence: false, feedback: "Review this suggestion", criteria: [], suggestedTotal: 4, requiresHumanReview: true, model: "configured-model" }) };
-  return { row, prisma, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore()) };
+  const store = testGradingStore();
+  return { row, prisma, academic, ai, store, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, store) };
 }
 
 describe("authorized AI grading context", () => {
+  it.each(["rubric", "revision", "permission", "closed"])("rejects saved answers when %s changes during status lookup", async (change) => {
+    const { service, store, row, prisma, ai } = fixture();
+    await service.suggest("submission", 2, "VI", session);
+    const originalFind = store.find.bind(store);
+    vi.spyOn(store, "find").mockImplementationOnce(async (identity) => {
+      const saved = await originalFind(identity);
+      if (change === "rubric") row.assignment.rubric[0]!.maxPoints = 3;
+      if (change === "revision") row.revision++;
+      if (change === "permission") prisma.classInstructor.findMany.mockResolvedValue([]);
+      if (change === "closed") prisma.learningClass.findUnique.mockResolvedValue({ status: "CLOSED" });
+      return saved;
+    });
+    await expect(service.inspect("submission", 2, "VI", session)).rejects.toMatchObject({ status: change === "permission" ? 404 : 409 });
+    expect(ai.suggestGrading).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report NOT_REQUESTED after access is revoked during lookup", async () => {
+    const { service, store, prisma, ai } = fixture();
+    vi.spyOn(store, "find").mockImplementationOnce(() => {
+      prisma.classInstructor.findMany.mockResolvedValue([]);
+      return Promise.resolve(null);
+    });
+    await expect(service.inspect("submission", 2, "VI", session)).rejects.toMatchObject({ status: 404 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    expect(ai.suggestGrading).not.toHaveBeenCalled();
+  });
+
   it("does not reserve a claim for missing configuration or invalid input", async () => {
     const { service, ai, row } = fixture();
     ai.resolveTask.mockRejectedValueOnce(new Error("missing model"));

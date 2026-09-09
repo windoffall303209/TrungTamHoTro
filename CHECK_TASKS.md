@@ -441,6 +441,7 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 
 ## AI grading — chống tạo trùng (2026-09-08)
 
+- [x] Đọc gợi ý đã lưu tái kiểm tra quyền, trạng thái lớp, revision và hash toàn bộ ngữ cảnh sau truy vấn trạng thái; không trả READY hoặc NOT_REQUESTED khi phân công/bài làm/rubric đổi trong lúc đọc. Năm regression test đã thất bại trước sửa và đạt sau sửa; tổng 59 test context/TXT/HTTP/store đạt, không gọi provider thật. Thông báo xung đột có bản dịch tiếng Anh; catalog API 666/666.
 - [x] Lưu gợi ý chấm bằng bảng `ai_grading_suggestions`; khóa duy nhất theo giảng viên, bài nộp, hash ngữ cảnh/rubric/phiên bản và ngôn ngữ. Không dùng chung kết quả giữa các giảng viên.
 - [x] Gợi ý chấm không còn fallback RAM ngay cả khi cấu hình database tắt/thiếu: find/generate trả 503 trước provider, lỗi database không chuyển sang bộ nhớ. Unit fixture mô phỏng unique insert/CAS ở biên database thay vì giữ fallback trong production. Bốn bộ kiểm thử store/context/TXT/MySQL tổng 32 đạt; typecheck/lint phần sửa đạt. Thông báo mới có bản dịch tiếng Anh.
 - [x] Bổ sung 61 bản dịch thông báo API còn thiếu (2026-09-09), gồm cấu hình AI, trích xuất, hỏi đáp, rubric, quyền sửa đề và trạng thái chống trùng. `pnpm i18n:check` đạt 2.198/2.198 chuỗi frontend và 664/664 thông báo API mà bộ quét nhận diện; 7 test catalog đạt, gồm cảnh báo không tạo yêu cầu mới/không áp điểm và giới hạn 6 tệp/24 MB. Lint test đạt. Đây là độ phủ bộ quét literal, không khẳng định mọi thông báo động từ provider bên ngoài đã được dịch.
