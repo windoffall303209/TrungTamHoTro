@@ -12,6 +12,7 @@ const submission = { id: "submission", revision: 2, content: "HTTP is an applica
 const result = { insufficientEvidence: false, feedback: "Good explanation", suggestedTotal: 4.5, requiresHumanReview: true, model: "admin-model", submissionRevision: 2, assignmentVersion: 3, criteria: [{ criterionId: "r1", suggestedPoints: 4.5, reasoning: "The correct layer is identified.", evidence: [submission.content] }] };
 const txt = { id: "file", originalName: "answer.txt", mimeType: "text/plain", sizeBytes: 100, createdAt: "2026-09-08", canPreview: false };
 const pdf = { ...txt, originalName: "answer.pdf", mimeType: "application/pdf", sizeBytes: 1024 };
+const docx = { ...txt, originalName: "answer.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", sizeBytes: 2048 };
 const source = { attachmentId: "file", name: "answer.txt", checksum: `sha256:${"a".repeat(64)}`, text: submission.content };
 
 describe("instructor AI grading review", () => {
@@ -80,10 +81,23 @@ describe("instructor AI grading review", () => {
     expect(onUse).not.toHaveBeenCalled();
   });
 
-  it.each([{ ...pdf, sizeBytes: 12 * 1024 * 1024 + 1 }, { ...pdf, mimeType: "application/msword", originalName: "answer.doc" }])("blocks unsupported or oversized OCR sources %#", (file) => {
+  it("creates a DOCX suggestion with local-extraction guidance and no OCR fee warning", async () => {
+    const docxSource = { ...source, name: docx.originalName, text: "Text extracted locally from the submitted DOCX." };
+    api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce({ ...result, criteria: [{ ...result.criteria[0], evidence: [docxSource.text] }], sources: [docxSource] });
+    render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [docx] }} onUse={onUse} />);
+    expect(screen.getByText(/DOCX được đọc thành văn bản tại máy chủ/)).toBeInTheDocument();
+    expect(screen.queryByText(/cả phí OCR và phí chấm/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" }));
+    expect((await screen.findAllByText(docxSource.text))[0]).toHaveAttribute("translate", "no");
+    expect(screen.getByText(/Văn bản DOCX là bản trích xuất cục bộ/)).toBeInTheDocument();
+    expect(api).toHaveBeenLastCalledWith("/instructor/assignment-submissions/submission/ai-suggestion", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedSubmissionRevision: 2, language: "VI" }) }));
+  });
+
+  it.each([{ ...pdf, sizeBytes: 12 * 1024 * 1024 + 1 }, { ...docx, sizeBytes: 12 * 1024 * 1024 + 1 }, { ...pdf, mimeType: "application/msword", originalName: "answer.doc" }])("blocks unsupported or oversized extracted sources %#", (file) => {
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [file] }} onUse={onUse} />);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByText(/Word và bài vượt giới hạn/)).toBeInTheDocument();
+    expect(screen.getByText(/Word DOC cũ và bài vượt giới hạn/)).toBeInTheDocument();
     expect(api).not.toHaveBeenCalled();
   });
 
@@ -105,7 +119,7 @@ describe("instructor AI grading review", () => {
   it.each([{ ...txt, mimeType: "application/pdf" }, { ...txt, originalName: "answer.pdf" }, { ...txt, sizeBytes: 80001 }, { ...txt, sizeBytes: 0 }])("blocks unsupported or oversized attachments before requesting AI %#", (file) => {
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [txt, file] }} onUse={onUse} />);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByText(/Word và bài vượt giới hạn cần chấm thủ công/)).toBeInTheDocument();
+    expect(screen.getByText(/Word DOC cũ và bài vượt giới hạn cần chấm thủ công/)).toBeInTheDocument();
     expect(api).not.toHaveBeenCalled();
   });
 
