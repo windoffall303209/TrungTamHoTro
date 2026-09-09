@@ -7,6 +7,7 @@ import { apiRequest, previewApiFile } from "@/lib/api-client";
 import type { Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { MaterialStudyGuide } from "@/components/material-study-guide";
+import { MaterialQuestionHistory } from "@/components/material-question-history";
 
 type Answer = {
   answer: string;
@@ -28,6 +29,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<{ question: string; answer: Answer } | null>(null);
   const inFlight = useRef(false);
+  const questionInput = useRef<HTMLTextAreaElement>(null);
 
   /** Khóa gửi lặp tức thời và giữ câu hỏi khi API lỗi; không tự động retry yêu cầu trả phí. */
   const ask = async (event: React.SyntheticEvent, checkOnly = false) => {
@@ -65,8 +67,13 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
     <div hidden={mode !== "STUDY"}><MaterialStudyGuide materialId={material.id} openSource={openSource} onBusyChange={(value) => { inFlight.current = value; setBusy(value); }} /></div>
     <div hidden={mode !== "QA"}>
     <p className="mb-5 text-sm leading-6 text-[var(--ink-soft)]">AI chỉ trả lời từ tài liệu này, không tìm trên internet. Việc gửi câu hỏi có thể phát sinh phí trích xuất và trả lời theo cấu hình của quản trị viên.</p>
+    {mode === "QA" ? <MaterialQuestionHistory key={`${session.user?.id}:${material.id}:${material.version}`} materialId={material.id} version={material.version} disabled={busy} onSelect={(entry) => {
+      if (inFlight.current) return;
+      setQuestion(entry.question); setLanguage(entry.language); setError(""); setStatusMessage(""); setResult(null);
+      questionInput.current?.focus();
+    }} /> : null}
     <form onSubmit={(event) => void ask(event)} onChange={() => { setStatusMessage(""); setResult(null); }} className="space-y-4">
-      <Field label="Câu hỏi về tài liệu"><textarea className={inputClass} rows={3} required minLength={2} maxLength={2000} disabled={busy} value={question} onChange={(event) => setQuestion(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "material-ai-error" : undefined} /></Field>
+      <Field label="Câu hỏi về tài liệu"><textarea ref={questionInput} className={inputClass} rows={3} required minLength={2} maxLength={2000} disabled={busy} value={question} onChange={(event) => setQuestion(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "material-ai-error" : undefined} /></Field>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <Field label="Ngôn ngữ trả lời"><select className={inputClass} disabled={busy} value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
         <Button type="button" variant="secondary" disabled={busy || question.trim().length < 2} onClick={(event) => void ask(event, true)}>Kiểm tra kết quả</Button>
