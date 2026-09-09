@@ -25,7 +25,7 @@ describe("MaterialAiDialog", () => {
     expect(apiRequest).toHaveBeenCalledTimes(1);
     apiRequest.mockResolvedValueOnce({ state: "NOT_REQUESTED" });
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra kết quả" }));
-    await screen.findByText("Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới.");
+    await screen.findByText("Phiên bản cũ chưa có câu trả lời đã lưu. Chọn Dùng phiên bản hiện tại nếu muốn gửi câu hỏi mới.");
     expect(apiRequest).toHaveBeenLastCalledWith("/instructor/materials/material-1/ai-question/status", expect.objectContaining({ body: JSON.stringify({ question: "Old question?", language: "EN", version: 2 }) }));
     fireEvent.click(screen.getByRole("button", { name: "Dùng phiên bản hiện tại" }));
     expect(screen.getByRole("button", { name: "Gửi câu hỏi" })).toBeEnabled();
