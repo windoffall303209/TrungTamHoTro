@@ -47,7 +47,7 @@ export function MaterialAiDialog({ material, onClose }: { material: Material; on
       if (checkOnly) {
         const status = await apiRequest<{ state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: Answer }>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question/status`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language, ...(answerVersion !== material.version ? { version: answerVersion } : {}) }) });
         if (status.state === "READY") setResult({ question: text, answer: status.result });
-        else setStatusMessage(status.state === "NOT_REQUESTED" ? "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới." : status.state === "GENERATING" ? "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau." : "Kết quả chưa xác định. Liên hệ quản trị viên đối soát; không tự gọi lại AI.");
+        else setStatusMessage(status.state === "NOT_REQUESTED" ? answerVersion !== material.version ? "Phiên bản cũ chưa có câu trả lời đã lưu. Chọn Dùng phiên bản hiện tại nếu muốn gửi câu hỏi mới." : "Chưa có câu trả lời đã lưu. Bạn có thể gửi câu hỏi để tạo mới." : status.state === "GENERATING" ? "Yêu cầu đang xử lý hoặc bị gián đoạn. Hãy kiểm tra lại sau." : "Kết quả chưa xác định. Liên hệ quản trị viên đối soát; không tự gọi lại AI.");
         return;
       }
       const answer = await apiRequest<Answer>(`/instructor/materials/${encodeURIComponent(material.id)}/ai-question`, { method: "POST", roleCode: session.roleCode, signal: controller.signal, body: JSON.stringify({ question: text, language }) });
