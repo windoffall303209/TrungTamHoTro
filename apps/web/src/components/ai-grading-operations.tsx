@@ -6,7 +6,7 @@ import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 
-type State = "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
+type State = "RETRY_AUTHORIZED" | "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
 type Domain = "grading" | "study" | "exams" | "document-answers" | "extractions";
 type ExamScope = "canonical" | "unlinked" | "broken";
 const scopeHelp: Record<ExamScope, string> = {
@@ -16,7 +16,7 @@ const scopeHelp: Record<ExamScope, string> = {
 };
 type Row = { id: string; ownerId: string; state: State; createdAt: string; updatedAt: string } & ({ submissionId: string; language: string } | { materialId: string; sourceVersion: number } | { version: number });
 type Page = { items: Row[]; nextCursor: string | null };
-const labels: Record<State, string> = { GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý", CLAIMED: "Đã giữ khóa, chưa bắt đầu sinh", SAVING: "Đang lưu đề hoặc bị gián đoạn", COMPLETED: "Đã hoàn tất lưu đề" };
+const labels: Record<State, string> = { RETRY_AUTHORIZED: "Đã cho phép thử lại", GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả", READY: "Đã lưu gợi ý", CLAIMED: "Đã giữ khóa, chưa bắt đầu sinh", SAVING: "Đang lưu đề hoặc bị gián đoạn", COMPLETED: "Đã hoàn tất lưu đề" };
 
 /** Định dạng thời gian máy người dùng cho input datetime-local mà không làm lệch múi giờ. */
 function localDateTimeValue(date = new Date()): string {
@@ -94,20 +94,20 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     setReconcileError("");
   }
 
-  /** Gửi bằng chứng một lần; server dùng version và audit transaction làm lớp bảo vệ có thẩm quyền. */
+  /** Gửi bằng chứng một lần; server dùng đúng CAS token của từng miền và audit transaction làm lớp bảo vệ có thẩm quyền. */
   async function submitReconciliation(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    if (!reconciling || !("version" in reconciling) || reconcileBusy) return;
+    if (!reconciling || reconcileBusy) return;
     if (!confirmed) { setReconcileError("Cần xác nhận đã kiểm tra provider trước khi mở lại tác vụ."); return; }
     const verifiedAt = new Date(checkedAt);
     if (!Number.isFinite(verifiedAt.getTime())) { setReconcileError("Thời điểm kiểm tra bằng chứng AI không hợp lệ."); return; }
     setReconcileBusy(true); setReconcileError(""); setNotice("");
     try {
-      const updated = await apiRequest<Row>(`/admin/ai-operations/exams/${encodeURIComponent(reconciling.id)}/reconcile-not-processed`, {
+      const updated = await apiRequest<Row>(`/admin/ai-operations/${domain}/${encodeURIComponent(reconciling.id)}/reconcile-not-processed`, {
         roleCode: session.roleCode,
         method: "POST",
         body: JSON.stringify({
-          expectedVersion: reconciling.version,
+          ...("version" in reconciling ? { expectedVersion: reconciling.version } : { expectedUpdatedAt: reconciling.updatedAt }),
           evidenceReference: evidenceReference.trim(),
           evidenceNote: evidenceNote.trim(),
           checkedAt: verifiedAt.toISOString(),
@@ -123,6 +123,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
   }
 
   const title = domain === "grading" ? "Đối soát chấm AI" : domain === "study" ? "Đối soát bộ ôn tập AI" : domain === "document-answers" ? "Đối soát hỏi đáp AI" : domain === "extractions" ? "Đối soát trích xuất OCR" : "Đối soát sinh đề AI";
+  const reconciliationTitle = domain === "grading" ? "Đối soát chấm AI" : domain === "study" ? "Đối soát bộ ôn tập" : domain === "document-answers" ? "Đối soát hỏi đáp tài liệu" : domain === "extractions" ? "Đối soát trích xuất OCR" : "Đối soát tác vụ sinh đề";
   const readyLabel = domain === "exams" ? "Đã có bản nháp AI, chưa xác nhận lưu đề" : domain === "document-answers" ? "Đã lưu câu trả lời" : domain === "extractions" ? "Đã lưu trích xuất" : labels.READY;
   return <><section aria-label={title} className="space-y-4 px-5 py-6 md:px-6">
     <div className="space-y-2">
@@ -144,6 +145,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
         {domain === "exams" ? <option value="CLAIMED">Đã giữ khóa, chưa bắt đầu sinh</option> : null}
         <option value="GENERATING">Đã bắt đầu xử lý</option>
         <option value="UNCERTAIN">Chưa rõ kết quả</option>
+        {domain !== "exams" ? <option value="RETRY_AUTHORIZED">Đã cho phép thử lại</option> : null}
         <option value="READY">{domain === "exams" ? "Có bản nháp AI" : readyLabel}</option>
         {domain === "exams" ? <><option value="SAVING">Đang lưu đề hoặc bị gián đoạn</option><option value="COMPLETED">Đã hoàn tất lưu đề</option></> : null}
       </select></Field></div>
@@ -162,7 +164,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
           {"materialId" in row || "submissionId" in row ? <div className="min-w-0"><dt className="text-[var(--ink-soft)]">{"materialId" in row ? "Mã tài liệu" : "Mã bài nộp"}</dt><dd translate="no" className="mt-1 select-text break-all">{"materialId" in row ? row.materialId : row.submissionId}</dd></div> : null}
         </dl>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-[var(--ink-soft)]"><p><span>Tạo lúc</span>: <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString(activeLocale())}</time></p><p><span>Cập nhật lúc</span>: <time dateTime={row.updatedAt}>{new Date(row.updatedAt).toLocaleString(activeLocale())}</time></p></div>
-        {domain === "exams" && scope === "canonical" && ["GENERATING", "UNCERTAIN"].includes(row.state) ? <div><Button type="button" variant="secondary" disabled={busy || reconcileBusy} onClick={() => openReconciliation(row)}>Mở lại bằng bằng chứng</Button></div> : null}
+        {(!((domain === "exams") && scope !== "canonical")) && ["GENERATING", "UNCERTAIN"].includes(row.state) ? <div><Button type="button" variant="secondary" disabled={busy || reconcileBusy} onClick={() => openReconciliation(row)}>Mở lại bằng bằng chứng</Button></div> : null}
       </li>)}</ul>}
       <nav aria-label="Phân trang đối soát AI" className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="secondary" disabled={busy || history.length < 2} onClick={() => void load(history.slice(0, -1))}>Trang trước</Button>
@@ -171,7 +173,7 @@ function OperationsPanel({ domain }: { domain: Domain }) {
       </nav>
     </> : null}
   </section>
-    <Modal open={Boolean(reconciling)} onClose={() => { if (!reconcileBusy) setReconciling(null); }} title="Đối soát tác vụ sinh đề" description="Chỉ mở lại khi nhật ký provider xác nhận yêu cầu chưa được tiếp nhận, xử lý hoặc tính phí. Thao tác được ghi audit và không tự gọi AI.">
+    <Modal open={Boolean(reconciling)} onClose={() => { if (!reconcileBusy) setReconciling(null); }} title={reconciliationTitle} description="Chỉ mở lại khi nhật ký provider xác nhận yêu cầu chưa được tiếp nhận, xử lý hoặc tính phí. Thao tác được ghi audit và không tự gọi AI.">
       <form className="space-y-4" onSubmit={(event) => void submitReconciliation(event)}>
         <div className="border-y border-[var(--rule)] bg-[var(--surface-muted)] px-3 py-3 text-sm leading-6">
           <p className="font-semibold">Tác vụ: <span translate="no" className="break-all font-normal">{reconciling?.id}</span></p>
