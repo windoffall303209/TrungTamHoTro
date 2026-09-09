@@ -2846,5 +2846,6 @@
   "Nhập model {{0}}": "Enter {{0}} model",
   "Nhập thủ công hoặc lưu provider rồi tải danh sách từ endpoint /models.": "Enter a model manually, or save the provider and load the list from its /models endpoint.",
   "Tải danh sách từ tài khoản provider để biết API key hiện tại nhìn thấy model nào. Bạn vẫn có thể nhập model thủ công.": "Load models from the provider account to see what the current API key can access. You can still enter a model manually.",
-  "Tải model từ tài khoản": "Load models from account"
+  "Tải model từ tài khoản": "Load models from account",
+  "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.": "The provider model list exceeds the safe response-size limit."
 }
