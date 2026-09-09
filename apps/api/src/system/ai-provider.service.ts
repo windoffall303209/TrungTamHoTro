@@ -14,6 +14,7 @@ export type AiProviderHealth = "UNKNOWN" | "HEALTHY" | "ERROR";
 export type ExamLanguage = "VI" | "EN" | "BILINGUAL";
 export type AiTask = "SCAN_IMAGE" | "GENERATE_EXAM" | "DOCUMENT_CONTEXT" | "DOCUMENT_QA" | "GRADING_ASSIST";
 export type AiTaskConfig = { providerId: string; model: string; contextProviderId?: string };
+export type AiModelOption = { value: string; label: string; description: string };
 
 export interface AiProviderConfig {
   id: string;
@@ -76,7 +77,7 @@ export interface GeneratedExamDraft {
   warnings: string[];
 }
 
-const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, Array<{ value: string; label: string; description: string }>> = {
+const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, AiModelOption[]> = {
   GEMINI: [
     { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "Mới nhất · mạnh cho suy luận dài và tài liệu đa phương thức." },
     { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", description: "Ổn định · cân bằng chất lượng và tốc độ." },
@@ -340,35 +341,33 @@ export class AiProviderService {
     return this.publicView(current);
   }
 
-  /** Đọc danh sách model từ endpoint OpenAI-compatible của một provider custom đã lưu. */
-  async discoverModels(id: string): Promise<Array<{ value: string; label: string; description: string }>> {
+  /** Đọc danh sách model thực sự khả dụng từ endpoint chính thức của provider đã lưu. */
+  async discoverModels(id: string): Promise<AiModelOption[]> {
     const provider = await this.requireReady(id, false);
-    if (provider.provider !== "CUSTOM") throw new BadRequestException("Chỉ provider Custom hỗ trợ tải danh sách model từ endpoint.");
     const apiKey = decryptSecret(provider.encryptedApiKey, this.encryptionSecret());
-    const response = await fetch(this.modelsUrl(provider.baseUrl!), {
-      headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
+    const isGemini = provider.provider === "GEMINI";
+    const response = await fetch(isGemini ? this.geminiModelsUrl(provider.baseUrl!) : this.modelsUrl(provider.baseUrl!), {
+      headers: isGemini
+        ? { accept: "application/json", "x-goog-api-key": apiKey }
+        : { accept: "application/json", authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(30_000),
-    }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối endpoint Custom để tải danh sách model."); });
+    }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối nhà cung cấp để tải danh sách model."); });
     const payload = await response.json().catch(() => undefined) as { data?: unknown; models?: unknown } | undefined;
     if (!response.ok) this.throwProviderHttpError(response.status, "tải danh sách model");
     const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
-    const ids = rawModels.flatMap((item): string[] => {
-      if (typeof item === "string") return [item.trim()];
-      if (typeof item !== "object" || item === null) return [];
-      const idValue = (item as { id?: unknown; name?: unknown }).id ?? (item as { name?: unknown }).name;
-      return typeof idValue === "string" ? [idValue.trim()] : [];
-    }).filter(Boolean);
-    const uniqueIds = [...new Set(ids)].sort((left, right) => left.localeCompare(right, "en")).slice(0, 500);
-    if (!uniqueIds.length) throw new ServiceUnavailableException("Endpoint Custom không trả về danh sách model hợp lệ.");
-    return uniqueIds.map((model) => ({ value: model, label: model, description: "Model do endpoint Custom cung cấp." }));
+    const curated = provider.provider === "CUSTOM" ? new Map<string, AiModelOption>() : new Map(providerCatalog[provider.provider].map((item) => [item.value, item]));
+    const models = new Map<string, AiModelOption>();
+    for (const item of rawModels) {
+      const normalized = this.normalizeDiscoveredModel(item, provider.provider, curated);
+      if (normalized && !models.has(normalized.value)) models.set(normalized.value, normalized);
+      if (models.size >= 1_000) break;
+    }
+    if (!models.size) throw new ServiceUnavailableException("Endpoint nhà cung cấp không trả về danh sách model hợp lệ.");
+    return [...models.values()].sort((left, right) => left.label.localeCompare(right.label, "en"));
   }
 
   /** Trả các model có thể chọn cho một provider sẵn sàng mà không làm lộ API key. */
-  async listModels(id: string): Promise<Array<{ value: string; label: string; description: string }>> {
-    const provider = await this.requireReady(id, true);
-    if (provider.provider === "CUSTOM") return this.discoverModels(id);
-    return structuredClone(providerCatalog[provider.provider]);
-  }
+  async listModels(id: string): Promise<AiModelOption[]> { return this.discoverModels(id); }
 
   /** Chọn provider sẵn sàng, gửi ảnh và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
   async scanImage(input: { providerId?: string; model?: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<QuestionScanResult> {
@@ -920,6 +919,38 @@ export class AiProviderService {
     parsed.search = "";
     parsed.hash = "";
     return parsed.toString();
+  }
+  /** Suy ra endpoint models.list Gemini và yêu cầu kích thước trang tối đa được tài liệu chính thức hỗ trợ. */
+  private geminiModelsUrl(baseUrl: string): string {
+    const parsed = new URL(baseUrl);
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/models`;
+    parsed.search = "";
+    parsed.searchParams.set("pageSize", "1000");
+    parsed.hash = "";
+    return parsed.toString();
+  }
+  /** Chuẩn hóa model từ Gemini hoặc OpenAI-compatible, loại model Gemini không hỗ trợ generateContent. */
+  private normalizeDiscoveredModel(item: unknown, provider: AiProviderType, curated: Map<string, AiModelOption>): AiModelOption | undefined {
+    if (typeof item === "string") item = { id: item };
+    if (!item || typeof item !== "object" || Array.isArray(item)) return undefined;
+    const record = item as Record<string, unknown>;
+    const methods = Array.isArray(record.supportedGenerationMethods)
+      ? record.supportedGenerationMethods
+      : Array.isArray(record.supportedActions) ? record.supportedActions : undefined;
+    if (provider === "GEMINI" && methods && !methods.includes("generateContent")) return undefined;
+    const rawId = record.id ?? record.name;
+    if (typeof rawId !== "string") return undefined;
+    const value = rawId.trim().replace(/^models\//, "");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(value)) return undefined;
+    const fallback = curated.get(value);
+    const displayName = typeof record.displayName === "string" ? record.displayName.trim() : "";
+    const upstreamDescription = typeof record.description === "string" ? record.description.trim() : "";
+    const owner = typeof record.owned_by === "string" ? record.owned_by.trim() : "";
+    return {
+      value,
+      label: (displayName || fallback?.label || value).slice(0, 200),
+      description: (upstreamDescription || fallback?.description || (owner ? `Provider owner: ${owner}` : "Model do endpoint nhà cung cấp công bố.")).slice(0, 500),
+    };
   }
   /** Chuyển mã lỗi upstream thành trạng thái API rõ nguyên nhân mà không làm lộ phản hồi nhạy cảm. */
   private throwProviderHttpError(status: number, operation: string): never {
