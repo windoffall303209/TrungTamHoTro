@@ -34,6 +34,11 @@ export class MaterialAiQuestionDto {
   @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
 }
 
+/** Only read-only status requests may select a historical source version. */
+export class MaterialAiQuestionStatusDto extends MaterialAiQuestionDto {
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) version?: number;
+}
+
 /** History selects an explicit source version; owner identity always comes from the authenticated session. */
 export class MaterialAiHistoryQueryDto {
   @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)

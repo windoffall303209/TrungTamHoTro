@@ -12,7 +12,7 @@ import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemp
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
-import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
+import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiQuestionStatusDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
 import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
@@ -40,7 +40,7 @@ export class ContentController {
   @Post("instructor/materials/:materialId/ai-question/status") @RequirePermissions("material:manage")
   @HttpCode(200) @Header("Cache-Control", "no-store")
   /** Read-only status lookup uses a body so private question text is not put into URLs. */
-  questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language); }
+  questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionStatusDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language, input.version); }
 
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
   /** Tạo tóm tắt và thẻ ôn tập có nguồn từ học liệu giảng viên được phép xem. */
