@@ -14,6 +14,7 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let ownerId: string;
+  let retryClaimId: string | undefined;
   const materialId = `study-test-${randomUUID()}`;
 
   // Tạo metadata nguồn độc lập, không tải file hoặc gọi AI ngoài trong kiểm thử database.
@@ -29,7 +30,10 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
 
   // Xóa đúng tài liệu fixture cùng bản nháp cascade; giữ nguyên mọi dữ liệu seed và học liệu khác.
   afterAll(async () => {
-    if (prisma) await prisma.material.deleteMany({ where: { id: materialId } });
+    if (prisma) {
+      if (retryClaimId) await prisma.auditLog.deleteMany({ where: { entityId: retryClaimId, action: "AI_STUDY_RETRY_AUTHORIZED" } });
+      await prisma.material.deleteMany({ where: { id: materialId } });
+    }
     if (moduleRef) await moduleRef.close();
   });
 
@@ -89,6 +93,27 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
     await expect(new AiStudyDraftService(prisma).generate(identity, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(await prisma.aiStudyDraft.count({ where: { materialId, state: "UNCERTAIN" } })).toBe(1);
+  });
+
+  it("consumes an evidence-authorized retry once without changing published snapshots", async () => {
+    const identity = { ownerId, materialId, sourceVersion: 1, options: { cardCount: 4, language: "BILINGUAL" as const } };
+    await expect(new AiStudyDraftService(prisma).generate(identity, () => Promise.reject(new Error("provider did not acknowledge")))).rejects.toThrow("provider did not acknowledge");
+    const claim = await new AiStudyDraftService(prisma).find(identity);
+    retryClaimId = claim!.id;
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: ownerId } } as AuthenticatedSession;
+    await new AiGradingOperationsService(prisma).reconcileStudyNotProcessed(claim!.id, {
+      expectedUpdatedAt: claim!.updatedAt.toISOString(),
+      evidenceReference: `provider-log-${materialId}`,
+      evidenceNote: "Provider dashboard confirms this study request was not accepted or billed.",
+      checkedAt: new Date(claim!.updatedAt.getTime() + 1_000).toISOString(),
+    }, session);
+    const generate = vi.fn().mockResolvedValue(result);
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiStudyDraftService(prisma).generate(identity, generate)));
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(generate).toHaveBeenCalledOnce();
+    expect(await prisma.aiStudyDraft.findUniqueOrThrow({ where: { id: claim!.id } })).toMatchObject({ state: "READY", publishedAt: null });
+    expect(await prisma.auditLog.count({ where: { entityId: claim!.id, action: "AI_STUDY_RETRY_AUTHORIZED" } })).toBe(1);
   });
 
   it("persists human edits separately and allows only one concurrent revision update", async () => {
