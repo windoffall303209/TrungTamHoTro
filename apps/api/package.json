@@ -15,6 +15,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.mjs",
+    "db:test:prepare": "node scripts/test-database.mjs prepare",
+    "db:test:reset": "node scripts/test-database.mjs reset --confirm",
     "db:studio": "prisma studio"
   },
   "dependencies": {
@@ -32,10 +34,12 @@
     "compression": "1.8.1",
     "dotenv": "17.2.3",
     "helmet": "8.1.0",
+    "mammoth": "1.12.2",
     "mariadb": "3.5.3",
     "reflect-metadata": "0.2.2",
     "resend": "6.5.2",
     "rxjs": "7.8.2",
+    "yauzl": "3.2.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -45,8 +49,10 @@
     "@types/compression": "1.8.1",
     "@types/express": "5.0.6",
     "@types/node": "24.10.12",
+    "@types/yauzl": "2.10.3",
     "eslint": "9.39.4",
     "globals": "17.4.0",
+    "jszip": "3.10.1",
     "prisma": "7.9.1",
     "tsx": "^4.23.12",
     "typescript": "5.9.3",

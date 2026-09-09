@@ -1,0 +1,246 @@
+import generatedEnglishCatalog from "./generated-en.json";
+import generatedTemplateEnglishCatalog from "./generated-template-en.json";
+
+export type SupportedLocale = "vi-VN" | "en-US";
+
+export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
+export const LOCALE_STORAGE_KEY = "wind-edu-locale";
+
+const curatedEnglishCatalog: Record<string, string> = {
+  "Lớp": "Class",
+  "lớp": "class",
+  "Lớp:": "Class:",
+  "· Lớp:": "· Class:",
+  "Bài tập": "Assignments",
+  "bài tập": "assignments",
+  "Bài tập ·": "Assignment ·",
+  "Đề thi": "Exam",
+  "đề thi": "exam",
+  "Đề": "Exam",
+  "đề": "exam",
+  "Giảng viên chính": "Lead instructor",
+  "Đồng giảng viên": "Co-instructor",
+  "Ảnh đại diện": "Profile picture",
+  "Bản xem trước": "Preview",
+  "Định dạng này không xem trực tiếp được": "This format cannot be previewed",
+  "Tệp Word đã được lưu an toàn. Hãy chọn “Tải xuống” để mở bằng Microsoft Word hoặc ứng dụng tương thích.": "The Word file is stored safely. Select “Download” to open it in Microsoft Word or a compatible app.",
+  "Sổ giáo vụ số": "Digital academic office",
+  "Wind EDU · Sổ giáo vụ số": "Wind EDU · Digital academic office",
+  "Trung tâm hỗ trợ giảng dạy": "Bilingual Teaching Center",
+  "Một không gian vận hành theo vai trò": "One role-based workspace",
+  "Không gian chung": "Shared workspace",
+  "Điều hướng chính": "Main navigation",
+  "Điều hướng trên thiết bị di động": "Mobile navigation",
+  "Tổng quan": "Overview",
+  "Khóa học & lớp": "Courses & classes",
+  "Lớp của tôi": "My classes",
+  "Lớp giảng dạy": "Teaching classes",
+  "Kho học liệu": "Learning resources",
+  "Ngân hàng câu hỏi": "Question bank",
+  "Đề & kết quả": "Exams & results",
+  "Diễn đàn": "Forum",
+  "Tin nhắn": "Messages",
+  "Lớp học online": "Online classes",
+  "Lịch & bài tập": "Schedule & assignments",
+  "Báo cáo": "Reports",
+  "Điều hành lớp": "Class operations",
+  "Giám sát điểm danh": "Attendance monitoring",
+  "Vòng đời lớp": "Class lifecycle",
+  "Nghiệp vụ giảng dạy": "Teaching operations",
+  "Lịch sử học tập": "Learning history",
+  "Hỗ trợ": "Support",
+  "Người dùng": "Users",
+  "Vai trò & quyền": "Roles & permissions",
+  "Cấu hình": "Settings",
+  "Vận hành & tuân thủ": "Operations & compliance",
+  "Mở menu": "Open menu",
+  "Đóng menu": "Close menu",
+  "Vai trò đang sử dụng": "Current role",
+  "Thông báo": "Notifications",
+  "Trung tâm thông báo": "Notification center",
+  "Đã đọc tất cả": "All caught up",
+  "Đọc tất cả": "Mark all as read",
+  "Đang tải…": "Loading…",
+  "Thử lại": "Try again",
+  "Chưa có thông báo": "No notifications yet",
+  "Mở menu tài khoản": "Open account menu",
+  "Menu tài khoản": "Account menu",
+  "Thông tin": "Profile",
+  "Đăng xuất": "Sign out",
+  "Tiếng Việt": "Vietnamese",
+  "Ngôn ngữ": "Language",
+  "Chuyển ngôn ngữ": "Change language",
+  "Giao diện": "Appearance",
+  "Chế độ sáng": "Light mode",
+  "Chế độ tối": "Dark mode",
+  "Chuyển sang chế độ sáng": "Switch to light mode",
+  "Chuyển sang chế độ tối": "Switch to dark mode",
+  "Bạn không có quyền truy cập": "You do not have access",
+  "Tài khoản hiện tại không có quyền mở khu vực này.": "Your current account cannot open this area.",
+  "Quay về tổng quan": "Back to overview",
+  "Một tài khoản,": "One account,",
+  "toàn bộ hành trình dạy và học.": "the complete teaching and learning journey.",
+  "Học liệu, đề thi, diễn đàn và lớp học trực tuyến cùng vận hành trong một không gian có phân quyền rõ ràng.": "Learning resources, exams, forums, and online classes work together in one clearly governed space.",
+  "Dữ liệu học tập xuyên suốt giữa các vai trò": "Learning data flows across every role",
+  "Phiên đăng nhập bảo mật và quyền truy cập tách biệt": "Secure sessions with clearly separated access",
+  "Xác thực hai bước": "Two-step verification",
+  "Tạo tài khoản học viên": "Create learner account",
+  "Chào mừng quay lại": "Welcome back",
+  "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập.": "Enter the code from your authenticator app to finish signing in.",
+  "Bắt đầu học tập và tham gia lớp trên Wind EDU.": "Start learning and join classes on Wind EDU.",
+  "Đăng nhập để tiếp tục công việc trong trung tâm.": "Sign in to continue working in the center.",
+  "Mã khôi phục": "Recovery code",
+  "Mã xác thực": "Verification code",
+  "Dùng mã từ ứng dụng xác thực": "Use an authenticator code",
+  "Dùng mã khôi phục": "Use a recovery code",
+  "Họ và tên": "Full name",
+  "Tài khoản": "Username",
+  "Dùng để đăng nhập. Có 4–32 ký tự, gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.": "Used to sign in. Use 4–32 letters, numbers, periods, underscores, or hyphens.",
+  "Tài khoản cũ đăng nhập bằng địa chỉ email.": "Existing accounts sign in with their email address.",
+  "Email xác minh": "Verification email",
+  "Hệ thống sẽ gửi mã 6 số và liên kết xác minh tới địa chỉ này.": "The system will send a six-digit code and verification link to this address.",
+  "Mật khẩu": "Password",
+  "Tối thiểu 8 ký tự": "At least 8 characters",
+  "Ẩn mật khẩu": "Hide password",
+  "Hiện mật khẩu": "Show password",
+  "Xác nhận mật khẩu": "Confirm password",
+  "Chữ hoa và chữ thường": "Uppercase and lowercase letters",
+  "Số và ký tự đặc biệt": "Numbers and special characters",
+  "Duy trì đăng nhập": "Keep me signed in",
+  "Quên mật khẩu?": "Forgot password?",
+  "Tiếp tục xác minh tài khoản hiện có": "Continue verifying the existing account",
+  "Dùng email khác": "Use another email",
+  "Đang xử lý…": "Processing…",
+  "Xác nhận": "Confirm",
+  "Tạo tài khoản": "Create account",
+  "Đăng nhập": "Sign in",
+  "hoặc": "or",
+  "Tiếp tục với Google": "Continue with Google",
+  "Google xác nhận email tự động; tài khoản mới không cần tạo mật khẩu.": "Google verifies your email automatically; new accounts do not need a password.",
+  "Quay lại đăng nhập": "Back to sign in",
+  "Đã có tài khoản?": "Already have an account?",
+  "Bạn là học viên mới?": "New learner?",
+  "Tài khoản quản trị, quản lý trung tâm và giảng viên do quản trị viên cấp.": "Administrator, center manager, and instructor accounts are issued by an administrator.",
+  "Bạn đã hủy đăng nhập Google.": "You cancelled Google sign-in.",
+  "Google trả về yêu cầu đăng nhập không hợp lệ. Hãy thử lại.": "Google returned an invalid sign-in request. Please try again.",
+  "Email Google đang liên kết với một tài khoản khác. Hãy liên hệ quản trị viên.": "This Google email is linked to another account. Contact an administrator.",
+  "Tài khoản liên kết với Google đang bị khóa hoặc chưa được kích hoạt.": "The account linked to Google is locked or not yet activated.",
+  "Phiên đăng nhập Google đã hết hạn. Hãy thử lại.": "Your Google sign-in session expired. Please try again.",
+  "Không thể kết nối Google lúc này. Hãy thử lại sau.": "Google is unavailable right now. Please try again later.",
+  "Mật khẩu xác nhận chưa trùng khớp.": "The password confirmation does not match.",
+  "Không thể kết nối hệ thống. Hãy thử lại.": "Unable to connect to the system. Please try again.",
+  "Không thể tải thông báo.": "Unable to load notifications.",
+  "Không thể cập nhật thông báo.": "Unable to update the notification.",
+  "Không thể đánh dấu toàn bộ thông báo.": "Unable to mark all notifications as read.",
+  "Tìm kiếm": "Search",
+  "Tìm": "Search",
+  "Lọc": "Filter",
+  "Tất cả": "All",
+  "Lưu": "Save",
+  "Hủy": "Cancel",
+  "Đóng": "Close",
+  "Xóa": "Delete",
+  "Sửa": "Edit",
+  "Tạo mới": "Create",
+  "Cập nhật": "Update",
+  "Xem chi tiết": "View details",
+  "Tải tệp": "Download file",
+  "Tải xuống": "Download",
+  "Gửi": "Send",
+  "Tiếp tục": "Continue",
+  "Quay lại": "Back",
+  "Trang trước": "Previous page",
+  "Trang sau": "Next page",
+  "Không có dữ liệu": "No data",
+  "Chưa có dữ liệu": "No data yet",
+  "Không tìm thấy kết quả": "No results found",
+  "Đang tải dữ liệu…": "Loading data…",
+  "Thành công": "Success",
+  "Có lỗi xảy ra": "Something went wrong",
+  "Đã lưu": "Saved",
+  "Đã cập nhật": "Updated",
+  "Đang hoạt động": "Active",
+  "Ngừng hoạt động": "Inactive",
+  "Đang chờ": "Pending",
+  "Hoàn tất": "Completed",
+  "Thất bại": "Failed",
+  "Bản nháp": "Draft",
+  "Đã xuất bản": "Published",
+  "Đã đóng": "Closed",
+  "Đã khóa": "Locked",
+  "Đã đọc": "Read",
+  "Chưa đọc": "Unread",
+  "Mới": "New",
+  "Hôm nay": "Today",
+  "Ngày mai": "Tomorrow",
+  "Hôm qua": "Yesterday",
+  "Từ ngày": "From date",
+  "Đến ngày": "To date",
+  "Tên": "Name",
+  "Mô tả": "Description",
+  "Trạng thái": "Status",
+  "Hành động": "Action",
+  "Ngày tạo": "Created date",
+  "Người tạo": "Created by",
+  "Người phụ trách": "Owner",
+  "Lớp học": "Class",
+  "Khóa học": "Course",
+  "Học viên": "Learner",
+  "Giảng viên": "Instructor",
+  "Quản lý trung tâm": "Center manager",
+  "Quản trị hệ thống": "System administrator",
+};
+
+const englishCatalog: Record<string, string> = {
+  ...generatedEnglishCatalog,
+  ...curatedEnglishCatalog,
+};
+
+/** Biên dịch template có placeholder thành biểu thức chỉ khớp toàn bộ chuỗi UI. */
+function templatePattern(source: string): RegExp {
+  const escaped = source.split(/\{\{\d+\}\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${escaped.join("(.+?)")}$`);
+}
+
+const templateEnglishCatalog = Object.entries(generatedTemplateEnglishCatalog).map(([source, translation]) => ({ pattern: templatePattern(source), translation }));
+
+const englishPatterns: Array<[RegExp, (...matches: string[]) => string]> = [
+  [/^(\d+) mục chưa đọc$/, (count) => `${count} unread item${count === "1" ? "" : "s"}`],
+  [/^Trang (\d+) \/ (\d+)$/, (page, total) => `Page ${page} / ${total}`],
+  [/^(\d+) kết quả$/, (count) => `${count} result${count === "1" ? "" : "s"}`],
+  [/^(\d+) học viên$/, (count) => `${count} learner${count === "1" ? "" : "s"}`],
+  [/^(\d+) lớp$/, (count) => `${count} class${count === "1" ? "" : "es"}`],
+  [/^(\d+) câu hỏi$/, (count) => `${count} question${count === "1" ? "" : "s"}`],
+  [/^(\d+) bài tập$/, (count) => `${count} assignment${count === "1" ? "" : "s"}`],
+];
+
+/** Kiểm tra giá trị locale lưu trữ trước khi dùng trong UI. */
+export function isSupportedLocale(value: unknown): value is SupportedLocale {
+  return value === "vi-VN" || value === "en-US";
+}
+
+/** Dịch một chuỗi giao diện chính xác, giữ nguyên khoảng trắng bao quanh. */
+export function translateText(value: string, locale: SupportedLocale): string {
+  if (locale === "vi-VN" || !value.trim()) return value;
+  const leading = value.match(/^\s*/)?.[0] ?? "";
+  const trailing = value.match(/\s*$/)?.[0] ?? "";
+  const core = value.slice(leading.length, value.length - trailing.length);
+  const exact = englishCatalog[core];
+  if (exact) return `${leading}${exact}${trailing}`;
+  for (const [pattern, render] of englishPatterns) {
+    const match = core.match(pattern);
+    if (match) return `${leading}${render(...match.slice(1))}${trailing}`;
+  }
+  for (const { pattern, translation } of templateEnglishCatalog) {
+    const match = core.match(pattern);
+    if (!match) continue;
+    const rendered = translation.replace(/\{\{(\d+)\}\}/g, (_, index: string) => match[Number(index) + 1] ?? "");
+    return `${leading}${rendered}${trailing}`;
+  }
+  return value;
+}
+
+/** Cho phép test và công cụ coverage đọc danh mục mà không làm lộ object có thể sửa. */
+export function englishTranslationKeys(): string[] {
+  return Object.keys(englishCatalog);
+}

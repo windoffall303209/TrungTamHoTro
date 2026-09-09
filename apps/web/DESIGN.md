@@ -88,7 +88,14 @@ Nền giấy ấm giữ trải nghiệm bình tĩnh, còn mực xanh đen và đ
 **Display Font:** Be Vietnam Pro, Arial, sans-serif.
 **Body Font:** Be Vietnam Pro, Arial, sans-serif.
 
-**Character:** Be Vietnam Pro tạo một hệ chữ sans-serif thống nhất cho phần mềm vận hành: tiêu đề đậm, gọn và có độ tương phản bằng kích thước; dữ liệu, nhãn và thao tác vẫn sắc nét khi hiển thị tiếng Việt ở mật độ cao.
+**Character:** Be Vietnam Pro tạo một hệ chữ sans-serif thống nhất cho phần mềm vận hành: tiêu đề đậm, gọn và có độ tương phản bằng kích thước; dữ liệu, nhãn và thao tác vẫn sắc nét khi hiển thị tiếng Việt hoặc tiếng Anh ở mật độ cao.
+
+### Bilingual behavior
+
+- Bộ chọn VI/EN luôn hiện ở luồng xác thực và header workspace; nhãn phải dùng được bằng bàn phím và trình đọc màn hình.
+- Tiếng Anh thường dài hơn tiếng Việt, vì vậy nút, hàng dữ liệu và popover phải cho phép co giãn hoặc xuống dòng mà không cắt thao tác.
+- Tên người dùng, tên lớp/khóa học, nội dung trao đổi và tên tệp là dữ liệu gốc; không tự động dịch.
+- Ngày giờ, số, metadata, lỗi API và cửa sổ xem tài liệu phải dùng cùng locale với giao diện.
 
 ### Hierarchy
 

@@ -1,3 +1,4 @@
+/** Tiêu đề trang dùng chung, giữ phần mô tả và thao tác căn chỉnh nhất quán. */
 export function PageHeader({ title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) {
   return (
     <div className="-mt-4 flex flex-col gap-4 border-b border-[var(--rule-strong)] pb-5 md:flex-row md:items-end md:justify-between">

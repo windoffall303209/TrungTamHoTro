@@ -6,13 +6,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 const fieldClass = "mt-2 min-h-12 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-subtle)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15";
 
+/** Biểu tượng Google nội tuyến để không cần tải asset ngoài. */
 function GoogleMark() {
   return <svg aria-hidden="true" height="18" viewBox="0 0 18 18" width="18"><path d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.715v2.259h2.909c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4" /><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.909-2.259c-.806.54-1.835.859-3.047.859-2.344 0-4.328-1.585-5.036-3.714H.956v2.332A9 9 0 0 0 9 18Z" fill="#34A853" /><path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.167.282-1.706V4.962H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.038l3.008-2.332Z" fill="#FBBC05" /><path d="M9 3.58c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.463.892 11.426 0 9 0A9 9 0 0 0 .956 4.962l3.008 2.332C4.672 5.165 6.656 3.58 9 3.58Z" fill="#EA4335" /></svg>;
 }
 
+/** Màn hình dùng chung cho đăng nhập/đăng ký, gồm OAuth Google và bước MFA/recovery. */
 export function AuthScreen({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const { authenticated, authLoading, completeGoogleMfa, completeMfa, login, register } = useApp();
@@ -31,9 +34,11 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
   const [pendingEmailConflict, setPendingEmailConflict] = useState(false);
   const [googleMfa, setGoogleMfa] = useState(false);
 
+  // Chuyển người đã có phiên ra dashboard để tránh quay lại form xác thực.
   useEffect(() => {
     if (!authLoading && authenticated) router.replace("/dashboard");
   }, [authenticated, authLoading, router]);
+  // Giải mã mã lỗi/cờ MFA do callback Google đưa về query string.
   useEffect(() => {
     if (mode !== "login") return;
     const params = new URLSearchParams(window.location.search);
@@ -52,6 +57,7 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
     });
   }, [mode]);
 
+  /** Điều phối đăng ký, đăng nhập hoặc bước MFA và xử lý riêng tài khoản chờ xác minh. */
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     setError("");
@@ -94,7 +100,8 @@ export function AuthScreen({ mode }: { mode: "login" | "register" }) {
       <div className="relative max-w-lg py-16"><h1 className="text-4xl font-bold leading-tight tracking-[-0.035em]">Một tài khoản,<br />toàn bộ hành trình dạy và học.</h1><p className="mt-6 max-w-md text-base leading-7 text-[var(--nav-muted)]">Học liệu, đề thi, diễn đàn và lớp học trực tuyến cùng vận hành trong một không gian có phân quyền rõ ràng.</p><div className="mt-10 space-y-4 border-t border-white/15 pt-7 text-sm font-semibold text-[var(--nav-muted)]"><p className="flex items-center gap-3"><BookOpenCheck className="text-[var(--accent)]" size={18} />Dữ liệu học tập xuyên suốt giữa các vai trò</p><p className="flex items-center gap-3"><ShieldCheck className="text-[var(--accent)]" size={18} />Phiên đăng nhập bảo mật và quyền truy cập tách biệt</p></div></div>
       <p className="relative text-xs text-[var(--nav-subtle)]">Wind EDU · Sổ giáo vụ số</p>
     </section>
-    <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
+    <section className="relative flex min-h-screen items-center justify-center px-5 py-10 sm:px-10">
+      <div className="absolute right-5 top-5 z-20 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
       <div className="w-full max-w-[30rem] animate-rise">
         <Link className="mb-10 inline-flex items-center gap-2 font-bold lg:hidden" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
         <h1 className="text-[2rem] font-bold leading-tight tracking-[-0.03em]">{challengeToken ? "Xác thực hai bước" : registering ? "Tạo tài khoản học viên" : "Chào mừng quay lại"}</h1>

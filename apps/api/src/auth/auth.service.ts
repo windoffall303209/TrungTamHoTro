@@ -24,14 +24,14 @@ type SecurityEmailPurpose = "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE";
 type SecurityEmailTokenType = "PASSWORD_CHANGE_OTP" | "MFA_SETUP_OTP" | "MFA_DISABLE_OTP";
 
 type UserWithRoles = {
-  id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string | null; googleSubject: string | null; displayName: string; status: string;
+  id: string; username: string; email: string; emailVerifiedAt: Date | null; passwordHash: string | null; googleSubject: string | null; displayName: string; status: string; locale: string;
   mfaSecretEncrypted: string | null; mfaEnabledAt: Date | null; avatarObjectKey: string | null; avatarMimeType: string | null; avatarUpdatedAt: Date | null;
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
 export interface AuthenticatedSession {
   sessionId: string;
-  user: { id: string; username: string; name: string; email: string; roleName: string; avatarUrl?: string | null };
+  user: { id: string; username: string; name: string; email: string; roleName: string; locale?: "vi-VN" | "en-US"; avatarUrl?: string | null };
   roleCode: RoleCode;
   permissions: PermissionCode[];
   availableRoles: Array<{ code: RoleCode; name: string }>;
@@ -45,6 +45,7 @@ export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: st
 export interface RegistrationResult { verificationRequired: true; verificationId: string; email: string; verificationEmailSent: boolean }
 
 @Injectable()
+/** Điều phối toàn bộ vòng đời xác thực: OAuth, mật khẩu, MFA, phiên, CSRF và hồ sơ tài khoản. */
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly encryptionSecret: string;
@@ -68,11 +69,16 @@ export class AuthService {
     this.googleCallbackUrl = config.get("GOOGLE_CALLBACK_URL", { infer: true });
   }
 
+  /** Cung cấp tên cookie tập trung để controller không lặp hằng số xác thực. */
   cookieName(): string { return SESSION_COOKIE; }
+  /** Cung cấp tên cookie state tạm thời dùng trong vòng OAuth Google. */
   googleStateCookieName(): string { return GOOGLE_STATE_COOKIE; }
+  /** Cung cấp tên cookie challenge khi OAuth Google yêu cầu bước MFA bổ sung. */
   googleMfaCookieName(): string { return GOOGLE_MFA_COOKIE; }
+  /** Ghép đường dẫn nội bộ với origin web đã chuẩn hóa cho redirect và email. */
   webUrl(path: string): string { return `${this.webOrigin}${path.startsWith("/") ? path : `/${path}`}`; }
 
+  /** Tạo state và PKCE verifier đã ký, sau đó dựng URL ủy quyền Google. */
   startGoogleOAuth(rememberMe = false): { authorizationUrl: string; stateCookie: string; maxAgeMs: number } {
     this.assertGoogleConfigured();
     const state = randomBytes(32).toString("base64url");
@@ -92,6 +98,7 @@ export class AuthService {
     return { authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${query.toString()}`, stateCookie, maxAgeMs: GOOGLE_STATE_MS };
   }
 
+  /** Xác minh callback/PKCE, lấy hồ sơ Google, liên kết tài khoản và phát phiên hoặc thử thách MFA. */
   async completeGoogleOAuth(code: string, state: string, stateCookie: string | undefined, context: SessionContext = {}): Promise<{ result: LoginResult; rememberMe: boolean }> {
     this.assertDatabase();
     this.assertGoogleConfigured();
@@ -140,16 +147,19 @@ export class AuthService {
     return { result, rememberMe: payload.rememberMe };
   }
 
+  /** Đóng gói thử thách MFA Google vào cookie có chữ ký và thời hạn ngắn. */
   createGoogleMfaCookie(challengeToken: string, rememberMe: boolean): string {
     return this.signPayload({ kind: "google_mfa", challengeToken, rememberMe, expiresAt: Date.now() + MFA_CHALLENGE_MS });
   }
 
+  /** Đọc cookie MFA Google rồi dùng chung luồng xác minh MFA của đăng nhập mật khẩu. */
   async completeGoogleMfa(mfaCookie: string | undefined, code: string, context: SessionContext = {}, recoveryCode?: string): Promise<SessionIssue> {
     const payload = this.readSignedPayload<{ kind: string; challengeToken: string; rememberMe: boolean; expiresAt: number }>(mfaCookie);
     if (!payload || payload.kind !== "google_mfa" || payload.expiresAt <= Date.now()) throw new UnauthorizedException("Phiên xác thực Google đã hết hạn. Hãy đăng nhập lại.");
     return this.completeMfaLogin(payload.challengeToken, code, payload.rememberMe, context, recoveryCode);
   }
 
+  /** Kiểm tra tài khoản/mật khẩu với lỗi chung chống dò tài khoản, sau đó phát MFA hoặc phiên. */
   async login(username: string, password: string, rememberMe = false, context: SessionContext = {}): Promise<LoginResult> {
     this.assertDatabase();
     const user = await this.loadUserByUsername(username);
@@ -172,6 +182,7 @@ export class AuthService {
     return this.createSession(user, rememberMe, context);
   }
 
+  /** Tiêu thụ thử thách đăng nhập và xác minh TOTP hoặc mã khôi phục một lần trước khi tạo phiên. */
   async completeMfaLogin(challengeToken: string, code: string, rememberMe = false, context: SessionContext = {}, recoveryCode?: string): Promise<SessionIssue> {
     const challenge = await this.validAccountToken(challengeToken, "MFA_LOGIN");
     const user = await this.loadUser(challenge.userId);
@@ -190,6 +201,7 @@ export class AuthService {
     return this.createSession(user, rememberMe, context);
   }
 
+  /** Chuẩn hóa dữ liệu, tạo tài khoản học viên chờ xác minh và gửi email kích hoạt. */
   async register(username: string, displayName: string, email: string, password: string): Promise<RegistrationResult> {
     this.assertDatabase();
     const normalizedUsername = username.trim().toLowerCase();
@@ -227,6 +239,7 @@ export class AuthService {
     return { verificationRequired: true, verificationId: verification.verificationId, email: normalizedEmail, verificationEmailSent: verification.sent };
   }
 
+  /** Phát token đặt lại nếu email hợp lệ nhưng luôn trả cùng kết quả để chống liệt kê tài khoản. */
   async requestPasswordReset(email: string): Promise<{ accepted: true }> {
     const user = await this.loadUserByEmail(email);
     if (!user || user.status !== "ACTIVE" || !user.passwordHash) return { accepted: true };
@@ -244,6 +257,7 @@ export class AuthService {
     return { accepted: true };
   }
 
+  /** Đặt mật khẩu mới và thu hồi toàn bộ phiên/token liên quan trong cùng giao dịch. */
   async resetPassword(token: string, newPassword: string): Promise<{ reset: true }> {
     const row = await this.validAccountToken(token, "PASSWORD_RESET");
     const user = await this.prisma.user.findUnique({ where: { id: row.userId } });
@@ -252,13 +266,21 @@ export class AuthService {
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.accountToken.update({ where: { id: row.id }, data: { consumedAt: now } }),
-      this.prisma.user.update({ where: { id: row.userId }, data: { passwordHash: await hashPassword(newPassword) } }),
+      this.prisma.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash: await hashPassword(newPassword),
+          status: user.status === "PENDING_VERIFICATION" ? "ACTIVE" : undefined,
+          emailVerifiedAt: user.emailVerifiedAt ?? now,
+        },
+      }),
       this.prisma.authSession.updateMany({ where: { userId: row.userId, revokedAt: null }, data: { revokedAt: now } }),
       this.prisma.accountToken.updateMany({ where: { userId: row.userId, type: "PASSWORD_RESET", consumedAt: null }, data: { consumedAt: now } }),
     ]);
     return { reset: true };
   }
 
+  /** Tiêu thụ token liên kết và kích hoạt tài khoản đang chờ xác minh. */
   async verifyEmail(token: string): Promise<{ verified: true; verificationId: string }> {
     const row = await this.validAccountToken(token, "EMAIL_VERIFICATION");
     const now = new Date();
@@ -272,6 +294,7 @@ export class AuthService {
     return { verified: true, verificationId: row.id };
   }
 
+  /** So sánh mã email theo constant-time, giới hạn lần sai rồi kích hoạt tài khoản một cách nguyên tử. */
   async verifyEmailCode(verificationId: string, code: string): Promise<{ verified: true; verificationId: string }> {
     const row = await this.prisma.accountToken.findUnique({ where: { id: verificationId } });
     if (!row || row.type !== "EMAIL_VERIFICATION" || row.consumedAt || row.expiresAt <= new Date() || !row.codeHash) {
@@ -295,12 +318,14 @@ export class AuthService {
     return { verified: true, verificationId };
   }
 
+  /** Trả trạng thái tối thiểu của phiên xác minh, không để lộ hồ sơ tài khoản. */
   async verificationStatus(verificationId: string): Promise<{ verified: boolean; expired: boolean }> {
     const row = await this.prisma.accountToken.findUnique({ where: { id: verificationId }, include: { user: { select: { emailVerifiedAt: true } } } });
     if (!row || row.type !== "EMAIL_VERIFICATION") throw new NotFoundException("Không tìm thấy phiên xác minh email.");
     return { verified: Boolean(row.user.emailVerifiedAt), expired: !row.user.emailVerifiedAt && row.expiresAt <= new Date() };
   }
 
+  /** Đổi email chưa xác minh sau khi kiểm tra mật khẩu, chống trùng/race và phát phiên xác minh mới. */
   async changePendingVerificationEmail(verificationId: string, password: string, newEmail: string): Promise<RegistrationResult> {
     this.assertDatabase();
     const now = new Date();
@@ -367,6 +392,7 @@ export class AuthService {
     };
   }
 
+  /** Gửi lại email xác minh công khai với phản hồi hạn chế nhằm tránh lộ danh tính tài khoản. */
   async resendPublicVerification(identifier: string, verificationId?: string): Promise<{ accepted: true; verificationId?: string }> {
     const normalized = identifier.trim().toLowerCase();
     const user = normalized.includes("@") ? await this.loadUserByEmail(normalized) : await this.loadUserByUsername(normalized);
@@ -382,6 +408,7 @@ export class AuthService {
     return canReturnId ? { accepted: true, verificationId: result.verificationId } : { accepted: true };
   }
 
+  /** Gửi lại xác minh cho người dùng đã có phiên và bỏ qua nếu email đã được xác minh. */
   async resendVerification(userId: string): Promise<{ sent: boolean }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
@@ -389,6 +416,7 @@ export class AuthService {
     return { sent: (await this.sendVerificationEmail(user.id, user.email)).sent };
   }
 
+  /** Phát OTP email step-up cho thao tác nhạy cảm, vô hiệu hóa thử thách cũ cùng mục đích. */
   async requestSecurityEmailCode(userId: string, purpose: SecurityEmailPurpose): Promise<{ challengeId: string; email: string; sent: boolean; expiresInSeconds: number }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.googleSubject || !user.emailVerifiedAt || user.status !== "ACTIVE") {
@@ -434,6 +462,7 @@ export class AuthService {
     return { challengeId, email: this.maskEmail(user.email), sent, expiresInSeconds: EMAIL_STEP_UP_MS / 1000 };
   }
 
+  /** Đọc và ánh xạ hồ sơ tài khoản sang dữ liệu an toàn cho giao diện. */
   async getProfile(userId: string): Promise<AccountProfile> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
@@ -444,11 +473,13 @@ export class AuthService {
     };
   }
 
+  /** Cập nhật trường hồ sơ cho phép rồi đọc lại view model nhất quán. */
   async updateProfile(userId: string, input: { displayName: string; phone?: string; timezone: string; locale: string }): Promise<AccountProfile> {
     await this.prisma.user.update({ where: { id: userId }, data: { displayName: input.displayName.trim(), phone: input.phone?.trim() || null, timezone: input.timezone, locale: input.locale } });
     return this.getProfile(userId);
   }
 
+  /** Kiểm tra chữ ký ảnh, lưu object mới, cập nhật DB và hoàn tác object nếu cập nhật thất bại. */
   async updateAvatar(userId: string, upload: { mimeType: string; size: number; buffer: Buffer }): Promise<AccountProfile> {
     const extension = this.validateAvatar(upload);
     const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true } });
@@ -464,6 +495,7 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
+  /** Gỡ avatar khỏi hồ sơ trước, sau đó dọn object cũ theo cơ chế best-effort. */
   async removeAvatar(userId: string): Promise<AccountProfile> {
     const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true } });
     if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
@@ -472,12 +504,14 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
+  /** Xác định object avatar hiện tại và tải nội dung từ lớp lưu trữ. */
   async readAvatar(userId: string): Promise<{ buffer: Buffer; mimeType: string }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true, avatarMimeType: true } });
     if (!user?.avatarObjectKey || !user.avatarMimeType) throw new NotFoundException("Tài khoản chưa có ảnh đại diện.");
     return { buffer: await this.objectStorage.get(user.avatarObjectKey), mimeType: user.avatarMimeType };
   }
 
+  /** Xác thực mật khẩu hoặc OTP email, đổi mật khẩu và thu hồi mọi phiên khác. */
   async changePassword(userId: string, currentSessionId: string, currentPassword: string | undefined, newPassword: string, challengeId?: string, code?: string): Promise<{ revokedSessions: number }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
@@ -493,6 +527,7 @@ export class AuthService {
     return { revokedSessions: revoked.count };
   }
 
+  /** Xác thực step-up khi cần, sinh bí mật TOTP mã hóa và trả URI cấu hình. */
   async startMfaSetup(userId: string, challengeId?: string, code?: string): Promise<{ secret: string; otpauthUri: string }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
@@ -503,6 +538,7 @@ export class AuthService {
     return { secret, otpauthUri: createTotpUri(secret, user.username, this.issuer) };
   }
 
+  /** Xác minh bí mật TOTP đang chờ, bật MFA và lưu bản băm mã khôi phục. */
   async confirmMfa(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted) throw new BadRequestException("Hãy khởi tạo cấu hình MFA trước.");
@@ -516,6 +552,7 @@ export class AuthService {
     return { recoveryCodes };
   }
 
+  /** Xác thực lại chủ tài khoản rồi phát token một lần cho bước tắt MFA. */
   async startDisableMfa(userId: string, password?: string, challengeId?: string, code?: string): Promise<{ challengeToken: string; expiresInSeconds: number }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted || !user.mfaEnabledAt) throw new BadRequestException("MFA chưa được bật.");
@@ -524,6 +561,7 @@ export class AuthService {
     return { challengeToken: await this.issueAccountToken(userId, "MFA_DISABLE", MFA_CHALLENGE_MS), expiresInSeconds: MFA_CHALLENGE_MS / 1000 };
   }
 
+  /** Tiêu thụ token tắt MFA, xác minh TOTP và xóa bí mật cùng mã khôi phục. */
   async disableMfa(userId: string, challengeToken: string, code: string): Promise<{ disabled: true }> {
     const challenge = await this.validAccountToken(challengeToken, "MFA_DISABLE");
     if (challenge.userId !== userId) throw new UnauthorizedException("Phiên tắt xác thực hai bước không hợp lệ.");
@@ -538,22 +576,26 @@ export class AuthService {
     return { disabled: true };
   }
 
+  /** Liệt kê phiên còn hiệu lực và đánh dấu phiên đang gọi. */
   async listSessions(userId: string, currentSessionId: string): Promise<AccountSession[]> {
     const rows = await this.prisma.authSession.findMany({ where: { userId, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: "desc" } });
     return rows.map((row) => ({ id: row.id, current: row.id === currentSessionId, currentRoleCode: row.currentRoleCode, ipAddress: row.ipAddress ?? "Không xác định", userAgent: row.userAgent ?? "Thiết bị không xác định", createdAt: row.createdAt.toISOString(), lastSeenAt: row.lastSeenAt.toISOString(), expiresAt: row.expiresAt.toISOString() }));
   }
 
+  /** Thu hồi một phiên sở hữu bởi người dùng và không cho tự thu hồi phiên hiện tại qua endpoint này. */
   async revokeSession(userId: string, currentSessionId: string, sessionId: string): Promise<void> {
     if (sessionId === currentSessionId) throw new BadRequestException("Hãy dùng chức năng đăng xuất để đóng phiên hiện tại.");
     const result = await this.prisma.authSession.updateMany({ where: { id: sessionId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
     if (!result.count) throw new NotFoundException("Phiên đăng nhập không còn tồn tại.");
   }
 
+  /** Thu hồi toàn bộ phiên khác của người dùng trong một lệnh cập nhật. */
   async revokeOtherSessions(userId: string, currentSessionId: string): Promise<{ revokedSessions: number }> {
     const result = await this.prisma.authSession.updateMany({ where: { userId, id: { not: currentSessionId }, revokedAt: null }, data: { revokedAt: new Date() } });
     return { revokedSessions: result.count };
   }
 
+  /** Băm token cookie để tìm phiên, kiểm tra hạn/trạng thái và áp dụng vai trò được yêu cầu. */
   async resolve(token: string | undefined, requestedRole?: string): Promise<AuthenticatedSession> {
     this.assertDatabase();
     if (!token) throw new UnauthorizedException("Vui lòng đăng nhập để tiếp tục.");
@@ -571,12 +613,14 @@ export class AuthService {
     return this.mapSession(row.id, row.user, roleCode as RoleCode);
   }
 
+  /** Sinh CSRF token ngẫu nhiên, chỉ lưu bản băm gắn với phiên. */
   async issueCsrf(sessionId: string): Promise<string> {
     const csrfToken = randomBytes(32).toString("base64url");
     await this.prisma.authSession.update({ where: { id: sessionId }, data: { csrfTokenHash: this.hashToken(csrfToken) } });
     return csrfToken;
   }
 
+  /** Xác nhận CSRF token thuộc đúng phiên cookie và so sánh theo constant-time. */
   async validateCsrf(sessionToken: string, csrfToken: string | undefined): Promise<boolean> {
     if (!csrfToken) return false;
     const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { csrfTokenHash: true, revokedAt: true, expiresAt: true } });
@@ -586,19 +630,23 @@ export class AuthService {
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
 
+  /** Thu hồi phiên tương ứng token cookie; bỏ qua an toàn khi DB khởi động bị tắt. */
   async logout(token: string | undefined): Promise<void> {
     if (!token || !this.prisma.isStartupConnectionEnabled()) return;
     await this.prisma.authSession.updateMany({ where: { tokenHash: this.hashToken(token), revokedAt: null }, data: { revokedAt: new Date() } });
   }
 
+  /** Trích session token từ chuỗi Cookie mà không phụ thuộc middleware cookie-parser. */
   readToken(cookieHeader?: string): string | undefined {
     return this.readCookie(cookieHeader, SESSION_COOKIE);
   }
 
+  /** Phân tích một cookie theo tên và giải mã giá trị percent-encoded nếu có. */
   readCookie(cookieHeader: string | undefined, name: string): string | undefined {
     return cookieHeader?.split(";").map((part) => part.trim().split("=")).find(([cookieName]) => cookieName === name)?.slice(1).join("=");
   }
 
+  /** Tạo token phiên/CSRF, lưu bản băm cùng dấu vết thiết bị rồi trả session đã ánh xạ. */
   private async createSession(user: UserWithRoles, rememberMe: boolean, context: SessionContext): Promise<SessionIssue> {
     const selectedRole = user.roles[0]?.role;
     if (!selectedRole) throw new ForbiddenException("Tài khoản chưa được cấp vai trò sử dụng.");
@@ -612,18 +660,22 @@ export class AuthService {
     return { token, csrfToken, maxAgeMs, session: this.mapSession(row.id, user, selectedRole.code as RoleCode) };
   }
 
+  /** Tải người dùng và toàn bộ vai trò/quyền cần cho xác thực theo email. */
   private loadUserByEmail(email: string): Promise<UserWithRoles | null> {
     return this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
   }
 
+  /** Tải người dùng và ma trận quyền theo tên đăng nhập đã chuẩn hóa. */
   private loadUserByUsername(username: string): Promise<UserWithRoles | null> {
     return this.prisma.user.findUnique({ where: { username: username.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
   }
 
+  /** Tải người dùng theo khóa chính với cùng cấu trúc vai trò dùng để tạo phiên. */
   private loadUser(userId: string): Promise<UserWithRoles | null> {
     return this.prisma.user.findUnique({ where: { id: userId }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
   }
 
+  /** Liên kết hồ sơ Google với tài khoản phù hợp hoặc tạo học viên mới, đồng thời chặn xung đột danh tính. */
   private async upsertGoogleUser(profile: { sub: string; email: string; name: string }): Promise<UserWithRoles> {
     const learnerRole = await this.prisma.role.findUnique({ where: { code: "LEARNER" } });
     if (!learnerRole) throw new ServiceUnavailableException("Vai trò học viên chưa được khởi tạo.");
@@ -677,6 +729,7 @@ export class AuthService {
     return user;
   }
 
+  /** Kiểm tra OTP step-up đúng người/mục đích rồi đánh dấu đã dùng bằng cập nhật có điều kiện. */
   private async consumeSecurityEmailCode(userId: string, type: SecurityEmailTokenType, challengeId?: string, code?: string): Promise<void> {
     if (!challengeId || !code) throw new BadRequestException("Hãy gửi và nhập mã xác thực 6 số từ email trước khi tiếp tục.");
     const row = await this.prisma.accountToken.findUnique({ where: { id: challengeId } });
@@ -694,18 +747,21 @@ export class AuthService {
     if (consumed.count !== 1) throw new BadRequestException("Mã xác thực email đã được sử dụng hoặc hết hạn.");
   }
 
+  /** Ánh xạ mục đích nghiệp vụ sang loại token lưu trong cơ sở dữ liệu. */
   private securityTokenType(purpose: SecurityEmailPurpose): SecurityEmailTokenType {
     if (purpose === "PASSWORD_CHANGE") return "PASSWORD_CHANGE_OTP";
     if (purpose === "MFA_SETUP") return "MFA_SETUP_OTP";
     return "MFA_DISABLE_OTP";
   }
 
+  /** Ký payload ngắn hạn bằng HMAC để phát hiện cookie/tham số bị sửa. */
   private signPayload(payload: object): string {
     const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
     const signature = createHmac("sha256", this.encryptionSecret).update(encoded).digest("base64url");
     return `${encoded}.${signature}`;
   }
 
+  /** Xác minh chữ ký HMAC trước khi giải mã JSON của payload nội bộ. */
   private readSignedPayload<T>(value: string | undefined): T | null {
     if (!value) return null;
     const parts = value.split(".");
@@ -716,22 +772,26 @@ export class AuthService {
     catch { return null; }
   }
 
+  /** Băm hai chuỗi về cùng độ dài rồi so sánh constant-time. */
   private safeEqual(left: string, right: string): boolean {
     const leftHash = createHash("sha256").update(left).digest();
     const rightHash = createHash("sha256").update(right).digest();
     return timingSafeEqual(leftHash, rightHash);
   }
 
+  /** Che phần local của email khi trả thông tin thử thách ra giao diện. */
   private maskEmail(email: string): string {
     const [name, domain] = email.split("@");
     if (!name || !domain) return "email đã xác minh";
     return `${name.slice(0, 2)}${"*".repeat(Math.max(2, Math.min(name.length - 2, 5)))}@${domain}`;
   }
 
+  /** Dừng luồng OAuth với lỗi cấu hình rõ ràng nếu thiếu biến môi trường Google. */
   private assertGoogleConfigured(): void {
     if (!this.googleClientId || !this.googleClientSecret || !this.googleCallbackUrl) throw new ServiceUnavailableException("Đăng nhập Google chưa được cấu hình đầy đủ.");
   }
 
+  /** Bắt buộc tài khoản đã xác minh email và đang ACTIVE trước khi cấp quyền truy cập. */
   private assertActive(user: { status: string; emailVerifiedAt?: Date | null }): void {
     if (user.status === "PENDING_VERIFICATION" || !user.emailVerifiedAt) {
       throw new ForbiddenException({ statusCode: 403, code: "EMAIL_VERIFICATION_REQUIRED", message: "Tài khoản chưa hoàn tất xác minh email. Hãy nhập mã 6 số hoặc mở liên kết đã gửi tới email của bạn.", verificationRequired: true });
@@ -739,6 +799,7 @@ export class AuthService {
     if (user.status !== "ACTIVE") throw new ForbiddenException("Tài khoản đang bị khóa hoặc chưa được kích hoạt.");
   }
 
+  /** Thay thế token xác minh cũ, lưu bản băm mã/link rồi gửi cả hai lựa chọn qua email. */
   private async sendVerificationEmail(userId: string, email: string): Promise<{ sent: boolean; verificationId: string }> {
     const verificationId = randomBytes(18).toString("hex");
     const token = randomBytes(48).toString("base64url");
@@ -762,6 +823,7 @@ export class AuthService {
     }
   }
 
+  /** Tìm phiên xác minh email mới nhất còn hiệu lực của người dùng. */
   private async pendingVerificationId(userId: string): Promise<string | undefined> {
     const row = await this.prisma.accountToken.findFirst({
       where: { userId, type: "EMAIL_VERIFICATION", consumedAt: null, expiresAt: { gt: new Date() } },
@@ -771,6 +833,7 @@ export class AuthService {
     return row?.id;
   }
 
+  /** Vô hiệu hóa token cũ cùng loại và phát token tài khoản mới chỉ lưu dưới dạng băm. */
   private async issueAccountToken(userId: string, type: "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE", ttlMs: number): Promise<string> {
     const token = randomBytes(48).toString("base64url");
     const now = new Date();
@@ -781,31 +844,37 @@ export class AuthService {
     return token;
   }
 
+  /** Xác thực loại, hạn và trạng thái chưa tiêu thụ của token tài khoản. */
   private async validAccountToken(token: string, type: "EMAIL_VERIFICATION" | "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE"): Promise<{ id: string; userId: string }> {
     const row = await this.prisma.accountToken.findUnique({ where: { tokenHash: this.hashToken(token) } });
     if (!row || row.type !== type || row.consumedAt || row.expiresAt <= new Date()) throw new BadRequestException("Liên kết hoặc phiên xác thực không hợp lệ hay đã hết hạn.");
     return { id: row.id, userId: row.userId };
   }
 
+  /** Đánh dấu token đã dùng bằng cập nhật có điều kiện để chống sử dụng lặp/race. */
   private async consumeAccountToken(id: string): Promise<void> {
     const result = await this.prisma.accountToken.updateMany({ where: { id, consumedAt: null }, data: { consumedAt: new Date() } });
     if (!result.count) throw new BadRequestException("Phiên xác thực đã được sử dụng.");
   }
 
+  /** Chuyển user/role từ Prisma thành phiên công khai và kiểm tra vai trò vẫn thuộc người dùng. */
   private mapSession(sessionId: string, user: UserWithRoles, roleCode: RoleCode): AuthenticatedSession {
     const selected = user.roles.find(({ role }) => role.code === roleCode)?.role;
     if (!selected) throw new ForbiddenException("Vai trò của phiên không còn hợp lệ.");
     return {
       sessionId,
-      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
+      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, locale: user.locale as "vi-VN" | "en-US", avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
       roleCode,
       permissions: selected.permissions.map(({ permission }) => permission.code as PermissionCode),
       availableRoles: user.roles.map(({ role }) => ({ code: role.code as RoleCode, name: role.name })),
     };
   }
 
+  /** Băm token bí mật trước khi dùng làm khóa tra cứu trong cơ sở dữ liệu. */
   private hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
+  /** Tạo URL avatar có cache-buster theo lần cập nhật gần nhất. */
   private avatarUrl(objectKey: string | null, updatedAt: Date | null): string | null { return objectKey ? `/account/avatar?v=${updatedAt?.getTime() ?? 0}` : null; }
+  /** Đối chiếu kích thước, MIME và magic bytes để không tin riêng metadata upload. */
   private validateAvatar(upload: { mimeType: string; size: number; buffer: Buffer }): "png" | "jpg" | "webp" {
     if (upload.size !== upload.buffer.length || upload.size < 1 || upload.size > 3 * 1024 * 1024) throw new BadRequestException("Ảnh đại diện phải có kích thước từ 1 byte đến 3 MB.");
     const png = upload.mimeType === "image/png" && upload.buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
@@ -814,7 +883,9 @@ export class AuthService {
     if (!png && !jpeg && !webp) throw new BadRequestException("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP hợp lệ.");
     return png ? "png" : jpeg ? "jpg" : "webp";
   }
+  /** Ràng buộc mã xác minh với verificationId bằng HMAC trước khi lưu/so sánh. */
   private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
+  /** Chặn nghiệp vụ xác thực khi cấu hình chủ động không kết nối cơ sở dữ liệu. */
   private assertDatabase(): void {
     if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối MySQL. Hãy bật DATABASE_CONNECT_ON_START.");
   }
