@@ -103,6 +103,13 @@ describe("Exam operations HTTP contract", () => {
     expect(response.status).toBe(status);
     expect(transaction).not.toHaveBeenCalled();
   });
+
+  it.each(["bad id", "a".repeat(87)])("rejects unsafe or oversized reconciliation IDs: %s", async (id) => {
+    transaction.mockRejectedValue(new Error("transaction must not run"));
+    const response = await reconcile(id, { expectedVersion: 1, evidenceReference: "provider-log-123", evidenceNote: "Provider did not process this request according to its logs.", checkedAt: new Date().toISOString() });
+    expect(response.status).toBe(400);
+    expect(transaction).not.toHaveBeenCalled();
+  });
 });
 
 describe("Exam claim evidence reconciliation", () => {
