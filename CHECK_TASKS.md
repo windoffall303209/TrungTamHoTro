@@ -433,7 +433,7 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 
 - [x] Lưu gợi ý chấm bằng bảng `ai_grading_suggestions`; khóa duy nhất theo giảng viên, bài nộp, hash ngữ cảnh/rubric/phiên bản và ngôn ngữ. Không dùng chung kết quả giữa các giảng viên.
 - [x] Gợi ý chấm không còn fallback RAM ngay cả khi cấu hình database tắt/thiếu: find/generate trả 503 trước provider, lỗi database không chuyển sang bộ nhớ. Unit fixture mô phỏng unique insert/CAS ở biên database thay vì giữ fallback trong production. Bốn bộ kiểm thử store/context/TXT/MySQL tổng 32 đạt; typecheck/lint phần sửa đạt. Thông báo mới có bản dịch tiếng Anh.
-- [ ] Hoàn thiện catalog lỗi API toàn hệ thống: lần kiểm tra hiện tại có 602/663 chuỗi, thiếu 61; không đánh dấu toàn bộ i18n API đã hoàn thành.
+- [x] Bổ sung 61 bản dịch thông báo API còn thiếu (2026-09-09), gồm cấu hình AI, trích xuất, hỏi đáp, rubric, quyền sửa đề và trạng thái chống trùng. `pnpm i18n:check` đạt 2.198/2.198 chuỗi frontend và 664/664 thông báo API mà bộ quét nhận diện; 7 test catalog đạt, gồm cảnh báo không tạo yêu cầu mới/không áp điểm và giới hạn 6 tệp/24 MB. Lint test đạt. Đây là độ phủ bộ quét literal, không khẳng định mọi thông báo động từ provider bên ngoài đã được dịch.
 - [x] Claim database trước khi gọi provider; yêu cầu đồng thời bị chặn, kết quả `READY` được phát lại kể cả sau khi khởi động lại service hoặc provider bị tắt.
 - [x] Kiểm tra đầu vào/cấu hình trước khi claim; kiểm tra quyền và nguồn trước khi đọc kết quả, tái kiểm tra sau khi sinh; không tự ghi điểm.
 - [x] Lỗi chưa rõ kết quả chuyển `UNCERTAIN`; không tự retry/TTL để tránh tính phí trùng. Nếu tiến trình chết giữa chừng, claim `GENERATING` vẫn chặn gọi lại; không giả định provider chưa xử lý.
