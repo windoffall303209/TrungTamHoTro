@@ -81,6 +81,30 @@ export class AiGradingOperationsService {
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
+  /** Mở lại đúng khóa OCR sau khi admin xác minh provider không nhận yêu cầu; không gọi provider trong bước này. */
+  async reconcileExtractionNotProcessed(id: string, input: ReconcileExamNotProcessedDto, session: AuthenticatedSession): Promise<DocumentAnswerOperation> {
+    this.validateQuery({ limit: 1 }, session);
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new BadRequestException("Mã tác vụ trích xuất tài liệu AI không hợp lệ.");
+    const evidence = this.validateSettingRecoveryEvidence(input);
+    const key = `ai-doc:${id}`;
+    return this.prisma.$transaction(async (transaction) => {
+      const row = await transaction.systemSetting.findUnique({ where: { key } });
+      if (!row) throw new BadRequestException("Không tìm thấy tác vụ trích xuất tài liệu AI cần đối soát.");
+      if (row.version !== input.expectedVersion) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      const value = this.readSettingClaim(row.value);
+      if (value.state !== "GENERATING" && value.state !== "UNCERTAIN") throw new ConflictException("Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.");
+      if (!row.updatedBy) throw new ConflictException("Tác vụ OCR không còn chủ sở hữu hợp lệ. Không thể mở lại tự động.");
+      if (evidence.checkedAt < row.updatedAt) throw new BadRequestException("Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.");
+      const updated = await transaction.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: row.updatedBy }, data: { value: { state: "RETRY_AUTHORIZED" }, version: { increment: 1 } } });
+      if (updated.count !== 1) throw new ConflictException("Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.");
+      await transaction.auditLog.create({ data: {
+        actorId: session.user.id, action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityType: "ai_document_extraction", entityId: id,
+        context: { previousState: value.state, previousVersion: row.version, ...this.evidenceContext(evidence) },
+      } });
+      return { id, ownerId: row.updatedBy, state: "RETRY_AUTHORIZED", version: row.version + 1, createdAt: row.effectiveAt, updatedAt: new Date() };
+    });
+  }
+
   /** Project claim metadata without loading pages; legacy array snapshots are listed under READY. */
   private extractionRows(filter: Prisma.Sql, limit: number): Promise<DocumentAnswerOperation[]> {
     return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
@@ -426,6 +450,14 @@ export class AiGradingOperationsController {
   /** Expose read-only OCR reconciliation to system administrators without document text. */
   extractions(@Query() query: GradingOperationsQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["listExtractions"]> {
     return this.operations.listExtractions(query, session);
+  }
+
+  @Post("extractions/:id/reconcile-not-processed")
+  @RequirePermissions("system:configure")
+  @Header("Cache-Control", "no-store")
+  /** Cho phép đúng một lượt OCR lại sau khi đã xác minh provider chưa xử lý yêu cầu gốc. */
+  reconcileExtractionNotProcessed(@Param("id") id: string, @Body() input: ReconcileExamNotProcessedDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiGradingOperationsService["reconcileExtractionNotProcessed"]> {
+    return this.operations.reconcileExtractionNotProcessed(id, input, session);
   }
 
   @Get("document-answers")

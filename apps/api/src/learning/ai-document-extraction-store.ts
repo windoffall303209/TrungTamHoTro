@@ -27,6 +27,11 @@ function readStatus(value: unknown): Exclude<DocumentExtractionStatus, { state: 
   return { state: claim?.state === "GENERATING" ? "GENERATING" : "UNCERTAIN" };
 }
 
+/** Detect the explicit one-shot retry entitlement without treating malformed values as retryable. */
+function isRetryAuthorized(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && "state" in value && value.state === "RETRY_AUTHORIZED");
+}
+
 /** Share verified source/model extraction across workers; callers enforce source access on both sides. */
 export class AiDocumentExtractionStore {
   constructor(private readonly prisma?: PrismaService) {}
@@ -35,6 +40,7 @@ export class AiDocumentExtractionStore {
   async status(key: string): Promise<DocumentExtractionStatus> {
     const db = this.database(key);
     const row = await db.systemSetting.findUnique({ where: { key }, select: { value: true } });
+    if (row && isRetryAuthorized(row.value)) return { state: "NOT_REQUESTED" };
     return row ? readStatus(row.value) : { state: "NOT_REQUESTED" };
   }
 
@@ -56,8 +62,13 @@ export class AiDocumentExtractionStore {
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
     }
-    const row = await db.systemSetting.findUnique({ where: { key } });
+    let row = await db.systemSetting.findUnique({ where: { key } });
     if (!row) throw new ConflictException("Không xác nhận được khóa trích xuất AI. Không gửi lại yêu cầu.");
+    if (!claimed && row.updatedBy === actorId && isRetryAuthorized(row.value)) {
+      const reopened = await db.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: actorId }, data: { value: { state: "GENERATING" }, version: { increment: 1 } } });
+      claimed = reopened.count === 1;
+      if (claimed) row = { ...row, version: row.version + 1, value: { state: "GENERATING" } };
+    }
     const status = readStatus(row.value);
     if (status.state === "READY") return { pages: status.pages, cached: true };
     if (!claimed) throw new ConflictException("Trích xuất AI đang xử lý hoặc chưa rõ kết quả. Không tự gọi lại; liên hệ quản trị viên đối soát.");
