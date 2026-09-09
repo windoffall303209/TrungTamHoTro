@@ -1,4 +1,5 @@
 {
+  "Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.": "The study guide is processing or was interrupted. Open draft history to check its status; do not create a new request.",
   "Tệp trích xuất cho chấm AI phải từ 1 byte đến 12 MB, tổng không quá 24 MB.": "Files for AI grading extraction must be between 1 byte and 12 MB each, with a combined limit of 24 MB.",
   "Trích xuất tài liệu OCR": "Document OCR extraction",
   "Đối soát trích xuất OCR": "OCR extraction reconciliation",
