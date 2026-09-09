@@ -50,8 +50,16 @@ export class AiMaterialContextService {
     const text = this.questionText(question, language);
     const material = await this.requireMaterial(materialId, actorId, role);
     await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
-    const result = await this.answers.generate({ ownerId: actorId, materialId, version: material.version, question: text, language }, async () => {
-      const context = await this.prepare(materialId, actorId, role, text, true, material.version);
+    const identity = { ownerId: actorId, materialId, version: material.version, question: text, language };
+    const previous = await this.answers.status(identity);
+    if (previous.state === "READY") {
+      await this.learning.createMaterialVersionAccess(materialId, previous.result.version, role, "PREVIEW", actorId);
+      return previous.result;
+    }
+    if (previous.state !== "NOT_REQUESTED") throw new ConflictException("Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.");
+    // Complete the independently claimed OCR prerequisite before reserving answer generation.
+    const context = await this.prepare(materialId, actorId, role, text, true, material.version);
+    const result = await this.answers.generate(identity, async () => {
       const answer = await this.ai.answerDocument(text, context.chunks, language);
       return { ...answer, warning: context.warning, version: context.version };
     });

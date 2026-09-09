@@ -5,18 +5,51 @@ import { NotFoundException } from "@nestjs/common";
 import { AiMaterialContextService } from "../src/learning/ai-material-context.service.js";
 import type { LearningService } from "../src/learning/learning.service.js";
 import type { AiProviderService } from "../src/system/ai-provider.service.js";
-import type { AiDocumentAnswerStore, SavedDocumentAnswer } from "../src/learning/ai-document-answer-store.js";
+import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/learning/ai-document-answer-store.js";
 
 /** Tạo mock biên quyền và đọc file, không bỏ qua kiểm tra trước/sau extraction. */
-function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; createMaterialVersionAccess: ReturnType<typeof vi.fn>; readMaterialVersionDownload: ReturnType<typeof vi.fn> }; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn>; createStudyGuide: ReturnType<typeof vi.fn> }; material: { id: string; version: number; name: string }; service: AiMaterialContextService } {
+function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; createMaterialVersionAccess: ReturnType<typeof vi.fn>; readMaterialVersionDownload: ReturnType<typeof vi.fn> }; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn<() => Promise<unknown>>>; createStudyGuide: ReturnType<typeof vi.fn> }; material: { id: string; version: number; name: string }; service: AiMaterialContextService } {
   const material = { id: "material-1", version: 1, name: "HTTP.pdf" };
   const learning = { listMaterials: vi.fn().mockResolvedValue([material]), createMaterialVersionAccess: vi.fn().mockResolvedValue({ url: "/material?expires=123&signature=signed" }), readMaterialVersionDownload: vi.fn().mockResolvedValue({ fileName: material.name, mimeType: "application/pdf", buffer: Buffer.from("pdf-bytes") }) };
   const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "gemini", model: "model-1" }), extractDocumentPages: vi.fn().mockResolvedValue([{ page: 1, text: "Giao thức HTTP truyền dữ liệu." }]), createStudyGuide: vi.fn().mockResolvedValue({ insufficientContext: false, summary: [], flashcards: [], model: "study-model" }) };
-  const answers = { generate: (_identity: unknown, generate: () => Promise<SavedDocumentAnswer>) => generate() } as AiDocumentAnswerStore;
+  const answers = { status: () => Promise.resolve({ state: "NOT_REQUESTED" }), generate: (_identity: unknown, generate: () => Promise<SavedDocumentAnswer>) => generate() } as unknown as AiDocumentAnswerStore;
   return { learning, ai, material, service: new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, extractionDatabase().prisma, testStudyDraft(), answers) };
 }
 
 describe("authorized material AI context", () => {
+  it("can answer after another worker finishes OCR without reserving an uncertain answer while waiting", async () => {
+    const { learning, ai, material } = fixture();
+    const { prisma, rows } = extractionDatabase();
+    const answerDocument = vi.fn().mockResolvedValue({ answer: "Not enough evidence", insufficientContext: true, citations: [] });
+    const service = new AiMaterialContextService(learning as unknown as LearningService, { ...ai, answerDocument } as unknown as AiProviderService, prisma);
+    let finish!: (pages: Array<{ page: number; text: string }>) => void;
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    ai.extractDocumentPages.mockImplementationOnce(() => { enter(); return new Promise<Array<{ page: number; text: string }>>((resolve) => { finish = resolve; }); });
+    const first = service.prepare(material.id, "teacher", "INSTRUCTOR");
+    await entered;
+    try {
+      await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN")).rejects.toMatchObject({ status: 409 });
+      expect([...rows.keys()].filter((key) => key.startsWith("ai-doc-answer:"))).toEqual([]);
+      expect(answerDocument).not.toHaveBeenCalled();
+    } finally { finish([{ page: 1, text: "HTTP source" }]); await first; }
+    const saved = await service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN");
+    expect(await service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN")).toEqual(saved);
+    expect(answerDocument).toHaveBeenCalledTimes(1);
+    expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["GENERATING", "UNCERTAIN"])("does not prepare sources or retry a %s answer", async (state) => {
+    const { learning, ai, material } = fixture();
+    const status = vi.fn().mockResolvedValue({ state });
+    const generate = vi.fn();
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { status, generate } as unknown as AiDocumentAnswerStore);
+    await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN")).rejects.toMatchObject({ status: 409 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    expect(learning.readMaterialVersionDownload).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("checks the selected historical version on both sides of status lookup", async () => {
     const { learning, ai, material } = fixture();
     learning.listMaterials.mockResolvedValue([{ ...material, version: 4 }]);
@@ -89,18 +122,18 @@ describe("authorized material AI context", () => {
   it("checks source access before and after replaying a saved answer without resolving providers", async () => {
     const { learning, ai, material } = fixture();
     const result = { answer: "Cached", insufficientContext: false, citations: [], version: 1, warning: "Review source" };
-    const generate = vi.fn().mockResolvedValue(result);
-    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { generate } as unknown as AiDocumentAnswerStore);
+    const status = vi.fn().mockResolvedValue({ state: "READY", result });
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { status } as unknown as AiDocumentAnswerStore);
     expect(await service.ask(material.id, "teacher", "INSTRUCTOR", " HTTP? ", "EN")).toEqual(result);
-    expect(generate).toHaveBeenCalledWith({ ownerId: "teacher", materialId: material.id, version: 1, question: "HTTP?", language: "EN" }, expect.any(Function));
+    expect(status).toHaveBeenCalledWith({ ownerId: "teacher", materialId: material.id, version: 1, question: "HTTP?", language: "EN" });
     expect(learning.createMaterialVersionAccess).toHaveBeenCalledTimes(2);
     expect(ai.resolveTask).not.toHaveBeenCalled();
-    generate.mockImplementationOnce(() => { learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("access revoked")); return Promise.resolve(result); });
+    status.mockImplementationOnce(() => { learning.createMaterialVersionAccess.mockRejectedValueOnce(new Error("access revoked")); return Promise.resolve({ state: "READY", result }); });
     await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "HTTP?", "EN")).rejects.toThrow("access revoked");
     learning.listMaterials.mockResolvedValue([]);
-    generate.mockClear();
+    status.mockClear();
     await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "HTTP?", "EN")).rejects.toMatchObject({ status: 404 });
-    expect(generate).not.toHaveBeenCalled();
+    expect(status).not.toHaveBeenCalled();
   });
   it("checks publication visibility, source version and current learner access without AI calls", async () => {
     const { learning, ai, material, service } = fixture();
