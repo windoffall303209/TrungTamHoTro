@@ -18,6 +18,7 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
   afterAll(async () => { if (prisma) await prisma.systemSetting.deleteMany({ where: { updatedBy: ownerId, key: { in: keys } } }); await moduleRef?.close(); });
 
   it("allows one OCR invocation among six workers and replays after service replacement", async () => {
+    expect(await new AiDocumentExtractionStore(prisma).status(keys[0]!)).toEqual({ state: "NOT_REQUESTED" });
     const extract = vi.fn(() => Promise.resolve(pages));
     const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => new AiDocumentExtractionStore(prisma).generate(keys[0]!, ownerId, extract)));
     expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
@@ -25,6 +26,9 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
     expect(await new AiDocumentExtractionStore(prisma).generate(keys[0]!, ownerId, extract)).toEqual({ pages, cached: true });
     expect(extract).toHaveBeenCalledTimes(1);
     expect(await prisma.systemSetting.count({ where: { key: keys[0] } })).toBe(1);
+    const before = await prisma.systemSetting.findUnique({ where: { key: keys[0] } });
+    expect(await new AiDocumentExtractionStore(prisma).status(keys[0]!)).toEqual({ state: "READY", pages });
+    expect(await prisma.systemSetting.findUnique({ where: { key: keys[0] } })).toEqual(before);
   });
 
   it("persists uncertain state and refuses to retry after replacement", async () => {
@@ -33,12 +37,14 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
     await expect(new AiDocumentExtractionStore(prisma).generate(keys[1]!, ownerId, extract)).rejects.toMatchObject({ status: 409 });
     expect((await prisma.systemSetting.findUnique({ where: { key: keys[1] } }))?.value).toEqual({ state: "UNCERTAIN" });
     expect(extract).toHaveBeenCalledTimes(1);
+    expect(await new AiDocumentExtractionStore(prisma).status(keys[1]!)).toEqual({ state: "UNCERTAIN" });
   });
 
   it("replays pre-claim array caches without modifying the original record", async () => {
     await prisma.systemSetting.create({ data: { key: keys[2]!, updatedBy: ownerId, value: pages } });
     const before = await prisma.systemSetting.findUnique({ where: { key: keys[2] } });
     const extract = vi.fn();
+    expect(await new AiDocumentExtractionStore(prisma).status(keys[2]!)).toEqual({ state: "READY", pages });
     expect(await new AiDocumentExtractionStore(prisma).generate(keys[2]!, ownerId, extract)).toEqual({ pages, cached: true });
     expect(await prisma.systemSetting.findUnique({ where: { key: keys[2] } })).toEqual(before);
     expect(extract).not.toHaveBeenCalled();
