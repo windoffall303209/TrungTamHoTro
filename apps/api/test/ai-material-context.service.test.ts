@@ -16,6 +16,27 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("replays the same study request with providers disabled, but not after source access is revoked", async () => {
+    const { service, ai, learning, material } = fixture();
+    const options = { cardCount: 1, language: "VI" as const };
+    const saved = await service.study(material.id, "teacher", "INSTRUCTOR", options);
+    ai.resolveTask.mockClear().mockRejectedValue(new Error("disabled provider"));
+    ai.createStudyGuide.mockClear(); ai.extractDocumentPages.mockClear();
+    expect(await service.study(material.id, "teacher", "INSTRUCTOR", options)).toEqual(saved);
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    expect(ai.createStudyGuide).not.toHaveBeenCalled();
+    expect(ai.extractDocumentPages).not.toHaveBeenCalled();
+    learning.createMaterialVersionAccess.mockRejectedValue(new NotFoundException("revoked"));
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", options)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("does not claim a new study request when provider configuration is missing", async () => {
+    const { service, ai, material } = fixture();
+    ai.resolveTask.mockRejectedValue(new Error("missing model"));
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 1, language: "VI" })).rejects.toThrow("missing model");
+    expect(await service.listStudyDrafts(material.id, "teacher", "INSTRUCTOR")).toEqual({ items: [], nextCursor: null });
+    expect(ai.createStudyGuide).not.toHaveBeenCalled();
+  });
   it("reads answer status only after validation and source authorization", async () => {
     const { learning, ai, material } = fixture();
     const status = vi.fn().mockResolvedValue({ state: "NOT_REQUESTED" });

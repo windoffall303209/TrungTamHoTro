@@ -394,6 +394,9 @@ Effort là kích thước công việc đã thực hiện để phục vụ hậ
 
 ## AI bộ ôn tập — khóa bền vững (2026-09-08)
 
+- [x] Replay bộ ôn tập qua cùng yêu cầu không còn phụ thuộc provider đang bật: tra claim đúng owner/material/version/options trước bước kiểm tra cấu hình; yêu cầu mới thiếu model không giữ khóa. Vẫn kiểm tra quyền nguồn trước trả kết quả; không trích xuất hoặc gọi provider khi cache hit. 23 test store/context và 4 test MySQL đạt sau sửa, typecheck/lint phần sửa đạt (2026-09-09).
+- [x] Kiểm tra hồi quy API trước thay đổi replay trên: 500 test đạt, 33 bị skip theo cấu hình; không tính các test skip là đã kiểm chứng. Không gọi provider thật trong kiểm thử AI.
+
 - [x] Loại bỏ toàn bộ fallback RAM trong AiStudyDraftService. Thiếu/tắt database trả 503 cho generate/get/list/edit/publish/unpublish/getPublished/listPublished; lỗi ghi claim không gọi provider. Giữ nguyên unique fingerprint, cập nhật có điều kiện, snapshot phát hành và phân trang metadata. Thông báo mới có tiếng Anh.
 - [x] Unit fixture mô phỏng database tách khỏi mã sản phẩm; 42 test qua bốn bộ draft/edit/context/MySQL đạt, bao gồm tạo đồng thời, replay sau thay service, UNCERTAIN, chỉnh sửa/phát hành đồng thời và thu hồi. Typecheck/lint phần sửa đạt. Provider trong test là mô phỏng, chưa phải UAT live.
 
