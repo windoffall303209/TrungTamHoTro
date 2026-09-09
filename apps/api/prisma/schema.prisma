@@ -467,6 +467,7 @@ model AssignmentSubmission {
 }
 
 enum AiGradingSuggestionState {
+  RETRY_AUTHORIZED
   GENERATING
   READY
   UNCERTAIN
@@ -675,6 +676,7 @@ model MaterialVersion {
 }
 
 enum AiStudyDraftState {
+  RETRY_AUTHORIZED
   GENERATING
   READY
   UNCERTAIN
