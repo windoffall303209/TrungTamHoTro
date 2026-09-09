@@ -209,7 +209,7 @@ describe("Document answer evidence reconciliation", () => {
   const row = { key: `ai-doc-answer:${id}`, value: { state: "UNCERTAIN", request }, version: 3, effectiveAt: new Date("2026-09-08T00:00:00.000Z"), updatedBy: ownerId, updatedAt };
   const findUnique = vi.fn();
   const updateMany = vi.fn();
-  const auditCreate = vi.fn();
+  const auditCreate = vi.fn<(args: { data: { action: string; entityId: string; context: Record<string, unknown> } }) => Promise<object>>();
   const transaction = vi.fn();
   const service = new AiGradingOperationsService({ isStartupConnectionEnabled: () => true, $transaction: transaction } as unknown as PrismaService);
   const input = { expectedVersion: 3, evidenceReference: "provider-log-answer-001", evidenceNote: "Provider dashboard confirms no document answer request was accepted.", checkedAt: "2026-09-08T02:00:00.000Z" };
@@ -239,6 +239,42 @@ describe("Document answer evidence reconciliation", () => {
     findUnique.mockResolvedValue(currentRow);
     updateMany.mockResolvedValue(update);
     await expect(service.reconcileDocumentAnswerNotProcessed(currentId, currentInput, admin)).rejects.toThrow();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("Document extraction evidence reconciliation", () => {
+  const id = "e".repeat(64);
+  const updatedAt = new Date("2026-09-08T01:00:00.000Z");
+  const row = { key: `ai-doc:${id}`, value: { state: "GENERATING" }, version: 2, effectiveAt: new Date("2026-09-08T00:00:00.000Z"), updatedBy: "teacher-1", updatedAt };
+  const findUnique = vi.fn();
+  const updateMany = vi.fn();
+  const auditCreate = vi.fn<(args: { data: { action: string; entityId: string } }) => Promise<object>>();
+  const transaction = vi.fn();
+  const service = new AiGradingOperationsService({ isStartupConnectionEnabled: () => true, $transaction: transaction } as unknown as PrismaService);
+  const input = { expectedVersion: 2, evidenceReference: "provider-log-ocr-001", evidenceNote: "Provider dashboard confirms no extraction request was accepted.", checkedAt: "2026-09-08T02:00:00.000Z" };
+
+  beforeEach(() => {
+    vi.resetAllMocks(); findUnique.mockResolvedValue(row); updateMany.mockResolvedValue({ count: 1 }); auditCreate.mockResolvedValue({});
+    const transactionClient = { systemSetting: { findUnique, updateMany }, auditLog: { create: auditCreate } };
+    transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
+  });
+
+  it("authorizes one retry while preserving the opaque extraction key and owner", async () => {
+    await expect(service.reconcileExtractionNotProcessed(id, input, admin)).resolves.toMatchObject({ id, ownerId: row.updatedBy, state: "RETRY_AUTHORIZED", version: 3 });
+    expect(updateMany).toHaveBeenCalledWith({ where: { key: row.key, version: 2, updatedBy: row.updatedBy }, data: { value: { state: "RETRY_AUTHORIZED" }, version: { increment: 1 } } });
+    expect(auditCreate.mock.calls[0]?.[0].data).toMatchObject({ action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: id });
+  });
+
+  it.each([
+    ["invalid id", "bad", row, input, { count: 1 }],
+    ["changed version", id, row, { ...input, expectedVersion: 1 }, { count: 1 }],
+    ["unsafe state", id, { ...row, value: { state: "READY" } }, input, { count: 1 }],
+    ["stale evidence", id, row, { ...input, checkedAt: "2026-09-08T00:59:00.000Z" }, { count: 1 }],
+    ["CAS race", id, row, input, { count: 0 }],
+  ])("refuses %s without audit", async (_name, currentId, currentRow, currentInput, update) => {
+    findUnique.mockResolvedValue(currentRow); updateMany.mockResolvedValue(update);
+    await expect(service.reconcileExtractionNotProcessed(currentId, currentInput, admin)).rejects.toThrow();
     expect(auditCreate).not.toHaveBeenCalled();
   });
 });
