@@ -33,6 +33,43 @@ function fixture(): {
 }
 
 describe("TXT attachment grading context", () => {
+  it("combines verified PDF extraction with every TXT and inline source", async () => {
+    const { row, academic, files } = fixture();
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    const read = vi.fn().mockResolvedValue("Extracted PDF answer");
+    const context = await academic.gradingAiContext("submission", 2, session, read);
+    expect(read).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ attachmentId: "file1", fileName: "answer.pdf", mimeType: "application/pdf", checksum: row.attachments[0]!.checksum, submissionRevision: 2, buffer: files.get("file1") }));
+    expect(context.sources?.map((source) => source.text)).toEqual([row.content, "Extracted PDF answer", files.get("file2")!.toString()]);
+    expect(context.answer).toBe(context.sources?.map((source) => source.text).join("\n\n"));
+  });
+
+  it.each(["wrong extension", "oversize", "corrupt bytes"])("rejects %s before invoking the document reader", async (change) => {
+    const { row, academic, files } = fixture();
+    row.attachments[0]!.originalName = change === "wrong extension" ? "answer.docx" : "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    if (change === "oversize") row.attachments[0]!.sizeBytes = 12n * 1024n * 1024n + 1n;
+    if (change === "corrupt bytes") files.set("file1", Buffer.from("corrupt"));
+    const read = vi.fn();
+    await expect(academic.gradingAiContext("submission", 2, session, read)).rejects.toThrow();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "x".repeat(20001), "bad\u0000text"])("rejects unusable extracted text %# without discarding it", async (text) => {
+    const { row, academic } = fixture();
+    row.attachments[0]!.originalName = "answer.png";
+    row.attachments[0]!.mimeType = "image/png";
+    await expect(academic.gradingAiContext("submission", 2, session, vi.fn().mockResolvedValue(text))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("rechecks source revision after the document reader returns", async () => {
+    const { row, academic } = fixture();
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    const read = vi.fn().mockImplementation(() => { row.revision++; return Promise.resolve("Extracted text"); });
+    await expect(academic.gradingAiContext("submission", 2, session, read)).rejects.toMatchObject({ status: 409 });
+  });
+
   it("includes all files and inline work, persists verified source snapshots and replays without AI", async () => {
     const { service, ai, row, files } = fixture();
     const saved = await service.suggest("submission", 2, "EN", session);
