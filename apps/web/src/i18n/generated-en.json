@@ -1,4 +1,7 @@
 {
+  "Phiên bản lịch sử": "History version",
+  "Chỉ đọc kết quả phiên bản cũ": "Read-only results from an older version",
+  "Dùng phiên bản hiện tại": "Use the current version",
   "Lịch sử câu hỏi của bạn": "Your question history",
   "Chỉ hiện câu hỏi đã lưu lịch sử của phiên bản này. Chọn câu hỏi rồi dùng Kiểm tra kết quả để đọc lại, không gọi AI mới.": "Only questions recorded for this version are shown. Select a question, then use Check saved result to read it without a new AI call.",
   "Tải lịch sử câu hỏi": "Load question history",
