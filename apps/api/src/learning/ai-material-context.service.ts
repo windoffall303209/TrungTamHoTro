@@ -53,9 +53,12 @@ export class AiMaterialContextService {
     validateStudyGuideOptions(options);
     const material = await this.requireMaterial(materialId, actorId, role);
     const sourceVersion = material.version;
-    await this.ai.resolveTask("DOCUMENT_QA");
-    await this.ai.resolveTask("DOCUMENT_CONTEXT");
-    const result = await this.drafts.generate({ ownerId: actorId, materialId, sourceVersion, options }, async () => {
+    const identity = { ownerId: actorId, materialId, sourceVersion, options };
+    if (!await this.drafts.find(identity)) {
+      await this.ai.resolveTask("DOCUMENT_QA");
+      await this.ai.resolveTask("DOCUMENT_CONTEXT");
+    }
+    const result = await this.drafts.generate(identity, async () => {
       const context = await this.prepare(materialId, actorId, role, undefined, true, sourceVersion);
       const selected = selectStudyContext(context.chunks, options);
       const guide = await this.ai.createStudyGuide(selected.chunks, options);
