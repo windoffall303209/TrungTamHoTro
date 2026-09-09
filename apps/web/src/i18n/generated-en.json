@@ -19,6 +19,7 @@
   "AI trích dẫn ngoài ngữ cảnh được phép. Kết quả chưa được chấp nhận.": "The AI cited sources outside the permitted context. The result has not been accepted.",
   "Bài làm hoặc rubric cho gợi ý chấm AI không hợp lệ.": "The submission or rubric for AI grading suggestions is invalid.",
   "Bài làm hoặc rubric đã thay đổi trong lúc AI xử lý. Gợi ý chưa được áp dụng; hãy tải lại bài.": "The submission or rubric changed while the AI was processing it. The suggestion has not been applied; reload the submission.",
+  "Bài làm hoặc rubric đã thay đổi trong lúc đọc gợi ý AI. Hãy tải lại bài.": "The submission or rubric changed while the AI suggestion was being retrieved. Reload the submission.",
   "Bài nộp chưa có nội dung văn bản để gợi ý chấm.": "The submission has no text content for grading suggestions.",
   "Cần provider đang bật, API key và model cho tác vụ AI.": "This AI task requires an enabled provider, an API key and a model.",
   "Câu hỏi không còn thuộc đề.": "The question no longer belongs to this exam.",
