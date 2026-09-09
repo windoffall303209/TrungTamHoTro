@@ -1,4 +1,8 @@
 {
+  "Trích xuất tài liệu OCR": "Document OCR extraction",
+  "Đối soát trích xuất OCR": "OCR extraction reconciliation",
+  "Đã lưu trích xuất": "Extraction saved",
+  "Hàng đợi không hiển thị nội dung trang OCR. Đã lưu bao gồm cache cũ, không xác nhận trích xuất đầy đủ hoặc chính xác. Phiên bản tác vụ không phải phiên bản tài liệu.": "This queue does not show OCR page content. Saved includes legacy caches and does not confirm completeness or accuracy. The task revision is not the document version.",
   "Khóa trích xuất tài liệu AI không hợp lệ.": "The AI document extraction key is invalid.",
   "Trích xuất AI yêu cầu database bền vững để chống gọi trùng.": "AI extraction requires durable database storage to prevent duplicate calls.",
   "Không xác nhận được khóa trích xuất AI. Không gửi lại yêu cầu.": "The AI extraction claim could not be confirmed. Do not resubmit the request.",
