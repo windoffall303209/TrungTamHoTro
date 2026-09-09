@@ -103,10 +103,35 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     await expect(operations.listDocumentAnswers({ limit: 2, cursor: "missing-cursor" }, admin)).rejects.toMatchObject({ status: 400 });
     expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
   });
+
+  it("paginates private question history within one owner and source version without reading answers", async () => {
+    const scope = { ownerId, materialId: "history-fixture", version: 1 };
+    const store = new AiDocumentAnswerStore(prisma);
+    for (let index = 0; index < 25; index++) await store.generate({ ...scope, question: `History question ${index}?`, language: "EN" }, () => Promise.resolve(result));
+    for (const change of [{ ownerId: `${ownerId}-other` }, { materialId: "other-history" }, { version: 2 }]) {
+      const other = { ...scope, ...change };
+      await store.generate({ ...other, question: "Private elsewhere?", language: "VI" }, () => Promise.resolve({ ...result, version: other.version }));
+    }
+    // Force equal timestamps to exercise the identifier tie-breaker on the real MySQL collation.
+    await prisma.systemSetting.updateMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } }, data: { effectiveAt: new Date("2091-01-01") } });
+    const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+    const first = await store.list(scope);
+    expect(first.items).toHaveLength(20);
+    const second = await new AiDocumentAnswerStore(prisma).list(scope, first.nextCursor!);
+    expect(second.items).toHaveLength(5);
+    expect(second.nextCursor).toBeNull();
+    const items = [...first.items, ...second.items];
+    expect(new Set(items.map((item) => item.id)).size).toBe(25);
+    expect(items.every((item) => item.question.startsWith("History question") && item.language === "EN")).toBe(true);
+    expect(Object.keys(items[0]!).sort()).toEqual(["createdAt", "id", "language", "question", "state"]);
+    for (const change of [{ ownerId: `${ownerId}-other` }, { materialId: "other-history" }, { version: 2 }]) await expect(store.list({ ...scope, ...change }, first.nextCursor!)).rejects.toMatchObject({ status: 400 });
+    expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
+  });
 });
 
 it("does not call AI when durable answer storage is unavailable", async () => {
   const generate = vi.fn();
   await expect(new AiDocumentAnswerStore().generate({ ownerId: "owner", materialId: "file", version: 1, question: "Why?", language: "VI" }, generate)).rejects.toMatchObject({ status: 503 });
   expect(generate).not.toHaveBeenCalled();
+  await expect(new AiDocumentAnswerStore().list({ ownerId: "owner", materialId: "file", version: 1 })).rejects.toMatchObject({ status: 503 });
 });
