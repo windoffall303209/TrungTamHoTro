@@ -17,6 +17,52 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("rejects page ranges outside extracted content before creating a study claim", async () => {
+    const { service, ai, material } = fixture();
+    const options = { cardCount: 1, language: "VI" as const, fromPage: 1, toPage: 2 };
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", options)).rejects.toMatchObject({ status: 400 });
+    expect(await service.listStudyDrafts(material.id, "teacher", "INSTRUCTOR")).toEqual({ items: [], nextCursor: null });
+    expect(ai.createStudyGuide).not.toHaveBeenCalled();
+    await service.study(material.id, "teacher", "INSTRUCTOR", { ...options, toPage: 1 });
+    expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues study generation after shared OCR completes without leaving a failed study claim", async () => {
+    const { learning, ai, material } = fixture();
+    const { prisma } = extractionDatabase();
+    const drafts = testStudyDraft();
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, prisma, drafts);
+    const options = { cardCount: 1, language: "VI" as const };
+    let finish!: (pages: Array<{ page: number; text: string }>) => void;
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    ai.extractDocumentPages.mockImplementationOnce(() => { enter(); return new Promise<Array<{ page: number; text: string }>>((resolve) => { finish = resolve; }); });
+    const pending = service.prepare(material.id, "teacher", "INSTRUCTOR");
+    await entered;
+    try {
+      await expect(service.study(material.id, "teacher", "INSTRUCTOR", options)).rejects.toMatchObject({ status: 409 });
+      expect(await drafts.find({ ownerId: "teacher", materialId: material.id, sourceVersion: 1, options })).toBeNull();
+      expect(ai.createStudyGuide).not.toHaveBeenCalled();
+    } finally { finish([{ page: 1, text: "HTTP source" }]); await pending; }
+    const first = await service.study(material.id, "teacher", "INSTRUCTOR", options);
+    expect(await service.study(material.id, "teacher", "INSTRUCTOR", options)).toEqual(first);
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+    expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps uncertain study generation locked without re-extracting source pages", async () => {
+    const { service, ai, material } = fixture();
+    ai.createStudyGuide.mockRejectedValueOnce(new Error("response lost"));
+    const options = { cardCount: 1, language: "VI" as const };
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", options)).rejects.toThrow("response lost");
+    ai.resolveTask.mockClear();
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", options)).rejects.toMatchObject({ status: 409 });
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+    expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
+  });
+
   it("can answer after another worker finishes OCR without reserving an uncertain answer while waiting", async () => {
     const { learning, ai, material } = fixture();
     const { prisma, rows } = extractionDatabase();

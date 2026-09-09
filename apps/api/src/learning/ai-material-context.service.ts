@@ -73,13 +73,16 @@ export class AiMaterialContextService {
     const material = await this.requireMaterial(materialId, actorId, role);
     const sourceVersion = material.version;
     const identity = { ownerId: actorId, materialId, sourceVersion, options };
-    if (!await this.drafts.find(identity)) {
-      await this.ai.resolveTask("DOCUMENT_QA");
-      await this.ai.resolveTask("DOCUMENT_CONTEXT");
+    const previous = await this.drafts.find(identity);
+    if (previous) {
+      if (previous.state !== "READY" || !previous.result) throw new ConflictException("Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.");
+      await this.learning.createMaterialVersionAccess(materialId, previous.result.version, role, "PREVIEW", actorId);
+      return { ...previous.result, draftId: previous.id };
     }
+    // Finish OCR and validate selected coverage before reserving a chargeable study-generation attempt.
+    const context = await this.prepare(materialId, actorId, role, undefined, true, sourceVersion);
+    const selected = selectStudyContext(context.chunks, options);
     const result = await this.drafts.generate(identity, async () => {
-      const context = await this.prepare(materialId, actorId, role, undefined, true, sourceVersion);
-      const selected = selectStudyContext(context.chunks, options);
       const guide = await this.ai.createStudyGuide(selected.chunks, options);
       return { ...guide, coverage: selected.coverage, version: context.version, warning: context.warning };
     });
