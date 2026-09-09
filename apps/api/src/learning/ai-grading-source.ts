@@ -5,11 +5,17 @@ export const GRADING_TEXT_BYTE_LIMIT = 80_000;
 export type GradingAnswerSource = { attachmentId: string | null; name: string; checksum: string | null; text: string };
 export type VerifiedGradingAttachment = { attachmentId: string; buffer: Buffer; fileName: string; mimeType: string; checksum: string; submissionRevision: number };
 export type GradingDocumentReader = (file: VerifiedGradingAttachment) => Promise<string>;
+export const GRADING_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** Only accept matching PDF/image metadata for the optional verified-document extraction path. */
+/** Accept only document formats whose MIME and filename extension agree. */
 export function isGradingDocument(mimeType: string, name: string): boolean {
-  const extensions: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i };
+  const extensions: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i, [GRADING_DOCX_MIME]: /\.docx$/i };
   return Object.hasOwn(extensions, mimeType) && extensions[mimeType]!.test(name);
+}
+
+/** Identify DOCX separately because it is parsed locally and must never consume an OCR request. */
+export function isGradingDocx(mimeType: string, name: string): boolean {
+  return mimeType === GRADING_DOCX_MIME && /\.docx$/i.test(name);
 }
 
 /** Giải mã toàn bộ TXT UTF-8, chặn lỗi mã hóa/binary/nguồn rỗng; không cắt ngắn để chấm một phần. */
