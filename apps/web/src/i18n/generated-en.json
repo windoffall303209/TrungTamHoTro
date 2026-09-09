@@ -1,4 +1,13 @@
 {
+  "Lịch sử câu hỏi của bạn": "Your question history",
+  "Chỉ hiện câu hỏi đã lưu lịch sử của phiên bản này. Chọn câu hỏi rồi dùng Kiểm tra kết quả để đọc lại, không gọi AI mới.": "Only questions recorded for this version are shown. Select a question, then use Check saved result to read it without a new AI call.",
+  "Tải lịch sử câu hỏi": "Load question history",
+  "Chọn câu hỏi này": "Select this question",
+  "Đang đọc lịch sử hỏi đáp…": "Loading question history…",
+  "Đọc lịch sử hỏi đáp quá thời gian chờ. Hãy tải lại lịch sử.": "Loading question history timed out. Reload the history.",
+  "Không đọc được lịch sử hỏi đáp.": "Could not load question history.",
+  "Chưa có câu hỏi trong lịch sử phiên bản này.": "No questions are recorded for this version yet.",
+  "Phân trang lịch sử hỏi đáp": "Question history pagination",
   "Phiên bản tài liệu không hợp lệ.": "The document version is invalid.",
   "Admin cần chọn Gemini hỗ trợ ngữ cảnh cho model Custom.": "The administrator must select Gemini context support for the Custom model.",
   "AI không trả lời tài liệu bằng văn bản hợp lệ.": "The AI did not return a valid text answer for the document.",
