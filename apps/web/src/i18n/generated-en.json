@@ -2852,5 +2852,8 @@
   "Kết quả AI đã lưu": "Saved AI results",
   "Chỉ xử lý kết quả AI ở trạng thái đã lưu và quá hạn. Tác vụ đang xử lý, chưa rõ kết quả và bộ ôn tập đã phát hành luôn được giữ để đối soát hoặc tiếp tục sử dụng.": "Only expired AI results in the saved state are processed. In-progress tasks, uncertain outcomes, and published study guides are retained for reconciliation or continued use.",
   "Không tìm thấy tác vụ chấm AI cần đối soát.": "The AI grading task to reconcile was not found.",
-  "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid."
+  "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid.",
+  "Bộ ôn tập đã phát hành không được mở lại tác vụ sinh AI.": "A published study guide cannot have its AI generation task reopened.",
+  "Không tìm thấy tác vụ bộ ôn tập AI cần đối soát.": "The AI study-guide task to reconcile was not found.",
+  "Mã tác vụ bộ ôn tập AI không hợp lệ.": "The AI study-guide task ID is invalid."
 }

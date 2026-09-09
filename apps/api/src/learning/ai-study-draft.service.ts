@@ -1,13 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import type { StudyContext, StudyGuide, StudyGuideOptions } from "../system/ai-study-guide.js";
 import { validateStudyDraftEdit } from "./ai-study-draft-edit.js";
 
 export type SavedStudyGuide = StudyGuide & { model?: string; coverage: StudyContext["coverage"]; version: number; warning: string };
 type DraftIdentity = { ownerId: string; materialId: string; sourceVersion: number; options: StudyGuideOptions };
-export type StudyDraftSummary = DraftIdentity & { id: string; state: "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
+export type StudyDraftSummary = DraftIdentity & { id: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type Publication = { publishedResult: SavedStudyGuide | null; publishedAt: Date | null; publicationRevision: number; publishedEditRevision: number | null };
 type Draft = StudyDraftSummary & Publication & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
 export type PublishStudyDraft = { expectedRevision: number; expectedPublicationRevision: number; confirmReview: boolean };
@@ -41,6 +41,10 @@ export class AiStudyDraftService {
     const row = await db.aiStudyDraft.findUnique({ where: { fingerprint } }) as unknown as Draft | null;
     if (!row || row.ownerId !== identity.ownerId || row.materialId !== identity.materialId || row.sourceVersion !== identity.sourceVersion) throw new ConflictException("Không xác nhận được bản nháp ôn tập. Hãy thử lại cùng yêu cầu.");
     if (row.state === "READY" && row.result) return { ...row.result, draftId: row.id };
+    if (!claimed && row.state === "RETRY_AUTHORIZED") {
+      const reopened = await db.aiStudyDraft.updateMany({ where: { id: row.id, state: "RETRY_AUTHORIZED", publishedAt: null }, data: { state: "GENERATING", result: Prisma.JsonNull, editedResult: Prisma.JsonNull } });
+      claimed = reopened.count === 1;
+    }
     if (!claimed) throw new ConflictException(row.state === "UNCERTAIN" ? "Lần tạo bộ ôn tập trước chưa rõ kết quả. Hệ thống không tự gọi lại AI để tránh phí trùng." : "Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.");
     try {
       const result = await generate();
