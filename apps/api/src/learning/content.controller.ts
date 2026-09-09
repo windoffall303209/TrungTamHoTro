@@ -12,7 +12,7 @@ import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemp
 import { AiProviderService, type QuestionScanResult } from "../system/ai-provider.service.js";
 import { AiGenerationRequestService } from "./ai-generation-request.service.js";
 import { AiMaterialContextService } from "./ai-material-context.service.js";
-import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
+import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "./learning.dto.js";
 import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "./learning.dto.js";
 
 @ApiTags("Content & Assessment")
@@ -20,6 +20,13 @@ import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, Unpublish
 /** API học liệu, ngân hàng câu hỏi, AI scan, đề thi và vòng đời lượt làm bài. */
 export class ContentController {
   constructor(private readonly learning: LearningService, private readonly aiProviders: AiProviderService, private readonly aiRequests: AiGenerationRequestService, private readonly materialAi: AiMaterialContextService) {}
+
+  @Get("instructor/materials/:materialId/ai-questions") @RequirePermissions("material:manage")
+  @Header("Cache-Control", "no-store")
+  /** List private saved questions without generating answers or accepting a client-supplied owner. */
+  questionHistory(@Param("materialId") materialId: string, @Query() query: MaterialAiHistoryQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionHistory"]> {
+    return this.materialAi.questionHistory(materialId, query.version, session.user.id, session.roleCode, query.cursor);
+  }
 
   @Post("instructor/materials/:materialId/ai-context") @RequirePermissions("material:manage")
   /** Chuẩn bị ngữ cảnh có nguồn cho tài liệu giảng viên được phép truy cập. */
