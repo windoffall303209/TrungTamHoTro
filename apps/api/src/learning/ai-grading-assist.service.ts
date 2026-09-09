@@ -7,7 +7,7 @@ import { AiGradingStoreService, type SavedGradingSuggestion } from "./ai-grading
 import { validateGradingInput } from "../system/ai-grading-suggestion.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
-import { AiGradingDocumentReader } from "./ai-grading-document-reader.js";
+import { AiGradingDocumentReader, GradingExtractionMissingError } from "./ai-grading-document-reader.js";
 
 @Injectable()
 /** Điều phối gợi ý riêng cho giảng viên; không gọi thao tác lưu điểm hoặc gửi phản hồi. */
@@ -40,7 +40,9 @@ export class AiGradingAssistService {
 
   /** Kiểm tra lại quyền và nguồn sau khi đọc trạng thái; không cần model đang hoạt động. */
   async inspect(submissionId: string, expectedRevision: number, language: ExamLanguage, session: AuthenticatedSession): Promise<{ state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; suggestionId?: string; result?: SavedGradingSuggestion | null }> {
-    const context = await this.context(submissionId, expectedRevision, language, session);
+    let context: Awaited<ReturnType<AcademicService["gradingAiContext"]>>;
+    try { context = await this.context(submissionId, expectedRevision, language, session); }
+    catch (error) { if (error instanceof GradingExtractionMissingError) return { state: "NOT_REQUESTED" }; throw error; }
     validateGradingInput({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
     const contextHash = createHash("sha256").update(JSON.stringify(context)).digest("hex");
     const row = await this.store.find({ ownerId: session.user.id, submissionId, contextHash, language });
