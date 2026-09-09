@@ -17,6 +17,7 @@ const noResult = (): Promise<undefined> => Promise.resolve(undefined);
 
 describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test database", () => {
   const owner = `ai-dedupe-test-${randomUUID()}`;
+  const adminId = `ai-reconcile-admin-${randomUUID()}`;
   let moduleRef: TestingModule;
   let prisma: PrismaService;
 
@@ -24,11 +25,16 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     prisma = moduleRef.get(PrismaService);
+    await prisma.user.create({ data: { id: adminId, username: adminId, email: `${adminId}@example.invalid`, displayName: "AI reconciliation fixture" } });
   });
 
   // Chỉ dọn các claim do định danh fixture độc lập của lượt test này tạo.
   afterAll(async () => {
-    if (prisma) await prisma.systemSetting.deleteMany({ where: { updatedBy: owner, key: { startsWith: "ai-generation" } } });
+    if (prisma) {
+      await prisma.auditLog.deleteMany({ where: { actorId: adminId } });
+      await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [owner, adminId] }, key: { startsWith: "ai-generation" } } });
+      await prisma.user.deleteMany({ where: { id: adminId } });
+    }
     if (moduleRef) await moduleRef.close();
   });
 
@@ -62,6 +68,30 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
     await expect(new AiGenerationRequestService(prisma).run(randomUUID(), owner, payload, generate, save, noResult)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("reopens an uncertain canonical claim only after durable evidence and keeps the next retry idempotent", async () => {
+    const requestId = randomUUID();
+    const payload = { topic: `evidence-recovery-${requestId}` };
+    const generate = vi.fn().mockRejectedValueOnce(new Error("provider response lost")).mockResolvedValue(prepared);
+    const save = vi.fn().mockResolvedValue(result);
+    await expect(new AiGenerationRequestService(prisma).run(requestId, owner, payload, generate, save, noResult)).rejects.toThrow("provider response lost");
+    const uncertain = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${requestId}` } });
+    const operations = new AiGradingOperationsService(prisma);
+    const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: adminId } } as AuthenticatedSession;
+    const reopened = await operations.reconcileExamNotProcessed(requestId, {
+      expectedVersion: uncertain.version,
+      evidenceReference: `provider-log-${requestId}`,
+      evidenceNote: "Provider dashboard confirms that the request was not accepted or billed.",
+      checkedAt: new Date(Math.max(Date.now(), uncertain.updatedAt.getTime() + 1_000)).toISOString(),
+    }, session);
+    expect(reopened).toMatchObject({ id: requestId, state: "CLAIMED", version: uncertain.version + 1 });
+    expect(await new AiGenerationRequestService(prisma).run(randomUUID(), owner, payload, generate, save, noResult)).toEqual(result);
+    expect(await new AiGenerationRequestService(prisma).run(randomUUID(), owner, payload, generate, save, noResult)).toEqual(result);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenCalledTimes(1);
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { actorId: adminId, action: "AI_EXAM_RETRY_AUTHORIZED", entityId: requestId } });
+    expect(audit.context).toMatchObject({ previousState: "UNCERTAIN", previousVersion: uncertain.version, evidenceReference: `provider-log-${requestId}` });
   });
 
   it("lists canonical operations only and projects metadata instead of private JSON", async () => {
