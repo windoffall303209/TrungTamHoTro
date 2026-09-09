@@ -52,6 +52,33 @@ describe("AI grading durable claim", () => {
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
+  it("lets exactly one caller consume an admin-authorized retry", async () => {
+    let state = "RETRY_AUTHORIZED";
+    let storedResult: SavedGradingSuggestion | null = null;
+    const prisma = { isStartupConnectionEnabled: (): boolean => true, aiGradingSuggestion: {
+      create: vi.fn().mockRejectedValue({ code: "P2002" }),
+      findUnique: vi.fn().mockImplementation(() => Promise.resolve({ ...identity, id: "authorized-id", state, result: storedResult })),
+      updateMany: vi.fn().mockImplementation(({ where, data }: { where: { state: string }; data: { state: string; result?: SavedGradingSuggestion | null } }) => {
+        if (where.state !== state) return Promise.resolve({ count: 0 });
+        state = data.state;
+        storedResult = data.result ?? null;
+        return Promise.resolve({ count: 1 });
+      }),
+    } };
+    let release!: (value: SavedGradingSuggestion) => void;
+    const generate = vi.fn(() => new Promise<SavedGradingSuggestion>((resolve) => { release = resolve; }));
+    const store = new AiGradingStoreService(prisma as unknown as PrismaService);
+
+    const first = store.generate(identity, generate);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+    await expect(store.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
+    release(result);
+
+    await expect(first).resolves.toEqual({ ...result, suggestionId: "authorized-id" });
+    expect(generate).toHaveBeenCalledOnce();
+    expect(state).toBe("READY");
+  });
+
   it("rejects a mismatched result without making it replayable", async () => {
     const store = testStore();
     await expect(store.generate(identity, () => Promise.resolve({ ...result, contextHash: "wrong" }))).rejects.toMatchObject({ status: 409 });

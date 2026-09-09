@@ -48,6 +48,7 @@ export class AiGradingAssistService {
     const row = await this.store.find({ ownerId: session.user.id, submissionId, contextHash, language });
     const current = await this.context(submissionId, expectedRevision, language, session);
     if (createHash("sha256").update(JSON.stringify(current)).digest("hex") !== contextHash) throw new ConflictException("Bài làm hoặc rubric đã thay đổi trong lúc đọc gợi ý AI. Hãy tải lại bài.");
+    if (row?.state === "RETRY_AUTHORIZED") return { state: "NOT_REQUESTED" };
     return row ? { state: row.state, suggestionId: row.id, result: row.result } : { state: "NOT_REQUESTED" };
   }
 }

@@ -686,5 +686,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Yêu cầu phúc khảo đã được người khác nhận hoặc đã kết thúc.": "The appeal request has been received by someone else or has ended.",
   "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status.",
   "Danh sách model từ nhà cung cấp vượt giới hạn an toàn.": "The provider model list exceeds the safe response-size limit.",
-  "Danh mục retention không được hỗ trợ.": "This retention category is not supported."
+  "Danh mục retention không được hỗ trợ.": "This retention category is not supported.",
+  "Không tìm thấy tác vụ chấm AI cần đối soát.": "The AI grading task to reconcile was not found.",
+  "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid."
 });
