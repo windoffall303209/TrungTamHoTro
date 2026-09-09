@@ -18,9 +18,19 @@ type PublishedSummary = { id: string; sourceVersion: number; publishedAt: Date; 
 export class AiStudyDraftService {
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
+  /** Look up the exact private request before provider configuration checks, without creating a claim. */
+  async find(identity: DraftIdentity): Promise<Draft | null> {
+    return await this.database().aiStudyDraft.findUnique({ where: { fingerprint: this.fingerprint(identity) } }) as unknown as Draft | null;
+  }
+
+  /** Keep replay lookup and claim creation on the same owner/source/options identity. */
+  private fingerprint(identity: DraftIdentity): string {
+    return createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
+  }
+
   /** Trả lại kết quả đã lưu hoặc claim một lần tạo; trạng thái mơ hồ không tự gọi lại AI. */
   async generate(identity: DraftIdentity, generate: () => Promise<SavedStudyGuide>): Promise<SavedStudyGuide & { draftId: string }> {
-    const fingerprint = createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
+    const fingerprint = this.fingerprint(identity);
     const id = `study-${randomUUID()}`;
     const db = this.database();
     let claimed = false;
