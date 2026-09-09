@@ -10,14 +10,20 @@ import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
   const ownerId = `extraction-test-${randomUUID()}`;
-  const keys = ["race", "uncertain", "legacy", "operations-a", "operations-b", "operations-legacy"].map((name) => `ai-doc:${createHash("sha256").update(`${ownerId}:${name}`).digest("hex")}`);
+  const keys = ["race", "uncertain", "legacy", "operations-a", "operations-b", "operations-legacy", "recovery"].map((name) => `ai-doc:${createHash("sha256").update(`${ownerId}:${name}`).digest("hex")}`);
   const pages = [{ page: 1, text: "Synthetic OCR result; no real provider invoked." }];
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   // Load the real database service; provider work remains mocked.
   beforeAll(async () => { moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile(); prisma = moduleRef.get(PrismaService); });
   // Delete only this run's exact fixture keys, never production caches.
-  afterAll(async () => { if (prisma) await prisma.systemSetting.deleteMany({ where: { updatedBy: ownerId, key: { in: keys } } }); await moduleRef?.close(); });
+  afterAll(async () => {
+    if (prisma) {
+      await prisma.auditLog.deleteMany({ where: { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: keys[6]!.slice(7) } });
+      await prisma.systemSetting.deleteMany({ where: { updatedBy: ownerId, key: { in: keys } } });
+    }
+    await moduleRef?.close();
+  });
 
   it("allows one OCR invocation among six workers and replays after service replacement", async () => {
     expect(await new AiDocumentExtractionStore(prisma).status(keys[0]!)).toEqual({ state: "NOT_REQUESTED" });
@@ -40,6 +46,23 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
     expect((await prisma.systemSetting.findUnique({ where: { key: keys[1] } }))?.value).toEqual({ state: "UNCERTAIN" });
     expect(extract).toHaveBeenCalledTimes(1);
     expect(await new AiDocumentExtractionStore(prisma).status(keys[1]!)).toEqual({ state: "UNCERTAIN" });
+  });
+
+  it("consumes one evidence-authorized OCR retry across concurrent workers", async () => {
+    const key = keys[6]!;
+    await expect(new AiDocumentExtractionStore(prisma).generate(key, ownerId, vi.fn().mockRejectedValue(new Error("response lost")))).rejects.toThrow("response lost");
+    const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key } });
+    const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: null } } as unknown as AuthenticatedSession;
+    await new AiGradingOperationsService(prisma).reconcileExtractionNotProcessed(key.slice(7), {
+      expectedVersion: claim.version, evidenceReference: "provider-dashboard-fixture", evidenceNote: "Provider fixture confirms that the original extraction was not accepted.", checkedAt: new Date(claim.updatedAt.getTime() + 1_000).toISOString(),
+    }, admin);
+    expect(await new AiDocumentExtractionStore(prisma).status(key)).toEqual({ state: "NOT_REQUESTED" });
+    const extract = vi.fn(() => Promise.resolve(pages));
+    const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiDocumentExtractionStore(prisma).generate(key, ownerId, extract)));
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(await prisma.auditLog.count({ where: { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: key.slice(7) } })).toBe(1);
+    expect(await new AiDocumentExtractionStore(prisma).status(key)).toEqual({ state: "READY", pages });
   });
 
   it("replays pre-claim array caches without modifying the original record", async () => {
