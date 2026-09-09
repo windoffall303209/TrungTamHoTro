@@ -872,6 +872,7 @@ export default function OperationsPage() {
                 }
               >
                 <option value="LEARNING">Dữ liệu học tập</option>
+                <option value="AI_RESULTS">Kết quả AI đã lưu</option>
                 <option value="AUDIT">Audit log</option>
                 <option value="SUPPORT">Hỗ trợ</option>
               </select>
@@ -927,6 +928,11 @@ export default function OperationsPage() {
               Phát hành chính sách
             </Button>
           </div>
+          {retentionForm.category === "AI_RESULTS" ? (
+            <p className="mt-3 text-xs leading-5 text-[var(--ink-soft)]">
+              Chỉ xử lý kết quả AI ở trạng thái đã lưu và quá hạn. Tác vụ đang xử lý, chưa rõ kết quả và bộ ôn tập đã phát hành luôn được giữ để đối soát hoặc tiếp tục sử dụng.
+            </p>
+          ) : null}
           {retentionPreview ? (
             <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center">
               <div>
@@ -1078,6 +1084,7 @@ export default function OperationsPage() {
           <Field label="Loại dữ liệu">
             <select className={inputClass} value={legalHoldForm.category} onChange={(event) => setLegalHoldForm({ ...legalHoldForm, category: event.target.value })}>
               <option value="LEARNING">Dữ liệu học tập</option>
+              <option value="AI_RESULTS">Kết quả AI đã lưu</option>
               <option value="AUDIT">Audit log</option>
               <option value="SUPPORT">Hỗ trợ</option>
             </select>
