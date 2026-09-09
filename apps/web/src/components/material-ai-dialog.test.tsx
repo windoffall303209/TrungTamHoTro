@@ -12,6 +12,21 @@ const material = { id: "material-1", name: "Lesson.pdf", version: 4 } as Materia
 const response = { answer: "Answer <script>unsafe()</script>", warning: "Verify original", version: 3, insufficientContext: false, citations: [{ id: "chunk-1", materialId: "material-1", version: 3, name: "Lesson.pdf", page: 2, text: "Source passage" }] };
 
 describe("MaterialAiDialog", () => {
+  it("restores a historical question and language without sending it automatically", async () => {
+    apiRequest.mockResolvedValueOnce({ items: [{ id: "a".repeat(64), question: "Historical question?", language: "EN", state: "READY", createdAt: "2026-09-09T00:00:00Z" }], nextCursor: null });
+    render(<MaterialAiDialog material={material} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Lịch sử câu hỏi của bạn"));
+    fireEvent.click(screen.getByRole("button", { name: "Tải lịch sử câu hỏi" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Chọn câu hỏi này" }));
+    expect(screen.getByRole("textbox")).toHaveValue("Historical question?");
+    expect(screen.getByRole("textbox")).toHaveFocus();
+    expect(screen.getByRole("combobox")).toHaveValue("EN");
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    apiRequest.mockResolvedValueOnce({ state: "READY", result: response });
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra kết quả" }));
+    await screen.findByText(response.answer);
+    expect(apiRequest).toHaveBeenLastCalledWith("/instructor/materials/material-1/ai-question/status", expect.objectContaining({ body: JSON.stringify({ question: "Historical question?", language: "EN" }) }));
+  });
   it.each(["READY", "NOT_REQUESTED", "GENERATING", "UNCERTAIN"])("checks saved status %s without starting generation", async (state) => {
     apiRequest.mockResolvedValueOnce(state === "READY" ? { state, result: response } : { state });
     render(<MaterialAiDialog material={material} onClose={vi.fn()} />);
