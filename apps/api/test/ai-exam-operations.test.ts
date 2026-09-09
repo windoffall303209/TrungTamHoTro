@@ -71,7 +71,10 @@ describe("Exam operations HTTP contract", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(queryRaw).toHaveBeenCalledTimes(1);
     const sql = queryRaw.mock.calls[0]![0] as { sql: string };
-    expect(sql.sql).toContain(scope === "unlinked" ? "NOT EXISTS" : "AND EXISTS");
+    if (scope === "canonical") {
+      expect(sql.sql).toContain("SELECT DISTINCT");
+      expect(sql.sql).toContain("JOIN system_settings r");
+    } else expect(sql.sql).toContain(scope === "unlinked" ? "NOT EXISTS" : "AND EXISTS");
     if (scope === "broken") expect(sql.sql).toContain("FROM system_settings target");
   });
 
