@@ -691,5 +691,12 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Mã tác vụ chấm AI không hợp lệ.": "The AI grading task ID is invalid.",
   "Bộ ôn tập đã phát hành không được mở lại tác vụ sinh AI.": "A published study guide cannot have its AI generation task reopened.",
   "Không tìm thấy tác vụ bộ ôn tập AI cần đối soát.": "The AI study-guide task to reconcile was not found.",
-  "Mã tác vụ bộ ôn tập AI không hợp lệ.": "The AI study-guide task ID is invalid."
+  "Mã tác vụ bộ ôn tập AI không hợp lệ.": "The AI study-guide task ID is invalid.",
+  "Dữ liệu khóa AI không hợp lệ. Không thể mở lại tự động.": "The AI claim data is invalid and cannot be reopened automatically.",
+  "Dữ liệu ràng buộc hỏi đáp AI không hợp lệ. Không thể mở lại tự động.": "The AI document-answer binding is invalid and cannot be reopened automatically.",
+  "Không tìm thấy tác vụ hỏi đáp tài liệu AI cần đối soát.": "The AI document-answer task to reconcile was not found.",
+  "Không tìm thấy tác vụ trích xuất tài liệu AI cần đối soát.": "The AI document-extraction task to reconcile was not found.",
+  "Mã tác vụ hỏi đáp tài liệu AI không hợp lệ.": "The AI document-answer task ID is invalid.",
+  "Mã tác vụ trích xuất tài liệu AI không hợp lệ.": "The AI document-extraction task ID is invalid.",
+  "Tác vụ OCR không còn chủ sở hữu hợp lệ. Không thể mở lại tự động.": "The OCR task no longer has a valid owner and cannot be reopened automatically."
 });
