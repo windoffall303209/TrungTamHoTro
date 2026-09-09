@@ -14,11 +14,12 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  Matches,
   Min,
   MinLength,
   ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { OmitType } from "@nestjs/swagger";
 import type { LearningQuestion } from "./learning.types.js";
 
@@ -31,6 +32,13 @@ export class MaterialAiContextDto {
 export class MaterialAiQuestionDto {
   @IsString() @MinLength(2) @MaxLength(2000) question!: string;
   @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+}
+
+/** History selects an explicit source version; owner identity always comes from the authenticated session. */
+export class MaterialAiHistoryQueryDto {
+  @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)
+  @IsInt() @Min(1) @Max(2147483647) version!: number;
+  @IsOptional() @IsString() @Matches(/^[a-f0-9]{64}$/) cursor?: string;
 }
 
 /** Bộ ôn tập chỉ nhận phạm vi trang, số thẻ và ngôn ngữ; nguồn và model do máy chủ quản lý. */
