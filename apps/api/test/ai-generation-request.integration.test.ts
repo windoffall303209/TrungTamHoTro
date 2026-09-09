@@ -73,6 +73,9 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
       await expect(new AiGenerationRequestService(prisma).run(`${id}-alias`, owner, { topic: id }, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
     }
     await prisma.systemSetting.updateMany({ where: { updatedBy: owner, key: { in: ids.map((id) => `ai-generation:${id}`) } }, data: { effectiveAt: new Date("2099-09-08T00:00:00Z") } });
+    const duplicated = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${ids[1]!}` } });
+    const duplicatedValue = duplicated.value as { owner: string; hash: string };
+    await prisma.systemSetting.create({ data: { key: `ai-generation-content:duplicate-${prefix}`, updatedBy: owner, value: { owner: duplicatedValue.owner, hash: duplicatedValue.hash, canonicalRequestId: ids[1] } } });
     const operations = new AiGradingOperationsService(prisma);
     const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
     const first = await operations.listExams({ limit: 1, state: "UNCERTAIN" }, session);
