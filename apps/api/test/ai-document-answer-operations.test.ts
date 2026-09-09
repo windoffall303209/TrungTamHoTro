@@ -95,7 +95,7 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
     expect(queryRaw).not.toHaveBeenCalled();
   });
 
-  it.runIf(route === "document-answers")("validates recovery evidence through the HTTP contract before storage", async () => {
+  it("validates recovery evidence through the HTTP contract before storage", async () => {
     const endpoint = `${url}/${row.id}/reconcile-not-processed`;
     const valid = { expectedVersion: 1, evidenceReference: "provider-log-001", evidenceNote: "Provider confirms this request was neither accepted nor billed.", checkedAt: "2026-09-08T01:00:00.000Z" };
     for (const body of [{ ...valid, expectedVersion: 0 }, { ...valid, evidenceReference: "short" }, { ...valid, evidenceNote: "too short" }, { ...valid, extra: true }]) {
