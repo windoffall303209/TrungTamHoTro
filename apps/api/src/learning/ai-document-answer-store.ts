@@ -54,9 +54,11 @@ export class AiDocumentAnswerStore {
   async generate(identity: DocumentAnswerIdentity, generate: () => Promise<SavedDocumentAnswer>): Promise<SavedDocumentAnswer> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const key = this.key(identity);
+    // Private history metadata is stored with the claim, never in its key or admin queue projection.
+    const request = { materialId: identity.materialId, version: identity.version, question: identity.question.trim(), language: identity.language };
     let claimed = false;
     try {
-      await this.prisma.systemSetting.create({ data: { key, updatedBy: identity.ownerId, value: { state: "GENERATING" } } });
+      await this.prisma.systemSetting.create({ data: { key, updatedBy: identity.ownerId, value: { state: "GENERATING", request } } });
       claimed = true;
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
@@ -71,11 +73,11 @@ export class AiDocumentAnswerStore {
       if (generated?.version !== identity.version) throw new ConflictException("Phiên bản câu trả lời AI không khớp tài liệu yêu cầu.");
       const result = readAnswer(generated, identity);
       if (!result) throw new ConflictException("Câu trả lời tài liệu không đúng cấu trúc.");
-      const saved = await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "READY", result }, version: { increment: 1 } } });
+      const saved = await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "READY", request, result }, version: { increment: 1 } } });
       if (saved.count !== 1) throw new ConflictException("Không xác nhận được việc lưu câu trả lời AI. Không gửi yêu cầu mới.");
       return result;
     } catch (error) {
-      await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "UNCERTAIN" }, version: { increment: 1 } } });
+      await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "UNCERTAIN", request }, version: { increment: 1 } } });
       throw error;
     }
   }
