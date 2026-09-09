@@ -51,7 +51,7 @@ describe.each(["grading", "study"])("AI %s operations with HTTP validation and r
     findUnique.mockResolvedValue(null);
     updateMany.mockResolvedValue({ count: 1 });
     auditCreate.mockResolvedValue({});
-    const transactionClient = { aiGradingSuggestion: { findUnique, updateMany }, auditLog: { create: auditCreate } };
+    const transactionClient = { [domain === "grading" ? "aiGradingSuggestion" : "aiStudyDraft"]: { findUnique, updateMany }, auditLog: { create: auditCreate } };
     transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
   });
   // Gửi yêu cầu đọc metadata, không có phương thức mutation.
@@ -119,6 +119,18 @@ describe.each(["grading", "study"])("AI %s operations with HTTP validation and r
     expect(response.status).toBe(201);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toMatchObject({ id: "claim", state: "RETRY_AUTHORIZED" });
+    expect(auditCreate).toHaveBeenCalledOnce();
+  });
+
+  it.runIf(domain === "study")("accepts complete study evidence and keeps published state private", async () => {
+    const uncertain = { ...record, state: "UNCERTAIN", publishedAt: null, updatedAt: new Date("2026-09-08T00:00:00.000Z") };
+    findUnique.mockResolvedValue(uncertain);
+    const response = await reconcile({ expectedUpdatedAt: uncertain.updatedAt.toISOString(), evidenceReference: "provider-log-001", evidenceNote: "Provider confirms this request was neither accepted nor billed.", checkedAt: "2026-09-08T01:00:00.000Z" });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ id: "claim", state: "RETRY_AUTHORIZED" });
+    expect(body).not.toHaveProperty("publishedAt");
     expect(auditCreate).toHaveBeenCalledOnce();
   });
 });
