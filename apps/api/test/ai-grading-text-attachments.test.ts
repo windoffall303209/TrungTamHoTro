@@ -9,6 +9,8 @@ import type { PrismaService } from "../src/database/prisma.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 import type { AntivirusService } from "../src/infrastructure/antivirus.service.js";
 import type { AiProviderService } from "../src/system/ai-provider.service.js";
+import { GRADING_DOCX_MIME } from "../src/learning/ai-grading-source.js";
+import { docxFixture } from "./docx.fixture.js";
 
 const session = { user: { id: "teacher" }, roleCode: "INSTRUCTOR", permissions: ["exam:manage"] } as AuthenticatedSession;
 type Attachment = { id: string; objectKey: string; originalName: string; mimeType: string; sizeBytes: bigint; checksum: string };
@@ -34,6 +36,22 @@ function fixture(): {
 }
 
 describe("TXT attachment grading context", () => {
+  it("grades DOCX locally and replays without a document-extraction provider call", async () => {
+    const { row, files, service, ai } = fixture();
+    const extracted = "DOCX answer explains HTTP requests and responses.";
+    const docx = await docxFixture(`<w:p><w:r><w:t>${extracted}</w:t></w:r></w:p>`);
+    files.set("file1", docx);
+    Object.assign(row.attachments[0]!, { originalName: "answer.docx", mimeType: GRADING_DOCX_MIME, sizeBytes: BigInt(docx.length), checksum: `sha256:${createHash("sha256").update(docx).digest("hex")}` });
+    ai.suggestGrading.mockResolvedValue({ insufficientEvidence: false, feedback: "Correct DOCX answer", suggestedTotal: 5, requiresHumanReview: true, model: "configured", criteria: [{ criterionId: "r1", suggestedPoints: 5, reasoning: "Correct explanation", evidence: [extracted] }] });
+    expect(await service.inspect("submission", 2, "VI", session)).toEqual({ state: "NOT_REQUESTED" });
+    const saved = await service.suggest("submission", 2, "VI", session);
+    expect(saved.sources?.[1]?.name).toBe("answer.docx");
+    expect(saved.sources?.[1]?.text).toContain("DOCX answer explains HTTP");
+    expect(await service.suggest("submission", 2, "VI", session)).toEqual(saved);
+    expect(ai.resolveTask).toHaveBeenCalledTimes(1);
+    expect(ai.suggestGrading).toHaveBeenCalledTimes(1);
+  });
+
   it("grades mixed PDF/TXT work with durable OCR and inspects without another paid call", async () => {
     const { row, academic, ai, files } = fixture();
     row.attachments[0]!.originalName = "answer.pdf";
