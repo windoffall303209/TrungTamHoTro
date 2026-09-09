@@ -27,7 +27,8 @@ describe("AI task routing UI", () => {
     expect(within(selector).getByRole("option", { name: "NIM" })).toBeInTheDocument();
     expect(within(selector).getByRole("option", { name: "Custom" })).toBeInTheDocument();
     expect(within(selector).queryByRole("option", { name: "Disabled" })).not.toBeInTheDocument();
-    expect(screen.getByText(/giảng viên phải kiểm tra bản OCR và gợi ý trước khi lưu điểm/)).toBeInTheDocument();
+    expect(screen.getByText(/DOCX được đọc cục bộ/)).toBeInTheDocument();
+    expect(screen.getByText(/Giảng viên phải kiểm tra bản trích xuất và gợi ý trước khi lưu điểm/)).toBeInTheDocument();
     fireEvent.change(selector, { target: { value: "nim" } });
     fireEvent.change(screen.getByLabelText("Model Gợi ý chấm bài"), { target: { value: "llama" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu gợi ý chấm bài" }));
