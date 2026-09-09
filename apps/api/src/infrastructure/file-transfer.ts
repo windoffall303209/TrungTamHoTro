@@ -11,10 +11,15 @@ export const DEFAULT_MATERIAL_MIME_TYPES = [
   "image/jpeg",
 ] as const;
 
+/** Bảo đảm cấu hình MIME tùy chỉnh vẫn luôn hỗ trợ hai định dạng Word của hệ thống. */
 export function includeSupportedDocumentMimeTypes(values: readonly string[]): string[] {
   return [...new Set([...values, ...WORD_MIME_TYPES])];
 }
 
+/**
+ * Làm sạch tên multipart và sửa trường hợp UTF-8 bị middleware giải mã nhầm Latin-1.
+ * Nếu phép chuyển đổi không round-trip chính xác, hàm giữ nguyên chuỗi đã chuẩn hóa NFC.
+ */
 export function normalizeMultipartFileName(value: string): string {
   const safeValue = value.replace(/[\0\r\n]/g, "").trim().normalize("NFC");
   const windows1252 = new Map<number, number>([
@@ -35,6 +40,7 @@ export function normalizeMultipartFileName(value: string): string {
   return !decoded.includes("\uFFFD") && Buffer.from(decoded, "utf8").equals(source) ? decoded : safeValue;
 }
 
+/** Tạo Content-Disposition có fallback ASCII và filename* UTF-8 cho tên tiếng Việt. */
 export function fileContentDisposition(mode: "inline" | "attachment", fileName: string): string {
   const normalized = normalizeMultipartFileName(fileName) || "hoc-lieu";
   const fallback = normalized

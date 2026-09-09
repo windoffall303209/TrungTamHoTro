@@ -3,16 +3,19 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync, 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const TOTP_STEP_SECONDS = 30;
 
+/** Sinh bí mật Base32 tương thích với ứng dụng TOTP phổ biến. */
 export function createMfaSecret(): string {
   return encodeBase32(randomBytes(20));
 }
 
+/** Đóng gói bí mật MFA thành URI otpauth để ứng dụng xác thực quét hoặc nhập. */
 export function createTotpUri(secret: string, email: string, issuer: string): string {
   const label = encodeURIComponent(`${issuer}:${email}`);
   const query = new URLSearchParams({ secret, issuer, algorithm: "SHA1", digits: "6", period: String(TOTP_STEP_SECONDS) });
   return `otpauth://totp/${label}?${query.toString()}`;
 }
 
+/** Kiểm tra TOTP theo thời gian hiện tại và cho phép lệch một chu kỳ ở mỗi phía. */
 export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
   const normalized = code.replace(/\s/g, "");
   if (!/^\d{6}$/.test(normalized)) return false;
@@ -24,6 +27,7 @@ export function verifyTotp(secret: string, code: string, now = Date.now()): bool
   return false;
 }
 
+/** Mã hóa bí mật MFA bằng AES-256-GCM trước khi lưu, kèm IV và authentication tag. */
 export function encryptMfaSecret(secret: string, encryptionSecret: string): string {
   const iv = randomBytes(12);
   const key = scryptSync(encryptionSecret, "wind-edu-mfa-v1", 32);
@@ -32,6 +36,7 @@ export function encryptMfaSecret(secret: string, encryptionSecret: string): stri
   return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
 
+/** Giải mã và xác thực toàn vẹn payload MFA phiên bản v1. */
 export function decryptMfaSecret(payload: string, encryptionSecret: string): string {
   const [version, encodedIv, encodedTag, encodedCiphertext] = payload.split(".");
   if (version !== "v1" || !encodedIv || !encodedTag || !encodedCiphertext) throw new Error("Dữ liệu MFA không hợp lệ.");
@@ -41,6 +46,7 @@ export function decryptMfaSecret(payload: string, encryptionSecret: string): str
   return Buffer.concat([decipher.update(Buffer.from(encodedCiphertext, "base64url")), decipher.final()]).toString("utf8");
 }
 
+/** Sinh bộ mã khôi phục dùng một lần; AuthService chỉ lưu bản băm của các mã này. */
 export function createRecoveryCodes(count = 8): string[] {
   return Array.from({ length: count }, () => {
     const value = randomBytes(5).toString("hex").toUpperCase();
@@ -48,6 +54,7 @@ export function createRecoveryCodes(count = 8): string[] {
   });
 }
 
+/** Tạo mã HOTP sáu chữ số cho bộ đếm thời gian theo RFC 4226/6238. */
 function generateTotp(secret: string, counter: number): string {
   const buffer = Buffer.alloc(8);
   buffer.writeBigUInt64BE(BigInt(counter));
@@ -60,6 +67,7 @@ function generateTotp(secret: string, counter: number): string {
   return String(binary % 1_000_000).padStart(6, "0");
 }
 
+/** Mã hóa byte ngẫu nhiên sang Base32 không padding để dùng làm bí mật TOTP. */
 function encodeBase32(input: Buffer): string {
   let bits = 0;
   let value = 0;
@@ -76,6 +84,7 @@ function encodeBase32(input: Buffer): string {
   return output;
 }
 
+/** Giải mã bí mật Base32 và từ chối ký tự ngoài bảng chữ cái hợp lệ. */
 function decodeBase32(input: string): Buffer {
   let bits = 0;
   let value = 0;

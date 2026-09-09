@@ -26,9 +26,12 @@ const typeMeta: Record<QuestionType, { label: string; description: string }> = {
   ESSAY: { label: "Tự luận", description: "Người học viết bài; giảng viên chấm thủ công." },
 };
 const objectiveTypes: QuestionType[] = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"];
+/** Tạo state biểu mẫu mới để không tái sử dụng tham chiếu giữa các lần mở editor. */
 const createBlankForm = (): QuestionForm => ({ courseId: "", type: "SINGLE_CHOICE", content: "", options: ["", ""], correctAnswers: [], difficulty: 2, tags: "" });
+/** Chuẩn hóa khoảng trắng và chuyển tags dạng chuỗi thành payload mảng cho API. */
 const toPayload = (form: QuestionForm) => ({ ...form, content: form.content.trim(), options: form.options.map((value) => value.trim()).filter(Boolean), correctAnswers: form.correctAnswers.map((value) => value.trim()).filter(Boolean), tags: form.tags.split(",").map((value) => value.trim()).filter(Boolean) });
 
+/** Kiểm tra quy tắc theo loại câu hỏi trước khi gửi; API vẫn là lớp xác thực có thẩm quyền. */
 const validateForm = (form: QuestionForm): FormErrors => {
   const errors: FormErrors = {};
   const options = form.options.map((value) => value.trim()).filter(Boolean);
@@ -46,6 +49,7 @@ const validateForm = (form: QuestionForm): FormErrors => {
 const QUESTION_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const QUESTION_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 
+/** Render bản xem trước nội dung giàu định dạng, công thức LaTeX, ảnh và các lựa chọn. */
 function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: string }) {
   const visibleOptions = objectiveTypes.includes(form.type) ? form.options.filter((option) => option.trim()) : [];
   return (
@@ -65,6 +69,7 @@ function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: st
   );
 }
 
+/** Quản lý ngân hàng câu hỏi, editor theo loại, ảnh minh họa, nhập hàng loạt và phê duyệt. */
 export default function QuestionsPage() {
   const { session, notify } = useApp();
   const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
@@ -93,6 +98,7 @@ export default function QuestionsPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
 
+  /** Nạp khóa học và câu hỏi theo phạm vi truy cập cùng các bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
@@ -112,17 +118,22 @@ export default function QuestionsPage() {
 
   useEffect(() => { const timer = setTimeout(() => void load(), 180); return () => clearTimeout(timer); }, [load]);
 
+  /** Thu hồi URL xem trước và xóa tệp ảnh chỉ tồn tại cục bộ. */
   const clearLocalImage = () => {
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     setImageFile(null); setImagePreviewUrl(null);
   };
+  /** Đóng editor và xóa mọi state ảnh/bản ghi đang chỉnh sửa. */
   const closeEditor = () => { clearLocalImage(); setExistingImage(null); setRemoveExistingImage(false); setEditorOpen(false); };
+  /** Khởi tạo một biểu mẫu sạch cho luồng tạo câu hỏi. */
   const openCreate = () => { clearLocalImage(); setEditingId(null); setExistingImage(null); setRemoveExistingImage(false); setForm(createBlankForm()); setErrors({}); setEditorOpen(true); };
+  /** Đưa câu hỏi hiện có vào editor và giữ metadata ảnh đã lưu trên máy chủ. */
   const openEdit = (item: Question) => {
     clearLocalImage(); setEditingId(item.id); setErrors({}); setExistingImage(item.imageUrl ? item : null); setRemoveExistingImage(false);
     setForm({ courseId: item.courseId, type: item.type, content: item.content, options: item.options.length ? [...item.options] : ["", ""], correctAnswers: [...item.correctAnswers], difficulty: item.difficulty, tags: item.tags.join(", ") });
     setEditorOpen(true);
   };
+  /** Kiểm tra MIME/kích thước ảnh câu hỏi và tạo bản xem trước tạm thời. */
   const selectImage = (file?: File) => {
     setErrors((current) => ({ ...current, image: undefined }));
     if (!file) return;
@@ -131,6 +142,7 @@ export default function QuestionsPage() {
     clearLocalImage();
     setImageFile(file); setImagePreviewUrl(URL.createObjectURL(file)); setRemoveExistingImage(false);
   };
+  /** Xác thực biểu mẫu, lưu câu hỏi rồi đồng bộ thao tác thêm/xóa ảnh nếu có. */
   const saveQuestion = async (event: React.FormEvent) => {
     event.preventDefault();
     const nextErrors = validateForm(form); setErrors(nextErrors);
@@ -149,10 +161,12 @@ export default function QuestionsPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error"); }
     finally { setSaving(false); }
   };
+  /** Gửi câu hỏi duyệt hoặc tự xuất bản theo chế độ phê duyệt đang cấu hình. */
   const publish = async (item: Question) => {
     try { const updated = await apiRequest<Question>(`/instructor/question-bank/questions/${item.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify(updated.status === "PUBLISHED" ? `Câu hỏi phiên bản ${item.version} đã được tự động phê duyệt và xuất bản.` : `Câu hỏi phiên bản ${item.version} đã được gửi tới quản trị viên phê duyệt.`); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được câu hỏi.", "error"); }
   };
+  /** Phê duyệt hoặc trả lại câu hỏi cùng ghi chú cho tác giả. */
   const review = async (item: Question, decision: "APPROVE" | "RETURN", note?: string) => {
     setReviewSaving(true);
     try {
@@ -162,6 +176,7 @@ export default function QuestionsPage() {
     } catch (error) { notify(error instanceof Error ? error.message : "Không duyệt được câu hỏi.", "error"); }
     finally { setReviewSaving(false); }
   };
+  /** Phân tích dữ liệu nhập hàng loạt và tạo các câu hỏi hợp lệ trong khóa học. */
   const importQuestions = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true);
     try {
@@ -171,6 +186,7 @@ export default function QuestionsPage() {
     } catch (error) { notify(error instanceof Error ? `Dữ liệu nhập không hợp lệ: ${error.message}` : "Không nhập được câu hỏi.", "error"); }
     finally { setSaving(false); }
   };
+  /** Đổi loại câu và tái lập các trường đáp án phù hợp để tránh state không hợp lệ. */
   const changeType = (type: QuestionType) => {
     setErrors({});
     setForm((current) => {
@@ -178,15 +194,18 @@ export default function QuestionsPage() {
       return { ...current, type, options: type === "TRUE_FALSE" ? ["Đúng", "Sai"] : objectiveTypes.includes(type) ? (reusableOptions.length >= 2 ? reusableOptions : ["", ""]) : [], correctAnswers: [] };
     });
   };
+  /** Cập nhật một lựa chọn đồng thời thay thế giá trị tương ứng trong đáp án đúng. */
   const updateOption = (index: number, value: string) => {
     setForm((current) => { const previous = current.options[index] ?? ""; return { ...current, options: current.options.map((option, optionIndex) => optionIndex === index ? value : option), correctAnswers: current.correctAnswers.map((answer) => answer === previous ? value : answer) }; });
     setErrors((current) => ({ ...current, options: undefined }));
   };
+  /** Bật/tắt đáp án đúng theo quy tắc một lựa chọn hoặc nhiều lựa chọn. */
   const toggleCorrect = (option: string) => {
     if (!option.trim()) return;
     setForm((current) => ({ ...current, correctAnswers: current.type === "MULTIPLE_CHOICE" ? current.correctAnswers.includes(option) ? current.correctAnswers.filter((answer) => answer !== option) : [...current.correctAnswers, option] : [option] }));
     setErrors((current) => ({ ...current, correctAnswers: undefined }));
   };
+  /** Xóa lựa chọn và đồng thời loại nó khỏi tập đáp án đúng để giữ state nhất quán. */
   const removeOption = (index: number) => setForm((current) => { const removed = current.options[index]; return { ...current, options: current.options.filter((_, optionIndex) => optionIndex !== index), correctAnswers: current.correctAnswers.filter((answer) => answer !== removed) }; });
 
   if (!canView) return <AccessDenied />;

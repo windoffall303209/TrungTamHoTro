@@ -8,18 +8,25 @@ import {
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import type { RequestWithId } from "./request-context.js";
+import { localizeErrorMessage, resolveRequestLocale } from "./error-localization.js";
 
 @Catch()
+/** Chuẩn hóa mọi exception thành error envelope có request ID để truy vết. */
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  /**
+   * Chuyển exception thành HTTP response an toàn.
+   * Lỗi phía server được ghi kèm stack nhưng không trả chi tiết nội bộ cho client;
+   * lỗi 4xx giữ phần details để giao diện có thể hiển thị nguyên nhân hợp lệ.
+   */
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<RequestWithId & Request>();
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const raw = exception instanceof HttpException ? exception.getResponse() : undefined;
-    const message = this.resolveMessage(raw, exception);
+    const message = localizeErrorMessage(this.resolveMessage(raw, exception), resolveRequestLocale(request.headers["accept-language"]));
 
     if (status >= 500) {
       this.logger.error(`${request.method} ${request.originalUrl} [${request.requestId}]`, exception instanceof Error ? exception.stack : String(exception));
@@ -38,6 +45,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     });
   }
 
+  /** Rút thông báo ổn định từ các dạng payload mà HttpException có thể mang theo. */
   private resolveMessage(raw: string | object | undefined, exception: unknown): string {
     if (typeof raw === "string") return raw;
     if (raw && "message" in raw) {

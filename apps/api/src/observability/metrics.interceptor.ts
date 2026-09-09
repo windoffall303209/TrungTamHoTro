@@ -5,9 +5,14 @@ import type { RequestWithId } from "../common/request-context.js";
 import { MetricsService } from "./metrics.service.js";
 
 @Injectable()
+/** Đo thời gian và kết quả của mỗi handler rồi chuyển số liệu sang MetricsService. */
 export class MetricsInterceptor implements NestInterceptor {
   constructor(private readonly metrics: MetricsService) {}
 
+  /**
+   * Ghi metric ở cả nhánh thành công và lỗi bằng RxJS `tap`.
+   * Route dùng tên controller/handler thay cho URL thật để tránh cardinality theo tham số.
+   */
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const startedAt = performance.now();
     const request = context.switchToHttp().getRequest<Request & RequestWithId>();

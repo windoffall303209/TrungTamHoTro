@@ -6,6 +6,10 @@ export interface DatabaseConnectionConfig {
   port: number;
 }
 
+/**
+ * Đọc và kiểm tra các trường kết nối MariaDB từ một nguồn cấu hình thô.
+ * Tên database bị giới hạn ký tự để có thể dùng an toàn trong các lệnh backup/restore.
+ */
 export function readDatabaseConnection(source: Record<string, unknown>): DatabaseConnectionConfig {
   const host = requiredString(source.DB_HOST, "DB_HOST");
   const user = requiredString(source.DB_USER, "DB_USER");
@@ -23,11 +27,13 @@ export function readDatabaseConnection(source: Record<string, unknown>): Databas
   return { host, user, password, database, port };
 }
 
+/** Tạo Prisma-compatible connection URL và mã hóa riêng username/password. */
 export function buildDatabaseUrl(source: Record<string, unknown>): string {
   const connection = readDatabaseConnection(source);
   return `mysql://${encodeURIComponent(connection.user)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}/${connection.database}`;
 }
 
+/** Bắt buộc một biến cấu hình phải là chuỗi không rỗng và trả về bản đã trim. */
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`Thiếu ${name} trong .env.`);
   return value.trim();

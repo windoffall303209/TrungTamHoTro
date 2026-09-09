@@ -11,12 +11,14 @@ export interface RequestWithRole extends Request {
 }
 
 @Injectable()
+/** Khôi phục phiên, chọn vai trò đang dùng và bắt buộc đủ toàn bộ quyền khai báo trên route. */
 export class PermissionGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly authService: AuthService,
   ) {}
 
+  /** Khôi phục session, gắn ngữ cảnh xác thực lên request và đối chiếu quyền route yêu cầu. */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const permissions = this.reflector.getAllAndOverride<PermissionCode[]>(REQUIRED_PERMISSIONS_KEY, [
       context.getHandler(),
@@ -28,6 +30,7 @@ export class PermissionGuard implements CanActivate {
     ]);
     if (!authenticationRequired && !permissions?.length) return true;
 
+    // Gắn phiên vào request để controller và @CurrentSession dùng lại, tránh giải mã phiên lần hai.
     const request = context.switchToHttp().getRequest<RequestWithRole>();
     const session = await this.authService.resolve(
       this.authService.readToken(request.header("cookie") ?? undefined),

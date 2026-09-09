@@ -82,9 +82,15 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
     });
     learnerIds.push(user.id);
   }
+  const emptyLearner = await prisma.user.upsert({
+    where: { email: "empty.learner@wind.edu.vn" },
+    update: { username: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh", status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
+    create: { id: "demo-learner-empty", username: "empty.learner@wind.edu.vn", email: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh", status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
+  });
   await createMany(prisma.userRole, [
     ...instructorIds.map((userId) => ({ userId, roleId: roles.get("INSTRUCTOR") })),
     ...learnerIds.map((userId) => ({ userId, roleId: roles.get("LEARNER") })),
+    { userId: emptyLearner.id, roleId: roles.get("LEARNER") },
   ]);
 
   const courses = [];
@@ -144,7 +150,7 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
       const id = `demo-material-${pad(classInfo.index + 1)}-${pad(index + 1)}`;
       const version = index % 4 === 0 ? 2 : 1;
       const visibility = index === 5 ? "DRAFT" : index === 4 ? "HIDDEN" : "PUBLISHED";
-      const material = { id, classId: classInfo.id, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Bản nháp nội bộ"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: `Tuần ${index + 1}`, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, createdAt: addDays(-30 + index) };
+      const material = { id, classId: classInfo.id, courseId: classInfo.courseId, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Bản nháp nội bộ"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: `Tuần ${index + 1}`, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, createdAt: addDays(-30 + index) };
       materials.push(material);
       for (let materialVersion = 1; materialVersion <= version; materialVersion += 1) materialVersions.push({ id: `${id}-v${materialVersion}`, materialId: id, version: materialVersion, name: material.name, objectKey: `${material.objectKey}.v${materialVersion}`, mimeType: material.mimeType, sizeBytes: material.sizeBytes, checksum: `${material.checksum}-v${materialVersion}`, folder: material.folder, tags: material.tags, visibility, createdBy: material.ownerId, createdAt: addDays(-31 + materialVersion) });
     }

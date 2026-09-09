@@ -1,5 +1,6 @@
 import type { LearningClass, Question } from "@/lib/learning-types";
 
+/** Chỉ cho đề chọn câu hỏi đã xuất bản và thuộc cùng khóa học với lớp. */
 export function eligibleExamQuestions(
   questions: readonly Question[],
   classes: readonly LearningClass[],

@@ -14,7 +14,9 @@ interface ApiEnvelope<T> {
 }
 
 @Injectable()
+/** Bọc dữ liệu thành công trong envelope thống nhất mà không can thiệp file stream. */
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiEnvelope<T> | StreamableFile> {
+  /** Gắn request ID và timestamp cho JSON response; StreamableFile được trả nguyên vẹn. */
   intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiEnvelope<T> | StreamableFile> {
     const request = context.switchToHttp().getRequest<RequestWithId>();
 

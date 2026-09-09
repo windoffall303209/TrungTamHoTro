@@ -4,12 +4,14 @@ import { promisify } from "node:util";
 const scrypt = promisify(nodeScrypt);
 const KEY_LENGTH = 64;
 
+/** Băm mật khẩu bằng scrypt với salt riêng và lưu kèm phiên bản thuật toán. */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
   const derived = await scrypt(password, salt, KEY_LENGTH) as Buffer;
   return `scrypt:${salt}:${derived.toString("hex")}`;
 }
 
+/** Xác minh mật khẩu bằng scrypt và so sánh constant-time để hạn chế rò rỉ thời gian. */
 export async function verifyPassword(password: string, storedHash: string | null | undefined): Promise<boolean> {
   if (!storedHash) return false;
   const [algorithm, salt, encoded] = storedHash.split(":");

@@ -10,9 +10,15 @@ export interface AntivirusScanResult {
 }
 
 @Injectable()
+/** Adapter quét buffer qua ClamAV INSTREAM hoặc bỏ qua theo cấu hình môi trường. */
 export class AntivirusService {
   constructor(private readonly config: ConfigService<Environment, true>) {}
 
+  /**
+   * Quét một tệp trong bộ nhớ và chuẩn hóa phản hồi của ClamAV.
+   * Chế độ disabled chỉ dùng khi môi trường chủ động tắt engine; phản hồi lạ được
+   * coi là lỗi dịch vụ thay vì mặc định cho phép tệp đi tiếp.
+   */
   async scan(buffer: Buffer): Promise<AntivirusScanResult> {
     if (this.config.get("ANTIVIRUS_PROVIDER", { infer: true }) === "disabled") {
       return { clean: true, engine: "disabled" };
@@ -28,6 +34,7 @@ export class AntivirusService {
     throw new ServiceUnavailableException("ClamAV trả về phản hồi không hợp lệ.");
   }
 
+  /** Gửi buffer theo giao thức INSTREAM dạng chunk có độ dài big-endian tới ClamAV. */
   private sendInstream(host: string, port: number, timeout: number, buffer: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
       const socket = createConnection({ host, port });
