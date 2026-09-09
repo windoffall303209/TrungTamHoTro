@@ -21,7 +21,7 @@ describe("private question history", () => {
     expect(await screen.findByText(entry.question)).toHaveAttribute("translate", "no");
     expect(document.querySelector("script")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Chọn câu hỏi này" }));
-    expect(onSelect).toHaveBeenCalledWith(entry);
+    expect(onSelect).toHaveBeenCalledWith({ ...entry, version: 2 });
     expect(api).toHaveBeenCalledExactlyOnceWith("/instructor/materials/file%20%2F%201/ai-questions?version=2", expect.objectContaining({ roleCode: "INSTRUCTOR" }));
     expect(api.mock.calls[0]?.[1]).not.toHaveProperty("method");
   });
