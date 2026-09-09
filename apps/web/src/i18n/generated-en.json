@@ -1,4 +1,8 @@
 {
+  "AI hỗ trợ tối đa 5 tệp TXT, PDF, PNG, JPEG hoặc WebP; tối đa 12 MB mỗi PDF/ảnh và 24 MB toàn bộ tệp. Word và bài vượt giới hạn cần chấm thủ công để không bỏ sót nội dung.": "AI supports up to 5 TXT, PDF, PNG, JPEG, or WebP files; each PDF/image is limited to 12 MB and all files to 24 MB combined. Grade Word files and oversized submissions manually so no content is missed.",
+  "AI đọc toàn bộ phần nhập trực tiếp và mọi tệp hỗ trợ. Tổng văn bản sau đọc tối đa 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.": "AI reads all inline work and every supported file. Extracted text is limited to 20,000 characters in total; the system rejects the request instead of truncating the submission.",
+  "PDF và ảnh được AI trích xuất thành văn bản, có thể nhận sai chữ, công thức hoặc bố cục. Tạo gợi ý có thể phát sinh cả phí OCR và phí chấm; hãy mở nguồn bên dưới để đối chiếu trước khi dùng.": "PDFs and images are transcribed by AI and may misread text, formulas, or layout. Creating a suggestion may incur both OCR and grading costs; open the sources below and verify them before use.",
+  "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản PDF/ảnh vẫn là kết quả OCR chưa được xác minh độc lập; mở từng nguồn để kiểm tra trước khi dùng gợi ý.": "The server matched the bytes and checksum to the stored file. PDF/image text is still independently unverified OCR output; open each source and check it before using the suggestion.",
   "Nguồn OCR bài nộp không hợp lệ.": "The submission source for OCR is invalid.",
   "Bài nộp chưa có bản trích xuất đã lưu. Chỉ thao tác tạo gợi ý mới được phép gọi OCR.": "No saved extraction exists for this submission. Only explicitly generating a suggestion may invoke OCR.",
   "Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.": "The study guide is processing or was interrupted. Open draft history to check its status; do not create a new request.",
@@ -159,6 +163,7 @@
   "Nội dung nhập trực tiếp": "Inline submission text",
   "Nguồn trích dẫn": "Quote source",
   "AI đề xuất điểm và phản hồi theo rubric từ văn bản và tệp TXT UTF-8. Giảng viên phải kiểm tra trước khi lưu điểm; PDF, ảnh và Word chưa được hỗ trợ.": "AI suggests rubric-based scores and feedback from inline text and UTF-8 TXT files. Instructors must review before saving grades; PDF, images and Word files are not yet supported.",
+  "AI đề xuất điểm và phản hồi theo rubric từ văn bản, TXT, PDF và ảnh. PDF/ảnh được model Trích xuất tài liệu đọc trước; giảng viên phải kiểm tra bản OCR và gợi ý trước khi lưu điểm. Word chưa được hỗ trợ.": "AI suggests rubric-based scores and feedback from inline text, TXT, PDF, and image files. PDFs/images are first read by the Document extraction model; instructors must review the OCR and suggestion before saving grades. Word files are not supported yet.",
   "Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.": "TXT files for AI grading must contain content and be no larger than 80,000 bytes.",
   "Tệp TXT cho chấm AI phải được lưu bằng UTF-8 hợp lệ.": "TXT files for AI grading must use valid UTF-8 encoding.",
   "Tệp TXT chứa ký tự điều khiển không được hỗ trợ cho chấm AI.": "The TXT file contains control characters that AI grading does not support.",
