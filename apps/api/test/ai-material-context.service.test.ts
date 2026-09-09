@@ -16,6 +16,23 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("reads private history with exact source-version authorization before and after storage", async () => {
+    const { learning, ai, material } = fixture();
+    const list = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { list } as unknown as AiDocumentAnswerStore);
+    await expect(service.questionHistory(material.id, 0, "teacher", "INSTRUCTOR")).rejects.toMatchObject({ status: 400 });
+    expect(list).not.toHaveBeenCalled();
+    await expect(service.questionHistory(material.id, 1, "teacher", "INSTRUCTOR")).resolves.toEqual({ items: [], nextCursor: null });
+    expect(list).toHaveBeenCalledWith({ ownerId: "teacher", materialId: material.id, version: 1 }, undefined);
+    expect(learning.createMaterialVersionAccess).toHaveBeenCalledTimes(2);
+    expect(ai.resolveTask).not.toHaveBeenCalled();
+    learning.createMaterialVersionAccess.mockResolvedValueOnce({ url: "fixture" }).mockRejectedValueOnce(new NotFoundException("revoked"));
+    await expect(service.questionHistory(material.id, 1, "teacher", "INSTRUCTOR")).rejects.toMatchObject({ status: 404 });
+    list.mockClear();
+    learning.createMaterialVersionAccess.mockRejectedValue(new NotFoundException("revoked"));
+    await expect(service.questionHistory(material.id, 1, "teacher", "INSTRUCTOR")).rejects.toMatchObject({ status: 404 });
+    expect(list).not.toHaveBeenCalled();
+  });
   it("replays the same study request with providers disabled, but not after source access is revoked", async () => {
     const { service, ai, learning, material } = fixture();
     const options = { cardCount: 1, language: "VI" as const };

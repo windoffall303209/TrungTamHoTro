@@ -16,6 +16,16 @@ export class AiMaterialContextService {
   private readonly pending = new Map<string, Promise<DocumentPage[]>>();
   constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma)) {}
 
+  /** Read private history only while both the material and the requested source version remain accessible. */
+  async questionHistory(materialId: string, version: number, actorId: string, role: string, cursor?: string): ReturnType<AiDocumentAnswerStore["list"]> {
+    if (!Number.isSafeInteger(version) || version < 1) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
+    await this.requireMaterial(materialId, actorId, role);
+    await this.learning.createMaterialVersionAccess(materialId, version, role, "PREVIEW", actorId);
+    const page = await this.answers.list({ ownerId: actorId, materialId, version }, cursor);
+    await this.learning.createMaterialVersionAccess(materialId, version, role, "PREVIEW", actorId);
+    return page;
+  }
+
   /** Read saved status without provider work, checking source access on both sides of the lookup. */
   async questionStatus(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): ReturnType<AiDocumentAnswerStore["status"]> {
     const text = this.questionText(question, language);
