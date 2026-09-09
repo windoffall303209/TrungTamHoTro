@@ -28,12 +28,14 @@ export class AiGradingAssistService {
     return suggestion;
   }
 
-  /** Đọc kết quả hiện hành đã lưu sau khi kiểm tra quyền; không cần model đang hoạt động. */
+  /** Kiểm tra lại quyền và nguồn sau khi đọc trạng thái; không cần model đang hoạt động. */
   async inspect(submissionId: string, expectedRevision: number, language: ExamLanguage, session: AuthenticatedSession): Promise<{ state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; suggestionId?: string; result?: SavedGradingSuggestion | null }> {
     const context = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
     validateGradingInput({ instructions: context.instructions, answer: context.answer, rubric: context.rubric, language });
     const contextHash = createHash("sha256").update(JSON.stringify(context)).digest("hex");
     const row = await this.store.find({ ownerId: session.user.id, submissionId, contextHash, language });
+    const current = await this.academic.gradingAiContext(submissionId, expectedRevision, session);
+    if (createHash("sha256").update(JSON.stringify(current)).digest("hex") !== contextHash) throw new ConflictException("Bài làm hoặc rubric đã thay đổi trong lúc đọc gợi ý AI. Hãy tải lại bài.");
     return row ? { state: row.state, suggestionId: row.id, result: row.result } : { state: "NOT_REQUESTED" };
   }
 }
