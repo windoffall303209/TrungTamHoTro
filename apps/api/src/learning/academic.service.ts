@@ -11,7 +11,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { AntivirusService } from "../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../infrastructure/object-storage.service.js";
-import { combineGradingSources, decodeGradingText, GRADING_TEXT_BYTE_LIMIT, type GradingAnswerSource } from "./ai-grading-source.js";
+import { combineGradingSources, decodeGradingText, GRADING_TEXT_BYTE_LIMIT, isGradingDocument, type GradingAnswerSource, type GradingDocumentReader } from "./ai-grading-source.js";
 
 export interface RubricCriterion {
   id: string;
@@ -950,7 +950,7 @@ export class AcademicService {
   }
 
   /** Lấy đúng bài nộp và rubric cho AI, không đưa tên/email hoặc điểm cũ vào ngữ cảnh chấm. */
-  async gradingAiContext(submissionId: string, expectedSubmissionRevision: number, session: AuthenticatedSession): Promise<{ submissionId: string; submissionRevision: number; assignmentVersion: number; instructions: string; answer: string; rubric: RubricCriterion[]; sources?: GradingAnswerSource[] }> {
+  async gradingAiContext(submissionId: string, expectedSubmissionRevision: number, session: AuthenticatedSession, readDocument?: GradingDocumentReader): Promise<{ submissionId: string; submissionRevision: number; assignmentVersion: number; instructions: string; answer: string; rubric: RubricCriterion[]; sources?: GradingAnswerSource[] }> {
     if (!Number.isInteger(expectedSubmissionRevision) || expectedSubmissionRevision < 1) throw new BadRequestException("Phiên bản bài nộp không hợp lệ.");
     const submission = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, orderBy: { id: "asc" }, select: { id: true, originalName: true, mimeType: true, checksum: true, sizeBytes: true } } } });
     if (!submission) throw new NotFoundException("Không tìm thấy bài nộp.");
@@ -961,13 +961,15 @@ export class AcademicService {
       if (!submission.content.trim()) throw new BadRequestException("Bài nộp chưa có nội dung văn bản để gợi ý chấm.");
       return base;
     }
-    if (submission.attachments.length > 5 || submission.attachments.some((file) => file.mimeType !== "text/plain" || !/\.txt$/i.test(file.originalName))) throw new BadRequestException("Chấm AI hiện hỗ trợ văn bản và tệp TXT UTF-8. Hãy chấm thủ công các định dạng khác để không bỏ sót nội dung tệp.");
-    if (submission.attachments.some((file) => file.sizeBytes <= 0n || file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT))) throw new BadRequestException("Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.");
+    if (submission.attachments.length > 5 || submission.attachments.some((file) => !(file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)) && !(readDocument && isGradingDocument(file.mimeType, file.originalName)))) throw new BadRequestException("Chấm AI hiện hỗ trợ văn bản và tệp TXT UTF-8. Hãy chấm thủ công các định dạng khác để không bỏ sót nội dung tệp.");
+    if (submission.attachments.some((file) => file.mimeType === "text/plain" && (file.sizeBytes <= 0n || file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT)))) throw new BadRequestException("Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.");
+    if (submission.attachments.some((file) => file.sizeBytes <= 0n || file.sizeBytes > 12n * 1024n * 1024n) || submission.attachments.reduce((sum, file) => sum + file.sizeBytes, 0n) > 24n * 1024n * 1024n) throw new BadRequestException("Tệp trích xuất cho chấm AI phải từ 1 byte đến 12 MB, tổng không quá 24 MB.");
     const sources: GradingAnswerSource[] = submission.content.trim() ? [{ attachmentId: null, name: "Nội dung bài làm", checksum: null, text: submission.content }] : [];
     for (const file of submission.attachments) {
       const verified = await this.readSubmissionAttachment(submissionId, file.id, session, expectedSubmissionRevision);
       if (verified.checksum !== file.checksum || verified.fileName !== file.originalName || verified.mimeType !== file.mimeType) throw new ConflictException("Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.");
-      sources.push({ attachmentId: file.id, name: verified.fileName, checksum: verified.checksum, text: decodeGradingText(verified.buffer) });
+      const text = verified.mimeType === "text/plain" ? decodeGradingText(verified.buffer) : decodeGradingText(Buffer.from(await readDocument!({ ...verified, attachmentId: file.id }), "utf8"));
+      sources.push({ attachmentId: file.id, name: verified.fileName, checksum: verified.checksum, text });
     }
     const answer = combineGradingSources(sources);
     const current = await this.prisma.assignmentSubmission.findUnique({ where: { id: submissionId }, include: { assignment: true, attachments: { where: { removedAt: null }, orderBy: { id: "asc" }, select: { id: true, originalName: true, mimeType: true, checksum: true, sizeBytes: true } } } });
