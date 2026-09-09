@@ -3,18 +3,17 @@ import { createHash } from "node:crypto";
 import { LearningService } from "./learning.service.js";
 import { AiProviderService } from "../system/ai-provider.service.js";
 import { PrismaService } from "../database/prisma.service.js";
-import { chunkDocument, type ContextChunk, type DocumentPage, retrieveDocumentContext } from "../system/ai-document-context.js";
+import { chunkDocument, type ContextChunk, retrieveDocumentContext } from "../system/ai-document-context.js";
 import { selectStudyContext, validateStudyGuideOptions, type StudyGuideOptions } from "../system/ai-study-guide.js";
 import { AiStudyDraftService, type SavedStudyGuide, type PublishStudyDraft } from "./ai-study-draft.service.js";
 import type { LearningMaterial } from "./learning.types.js";
 import { AiDocumentAnswerStore } from "./ai-document-answer-store.js";
+import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
 export class AiMaterialContextService {
-  private readonly memory = new Map<string, DocumentPage[]>();
-  private readonly pending = new Map<string, Promise<DocumentPage[]>>();
-  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma)) {}
+  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
 
   /** Read private history only while both the material and the requested source version remain accessible. */
   async questionHistory(materialId: string, version: number, actorId: string, role: string, cursor?: string): ReturnType<AiDocumentAnswerStore["list"]> {
@@ -148,18 +147,7 @@ export class AiMaterialContextService {
     const selected = await this.ai.resolveTask("DOCUMENT_CONTEXT");
     const checksum = createHash("sha256").update(file.buffer).digest("hex");
     const key = `ai-doc:${createHash("sha256").update(JSON.stringify(["v1", material.id, material.version, checksum, selected])).digest("hex")}`;
-    const database = this.prisma?.isStartupConnectionEnabled() ? this.prisma : undefined;
-    const stored = database ? (await database.systemSetting.findUnique({ where: { key } }))?.value as DocumentPage[] | undefined : this.memory.get(key);
-    const cached = Boolean(stored);
-    let pages = stored;
-    if (!pages) {
-      let job = this.pending.get(key);
-      if (!job) {
-        job = this.extractAndSave(key, { name: file.fileName, mimeType: file.mimeType, buffer: file.buffer }, selected, actorId);
-        this.pending.set(key, job);
-      }
-      try { pages = await job; } finally { if (this.pending.get(key) === job) this.pending.delete(key); }
-    }
+    const { pages, cached } = await this.extractions.generate(key, actorId, () => this.ai.extractDocumentPages({ name: file.fileName, mimeType: file.mimeType, buffer: file.buffer }, selected));
     // Quyền có thể bị thu hồi hoặc tài liệu bị ẩn trong lúc chờ provider.
     await this.learning.createMaterialVersionAccess(material.id, material.version, role, "PREVIEW", actorId);
     const chunks = chunkDocument({ materialId, version: material.version, checksum, name: material.name }, pages);
@@ -173,11 +161,4 @@ export class AiMaterialContextService {
     return material;
   }
 
-  /** Chỉ lưu khi provider trả đủ dữ liệu; lỗi không trở thành cache rỗng. */
-  private async extractAndSave(key: string, file: { name: string; mimeType: string; buffer: Buffer }, selected: Awaited<ReturnType<AiProviderService["resolveTask"]>>, actorId: string): Promise<DocumentPage[]> {
-    const pages = await this.ai.extractDocumentPages(file, selected);
-    if (this.prisma?.isStartupConnectionEnabled()) await this.prisma.systemSetting.upsert({ where: { key }, create: { key, value: pages, updatedBy: actorId }, update: { value: pages, updatedBy: actorId, version: { increment: 1 } } });
-    else this.memory.set(key, structuredClone(pages));
-    return pages;
-  }
 }
