@@ -43,7 +43,7 @@ describe("TXT attachment grading context", () => {
     const { prisma } = extractionDatabase();
     const store = testGradingStore();
     const service = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, prisma);
-    await expect(service.inspect("submission", 2, "VI", session)).rejects.toMatchObject({ status: 409 });
+    await expect(service.inspect("submission", 2, "VI", session)).resolves.toEqual({ state: "NOT_REQUESTED" });
     expect(extractDocumentPages).not.toHaveBeenCalled();
     const saved = await service.suggest("submission", 2, "VI", session);
     expect(saved.sources?.map((source) => source.attachmentId)).toEqual([null, "file1", "file2"]);
