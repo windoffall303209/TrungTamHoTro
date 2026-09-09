@@ -40,7 +40,17 @@ it("returns 200/no-store and derives the requester from the authenticated sessio
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({ state: "NOT_REQUESTED" });
-  expect(status).toHaveBeenCalledExactlyOnceWith("material-1", "teacher", "INSTRUCTOR", "What is HTTP?", "VI");
+  expect(status).toHaveBeenCalledExactlyOnceWith("material-1", "teacher", "INSTRUCTOR", "What is HTTP?", "VI", undefined);
+});
+it("accepts an explicit historical version only for read-only status", async () => {
+  expect((await read({ question: "Historical question?", version: 2 })).status).toBe(200);
+  expect(status).toHaveBeenCalledExactlyOnceWith("material-1", "teacher", "INSTRUCTOR", "Historical question?", "VI", 2);
+  const response = await fetch(url.replace("/status", ""), { method: "POST", headers: { cookie: "allowed", "content-type": "application/json" }, body: JSON.stringify({ question: "Historical question?", version: 2 }) });
+  expect(response.status).toBe(400);
+});
+it.each([0, -1, 1.5, "2", 2147483648])("rejects invalid historical version %s", async (version) => {
+  expect((await read({ question: "Historical question?", version })).status).toBe(400);
+  expect(status).not.toHaveBeenCalled();
 });
 it.each([{}, { question: "x" }, { question: "x".repeat(2001) }, { question: "Valid?", language: "XX" }, { question: "Valid?", ownerId: "other" }, { question: "Valid?", model: "override" }])("rejects invalid or extra body fields: %j", async (body) => {
   expect((await read(body)).status).toBe(400);

@@ -27,12 +27,14 @@ export class AiMaterialContextService {
   }
 
   /** Read saved status without provider work, checking source access on both sides of the lookup. */
-  async questionStatus(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): ReturnType<AiDocumentAnswerStore["status"]> {
+  async questionStatus(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL", sourceVersion?: number): ReturnType<AiDocumentAnswerStore["status"]> {
     const text = this.questionText(question, language);
+    if (sourceVersion !== undefined && (!Number.isSafeInteger(sourceVersion) || sourceVersion < 1 || sourceVersion > 2147483647)) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
     const material = await this.requireMaterial(materialId, actorId, role);
-    await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
-    const status = await this.answers.status({ ownerId: actorId, materialId, version: material.version, question: text, language });
-    await this.learning.createMaterialVersionAccess(materialId, material.version, role, "PREVIEW", actorId);
+    const version = sourceVersion ?? material.version;
+    await this.learning.createMaterialVersionAccess(materialId, version, role, "PREVIEW", actorId);
+    const status = await this.answers.status({ ownerId: actorId, materialId, version, question: text, language });
+    await this.learning.createMaterialVersionAccess(materialId, version, role, "PREVIEW", actorId);
     return status;
   }
 
