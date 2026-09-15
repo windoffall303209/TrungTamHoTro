@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 
 enum UserStatus {
@@ -746,7 +746,7 @@ model Question {
   content        String          @db.Text
   options        Json
   correctAnswers Json            @map("correct_answers")
-  difficulty     Int             @default(1) @db.TinyInt
+  difficulty     Int             @default(1) @db.SmallInt
   tags           Json
   status         ContentStatus   @default(DRAFT)
   version        Int             @default(1)

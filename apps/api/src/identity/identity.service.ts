@@ -188,7 +188,7 @@ export class IdentityService {
           });
           if (roles.length !== roleCodes.length)
             throw new BadRequestException(
-              "Một hoặc nhiều vai trò chưa được khởi tạo trong MySQL.",
+              "Một hoặc nhiều vai trò chưa được khởi tạo trong PostgreSQL.",
             );
           const user = await transaction.user.create({
             data: {
@@ -381,7 +381,7 @@ export class IdentityService {
             })
           : [];
         if (nextRoleCodes && nextRoles.length !== nextRoleCodes.length)
-          throw new BadRequestException("Một hoặc nhiều vai trò chưa được khởi tạo trong MySQL.");
+          throw new BadRequestException("Một hoặc nhiều vai trò chưa được khởi tạo trong PostgreSQL.");
         if (impact?.requiresHandoff && input.handoffUserId)
           await this.handoffDatabaseWork(
             transaction,
@@ -524,7 +524,7 @@ export class IdentityService {
         });
         if (permissionRows.length !== uniquePermissions.length) {
           throw new BadRequestException(
-            "MySQL chưa có đủ danh mục quyền; cần chạy db:seed.",
+            "PostgreSQL chưa có đủ danh mục quyền; cần chạy db:seed.",
           );
         }
         await transaction.rolePermission.deleteMany({

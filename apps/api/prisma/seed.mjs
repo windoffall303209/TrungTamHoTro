@@ -1,8 +1,8 @@
 import { createHash, scryptSync } from "node:crypto";
 import { config } from "dotenv";
-import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
-import { readDatabaseConnection } from "../src/config/database-connection.js";
+import { buildDatabaseUrl } from "../src/config/database-connection.js";
 import { seedDemoData } from "./demo-data.mjs";
 
 config({ path: new URL("../../../.env", import.meta.url) });
@@ -10,8 +10,7 @@ config({ path: new URL("../../../.env", import.meta.url) });
 const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
 if (!defaultPassword || defaultPassword.length < 12) throw new Error("SEED_DEFAULT_PASSWORD phải có ít nhất 12 ký tự.");
 
-const database = readDatabaseConnection(process.env);
-const adapter = new PrismaMariaDb({ ...database, connectionLimit: 4, allowPublicKeyRetrieval: true });
+const adapter = new PrismaPg({ connectionString: buildDatabaseUrl(process.env), max: 4 });
 const prisma = new PrismaClient({ adapter });
 const seedPasswordSalt = "wind-edu-seed-v1";
 const passwordHash = `scrypt:${seedPasswordSalt}:${scryptSync(defaultPassword, seedPasswordSalt, 64).toString("hex")}`;
@@ -74,4 +73,4 @@ async function seed() {
   console.table(summary);
 }
 
-seed().then(() => console.log("Seed MySQL hoàn tất.")).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; }).finally(async () => prisma.$disconnect());
+seed().then(() => console.log("Seed PostgreSQL hoàn tất.")).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; }).finally(async () => prisma.$disconnect());

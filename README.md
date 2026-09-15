@@ -60,7 +60,7 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 
 ### Chống gọi AI trùng
 
-Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùng claim bền vững trong MySQL:
+Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùng claim bền vững trong PostgreSQL:
 
 - Khóa được tạo trước khi gọi provider và gắn với người dùng, nguồn, phiên bản cùng fingerprint yêu cầu.
 - Kết quả `READY` được phát lại sau khi process restart mà không cần gọi provider.
@@ -92,7 +92,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 | --- | --- |
 | Web | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | API | NestJS 11, REST API versioned, Swagger/OpenAPI |
-| Dữ liệu | MySQL 8, Prisma ORM 7, MariaDB adapter |
+| Dữ liệu | PostgreSQL 18, Prisma ORM 7, node-postgres adapter |
 | Realtime | Server-Sent Events |
 | Email | Resend với idempotency key |
 | Object storage | Local hoặc Cloudinary authenticated assets |
@@ -104,7 +104,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 TestDoAn/
 ├── apps/
 │   ├── api/
-│   │   ├── prisma/          # Schema, migration và seed MySQL
+│   │   ├── prisma/          # Schema, migration và seed PostgreSQL
 │   │   ├── scripts/         # Công cụ database thử độc lập
 │   │   ├── src/auth/        # Session, OAuth, xác minh và MFA
 │   │   ├── src/identity/    # Người dùng, vai trò và quyền
@@ -130,13 +130,13 @@ Dự án chạy trực tiếp trên máy, không yêu cầu Docker.
 
 - Node.js `>=24`.
 - pnpm `>=11` qua Corepack.
-- MySQL 8 đang hoạt động.
+- PostgreSQL 18 đang hoạt động.
 - Git.
 
 ```powershell
 node --version
 corepack --version
-mysql --version
+& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' --version
 ```
 
 ## Cài đặt nhanh
@@ -152,8 +152,8 @@ Sửa `.env`, sau đó tạo database:
 
 ```sql
 CREATE DATABASE trung_tam_giang_day
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+  WITH OWNER = postgres
+       ENCODING = 'UTF8';
 ```
 
 Kiểm tra cấu hình, áp migration và seed:
@@ -192,7 +192,7 @@ corepack pnpm dev:web
 
 Không commit `.env`, API key, secret, credential provider hoặc dữ liệu người dùng thật.
 
-### Ứng dụng và MySQL
+### Ứng dụng và PostgreSQL
 
 ```dotenv
 NODE_ENV=development
@@ -203,12 +203,14 @@ WEB_ORIGIN=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
 
 DB_HOST=localhost
-DB_USER=root
+DB_USER=postgres
 DB_PASSWORD=CHANGE_ME
 DB_NAME=trung_tam_giang_day
-DB_PORT=3306
+DB_PORT=5432
 DATABASE_CONNECT_ON_START=true
 DB_BACKUP_TIMEOUT_MS=30000
+PG_DUMP_PATH=pg_dump
+PG_RESTORE_PATH=pg_restore
 ```
 
 Production và mọi tác vụ AI chống trùng phải dùng `DATABASE_CONNECT_ON_START=true`. Một số fixture phát triển cũ có thể đọc dữ liệu trong bộ nhớ khi database tắt, nhưng không được xem đây là chế độ vận hành thật.
@@ -358,7 +360,7 @@ Khi kiểm tra một thay đổi có ghi database, phải dùng `trung_tam_giang
 
 - Không commit `.env`, secret, API key hoặc dữ liệu người dùng thật.
 - Biến môi trường mới phải được thêm vào `.env.example` và schema kiểm tra backend.
-- Thay đổi database phải có Prisma migration và kiểm thử MySQL tương ứng.
+- Thay đổi database phải có Prisma migration và kiểm thử PostgreSQL tương ứng.
 - Luồng nghiệp vụ mới phải kiểm tra quyền ở backend, xử lý cạnh tranh và có regression test.
 - Chuỗi giao diện/lỗi API mới phải qua quality gate i18n.
 - Chạy `corepack pnpm check` trước khi merge.

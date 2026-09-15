@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { config as loadEnvironment } from "dotenv";
-import mariadb from "mariadb";
+import pg from "pg";
 
 loadEnvironment({ path: "../../.env" });
 loadEnvironment();
@@ -11,6 +11,12 @@ const databaseName = process.env.WIND_TEST_DB_NAME ?? "trung_tam_giang_day_test"
 function assertTestDatabaseName(value) {
   if (!/^[a-zA-Z0-9_]+_test$/.test(value)) throw new Error("WIND_TEST_DB_NAME phải kết thúc bằng _test và chỉ chứa chữ, số, dấu gạch dưới.");
   if (value === process.env.DB_NAME) throw new Error("Database test không được trùng database ứng dụng hiện tại.");
+}
+
+// Quote một identifier PostgreSQL đã qua whitelist để không thể thoát khỏi câu lệnh DDL.
+function quoteIdentifier(value) {
+  assertTestDatabaseName(value);
+  return `"${value}"`;
 }
 
 // Chạy Prisma bằng DB_NAME test và dừng ngay nếu migration hoặc seed thất bại.
@@ -29,16 +35,19 @@ function runPnpm(args) {
 // Tạo database test mới hoặc làm sạch có xác nhận, sau đó áp dụng migration và seed chuẩn.
 async function prepare(reset) {
   assertTestDatabaseName(databaseName);
-  const connection = await mariadb.createConnection({
+  const connection = new pg.Client({
     host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT ?? 3306),
+    port: Number(process.env.DB_PORT ?? 5432),
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000),
+    database: "postgres",
+    connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000),
   });
+  await connection.connect();
   try {
-    if (reset) await connection.query(`DROP DATABASE IF EXISTS \`${databaseName}\``);
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    if (reset) await connection.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`);
+    const existing = await connection.query("SELECT 1 FROM pg_database WHERE datname = $1", [databaseName]);
+    if (!existing.rowCount) await connection.query(`CREATE DATABASE ${quoteIdentifier(databaseName)} ENCODING 'UTF8' TEMPLATE template0`);
   } finally {
     await connection.end();
   }

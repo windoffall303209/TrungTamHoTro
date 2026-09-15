@@ -11,14 +11,14 @@ type RetentionInternals = {
   executeRetention(prisma: PrismaService, category: string, action: "ARCHIVE" | "DELETE", cutoffAt: Date, jobId: string): Promise<{ affectedRows: number }>;
 };
 
-describe.skipIf(!enabled)("AI results retention on dedicated MySQL", () => {
+describe.skipIf(!enabled)("AI results retention on dedicated PostgreSQL", () => {
   const fixture = randomUUID();
   const keyPrefix = `ai-doc:${fixture}`;
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let service: SystemService;
 
-  /** Khởi tạo module thật để kiểm tra JSON state và delete transaction trên MySQL test riêng. */
+  /** Khởi tạo module thật để kiểm tra JSON state và delete transaction trên PostgreSQL test riêng. */
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     prisma = moduleRef.get(PrismaService);

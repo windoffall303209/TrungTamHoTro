@@ -53,7 +53,7 @@ interface ApiEnvelope<T> { data: T }
 interface ApiError { error: { code: string; message: string } }
 interface ApiItem { id: string }
 
-describe("Cô lập danh tính qua API và MySQL", () => {
+describe("Cô lập danh tính qua API và PostgreSQL", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;

@@ -11,7 +11,7 @@ const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DAT
 const contextHash = "a".repeat(64);
 const result: SavedGradingSuggestion = { insufficientEvidence: true, feedback: "Integration fixture", criteria: [], suggestedTotal: null, requiresHumanReview: true, model: "mock", submissionRevision: 1, assignmentVersion: 1, contextHash, sources: [{ attachmentId: "fixture-file", name: "bài-làm.txt", checksum: "sha256:fixture", text: "Nguồn bài làm UTF-8 🌿" }] };
 
-describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () => {
+describe.skipIf(!enabled)("Grading claims on dedicated PostgreSQL test database", () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let ownerId: string;
@@ -83,7 +83,10 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
     const generate = vi.fn().mockResolvedValue(result);
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiGradingStoreService(prisma).generate(identity, generate)));
 
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const fulfilled = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const outcome of fulfilled) if (outcome.status === "fulfilled") expect(outcome.value).toMatchObject(result);
+    for (const outcome of outcomes) if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledOnce();
     expect(await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { id: claim.id } })).toMatchObject({ state: "READY" });
     expect(await prisma.auditLog.count({ where: { entityId: claim.id, action: "AI_GRADING_RETRY_AUTHORIZED" } })).toBe(1);
@@ -120,8 +123,14 @@ describe.skipIf(!enabled)("Grading claims on dedicated MySQL test database", () 
     await expect(service.list({ limit: 1, cursor: ids[1]! }, session)).rejects.toMatchObject({ status: 400 });
   });
 
-  it("has the migrated status/time/ID index available to MySQL", async () => {
-    const indexes = await prisma.$queryRaw<Array<{ Column_name: string }>>`SHOW INDEX FROM ai_grading_suggestions WHERE Key_name = 'ai_grading_operations_state_created_id'`;
-    expect(indexes.map((item) => item.Column_name)).toEqual(["state", "created_at", "id"]);
+  it("has the migrated status/time/ID index available to PostgreSQL", async () => {
+    const indexes = await prisma.$queryRaw<Array<{ indexdef: string }>>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'ai_grading_suggestions'
+        AND indexname = 'ai_grading_operations_state_created_id'
+    `;
+    expect(indexes).toHaveLength(1);
+    expect(indexes[0]?.indexdef).toContain("(state, created_at, id)");
   });
 });

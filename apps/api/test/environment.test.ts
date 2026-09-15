@@ -6,10 +6,10 @@ describe("validateEnvironment", () => {
   it("chuẩn hóa cấu hình hợp lệ", () => {
     const config = validateEnvironment({
       DB_HOST: "localhost",
-      DB_USER: "root",
+      DB_USER: "postgres",
       DB_PASSWORD: "secret",
       DB_NAME: "trung_tam_giang_day",
-      DB_PORT: "3306",
+      DB_PORT: "5432",
       API_PORT: "4100",
       DATABASE_CONNECT_ON_START: "true",
     });
@@ -21,7 +21,7 @@ describe("validateEnvironment", () => {
   it("từ chối tên database không an toàn", () => {
     expect(() => validateEnvironment({
       DB_HOST: "localhost",
-      DB_USER: "root",
+      DB_USER: "postgres",
       DB_PASSWORD: "secret",
       DB_NAME: "database;DROP TABLE users",
     })).toThrow(
@@ -55,21 +55,21 @@ describe("validateEnvironment", () => {
   it("tạo URL Prisma an toàn từ bộ biến DB_*", () => {
     const source = {
       DB_HOST: "localhost",
-      DB_USER: "root@example",
+      DB_USER: "postgres@example",
       DB_PASSWORD: "p@ss:/word",
       DB_NAME: "trung_tam_giang_day",
-      DB_PORT: "3306",
+      DB_PORT: "5432",
     };
 
     expect(readDatabaseConnection(source)).toEqual({
       host: "localhost",
-      user: "root@example",
+      user: "postgres@example",
       password: "p@ss:/word",
       database: "trung_tam_giang_day",
-      port: 3306,
+      port: 5432,
     });
     expect(buildDatabaseUrl(source)).toBe(
-      "mysql://root%40example:p%40ss%3A%2Fword@localhost:3306/trung_tam_giang_day",
+      "postgresql://postgres%40example:p%40ss%3A%2Fword@localhost:5432/trung_tam_giang_day?schema=public",
     );
   });
 });

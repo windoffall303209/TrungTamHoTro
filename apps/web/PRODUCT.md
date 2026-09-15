@@ -40,8 +40,8 @@ Wind EDU không chia người dùng thành bốn hệ thống độc lập. Mộ
 - Phân quyền theo bốn vai trò: `SYSTEM_ADMIN`, `CENTER_MANAGER`, `INSTRUCTOR`, `LEARNER`.
 - Giao diện web hỗ trợ đầy đủ tiếng Việt (`vi-VN`) và tiếng Anh (`en-US`); lựa chọn theo tài khoản/thiết bị và phải giữ thuật ngữ nghiệp vụ nhất quán giữa hai ngôn ngữ.
 - Frontend dùng Next.js, React, TypeScript và Tailwind CSS trong pnpm monorepo.
-- Backend dùng NestJS REST API; dữ liệu dùng chung qua Prisma và MySQL 8.
-- MySQL chạy trực tiếp trên máy; dự án không sử dụng Docker.
+- Backend dùng NestJS REST API; dữ liệu dùng chung qua Prisma và PostgreSQL 18.
+- PostgreSQL chạy trực tiếp trên máy; dự án không sử dụng Docker.
 - Cấu hình môi trường thật nằm trong `.env` và không được commit.
 
 ## Brand Commitments

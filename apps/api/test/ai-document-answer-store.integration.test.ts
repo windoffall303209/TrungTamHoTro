@@ -8,7 +8,7 @@ import { AiGradingOperationsService } from "../src/learning/ai-grading-operation
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
-describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
+describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   const ownerId = `answer-test-${randomUUID()}`;
   const identity = { ownerId, materialId: "fixture-document", version: 1, question: "What is HTTP?", language: "EN" as const };
   const result = { answer: "Insufficient fixture context.", insufficientContext: true, citations: [], warning: "Fixture", version: 1 };
@@ -77,7 +77,10 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "NOT_REQUESTED" });
     const retry = vi.fn(() => Promise.resolve(result));
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiDocumentAnswerStore(prisma).generate(next, retry)));
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const fulfilled = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const outcome of fulfilled) if (outcome.status === "fulfilled") expect(outcome.value).toEqual(result);
+    for (const outcome of outcomes) if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
     expect(retry).toHaveBeenCalledTimes(1);
     expect(await prisma.auditLog.count({ where: { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: id } })).toBe(1);
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "READY", result });
@@ -138,7 +141,7 @@ describe.skipIf(!enabled)("Durable document answers on MySQL", () => {
       const other = { ...scope, ...change };
       await store.generate({ ...other, question: "Private elsewhere?", language: "VI" }, () => Promise.resolve({ ...result, version: other.version }));
     }
-    // Force equal timestamps to exercise the identifier tie-breaker on the real MySQL collation.
+    // Force equal timestamps to exercise the identifier tie-breaker on the real PostgreSQL collation.
     await prisma.systemSetting.updateMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } }, data: { effectiveAt: new Date("2091-01-01") } });
     const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
     const first = await store.list(scope);

@@ -15,7 +15,7 @@ const result = { exam: { id: "fixture-exam" } } as AiGeneratedExamResult;
 // Mô phỏng chưa có đề đã lưu; không gọi AI hoặc tạo đề thật.
 const noResult = (): Promise<undefined> => Promise.resolve(undefined);
 
-describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test database", () => {
+describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test database", () => {
   const owner = `ai-dedupe-test-${randomUUID()}`;
   const adminId = `ai-reconcile-admin-${randomUUID()}`;
   let moduleRef: TestingModule;

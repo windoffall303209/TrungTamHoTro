@@ -1,0 +1,35 @@
+import { existsSync } from "node:fs";
+import { Test, type TestingModule } from "@nestjs/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AppModule } from "../src/app.module.js";
+import { DatabaseBackupService } from "../src/infrastructure/database-backup.service.js";
+
+const databaseEnabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
+const utilitiesAvailable = [process.env.PG_DUMP_PATH, process.env.PG_RESTORE_PATH]
+  .every((path) => typeof path === "string" && existsSync(path));
+
+describe.skipIf(!databaseEnabled || !utilitiesAvailable)("PostgreSQL backup and restore", () => {
+  let moduleRef: TestingModule;
+  let service: DatabaseBackupService;
+
+  // Load the real PostgreSQL backup service against the dedicated test database.
+  beforeAll(async () => {
+    moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    service = moduleRef.get(DatabaseBackupService);
+  });
+
+  // Close application resources after the temporary restore database has been removed.
+  afterAll(async () => {
+    await moduleRef?.close();
+  });
+
+  it("creates a custom-format dump and verifies it in an isolated temporary database", async () => {
+    const backup = await service.createFullBackup();
+    expect(backup.subarray(0, 5).toString("ascii")).toBe("PGDMP");
+
+    const restored = await service.verifyRestore(backup);
+    expect(restored.database).toMatch(/^wind_restore_[a-zA-Z0-9_]+$/);
+    expect(restored.tableCount).toBeGreaterThan(0);
+    expect(restored.rowCount).toBeGreaterThan(0);
+  }, 60_000);
+});
