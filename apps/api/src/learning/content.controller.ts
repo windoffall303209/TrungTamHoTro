@@ -78,21 +78,24 @@ export class ContentController {
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
-  listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id); }
+  listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string, @Query("page") page?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id, Number(page)); }
 
-  @Get("learner/materials/search") @RequirePermissions("material:view")
+  @Get(["learner/materials/search", "materials/search"]) @RequirePermissions("material:view")
   /** Tìm học liệu học viên được truy cập với bộ lọc và phân trang đã chuẩn hóa trong service. */
   searchMaterials(
     @CurrentSession() session: AuthenticatedSession,
     @Query("query") query?: string,
     @Query("classId") classId?: string,
+    @Query("courseId") courseId?: string,
+    @Query("visibility") visibility?: string,
+    @Query("aiOnly") aiOnly?: string,
     @Query("folder") folder?: string,
     @Query("mimeType") mimeType?: string,
     @Query("tag") tag?: string,
     @Query("page") rawPage?: string,
     @Query("pageSize") rawPageSize?: string,
   ): Promise<MaterialSearchResult> {
-    return this.learning.searchAccessibleMaterials({ query, classId, folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id);
+    return this.learning.searchAccessibleMaterials({ query, classId, courseId, visibility, aiOnly: aiOnly === "true", folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id, session.roleCode);
   }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")

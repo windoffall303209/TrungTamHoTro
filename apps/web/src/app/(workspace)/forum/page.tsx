@@ -11,12 +11,12 @@ import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
+import { MaterialSearchControls, useMaterialSearch } from "@/components/material-search";
 import type {
   ContentReport,
   ForumPost,
   ForumTopic,
   LearningClass,
-  Material,
   ModerationContext,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -34,8 +34,9 @@ export default function ForumPage() {
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [reports, setReports] = useState<ContentReport[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
+  const materialSearch = useMaterialSearch(session.roleCode, { classId: selected?.classId ?? "", visibility: "PUBLISHED" }, learner && Boolean(selected), session.user.id);
+  const materials = materialSearch.items;
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [post, setPost] = useState("");
@@ -73,7 +74,7 @@ export default function ForumPage() {
     setSelected(null);
     setPosts([]);
     try {
-      const [topicData, classData, reportData, materialData] = await Promise.all([
+      const [topicData, classData, reportData] = await Promise.all([
         apiRequest<ForumTopic[]>("/forum/topics", {
           roleCode: session.roleCode,
         }),
@@ -85,14 +86,10 @@ export default function ForumPage() {
           : learner
             ? apiRequest<ContentReport[]>("/learner/content-reports", { roleCode: session.roleCode })
             : Promise.resolve([]),
-        learner
-          ? apiRequest<Material[]>("/materials", { roleCode: session.roleCode })
-          : Promise.resolve([]),
       ]);
       setTopics(topicData);
       setClasses(classData);
       setReports(reportData);
-      setMaterials(materialData);
       const requestedClassId = searchParams.get("classId");
       if (requestedClassId && classData.some((item) => item.id === requestedClassId)) setForm((current) => ({ ...current, classId: requestedClassId }));
     } catch (error) {
@@ -444,12 +441,13 @@ export default function ForumPage() {
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <Field label="Đính kèm học liệu đã phát hành">
+                        <MaterialSearchControls search={materialSearch} />
                         <select
                           className={inputClass}
                           multiple
                           size={Math.min(4, Math.max(2, materials.filter((item) => item.classId === selected.classId).length))}
                           value={attachmentIds}
-                          onChange={(event) => setAttachmentIds(Array.from(event.target.selectedOptions, (option) => option.value))}
+                          onChange={(event) => setAttachmentIds([...attachmentIds.filter((id) => !materials.some((item) => item.id === id)), ...Array.from(event.target.selectedOptions, (option) => option.value)])}
                         >
                           {materials.filter((item) => item.classId === selected.classId).map((item) => (
                             <option key={item.id} value={item.id}>{item.name}</option>

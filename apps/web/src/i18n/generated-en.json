@@ -1,4 +1,7 @@
 {
+  "Tìm học liệu": "Search materials",
+  "Cloudinary trả về tệp rỗng.": "Cloudinary returned an empty file response.",
+  "Cloudinary từ chối tệp tải lên.": "Cloudinary rejected the uploaded file.",
   "Chấm AI hỗ trợ văn bản, TXT, DOCX, PDF và ảnh PNG/JPEG/WebP. Hãy chấm thủ công Word DOC cũ hoặc định dạng khác để không bỏ sót nội dung tệp.": "AI grading supports inline text, TXT, DOCX, PDF, and PNG/JPEG/WebP images. Grade legacy Word DOC or other formats manually so no file content is missed.",
   "Không đọc được nội dung DOCX. Hãy kiểm tra tệp hoặc chuyển sang PDF.": "The DOCX content could not be read. Check the file or convert it to PDF.",
   "Nguồn trích xuất bài nộp không hợp lệ.": "The submission extraction source is invalid.",
