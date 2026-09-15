@@ -358,6 +358,18 @@ Khi kiểm tra một thay đổi có ghi database, phải dùng `trung_tam_giang
 
 ## Quy ước đóng góp
 
+### Vận hành sau hardening
+
+- Web dùng CSP nonce riêng cho mỗi request và không cache HTML dùng chung. Reverse proxy phải giữ CSP/header gốc; inline CSS vẫn được cho phép cho React/KaTeX, inline JavaScript không được cho phép trong production.
+- Upload học liệu giữ trần 500 MB nhưng ghi xuống thư mục tạm, tối đa 2 upload đồng thời **mỗi process**; request vượt năng lực nhận HTTP 429. Cần cấp đủ dung lượng đĩa tạm và cấu hình body/request timeout ở reverse proxy.
+- Backup/restore dùng tệp custom-format `.dump`, checksum tăng dần và kiểm tra kích thước trước restore. Tệp tạm được dọn khi tác vụ kết thúc; khi máy/process bị kill cứng, vận hành cần đối soát thư mục `wind-private-*` trong temp của tài khoản dịch vụ trước khi dọn tệp còn sót.
+- Outbox dùng lease 5 phút. Job quá 8 lần thử hoặc retry không chắc chắn ngoài cửa sổ 23 giờ từ lúc tạo event chuyển `DEAD_LETTER`; phải đối soát provider trước khi gửi lại, không tự đổi hàng loạt về `PENDING`.
+- `GET /materials` trả tối đa 50 bản ghi/trang (tham số `page`). Client cần tổng số và bộ lọc dùng `GET /materials/search`; giao diện đã chuyển sang phân trang server, không tải toàn bộ kho.
+- Chạy `corepack pnpm audit --prod` định kỳ. Kết quả không có advisory chỉ nói về lỗ hổng dependency đã biết, không thay thế pentest hoặc đo tải trên cấu hình production.
+- Chưa có benchmark production hoặc UAT Cloudinary/ClamAV/Resend với dịch vụ thật. Kiểm thử hiện dùng PostgreSQL local, HTTP multipart thật và adapter/provider mô phỏng; cần xác minh quota, latency, TLS/proxy và giới hạn tài nguyên khi triển khai.
+
+### Quy tắc thay đổi
+
 - Không commit `.env`, secret, API key hoặc dữ liệu người dùng thật.
 - Biến môi trường mới phải được thêm vào `.env.example` và schema kiểm tra backend.
 - Thay đổi database phải có Prisma migration và kiểm thử PostgreSQL tương ứng.
