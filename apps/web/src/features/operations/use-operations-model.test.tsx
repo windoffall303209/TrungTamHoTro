@@ -15,6 +15,19 @@ vi.mock("@/providers/app-provider", () => ({
 }));
 
 describe("Tải nhật ký độc lập", () => {
+  it("một nguồn lỗi không chặn nguồn khác cập nhật và thử lại xóa lỗi", async () => {
+    api.mockImplementation(async (path: string) => {
+      if (path === "/system/backups") throw new Error("Không tải được bản sao lưu");
+      if (path === "/system/alerts") return [{ id: "alert-ok" }];
+      return [];
+    });
+    const { result } = renderHook(useOperationsModel);
+    await waitFor(() => expect(result.current.loadError).toContain("bản sao lưu"));
+    expect(result.current.alerts).toEqual([{ id: "alert-ok" }]);
+    api.mockResolvedValue([]);
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.loadError).toBe("");
+  });
   beforeEach(() => {
     api.mockReset();
     api.mockResolvedValue([]);

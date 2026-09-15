@@ -157,7 +157,7 @@ export function useOperationsModel() {
         alertData,
         cleanupData,
         outboxData,
-      ] = await Promise.all([
+      ] = await Promise.allSettled([
         apiRequest<Backup[]>("/system/backups", {
           roleCode: session.roleCode,
         }),
@@ -193,17 +193,24 @@ export function useOperationsModel() {
           roleCode: session.roleCode,
         }),
       ]);
-      setBackups(backupData);
-      setExports(exportData);
-      setRestores(restoreData);
-      setTemplates(templateData);
-      if (policyData) setPolicy(policyData);
-      setRetentionPolicies(retentionPolicyData);
-      setRetentionJobs(retentionJobData);
-      setLegalHolds(legalHoldData);
-      setAlerts(alertData);
-      setCleanupFailures(cleanupData);
-      setOutboxStats(outboxData);
+      // Giữ dữ liệu cũ của nguồn lỗi nhưng vẫn cập nhật mọi nguồn đã tải thành công.
+      if (backupData.status === "fulfilled") setBackups(backupData.value);
+      if (exportData.status === "fulfilled") setExports(exportData.value);
+      if (restoreData.status === "fulfilled") setRestores(restoreData.value);
+      if (templateData.status === "fulfilled") setTemplates(templateData.value);
+      if (policyData.status === "fulfilled" && policyData.value) setPolicy(policyData.value);
+      if (retentionPolicyData.status === "fulfilled") setRetentionPolicies(retentionPolicyData.value);
+      if (retentionJobData.status === "fulfilled") setRetentionJobs(retentionJobData.value);
+      if (legalHoldData.status === "fulfilled") setLegalHolds(legalHoldData.value);
+      if (alertData.status === "fulfilled") setAlerts(alertData.value);
+      if (cleanupData.status === "fulfilled") setCleanupFailures(cleanupData.value);
+      if (outboxData.status === "fulfilled") setOutboxStats(outboxData.value);
+      const failures = [backupData, exportData, restoreData, templateData, policyData,
+        retentionPolicyData, retentionJobData, legalHoldData, alertData, cleanupData, outboxData]
+        .filter((item) => item.status === "rejected");
+      setLoadError([...new Set(failures.map((item) =>
+        item.reason instanceof Error ? item.reason.message : "Không tải được dữ liệu vận hành.",
+      ))].join(" · "));
     } catch (error) {
       setLoadError(
         error instanceof Error
