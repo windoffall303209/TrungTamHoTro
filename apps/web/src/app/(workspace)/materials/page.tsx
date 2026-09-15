@@ -257,14 +257,14 @@ export default function MaterialsPage() {
               <p className="text-sm font-bold tabular-nums text-[var(--ink-muted)]">{totalItems} tài liệu</p>
             </div>
             <div className="my-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="relative md:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input className={`${inputClass} pl-10`} placeholder="Tìm trong môn này…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }} /></div>
+              <div className="relative md:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input aria-label="Tìm học liệu" maxLength={255} className={`${inputClass} pl-10`} placeholder="Tìm trong môn này…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }} /></div>
               <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả lớp của môn</option>{selectedClasses.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select>
               <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="application/msword">Word DOC</option><option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select>
-              <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }} />
+              <input maxLength={255} aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }} />
             </div>
             {materialsLoading ? <p role="status">Đang tải dữ liệu…</p> : visibleItems.length ? <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           {pagination.pageItems.map((item) => (
-            <article className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
+            <article className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 2xl:grid-cols-[minmax(18rem,1fr)_minmax(0,1fr)] 2xl:items-center" key={item.id}>
               <div className="flex min-w-0 gap-4">
                 <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
                 <div className="min-w-0">
