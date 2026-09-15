@@ -27,6 +27,16 @@ vi.mock("@/components/material-search", () => ({
 }));
 
 describe("Bản nháp trình tạo đề", () => {
+  it("không phục hồi cache trong bộ nhớ khi đã hết 24 giờ", async () => {
+    const { result } = renderHook(useExamsModel);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.openCreate("MANUAL"));
+    act(() => result.current.setForm((form) => ({ ...form, title: "Đề cũ" })));
+    act(() => result.current.closeEditor());
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 24 * 60 * 60 * 1000);
+    act(() => result.current.openCreate("MANUAL"));
+    expect(result.current.form.title).toBe("");
+  });
   beforeEach(() => {
     window.sessionStorage.clear();
     api.mockReset();

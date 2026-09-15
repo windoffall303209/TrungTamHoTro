@@ -18,6 +18,7 @@ import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import {
   readSessionDraft,
+  DRAFT_MAX_AGE,
   removeSessionDraft,
   writeSessionDraft,
 } from "@/lib/session-drafts";
@@ -135,7 +136,7 @@ export function useExamsModel() {
   const [aiConfig, setAiConfig] = useState(blankAiConfig);
 
   const editorDrafts = useRef(
-    new Map<string, { form: typeof blank; aiConfig: typeof blankAiConfig }>(),
+    new Map<string, { form: typeof blank; aiConfig: typeof blankAiConfig; savedAt: number }>(),
   );
   const editorKey = `${session.user.id}:${session.roleCode}:${editingExam ? `${editingExam.id}:${editingExam.version}` : createMode}`;
   const storageWarning = useRef(false);
@@ -144,7 +145,7 @@ export function useExamsModel() {
   useEffect(() => {
     if (!open || !session.user.id) return;
     const draft = { form, aiConfig };
-    editorDrafts.current.set(editorKey, draft);
+    editorDrafts.current.set(editorKey, { ...draft, savedAt: Date.now() });
     if (!writeSessionDraft(editorKey, draft) && !storageWarning.current) {
       storageWarning.current = true;
       notify(
@@ -157,7 +158,7 @@ export function useExamsModel() {
   /** Giữ nội dung riêng cho từng đề/chế độ khi tạm đóng trong tab hiện tại. */
   const closeEditor = () => {
     if (saving) return;
-    editorDrafts.current.set(editorKey, { form, aiConfig });
+    editorDrafts.current.set(editorKey, { form, aiConfig, savedAt: Date.now() });
     setOpen(false);
   };
 
@@ -514,11 +515,19 @@ export function useExamsModel() {
     }
   };
 
+  /** Loại cache hết hạn trước khi phục hồi để thống nhất thời hạn với storage của tab. */
+  const restoreEditorDraft = (key: string) => {
+    const cached = editorDrafts.current.get(key);
+    if (cached && Date.now() >= cached.savedAt && Date.now() - cached.savedAt < DRAFT_MAX_AGE) return cached;
+    editorDrafts.current.delete(key);
+    return readSessionDraft(key, isExamEditorDraft);
+  };
+
   /** Mở hộp tạo đề ở chế độ thường hoặc AI và giữ provider đã chọn. */
   const openCreate = (mode: "MANUAL" | "AI") => {
     const key = `${session.user.id}:${session.roleCode}:${mode}`;
     const draft =
-      editorDrafts.current.get(key) ?? readSessionDraft(key, isExamEditorDraft);
+      restoreEditorDraft(key);
     setEditingExam(null);
     setForm(draft?.form ?? blank);
     setAiConfig(
@@ -537,7 +546,7 @@ export function useExamsModel() {
   const openEdit = (item: LearnerExam) => {
     const key = `${session.user.id}:${session.roleCode}:${item.id}:${item.version}`;
     const draft =
-      editorDrafts.current.get(key) ?? readSessionDraft(key, isExamEditorDraft);
+      restoreEditorDraft(key);
     setEditingExam(item);
     setCreateMode("MANUAL");
     setQuestionQuery("");
