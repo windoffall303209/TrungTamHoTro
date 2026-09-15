@@ -6,6 +6,7 @@ import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type LegalHoldView, type ModerationPolicy, type NotificationTemplate, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type SnapshotAssetAudit, type StorageCleanupFailure, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings, type TemplateTestDelivery } from "./system.service.js";
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "./ai-provider.service.js";
+import { OutboxDeliveryService } from "../infrastructure/outbox-delivery.service.js";
 
 class ConfigureAiTaskDto {
   @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
@@ -13,7 +14,6 @@ class ConfigureAiTaskDto {
   @IsString() @MinLength(1) @MaxLength(200) providerId!: string;
   @IsString() @MinLength(1) @MaxLength(200) model!: string;
 }
-import { OutboxDeliveryService } from "../infrastructure/outbox-delivery.service.js";
 
 const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
 class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsBoolean() moderationEnabled?: boolean; @IsOptional() @IsIn(["AUTO", "MANUAL"]) examApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsIn(["AUTO", "MANUAL"]) questionApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
