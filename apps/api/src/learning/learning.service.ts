@@ -13,7 +13,9 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { streamToFile } from "../infrastructure/file-streams.js";
 import { dirname, extname, resolve, sep } from "node:path";
 import type { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
@@ -116,6 +118,8 @@ export interface UploadedMaterialFile {
   mimeType: string;
   size: number;
   buffer: Buffer;
+  /** Internal scratch path for large material uploads; buffer then contains only the signature prefix. */
+  path?: string;
 }
 export interface MaterialDownload {
   fileName: string;
@@ -12434,7 +12438,7 @@ export class LearningService {
     upload: UploadedMaterialFile,
     quarantined = false,
   ): Promise<{ objectKey: string; checksum: string }> {
-    if (upload.size !== upload.buffer.length)
+    if (upload.size !== (upload.path ? (await stat(upload.path)).size : upload.buffer.length))
       throw new BadRequestException(
         "Kích thước tệp tải lên không khớp nội dung nhận được.",
       );
@@ -12444,9 +12448,10 @@ export class LearningService {
       .slice(0, 12);
     const objectKey = `${quarantined ? "quarantine" : "files"}/${classId}/${materialId}${safeExtension}`;
     if (this.objectStorage)
-      return this.objectStorage.put(objectKey, upload.buffer);
+      return upload.path ? this.objectStorage.putFile(objectKey, upload.path) : this.objectStorage.put(objectKey, upload.buffer);
     const target = this.resolveObjectPath(objectKey);
     await mkdir(dirname(target), { recursive: true });
+    if (upload.path) return { objectKey, ...(await streamToFile(createReadStream(upload.path), target, upload.size)) };
     await writeFile(target, upload.buffer, { flag: "wx" }).catch(
       (error: unknown) => {
         if (
@@ -12874,7 +12879,7 @@ export class LearningService {
     const signatureReason = this.detectMaliciousUpload(upload);
     if (signatureReason) return signatureReason;
     if (!this.antivirus) return undefined;
-    const result = await this.antivirus.scan(upload.buffer);
+    const result = upload.path ? await this.antivirus.scanFile(upload.path) : await this.antivirus.scan(upload.buffer);
     return result.clean
       ? undefined
       : `ClamAV phát hiện mã độc: ${result.signature ?? "không xác định"}.`;

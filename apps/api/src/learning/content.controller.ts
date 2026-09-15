@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { MaterialUploadInterceptor } from "../infrastructure/material-upload.interceptor.js";
+import { readFileHead } from "../infrastructure/file-streams.js";
 import type { Request } from "express";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
@@ -98,17 +100,17 @@ export class ContentController {
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id); }
 
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
+  @UseInterceptors(MaterialUploadInterceptor)
   /** Chuẩn hóa tên/tags của tệp multipart rồi giao service quét virus và lưu object. */
-  uploadMaterial(
+  async uploadMaterial(
     @Param("classId") classId: string,
     @Body() input: UploadMaterialDto,
     @CurrentSession() session: AuthenticatedSession,
-    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
     const originalName = normalizeMultipartFileName(file.originalname);
-    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, buffer: file.buffer };
+    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) };
     return this.learning.createMaterial(classId, {
       name: originalName,
       mimeType: file.mimetype,
@@ -136,16 +138,16 @@ export class ContentController {
   }
 
   @Post("instructor/materials/:materialId/versions") @RequirePermissions("material:manage")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
+  @UseInterceptors(MaterialUploadInterceptor)
   /** Tải tệp thay thế để tạo phiên bản học liệu mới, không ghi đè lịch sử cũ. */
-  uploadMaterialVersion(
+  async uploadMaterialVersion(
     @Param("materialId") materialId: string,
     @Body() input: UploadMaterialDto,
     @CurrentSession() session: AuthenticatedSession,
-    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn tệp cho phiên bản mới.");
-    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
+    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) }, session.user.id);
   }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
