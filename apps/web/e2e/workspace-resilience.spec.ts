@@ -2,6 +2,22 @@ import { expect, test, type Page } from "@playwright/test";
 import { eligibleExamQuestions } from "../src/lib/exam-question-selection";
 import type { LearningClass, Question } from "../src/lib/learning-types";
 
+test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page }) => {
+  await login(page, "admin");
+  const paths: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/v1/system/")) paths.push(url.pathname);
+  });
+  await page.goto("/admin/operations");
+  await expect.poll(() => paths.length).toBe(2);
+  expect(paths.sort()).toEqual(["/api/v1/system/alerts", "/api/v1/system/audit"]);
+  paths.length = 0;
+  await page.getByRole("button", { name: /Nội dung.*Mẫu thông báo/ }).click();
+  await expect.poll(() => paths.length).toBe(2);
+  expect(paths.sort()).toEqual(["/api/v1/system/moderation-policy", "/api/v1/system/notification-templates"]);
+});
+
 /** Đăng nhập tài khoản seed trên backend/database kiểm thử riêng của Playwright. */
 async function login(page: Page, account: string) {
   const password = process.env.SEED_DEFAULT_PASSWORD;

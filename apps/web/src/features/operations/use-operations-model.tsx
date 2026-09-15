@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { OperationsView } from "./operations-navigation";
 import {
   Audit,
   Backup,
@@ -20,7 +21,7 @@ import {
 } from "./operations.shared";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình vận hành; giữ nguyên thứ tự hook. */
-export function useOperationsModel() {
+export function useOperationsModel(view: OperationsView = "monitoring") {
   const { session, notify } = useApp();
 
   const canConfigure =
@@ -43,6 +44,8 @@ export function useOperationsModel() {
   const [loadError, setLoadError] = useState("");
   const [auditError, setAuditError] = useState("");
   const auditSequence = useRef(0);
+  const loadSequence = useRef(0);
+  const policyLoaded = useRef(false);
 
   const [auditFilter, setAuditFilter] = useState({
     actor: "",
@@ -115,7 +118,7 @@ export function useOperationsModel() {
 
   /** Tìm nhật ký độc lập để không tải lại mọi phân hệ hoặc ghi đè form khi gõ bộ lọc. */
   const loadAudit = useCallback(async () => {
-    if (!canConfigure) return;
+    if (!canConfigure || view !== "monitoring") return;
     const sequence = ++auditSequence.current;
     setAuditError("");
     try {
@@ -138,12 +141,16 @@ export function useOperationsModel() {
             : "Không tải được nhật ký hoạt động.",
         );
     }
-  }, [auditFilter, canConfigure, query, session.roleCode]);
+  }, [auditFilter, canConfigure, query, session.roleCode, view]);
 
   /** Nạp dữ liệu vận hành; bộ lọc nhật ký không kích hoạt lại các request này. */
   const load = useCallback(async (refreshPolicy = true) => {
     if (!canConfigure) return;
+    const sequence = ++loadSequence.current;
     setLoadError("");
+    /** Chỉ truy vấn nhóm đang mở; null không được ghi đè dữ liệu các nhóm đã tải trước đó. */
+    const requestGroup = <T,>(group: OperationsView, path: string): Promise<T | null> =>
+      view === group ? apiRequest<T>(path, { roleCode: session.roleCode }) : Promise.resolve(null);
     try {
       const [
         backupData,
@@ -158,53 +165,34 @@ export function useOperationsModel() {
         cleanupData,
         outboxData,
       ] = await Promise.allSettled([
-        apiRequest<Backup[]>("/system/backups", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<ExportJob[]>("/system/exports", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<RestoreJob[]>("/system/restores", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<Template[]>("/system/notification-templates", {
-          roleCode: session.roleCode,
-        }),
-        refreshPolicy ? apiRequest<Policy>("/system/moderation-policy", {
-          roleCode: session.roleCode,
-        }) : Promise.resolve(null),
-        apiRequest<RetentionPolicy[]>("/system/retention-policies", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<RetentionJob[]>("/system/retention-jobs", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<LegalHold[]>("/system/legal-holds", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<SystemAlert[]>("/system/alerts", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<StorageCleanupFailure[]>(
-          "/system/storage-cleanup-failures",
-          { roleCode: session.roleCode },
-        ),
-        apiRequest<Record<string, number>>("/system/outbox/stats", {
-          roleCode: session.roleCode,
-        }),
+        requestGroup<Backup[]>("data", "/system/backups"),
+        requestGroup<ExportJob[]>("data", "/system/exports"),
+        requestGroup<RestoreJob[]>("data", "/system/restores"),
+        requestGroup<Template[]>("content", "/system/notification-templates"),
+        (refreshPolicy || !policyLoaded.current) ? requestGroup<Policy>("content", "/system/moderation-policy") : Promise.resolve(null),
+        requestGroup<RetentionPolicy[]>("data", "/system/retention-policies"),
+        requestGroup<RetentionJob[]>("data", "/system/retention-jobs"),
+        requestGroup<LegalHold[]>("data", "/system/legal-holds"),
+        requestGroup<SystemAlert[]>("monitoring", "/system/alerts"),
+        requestGroup<StorageCleanupFailure[]>("data", "/system/storage-cleanup-failures"),
+        requestGroup<Record<string, number>>("data", "/system/outbox/stats"),
       ]);
+      if (sequence !== loadSequence.current) return;
       // Giữ dữ liệu cũ của nguồn lỗi nhưng vẫn cập nhật mọi nguồn đã tải thành công.
-      if (backupData.status === "fulfilled") setBackups(backupData.value);
-      if (exportData.status === "fulfilled") setExports(exportData.value);
-      if (restoreData.status === "fulfilled") setRestores(restoreData.value);
-      if (templateData.status === "fulfilled") setTemplates(templateData.value);
-      if (policyData.status === "fulfilled" && policyData.value) setPolicy(policyData.value);
-      if (retentionPolicyData.status === "fulfilled") setRetentionPolicies(retentionPolicyData.value);
-      if (retentionJobData.status === "fulfilled") setRetentionJobs(retentionJobData.value);
-      if (legalHoldData.status === "fulfilled") setLegalHolds(legalHoldData.value);
-      if (alertData.status === "fulfilled") setAlerts(alertData.value);
-      if (cleanupData.status === "fulfilled") setCleanupFailures(cleanupData.value);
-      if (outboxData.status === "fulfilled") setOutboxStats(outboxData.value);
+      if (backupData.status === "fulfilled" && backupData.value) setBackups(backupData.value);
+      if (exportData.status === "fulfilled" && exportData.value) setExports(exportData.value);
+      if (restoreData.status === "fulfilled" && restoreData.value) setRestores(restoreData.value);
+      if (templateData.status === "fulfilled" && templateData.value) setTemplates(templateData.value);
+      if (policyData.status === "fulfilled" && policyData.value) {
+        setPolicy(policyData.value);
+        policyLoaded.current = true;
+      }
+      if (retentionPolicyData.status === "fulfilled" && retentionPolicyData.value) setRetentionPolicies(retentionPolicyData.value);
+      if (retentionJobData.status === "fulfilled" && retentionJobData.value) setRetentionJobs(retentionJobData.value);
+      if (legalHoldData.status === "fulfilled" && legalHoldData.value) setLegalHolds(legalHoldData.value);
+      if (alertData.status === "fulfilled" && alertData.value) setAlerts(alertData.value);
+      if (cleanupData.status === "fulfilled" && cleanupData.value) setCleanupFailures(cleanupData.value);
+      if (outboxData.status === "fulfilled" && outboxData.value) setOutboxStats(outboxData.value);
       const failures = [backupData, exportData, restoreData, templateData, policyData,
         retentionPolicyData, retentionJobData, legalHoldData, alertData, cleanupData, outboxData]
         .filter((item) => item.status === "rejected");
@@ -212,6 +200,7 @@ export function useOperationsModel() {
         item.reason instanceof Error ? item.reason.message : "Không tải được dữ liệu vận hành.",
       ))].join(" · "));
     } catch (error) {
+      if (sequence !== loadSequence.current) return;
       setLoadError(
         error instanceof Error
           ? error.message
@@ -224,7 +213,7 @@ export function useOperationsModel() {
         "error",
       );
     }
-  }, [canConfigure, notify, session.roleCode]);
+  }, [canConfigure, notify, session.roleCode, view]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadAudit(), 250);
@@ -235,18 +224,18 @@ export function useOperationsModel() {
   }, [loadAudit]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 180);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => void load(false), 180);
+    return () => { window.clearTimeout(timer); loadSequence.current += 1; };
   }, [load]);
 
   useEffect(() => {
     const hasActiveJobs = [...backups, ...exports, ...retentionJobs].some(
       (item) => item.status === "PENDING" || item.status === "RUNNING",
     );
-    if (!hasActiveJobs) return;
+    if (!hasActiveJobs || view !== "data") return;
     const timer = window.setInterval(() => void load(false), 5_000);
     return () => window.clearInterval(timer);
-  }, [backups, exports, load, retentionJobs]);
+  }, [backups, exports, load, retentionJobs, view]);
 
   /** Tạo yêu cầu drill để một quản trị viên khác phê duyệt bằng phiên đăng nhập của họ. */
   const requestRestore = async (event: React.FormEvent) => {
