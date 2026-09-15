@@ -1,4 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common";
+import { listExamPage, type ExamPage, type ExamPageQuery } from "./operations/learning-exam-page.js";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -1472,6 +1473,11 @@ export class LearningService {
     actorId = this.userIdForRole(role),
   ): Promise<LearningExam[]> {
     return await exams_ops.listExams(this.operationContext, role, actorId);
+  }
+
+  /** Phân trang đề tại database và giữ nguyên kiểm tra phạm vi lớp của người đang đăng nhập. */
+  async listExamPage(role: string, actorId: string, query: ExamPageQuery): Promise<ExamPage> {
+    return listExamPage(this.operationContext, role, actorId, query);
   }
 
   /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
