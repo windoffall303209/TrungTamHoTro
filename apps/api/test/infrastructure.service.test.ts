@@ -8,6 +8,8 @@ import type { Environment } from "../src/config/environment.js";
 import { EmailDeliveryService, normalizeResendSender } from "../src/infrastructure/email-delivery.service.js";
 import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 import { AntivirusService } from "../src/infrastructure/antivirus.service.js";
+import { streamToFile, withTemporaryFile } from "../src/infrastructure/file-streams.js";
+import { Readable } from "node:stream";
 
 function config(values: Partial<Environment>): ConfigService<Environment, true> {
   return { get: (key: keyof Environment) => values[key] ?? "" } as unknown as ConfigService<Environment, true>;
@@ -64,6 +66,10 @@ describe("Infrastructure services", () => {
       if (!address || typeof address === "string") throw new Error("Không lấy được cổng kiểm thử ClamAV.");
       const antivirus = new AntivirusService(config({ ANTIVIRUS_PROVIDER: "clamav", CLAMAV_HOST: "127.0.0.1", CLAMAV_PORT: address.port, CLAMAV_TIMEOUT_MS: 2_000 }));
       await expect(antivirus.scan(Buffer.from("sample"))).resolves.toEqual({ clean: false, engine: "clamav", signature: "Win.Test.EICAR_HDB-1" });
+      await withTemporaryFile(async (path) => {
+        await streamToFile(Readable.from([Buffer.alloc(1024 * 1024)]), path);
+        await expect(antivirus.scanFile(path)).resolves.toEqual({ clean: false, engine: "clamav", signature: "Win.Test.EICAR_HDB-1" });
+      });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
