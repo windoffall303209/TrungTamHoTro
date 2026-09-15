@@ -2,12 +2,32 @@ import { expect, test, type Page } from "@playwright/test";
 import { eligibleExamQuestions } from "../src/lib/exam-question-selection";
 import type { LearningClass, Question } from "../src/lib/learning-types";
 
+test("chuyển trang đề bằng API và mở liên kết đến đúng trang", async ({ page }) => {
+  await login(page, "manager");
+  const initial = page.waitForResponse((response) => response.url().includes("/exams/page?"));
+  await page.goto("/exams");
+  const first = (await (await initial).json()).data;
+  expect(first.total).toBeGreaterThan(10);
+  expect(first.items).toHaveLength(10);
+  const next = page.waitForResponse((response) => response.url().includes("/exams/page?") && new URL(response.url()).searchParams.get("page") === "2");
+  await page.getByRole("button", { name: "Trang 2", exact: true }).click();
+  const second = (await (await next).json()).data;
+  expect(second.page).toBe(2);
+  expect(second.items.some((item: { id: string }) => first.items.some((prior: { id: string }) => prior.id === item.id))).toBe(false);
+  const target = second.items[0].id;
+  await expect(page.locator(`[id="exam-${target}"]`)).toBeVisible();
+  await page.goto(`/exams?examId=${encodeURIComponent(target)}`);
+  await expect(page.locator(`[id="exam-${target}"]`)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Trang 2", exact: true })).toHaveAttribute("aria-current", "page");
+});
+
 test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page }) => {
   await login(page, "admin");
   const paths: string[] = [];
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname.startsWith("/api/v1/system/")) paths.push(url.pathname);
+    // Dashboard có thể hoàn tất request sau điều hướng; không tính nguồn riêng của dashboard vào màn vận hành.
+    if (url.pathname.startsWith("/api/v1/system/") && url.pathname !== "/api/v1/system/health-overview") paths.push(url.pathname);
   });
   await page.goto("/admin/operations");
   await expect.poll(() => paths.length).toBe(2);
