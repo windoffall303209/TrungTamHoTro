@@ -30,8 +30,8 @@ import {
 
 /** Lắp ghép màn hình vận hành từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function OperationsScreen() {
-  const model = useOperationsModel();
   const [view, setView] = useState<OperationsView>("monitoring");
+  const model = useOperationsModel(view);
   const {
     session,
     canConfigure,
