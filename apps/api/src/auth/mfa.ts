@@ -1,7 +1,9 @@
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createEncryptionKeyDeriver } from "../infrastructure/encryption-key.js";
 
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const TOTP_STEP_SECONDS = 30;
+const deriveKey = createEncryptionKeyDeriver("wind-edu-mfa-v1");
 
 /** Sinh bí mật Base32 tương thích với ứng dụng TOTP phổ biến. */
 export function createMfaSecret(): string {
@@ -28,19 +30,19 @@ export function verifyTotp(secret: string, code: string, now = Date.now()): bool
 }
 
 /** Mã hóa bí mật MFA bằng AES-256-GCM trước khi lưu, kèm IV và authentication tag. */
-export function encryptMfaSecret(secret: string, encryptionSecret: string): string {
+export async function encryptMfaSecret(secret: string, encryptionSecret: string): Promise<string> {
   const iv = randomBytes(12);
-  const key = scryptSync(encryptionSecret, "wind-edu-mfa-v1", 32);
+  const key = await deriveKey(encryptionSecret);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
   return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
 
 /** Giải mã và xác thực toàn vẹn payload MFA phiên bản v1. */
-export function decryptMfaSecret(payload: string, encryptionSecret: string): string {
+export async function decryptMfaSecret(payload: string, encryptionSecret: string): Promise<string> {
   const [version, encodedIv, encodedTag, encodedCiphertext] = payload.split(".");
   if (version !== "v1" || !encodedIv || !encodedTag || !encodedCiphertext) throw new Error("Dữ liệu MFA không hợp lệ.");
-  const key = scryptSync(encryptionSecret, "wind-edu-mfa-v1", 32);
+  const key = await deriveKey(encryptionSecret);
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(encodedIv, "base64url"));
   decipher.setAuthTag(Buffer.from(encodedTag, "base64url"));
   return Buffer.concat([decipher.update(Buffer.from(encodedCiphertext, "base64url")), decipher.final()]).toString("utf8");
