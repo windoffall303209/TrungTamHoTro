@@ -26,15 +26,15 @@ describe.skipIf(!databaseEnabled || !utilitiesAvailable)("PostgreSQL backup and 
 
   it("creates a custom-format dump and verifies it in an isolated temporary database", async () => {
     await withTemporaryFile(async (path) => {
-    const backup = await service.createFullBackup(path);
-    expect(backup.size).toBeGreaterThan(5);
-    expect((await readFileHead(path, 5)).toString("ascii")).toBe("PGDMP");
-    const restored = await service.verifyRestore(path);
-    expect(restored.database).toMatch(/^wind_restore_[a-zA-Z0-9_]+$/);
-    expect(restored.tableCount).toBeGreaterThan(0);
-    expect(restored.rowCount).toBeGreaterThan(0);
-    await expect(service.restoreToDatabase(path, "a".repeat(64))).rejects.toThrow();
-    await expect(service.restoreToDatabase(path, process.env.DB_NAME!)).rejects.toThrow();
+      const backup = await service.createFullBackup(path);
+      expect(backup.size).toBeGreaterThan(5);
+      expect((await readFileHead(path, 5)).toString("ascii")).toBe("PGDMP");
+      const restored = await service.verifyRestore(path);
+      expect(restored.database).toMatch(/^wind_restore_[a-zA-Z0-9_]+$/);
+      expect(restored.tableCount).toBeGreaterThan(0);
+      expect(restored.rowCount).toBeGreaterThan(0);
+      await expect(service.restoreToDatabase(path, "a".repeat(64))).rejects.toThrow();
+      await expect(service.restoreToDatabase(path, process.env.DB_NAME!)).rejects.toThrow();
     });
   }, 60_000);
 });

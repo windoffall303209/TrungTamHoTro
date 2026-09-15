@@ -565,22 +565,22 @@ export class SystemService {
       if (!this.databaseBackup || !this.objectStorage)
         throw new ServiceUnavailableException("Hạ tầng backup chưa sẵn sàng.");
       await withTemporaryFile(async (path) => {
-      const content = await this.databaseBackup!.createFullBackup(path);
-      await prisma.backupJob.update({ where: { id: candidate.id }, data: { progress: 60 } });
-      const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}-${candidate.attempts + 1}.dump`;
-      const stored = await this.objectStorage!.putFile(objectKey, path);
-      const row = await prisma.backupJob.update({
-        where: { id: candidate.id },
-        data: {
-          status: "COMPLETED",
-          progress: 100,
-          checksum: stored.checksum,
-          sizeBytes: BigInt(content.size),
-          objectKey: stored.objectKey,
-          completedAt: new Date(),
-        },
-      });
-      await this.logDatabase(prisma, row.requestedBy, "BACKUP_COMPLETED", row.id, `${row.type} · ${stored.checksum} · ${content.size} bytes`);
+        const content = await this.databaseBackup!.createFullBackup(path);
+        await prisma.backupJob.update({ where: { id: candidate.id }, data: { progress: 60 } });
+        const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}-${candidate.attempts + 1}.dump`;
+        const stored = await this.objectStorage!.putFile(objectKey, path);
+        const row = await prisma.backupJob.update({
+          where: { id: candidate.id },
+          data: {
+            status: "COMPLETED",
+            progress: 100,
+            checksum: stored.checksum,
+            sizeBytes: BigInt(content.size),
+            objectKey: stored.objectKey,
+            completedAt: new Date(),
+          },
+        });
+        await this.logDatabase(prisma, row.requestedBy, "BACKUP_COMPLETED", row.id, `${row.type} · ${stored.checksum} · ${content.size} bytes`);
       });
     } catch (error) {
       await this.retryBackupJob(prisma, candidate.id, candidate.attempts + 1, error);

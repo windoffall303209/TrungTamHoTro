@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
 import { readFileHead } from "./file-streams.js";
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
@@ -55,18 +56,20 @@ export class DatabaseBackupService {
   /** Phục hồi vào database tạm, kiểm đếm dữ liệu và luôn xóa database sau khi xác minh. */
   async verifyRestore(path: string): Promise<RestoreSummary> {
     this.assertBackup(await readFileHead(path, 5));
-    const temporaryDatabase = `wind_restore_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+    const temporaryDatabase = `wind_restore_${randomUUID().replaceAll("-", "")}`;
     this.assertIdentifier(temporaryDatabase);
     const administrator = await this.open("postgres");
+    let created = false;
     try {
       await this.createDatabase(administrator, temporaryDatabase);
+      created = true;
       await this.restore(path, temporaryDatabase);
       return await this.readRestoreSummary(temporaryDatabase);
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new ServiceUnavailableException("Phục hồi thử nghiệm PostgreSQL thất bại.");
     } finally {
-      await this.dropDatabase(administrator, temporaryDatabase).catch(() => undefined);
+      if (created) await this.dropDatabase(administrator, temporaryDatabase).catch(() => undefined);
       await administrator.end().catch(() => undefined);
     }
   }
