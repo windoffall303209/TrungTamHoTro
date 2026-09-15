@@ -33,7 +33,8 @@ describe("disk-backed material multipart", () => {
     const module = await Test.createTestingModule({ controllers: [UploadTestController] }).compile();
     app = module.createNestApplication();
     await app.listen(0, "127.0.0.1");
-    base = `http://127.0.0.1:${(app.getHttpServer<Server>().address() as AddressInfo).port}`;
+    const server = app.getHttpServer() as Server;
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
   afterAll(async () => { await app?.close(); });
 
