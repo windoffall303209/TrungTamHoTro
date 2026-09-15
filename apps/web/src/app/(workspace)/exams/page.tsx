@@ -37,6 +37,7 @@ import {
 } from "@/components/ui";
 import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
+import { MaterialSearchControls, useMaterialSearch } from "@/components/material-search";
 import { hasPermission } from "@/lib/access-control";
 import { eligibleExamQuestions } from "@/lib/exam-question-selection";
 import type {
@@ -46,7 +47,6 @@ import type {
   ExamAttempt,
   LearnerResult,
   LearningClass,
-  Material,
   Question,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -161,7 +161,6 @@ export default function ExamsPage() {
   const pagination = usePagination(visibleItems);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
   const [attemptQuestions, setAttemptQuestions] = useState<Question[]>([]);
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
@@ -241,27 +240,9 @@ export default function ExamsPage() {
       ),
     [form.scoreAllocations],
   );
-  const eligibleMaterials = useMemo(() => {
-    const selectedClass = classes.find((item) => item.id === form.classId);
-    if (!selectedClass) return [];
-    const relatedClassIds = new Set(
-      classes
-        .filter((item) => item.courseId === selectedClass.courseId)
-        .map((item) => item.id),
-    );
-    return materials.filter(
-      (item) =>
-        relatedClassIds.has(item.classId) &&
-        item.visibility === "PUBLISHED" &&
-        [
-          "application/pdf",
-          "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "image/png",
-          "image/jpeg",
-        ].includes(item.mimeType),
-    );
-  }, [classes, form.classId, materials]);
+  const materialCourseId = classes.find((item) => item.id === form.classId)?.courseId ?? "";
+  const materialSearch = useMaterialSearch(session.roleCode, { courseId: materialCourseId, visibility: "PUBLISHED", aiOnly: "true" }, instructor && Boolean(materialCourseId), session.user.id);
+  const eligibleMaterials = materialSearch.items;
   /** Nạp lớp, đề thi và dữ liệu kết quả phù hợp với vai trò cùng bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!allowed) return;
@@ -273,7 +254,6 @@ export default function ExamsPage() {
         questionData,
         resultData,
         providerData,
-        materialData,
       ] = await Promise.all([
         apiRequest<LearnerExam[]>(learner ? "/learner/exams" : "/exams", {
           roleCode: session.roleCode,
@@ -298,16 +278,12 @@ export default function ExamsPage() {
               { roleCode: session.roleCode },
             )
           : Promise.resolve([]),
-        instructor
-          ? apiRequest<Material[]>("/materials", { roleCode: session.roleCode })
-          : Promise.resolve([]),
       ]);
       setItems(exams);
       setClasses(classData);
       setQuestions(questionData);
       setResults(resultData);
       setAiProviders(providerData);
-      setMaterials(materialData);
       setAiConfig((current) => ({
         ...current,
         providerId:
@@ -1513,6 +1489,7 @@ export default function ExamsPage() {
                       </span>
                     </div>
                     <div className="mt-2 max-h-44 divide-y divide-[var(--rule)] overflow-y-auto border-y border-[var(--rule-strong)]">
+                      <MaterialSearchControls search={materialSearch} />
                       {eligibleMaterials.length ? (
                         eligibleMaterials.map((material) => (
                           <label

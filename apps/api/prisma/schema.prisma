@@ -650,6 +650,8 @@ model Material {
   @@index([courseId, visibility])
   @@index([ownerId])
   @@index([quarantinedAt])
+  @@index([classId, createdAt(sort: Desc), id])
+  @@index([courseId, createdAt(sort: Desc), id])
   @@map("materials")
 }
 

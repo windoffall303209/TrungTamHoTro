@@ -11,7 +11,7 @@ import { LearnerStudyDialog } from "@/components/learner-study-dialog";
 import { PageHeader } from "@/components/page-header";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type { Course, LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -26,6 +26,11 @@ export default function MaterialsPage() {
   const instructor = session.roleCode === "INSTRUCTOR" && hasPermission(session, "material:manage");
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Material[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+  const [revision, setRevision] = useState(0);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState("");
@@ -59,30 +64,43 @@ export default function MaterialsPage() {
   }, [classes, courses]);
   const selectedCourse = courseOptions.find((course) => course.id === selectedCourseId);
   const selectedClasses = useMemo(() => classes.filter((item) => item.courseId === selectedCourseId), [classes, selectedCourseId]);
-  /** Lọc tài liệu chỉ trong môn đang chọn, sau đó mới áp dụng lớp, MIME, thẻ và từ khóa. */
-  const visibleItems = useMemo(() => {
-    const selectedClassIds = new Set(selectedClasses.map((item) => item.id));
-    const needle = query.trim().toLocaleLowerCase("vi-VN");
-    const tag = tagFilter.trim().toLocaleLowerCase("vi-VN");
-    return items.filter((item) => selectedClassIds.has(item.classId))
-      .filter((item) => !classFilter || item.classId === classFilter)
-      .filter((item) => !mimeFilter || item.mimeType === mimeFilter)
-      .filter((item) => !tag || item.tags.some((value) => value.toLocaleLowerCase("vi-VN") === tag))
-      .filter((item) => !needle || `${item.name} ${item.folder} ${item.tags.join(" ")}`.toLocaleLowerCase("vi-VN").includes(needle));
-  }, [classFilter, items, mimeFilter, query, selectedClasses, tagFilter]);
-  const pagination = usePagination(visibleItems);
+  const visibleItems = items;
+  const pagination = { page, pageSize, totalItems, pageItems: items, setPage, setPageSize: (size: number) => { setPageSize(size); setPage(1); } };
 
-  /** Nạp một lần lớp, danh mục môn và toàn bộ tài liệu người dùng có quyền thấy. */
+  /** Fetch only the visible page; cancel stale searches so slow responses cannot replace newer filters. */
+  useEffect(() => {
+    if (!allowed || !selectedCourseId) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setMaterialsLoading(true);
+      try {
+        const params = new URLSearchParams({ courseId: selectedCourseId, classId: classFilter, query, mimeType: mimeFilter, tag: tagFilter, page: String(page), pageSize: String(pageSize) });
+        const result = await apiRequest<{ items: Material[]; total: number; totalPages: number }>(`/materials/search?${params}`, { roleCode: session.roleCode, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (page > result.totalPages) { setPage(result.totalPages); return; }
+        setItems(result.items);
+        setTotalItems(result.total);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setItems([]);
+          setTotalItems(0);
+          notify(error instanceof Error ? error.message : "Không tải được học liệu.", "error");
+        }
+      } finally { if (!controller.signal.aborted) setMaterialsLoading(false); }
+    }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [allowed, classFilter, mimeFilter, notify, page, pageSize, query, revision, selectedCourseId, session.roleCode, tagFilter]);
+
+  /** Nạp danh mục lớp/môn; học liệu được tải riêng theo trang và bộ lọc. */
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
     try {
-      const [materialData, classData, courseData] = await Promise.all([
-        apiRequest<Material[]>("/materials", { roleCode: session.roleCode }),
+      const [classData, courseData] = await Promise.all([
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
         canViewCourses ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
       ]);
-      setItems(materialData);
+      setRevision((current) => current + 1);
       setClasses(classData);
       setCourses(courseData);
       const requestedClass = classData.find((item) => item.id === searchParams.get("classId"));
@@ -228,19 +246,15 @@ export default function MaterialsPage() {
           <aside aria-label="Danh sách môn học" className="self-start border-y border-[var(--rule-strong)] lg:sticky lg:top-6">
             <div className="flex items-center gap-2 border-b border-[var(--rule)] px-4 py-3 text-sm font-extrabold text-[var(--ink)]"><BookOpen size={17} />Môn học của bạn</div>
             {courseOptions.map((course) => {
-              const classIds = new Set(classes.filter((item) => item.courseId === course.id).map((item) => item.id));
-              const materialCount = items.filter((item) => classIds.has(item.classId)).length;
               const active = selectedCourseId === course.id;
               return <button aria-current={active ? "page" : undefined} className={`group flex w-full items-start justify-between gap-3 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 ${active ? "bg-[var(--ink)] text-white" : "bg-[var(--surface)]/65 hover:bg-[var(--surface-muted)]"}`} key={course.id} onClick={() => { setSelectedCourseId(course.id); setClassFilter(""); pagination.setPage(1); }} type="button">
-                <span className="min-w-0"><span className={`block text-xs font-extrabold ${active ? "text-white/65" : "text-[var(--accent-ink)]"}`}>{course.code}</span><span className="mt-1 block font-heading text-base font-extrabold leading-snug">{course.name}</span></span>
-                <span className={`shrink-0 text-xs font-bold tabular-nums ${active ? "text-white/75" : "text-[var(--ink-muted)]"}`}>{materialCount}</span>
-              </button>;
+                <span className="min-w-0"><span className={`block text-xs font-extrabold ${active ? "text-white/65" : "text-[var(--accent-ink)]"}`}>{course.code}</span><span className="mt-1 block font-heading text-base font-extrabold leading-snug">{course.name}</span></span>              </button>;
             })}
           </aside>
-          <section aria-labelledby="selected-course-title" className="min-w-0">
+          <section aria-busy={materialsLoading} aria-labelledby="selected-course-title" className="min-w-0">
             <div className="flex flex-col gap-4 border-b border-[var(--rule-strong)] pb-5 sm:flex-row sm:items-end sm:justify-between">
               <div className="max-w-2xl"><div className="flex items-center gap-2 text-xs font-extrabold text-[var(--accent-ink)]"><Layers3 size={15} />{selectedClasses.length} lớp triển khai</div><h2 className="mt-2 font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">{selectedCourse?.name ?? "Chọn môn học"}</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{selectedCourse?.description}</p></div>
-              <p className="text-sm font-bold tabular-nums text-[var(--ink-muted)]">{visibleItems.length} tài liệu</p>
+              <p className="text-sm font-bold tabular-nums text-[var(--ink-muted)]">{totalItems} tài liệu</p>
             </div>
             <div className="my-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="relative md:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input className={`${inputClass} pl-10`} placeholder="Tìm trong môn này…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }} /></div>
@@ -248,7 +262,7 @@ export default function MaterialsPage() {
               <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="application/msword">Word DOC</option><option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select>
               <input aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }} />
             </div>
-            {visibleItems.length ? <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+            {materialsLoading ? <p role="status">Đang tải dữ liệu…</p> : visibleItems.length ? <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
           {pagination.pageItems.map((item) => (
             <article className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={item.id}>
               <div className="flex min-w-0 gap-4">

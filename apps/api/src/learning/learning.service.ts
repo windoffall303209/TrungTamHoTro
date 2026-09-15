@@ -17,7 +17,7 @@ import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { streamToFile } from "../infrastructure/file-streams.js";
 import { dirname, extname, resolve, sep } from "node:path";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import type { Environment } from "../config/environment.js";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -2016,51 +2016,9 @@ export class LearningService {
     };
   }
 
-  /** Liệt kê học liệu theo lớp/phân quyền, ẩn bản nháp hoặc cách ly khỏi người không quản lý. */
-  async listMaterials(
-    role: string,
-    query?: string,
-    actorId = this.userIdForRole(role),
-  ): Promise<LearningMaterial[]> {
-    const normalized = query?.toLowerCase() ?? "";
-    const prisma = this.database();
-    if (prisma) {
-      const rows = await prisma.material.findMany({
-        where:
-          role === "LEARNER"
-            ? {
-                visibility: "PUBLISHED",
-                class: {
-                  enrollments: {
-                    some: { learnerId: actorId, status: "ACTIVE" },
-                  },
-                },
-              }
-            : role === "INSTRUCTOR"
-              ? { class: { instructors: { some: { instructorId: actorId } } } }
-              : undefined,
-        orderBy: { createdAt: "desc" },
-      });
-      return rows
-        .map((row) => this.mapMaterial(row))
-        .filter(
-          (item) =>
-            !normalized ||
-            `${item.name} ${item.folder} ${item.tags.join(" ")}`
-              .toLowerCase()
-              .includes(normalized),
-        );
-    }
-    return this.materials
-      .filter((item) => this.canAccessMemoryMaterial(item, role, actorId))
-      .filter(
-        (item) =>
-          !normalized ||
-          `${item.name} ${item.folder} ${item.tags.join(" ")}`
-            .toLowerCase()
-            .includes(normalized),
-      )
-      .map((item) => ({ ...item, tags: [...item.tags] }));
+  /** Return one bounded page for legacy array clients; the search endpoint also exposes totals. */
+  async listMaterials(role: string, query?: string, actorId = this.userIdForRole(role), page = 1): Promise<LearningMaterial[]> {
+    return (await this.searchAccessibleMaterials({ query, page, pageSize: 50 }, actorId, role)).items;
   }
 
   /** Tìm học liệu đã công bố của học viên bằng bộ lọc và phân trang có giới hạn. */
@@ -2068,6 +2026,9 @@ export class LearningService {
     input: {
       query?: string;
       classId?: string;
+      courseId?: string;
+      visibility?: string;
+      aiOnly?: boolean;
       folder?: string;
       mimeType?: string;
       tag?: string;
@@ -2075,9 +2036,10 @@ export class LearningService {
       pageSize?: number;
     },
     learnerId = "usr-learner",
+    role = "LEARNER",
   ): Promise<MaterialSearchResult> {
     const page =
-      Number.isInteger(input.page) && (input.page ?? 0) > 0
+      Number.isSafeInteger(input.page) && (input.page ?? 0) > 0 && (input.page ?? 0) <= 1_000_000
         ? (input.page as number)
         : 1;
     const pageSize =
@@ -2085,33 +2047,31 @@ export class LearningService {
         ? Math.min(input.pageSize as number, 50)
         : 12;
     const query = input.query?.trim();
+    if ([query, input.tag, input.folder, input.classId, input.courseId, input.mimeType].some((value) => value && value.length > 255)) throw new BadRequestException("Search filters must not exceed 255 characters.");
     const prisma = this.database();
     if (prisma) {
-      const where: Prisma.MaterialWhereInput = {
-        visibility: "PUBLISHED",
-        class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
-        classId: input.classId || undefined,
-        folder: input.folder ? { contains: input.folder } : undefined,
-        mimeType: input.mimeType || undefined,
-        tags: input.tag ? { array_contains: input.tag } : undefined,
-        ...(query
-          ? {
-              OR: [
-                { name: { contains: query } },
-                { folder: { contains: query } },
-              ],
-            }
-          : {}),
-      };
-      const [rows, total] = await prisma.$transaction([
-        prisma.material.findMany({
-          where,
-          orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-        }),
-        prisma.material.count({ where }),
-      ]);
+      const conditions: Prisma.Sql[] = [];
+      if (role === "LEARNER") conditions.push(Prisma.sql`m.visibility = 'PUBLISHED' AND m.quarantined_at IS NULL AND EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = m.class_id AND e.learner_id = ${learnerId} AND e.status = 'ACTIVE')`);
+      else if (role === "INSTRUCTOR") conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = m.class_id AND i.instructor_id = ${learnerId})`);
+      else if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(role)) conditions.push(Prisma.sql`FALSE`);
+      if (input.classId) conditions.push(Prisma.sql`m.class_id = ${input.classId}`);
+      if (input.courseId) conditions.push(Prisma.sql`m.course_id = ${input.courseId}`);
+      if (input.mimeType) conditions.push(Prisma.sql`m.mime_type = ${input.mimeType}`);
+      if (input.visibility) conditions.push(Prisma.sql`m.visibility::text = ${input.visibility}`);
+      if (input.aiOnly) conditions.push(Prisma.sql`m.mime_type IN ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg')`);
+      // Escape LIKE metacharacters: user searches are literal substrings, never SQL patterns.
+      const contains = (value: string): string => `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+      if (input.folder) conditions.push(Prisma.sql`m.folder ILIKE ${contains(input.folder)}`);
+      const tags = Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(m.tags) = 'array' THEN m.tags ELSE '[]'::jsonb END)`;
+      if (input.tag?.trim()) conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE lower(t.value) = lower(${input.tag.trim()}))`);
+      if (query) conditions.push(Prisma.sql`(m.name ILIKE ${contains(query)} OR m.folder ILIKE ${contains(query)} OR EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE t.value ILIKE ${contains(query)}))`);
+      const where = conditions.length ? Prisma.join(conditions, " AND ") : Prisma.sql`TRUE`;
+      const { rows, total } = await prisma.$transaction(async (transaction) => {
+        const ids = await transaction.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT m.id FROM materials m WHERE ${where} ORDER BY m.created_at DESC, m.id ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`);
+        const counts = await transaction.$queryRaw<{ count: bigint }[]>(Prisma.sql`SELECT COUNT(*) AS count FROM materials m WHERE ${where}`);
+        const rows = await transaction.material.findMany({ where: { id: { in: ids.map((item) => item.id) } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] });
+        return { rows, total: Number(counts[0]?.count ?? 0n) };
+      }, { isolationLevel: "RepeatableRead" });
       const items = rows.map((row) => this.mapMaterial(row));
       return {
         items,
@@ -2125,9 +2085,12 @@ export class LearningService {
     const tag = input.tag?.trim().toLowerCase() ?? "";
     const filtered = this.materials
       .filter((item) =>
-        this.canAccessMemoryMaterial(item, "LEARNER", learnerId),
+        this.canAccessMemoryMaterial(item, role, learnerId),
       )
       .filter((item) => !input.classId || item.classId === input.classId)
+      .filter((item) => !input.courseId || item.courseId === input.courseId)
+      .filter((item) => !input.visibility || item.visibility === input.visibility)
+      .filter((item) => !input.aiOnly || ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/png", "image/jpeg"].includes(item.mimeType))
       .filter(
         (item) =>
           !input.folder ||
