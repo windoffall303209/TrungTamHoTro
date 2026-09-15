@@ -80,13 +80,23 @@ export class ObjectStorageService {
     this.assertCloudinaryConfigured();
     const checksum = await hashFile(path);
     const publicId = `${this.cloudinaryFolder}/${objectKey}`;
-    const result = await new Promise<UploadApiResponse>((resolveUpload, rejectUpload) => {
-      const stream = cloudinary.uploader.upload_chunked_stream({ public_id: publicId, resource_type: "raw", type: "authenticated", overwrite: false, unique_filename: false, chunk_size: 6 * 1024 * 1024, timeout: 120_000 }, (error, response) => {
-        if (error) rejectUpload(new ServiceUnavailableException("Cloudinary từ chối tệp tải lên."));
-        else if (response && response.done !== false) resolveUpload(response);
-      });
-      void pipeline(createReadStream(path), stream).catch(rejectUpload);
+    let resolveUpload!: (result: UploadApiResponse) => void;
+    let rejectUpload!: (error: Error) => void;
+    const completed = new Promise<UploadApiResponse>((resolveResult, rejectResult) => { resolveUpload = resolveResult; rejectUpload = rejectResult; });
+    const stream = cloudinary.uploader.upload_chunked_stream({ public_id: publicId, resource_type: "raw", type: "authenticated", overwrite: false, unique_filename: false, chunk_size: 6 * 1024 * 1024, timeout: 120_000 }, (error, response) => {
+      if (error) rejectUpload(new ServiceUnavailableException("Cloudinary từ chối tệp tải lên."));
+      else if (response && response.done !== false) resolveUpload(response);
     });
+    const source = createReadStream(path);
+    const transfer = pipeline(source, stream);
+    let result: UploadApiResponse;
+    try { [result] = await Promise.all([completed, transfer]); }
+    catch (error) {
+      source.destroy();
+      stream.destroy();
+      await transfer.catch(() => undefined);
+      throw error;
+    }
     return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
   }
 
