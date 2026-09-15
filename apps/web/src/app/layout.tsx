@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/providers/app-provider";
@@ -37,10 +37,11 @@ const themeInitializer = `(() => {
 
 /** Khung HTML gốc, nạp font/theme sớm và cung cấp trạng thái ứng dụng cho mọi route. */
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const locale = (await cookies()).get("wind-edu-locale")?.value === "en-US" ? "en-US" : "vi-VN";
   return (
     <html data-scroll-behavior="smooth" lang={locale} suppressHydrationWarning>
-      <head><meta content="#f7f4ed" name="theme-color" /><script dangerouslySetInnerHTML={{ __html: themeInitializer }} /></head>
+      <head><meta content="#f7f4ed" name="theme-color" /><script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitializer }} /></head>
       <body className={beVietnamPro.variable}>
         {/*
           THESIS: Wind EDU is a contemporary registrar's desk, not a generic dashboard-card mosaic.
