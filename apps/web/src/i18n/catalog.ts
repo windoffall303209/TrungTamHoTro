@@ -7,6 +7,7 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Chưa kiểm tra được phiên làm việc. Vui lòng thử lại.": "Unable to verify your session. Please try again.",
   "Đi tới nội dung chính": "Skip to main content",
   "Không tải được nhật ký hoạt động.": "Unable to load the activity log.",
   "Trình duyệt không lưu được bản nháp. Hãy lưu đề trước khi rời trang.": "Your browser cannot store the draft. Save the exam before leaving this page.",
