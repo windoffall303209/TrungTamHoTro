@@ -27,6 +27,37 @@ vi.mock("@/components/material-search", () => ({
 }));
 
 describe("Bản nháp trình tạo đề", () => {
+  it("chuyển trang chỉ tải đề, thao tác thử lại làm mới cả dữ liệu hỗ trợ", async () => {
+    const { result } = renderHook(useExamsModel);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    api.mockClear();
+    act(() => result.current.pagination.setPage(2));
+    await waitFor(() => expect(api).toHaveBeenCalledOnce());
+    expect(api.mock.calls[0]![0]).toContain("/exams/page?page=2");
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    api.mockClear();
+    await act(async () => { await result.current.reload(); });
+    expect(api.mock.calls.some(([path]) => path === "/classes")).toBe(true);
+    expect(api.mock.calls.some(([path]) => path.startsWith("/instructor/question-bank/questions"))).toBe(true);
+  });
+
+  it("chuyển trang hủy request danh sách đang chờ", async () => {
+    let firstSignal: AbortSignal | undefined;
+    api.mockImplementation(async (path: string, options: { signal?: AbortSignal }) => {
+      if (path.startsWith("/exams/page?page=1")) {
+        firstSignal = options.signal;
+        return new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))));
+      }
+      return path.startsWith("/exams/page?") ? { items: [], total: 0, page: 2 } : [];
+    });
+    const { result } = renderHook(useExamsModel);
+    await waitFor(() => expect(firstSignal).toBeDefined());
+    act(() => result.current.pagination.setPage(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(firstSignal?.aborted).toBe(true);
+    expect(result.current.pagination.page).toBe(2);
+    expect(result.current.loadError).toBe("");
+  });
   it("không phục hồi cache trong bộ nhớ khi đã hết 24 giờ", async () => {
     const { result } = renderHook(useExamsModel);
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -40,7 +71,7 @@ describe("Bản nháp trình tạo đề", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     api.mockReset();
-    api.mockResolvedValue([]);
+    api.mockImplementation(async (path: string) => path.startsWith("/exams/page?") ? { items: [], total: 0, page: 1 } : []);
   });
 
   it("phục hồi sau khi rời trang mà không cần tạm đóng trước", async () => {

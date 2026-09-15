@@ -1,6 +1,5 @@
 "use client";
 import { useMaterialSearch } from "@/components/material-search";
-import { usePagination } from "@/components/ui";
 import { hasPermission } from "@/lib/access-control";
 import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
@@ -59,16 +58,25 @@ export function useExamsModel() {
   const [items, setItems] = useState<LearnerExam[]>([]);
 
   const requestedClassId = searchParams.get("classId");
-
-  const visibleItems = useMemo(
-    () =>
-      requestedClassId
-        ? items.filter((item) => item.classId === requestedClassId)
-        : items,
-    [items, requestedClassId],
-  );
-
-  const pagination = usePagination(visibleItems);
+  const requestedExamId = searchParams.get("examId");
+  const listKey = `${session.user.id}:${session.roleCode}:${requestedClassId ?? ""}:${requestedExamId ?? ""}`;
+  const [pageRequest, setPageRequest] = useState({ key: "", page: 1, pageSize: 10 });
+  const [pageResult, setPageResult] = useState({ page: 1, total: 0 });
+  const page = pageRequest.key === listKey ? pageRequest.page : 1;
+  const pageSize = pageRequest.pageSize;
+  const pageQuery = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (requestedClassId) pageQuery.set("classId", requestedClassId);
+  if (requestedExamId && pageRequest.key !== listKey) pageQuery.set("focusId", requestedExamId);
+  const examPagePath = `/exams/page?${pageQuery.toString()}`;
+  const visibleItems = items;
+  const pagination = {
+    pageItems: items, page: pageResult.page, pageSize, totalItems: pageResult.total,
+    setPage: (nextPage: number) => setPageRequest({ key: listKey, page: nextPage, pageSize }),
+    setPageSize: (nextSize: number) => setPageRequest({ key: listKey, page: 1, pageSize: nextSize }),
+  };
+  const listSequence = useRef(0);
+  const pageController = useRef<AbortController | null>(null);
+  const auxiliaryCache = useRef(new Map<string, { at: number; promise: Promise<unknown> }>());
 
   const [classes, setClasses] = useState<LearningClass[]>([]);
 
@@ -266,40 +274,51 @@ export function useExamsModel() {
   const eligibleMaterials = materialSearch.items;
 
   /** Nạp lớp, đề thi và dữ liệu kết quả phù hợp với vai trò cùng bộ lọc hiện tại. */
-  const load = useCallback(async () => {
+  const load = useCallback(async (refreshAuxiliary = true) => {
     if (!allowed) return;
+    const sequence = ++listSequence.current;
+    pageController.current?.abort();
+    const controller = new AbortController();
+    pageController.current = controller;
+    /** Tái sử dụng request hỗ trợ trong 30 giây, tách theo tài khoản/vai trò và làm mới sau thao tác ghi. */
+    const auxiliary = <T,>(path: string): Promise<T> => {
+      const key = `${session.user.id}:${session.roleCode}:${path}`;
+      const existing = auxiliaryCache.current.get(key);
+      if (!refreshAuxiliary && existing && Date.now() - existing.at < 30_000) return existing.promise as Promise<T>;
+      const promise = apiRequest<T>(path, { roleCode: session.roleCode }).catch((error: unknown) => {
+        if (auxiliaryCache.current.get(key)?.promise === promise) auxiliaryCache.current.delete(key);
+        throw error;
+      });
+      auxiliaryCache.current.set(key, { at: Date.now(), promise });
+      return promise;
+    };
     setLoading(true);
     setLoadError("");
     try {
       const [exams, classData, questionData, resultData, providerData] =
         await Promise.all([
-          apiRequest<LearnerExam[]>(learner ? "/learner/exams" : "/exams", {
+          apiRequest<{ items: LearnerExam[]; total: number; page: number }>(examPagePath, {
             roleCode: session.roleCode,
+            signal: controller.signal,
           }),
-          apiRequest<LearningClass[]>("/classes", {
-            roleCode: session.roleCode,
-          }),
+          auxiliary<LearningClass[]>("/classes"),
           instructor
-            ? apiRequest<Question[]>(
+            ? auxiliary<Question[]>(
                 "/instructor/question-bank/questions?status=PUBLISHED",
-                {
-                  roleCode: session.roleCode,
-                },
               )
             : Promise.resolve([]),
           learner
-            ? apiRequest<LearnerResult[]>("/learner/results", {
-                roleCode: session.roleCode,
-              })
+            ? auxiliary<LearnerResult[]>("/learner/results")
             : Promise.resolve([]),
           instructor
-            ? apiRequest<AiProviderSummary[]>(
+            ? auxiliary<AiProviderSummary[]>(
                 "/instructor/question-bank/ai-providers?task=GENERATE_EXAM",
-                { roleCode: session.roleCode },
               )
             : Promise.resolve([]),
         ]);
-      setItems(exams);
+      if (sequence !== listSequence.current) return;
+      setItems(exams.items);
+      setPageResult({ page: exams.page, total: exams.total });
       setClasses(classData);
       setQuestions(questionData);
       setResults(resultData);
@@ -319,6 +338,7 @@ export function useExamsModel() {
           "",
       }));
     } catch (error) {
+      if (sequence !== listSequence.current) return;
       notify(
         error instanceof Error ? error.message : "Không tải được đề thi.",
         "error",
@@ -327,13 +347,13 @@ export function useExamsModel() {
         error instanceof Error ? error.message : "Không tải được đề thi.",
       );
     } finally {
-      setLoading(false);
+      if (sequence === listSequence.current) setLoading(false);
     }
-  }, [allowed, instructor, learner, notify, session.roleCode]);
+  }, [allowed, instructor, learner, notify, session.roleCode, session.user.id, examPagePath, setPageResult]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const timer = window.setTimeout(() => void load(false), 0);
+    return () => { window.clearTimeout(timer); listSequence.current += 1; pageController.current?.abort(); };
   }, [load]);
 
   /** Mở đúng tab và đưa đề hoặc kết quả từ lịch/thông báo vào vùng nhìn. */

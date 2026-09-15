@@ -13,7 +13,7 @@ async function login(page: Page) {
 
 test("lỗi tải đề có thông báo và thử lại lấy được dữ liệu thật", async ({ page }) => {
   await login(page);
-  await page.route("**/api/v1/exams", (route) => route.fulfill({
+  await page.route("**/api/v1/exams/page?*", (route) => route.fulfill({
     status: 503, contentType: "application/json",
     body: JSON.stringify({ error: { message: "Dịch vụ tạm thời không khả dụng" } }),
   }));
@@ -21,8 +21,8 @@ test("lỗi tải đề có thông báo và thử lại lấy được dữ li�
   const retry = page.getByRole("button", { name: "Thử lại", exact: true });
   await expect(retry).toBeVisible();
   await expect(page.getByText("Dịch vụ tạm thời không khả dụng").first()).toBeVisible();
-  await page.unroute("**/api/v1/exams");
-  const response = page.waitForResponse((item) => item.url().endsWith("/api/v1/exams") && item.status() === 200);
+  await page.unroute("**/api/v1/exams/page?*");
+  const response = page.waitForResponse((item) => item.url().includes("/api/v1/exams/page?") && item.status() === 200);
   await retry.click();
   await response;
   await expect(retry).not.toBeVisible();
