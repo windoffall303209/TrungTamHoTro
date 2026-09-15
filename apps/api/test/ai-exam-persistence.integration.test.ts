@@ -10,7 +10,7 @@ import type { AiGeneratedExamResult } from "../src/learning/learning.types.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 
-describe.skipIf(!enabled)("AI exam persistence on dedicated MySQL", () => {
+describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
   const fixture = `ai-save-${randomUUID()}`;
   let moduleRef: TestingModule;
   let prisma: PrismaService;

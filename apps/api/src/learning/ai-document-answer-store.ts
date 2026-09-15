@@ -41,9 +41,9 @@ export class AiDocumentAnswerStore {
   /** Read one private source-version history page; legacy claims without request metadata stay replayable but unlisted. */
   async list(scope: HistoryScope, cursor?: string): Promise<{ items: HistoryItem[]; nextCursor: string | null }> {
     if (!scope.ownerId || !scope.materialId || !Number.isSafeInteger(scope.version) || scope.version < 1 || (cursor !== undefined && !/^[a-f0-9]{64}$/.test(cursor))) throw new BadRequestException("Mốc phân trang bản nháp không hợp lệ.");
-    const anchor = cursor ? (await this.historyRows(scope, Prisma.sql`AND r.\`key\` = ${`ai-doc-answer:${cursor}`}`, 1))[0] : undefined;
+    const anchor = cursor ? (await this.historyRows(scope, Prisma.sql`AND r."key" = ${`ai-doc-answer:${cursor}`}`, 1))[0] : undefined;
     if (cursor && !anchor) throw new BadRequestException("Mốc phân trang bản nháp không hợp lệ.");
-    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-doc-answer:${anchor.id}`}))` : Prisma.empty;
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-doc-answer:${anchor.id}`}))` : Prisma.empty;
     const rows = await this.historyRows(scope, position, 21);
     const items = rows.slice(0, 20);
     return { items, nextCursor: rows.length > 20 ? items.at(-1)!.id : null };
@@ -53,20 +53,20 @@ export class AiDocumentAnswerStore {
   private async historyRows(scope: HistoryScope, position: Prisma.Sql, limit: number): Promise<HistoryItem[]> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const rows = await this.prisma.$queryRaw<HistoryItem[]>(Prisma.sql`
-      SELECT SUBSTRING(r.\`key\`, 15) AS id,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.question')) AS question,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.language')) AS language,
-        CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
-          THEN JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) ELSE 'UNCERTAIN' END AS state,
-        r.effective_at AS createdAt
+      SELECT SUBSTRING(r."key", 15) AS id,
+        r.value->'request'->>'question' AS question,
+        r.value->'request'->>'language' AS language,
+        CASE WHEN r.value->>'state' IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
+          THEN r.value->>'state' ELSE 'UNCERTAIN' END AS state,
+        r.effective_at AS "createdAt"
       FROM system_settings r
-      WHERE r.\`key\` LIKE 'ai-doc-answer:%' AND r.updated_by = ${scope.ownerId}
-        AND JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.materialId')) = ${scope.materialId}
-        AND JSON_EXTRACT(r.value, '$.request.version') = ${scope.version}
-        AND JSON_TYPE(JSON_EXTRACT(r.value, '$.request.question')) = 'STRING'
-        AND JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.request.language')) IN ('VI', 'EN', 'BILINGUAL')
+      WHERE r."key" LIKE 'ai-doc-answer:%' AND r.updated_by = ${scope.ownerId}
+        AND r.value->'request'->>'materialId' = ${scope.materialId}
+        AND CASE WHEN jsonb_typeof(r.value->'request'->'version') = 'number' THEN (r.value->'request'->>'version')::integer END = ${scope.version}
+        AND jsonb_typeof(r.value->'request'->'question') = 'string'
+        AND r.value->'request'->>'language' IN ('VI', 'EN', 'BILINGUAL')
         ${position}
-      ORDER BY r.effective_at DESC, r.\`key\` DESC LIMIT ${limit}
+      ORDER BY r.effective_at DESC, r."key" DESC LIMIT ${limit}
     `);
     for (const row of rows) {
       if (row.question.trim().length < 2 || row.question.length > 2000 || this.key({ ...scope, question: row.question, language: row.language }) !== `ai-doc-answer:${row.id}`) throw new ConflictException("Không xác nhận được việc lưu câu trả lời AI. Không gửi yêu cầu mới.");

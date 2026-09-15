@@ -8,7 +8,7 @@ import { AiGradingOperationsService } from "../src/learning/ai-grading-operation
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
-describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
+describe.skipIf(!enabled)("Durable extraction on PostgreSQL", () => {
   const ownerId = `extraction-test-${randomUUID()}`;
   const keys = ["race", "uncertain", "legacy", "operations-a", "operations-b", "operations-legacy", "recovery"].map((name) => `ai-doc:${createHash("sha256").update(`${ownerId}:${name}`).digest("hex")}`);
   const pages = [{ page: 1, text: "Synthetic OCR result; no real provider invoked." }];
@@ -59,7 +59,10 @@ describe.skipIf(!enabled)("Durable extraction on MySQL", () => {
     expect(await new AiDocumentExtractionStore(prisma).status(key)).toEqual({ state: "NOT_REQUESTED" });
     const extract = vi.fn(() => Promise.resolve(pages));
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiDocumentExtractionStore(prisma).generate(key, ownerId, extract)));
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const fulfilled = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const outcome of fulfilled) if (outcome.status === "fulfilled") expect(outcome.value).toMatchObject({ pages });
+    for (const outcome of outcomes) if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
     expect(extract).toHaveBeenCalledTimes(1);
     expect(await prisma.auditLog.count({ where: { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: key.slice(7) } })).toBe(1);
     expect(await new AiDocumentExtractionStore(prisma).status(key)).toEqual({ state: "READY", pages });

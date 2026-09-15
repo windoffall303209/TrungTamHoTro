@@ -72,10 +72,10 @@ export class AiGradingOperationsService {
   /** List OCR metadata only; READY is a storage label, not an independent assessment of transcription accuracy. */
   async listExtractions(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery(query, session);
-    const anchor = query.cursor ? (await this.extractionRows(Prisma.sql`r.\`key\` = ${`ai-doc:${query.cursor}`}`, 1))[0] : undefined;
+    const anchor = query.cursor ? (await this.extractionRows(Prisma.sql`r."key" = ${`ai-doc:${query.cursor}`}`, 1))[0] : undefined;
     if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
     const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
-    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-doc:${anchor.id}`}))` : Prisma.empty;
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-doc:${anchor.id}`}))` : Prisma.empty;
     const rows = await this.extractionRows(Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`, limit + 1);
     const items = rows.slice(0, limit);
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
@@ -108,17 +108,17 @@ export class AiGradingOperationsService {
   /** Project claim metadata without loading pages; legacy array snapshots are listed under READY. */
   private extractionRows(filter: Prisma.Sql, limit: number): Promise<DocumentAnswerOperation[]> {
     return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r.\`key\`, 8) AS id, r.updated_by AS ownerId,
-        r.claim_state AS state, r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      SELECT SUBSTRING(r."key", 8) AS id, r.updated_by AS "ownerId",
+        r.claim_state AS state, r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
       FROM (
-        SELECT \`key\`, updated_by, version, effective_at, updated_at,
-          CASE WHEN JSON_TYPE(value) = 'ARRAY' THEN 'READY'
-            WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
-            THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
-        FROM system_settings WHERE \`key\` LIKE 'ai-doc:%'
+        SELECT "key", updated_by, version, effective_at, updated_at,
+          CASE WHEN jsonb_typeof(value) = 'array' THEN 'READY'
+            WHEN value->>'state' IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
+            THEN value->>'state' ELSE 'UNCERTAIN' END AS claim_state
+        FROM system_settings WHERE "key" LIKE 'ai-doc:%'
       ) r
       WHERE ${filter}
-      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      ORDER BY r.effective_at DESC, r."key" DESC
       LIMIT ${limit}
     `);
   }
@@ -126,10 +126,10 @@ export class AiGradingOperationsService {
   /** Inspect private answer claims without loading questions, answers, citations or provider configuration. */
   async listDocumentAnswers(query: GradingOperationsQueryDto, session: AuthenticatedSession): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery(query, session);
-    const anchor = query.cursor ? (await this.documentAnswerRows(Prisma.sql`r.\`key\` = ${`ai-doc-answer:${query.cursor}`}`, 1))[0] : undefined;
+    const anchor = query.cursor ? (await this.documentAnswerRows(Prisma.sql`r."key" = ${`ai-doc-answer:${query.cursor}`}`, 1))[0] : undefined;
     if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
     const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
-    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-doc-answer:${anchor.id}`}))` : Prisma.empty;
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-doc-answer:${anchor.id}`}))` : Prisma.empty;
     const rows = await this.documentAnswerRows(Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`, limit + 1);
     const items = rows.slice(0, limit);
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
@@ -138,16 +138,16 @@ export class AiGradingOperationsService {
   /** Project only operational metadata in SQL; malformed states remain visible as uncertain, never retried. */
   private documentAnswerRows(filter: Prisma.Sql, limit: number): Promise<DocumentAnswerOperation[]> {
     return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r.\`key\`, 15) AS id, r.updated_by AS ownerId,
-        r.claim_state AS state, r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      SELECT SUBSTRING(r."key", 15) AS id, r.updated_by AS "ownerId",
+        r.claim_state AS state, r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
       FROM (
-        SELECT \`key\`, updated_by, version, effective_at, updated_at,
-          CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
-            THEN JSON_UNQUOTE(JSON_EXTRACT(value, '$.state')) ELSE 'UNCERTAIN' END AS claim_state
-        FROM system_settings WHERE \`key\` LIKE 'ai-doc-answer:%'
+        SELECT "key", updated_by, version, effective_at, updated_at,
+          CASE WHEN value->>'state' IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
+            THEN value->>'state' ELSE 'UNCERTAIN' END AS claim_state
+        FROM system_settings WHERE "key" LIKE 'ai-doc-answer:%'
       ) r
       WHERE ${filter}
-      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      ORDER BY r.effective_at DESC, r."key" DESC
       LIMIT ${limit}
     `);
   }
@@ -276,11 +276,11 @@ export class AiGradingOperationsService {
     if (query.state !== undefined && !examStates.includes(query.state)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
     if (query.scope !== undefined && !examScopes.includes(query.scope)) throw new BadRequestException("Bộ lọc đối soát AI không hợp lệ.");
     const scope = query.scope ?? "canonical";
-    const anchor = query.cursor ? (await this.examRows(Prisma.sql`r.\`key\` = ${`ai-generation:${query.cursor}`}`, 1, scope))[0] : undefined;
+    const anchor = query.cursor ? (await this.examRows(Prisma.sql`r."key" = ${`ai-generation:${query.cursor}`}`, 1, scope))[0] : undefined;
     if (query.cursor && !anchor) throw new BadRequestException("Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.");
     const states = query.state ? [query.state] : examStates.filter((state) => state !== "COMPLETED");
-    const stateFilter = Prisma.sql`JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) IN (${Prisma.join(states)})`;
-    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r.\`key\` < ${`ai-generation:${anchor.id}`}))` : Prisma.empty;
+    const stateFilter = Prisma.sql`r.value->>'state' IN (${Prisma.join(states)})`;
+    const position = anchor ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-generation:${anchor.id}`}))` : Prisma.empty;
     const rows = await this.examRows(Prisma.sql`${stateFilter} ${position}`, limit + 1, scope);
     const items = rows.slice(0, limit);
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
@@ -312,11 +312,11 @@ export class AiGradingOperationsService {
       const bindings = await transaction.$queryRaw<Array<{ present: number }>>(Prisma.sql`
         SELECT 1 AS present
         FROM system_settings b
-        WHERE b.\`key\` LIKE 'ai-generation-content:%'
-          AND JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
-          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = ${id}
-          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.owner')) = ${owner}
-          AND JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.hash')) = ${hash}
+        WHERE b."key" LIKE 'ai-generation-content:%'
+          AND jsonb_typeof(b.value->'canonicalRequestId') = 'string'
+          AND b.value->>'canonicalRequestId' = ${id}
+          AND b.value->>'owner' = ${owner}
+          AND b.value->>'hash' = ${hash}
         LIMIT 1
       `);
       if (!bindings.length) throw new ConflictException("Tác vụ không có liên kết nội dung hợp lệ; chưa thể mở lại để tránh tạo trùng.");
@@ -342,32 +342,32 @@ export class AiGradingOperationsService {
     // Broken bindings can affect several retry IDs; this scope reports affected requests, not distinct jobs.
     const brokenTarget = Prisma.sql`AND NOT EXISTS (
       SELECT 1 FROM system_settings target
-      WHERE JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
-        AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId'))) > 0
-        AND target.\`key\` = CONCAT('ai-generation:', JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')))
-        AND JSON_EXTRACT(target.value, '$.owner') = JSON_EXTRACT(b.value, '$.owner')
-        AND JSON_EXTRACT(target.value, '$.hash') = JSON_EXTRACT(b.value, '$.hash')
-        AND JSON_UNQUOTE(JSON_EXTRACT(target.value, '$.state')) IN (${Prisma.join(examStates)})
+      WHERE jsonb_typeof(b.value->'canonicalRequestId') = 'string'
+        AND CHAR_LENGTH(b.value->>'canonicalRequestId') > 0
+        AND target."key" = 'ai-generation:' || (b.value->>'canonicalRequestId')
+        AND target.value->>'owner' = b.value->>'owner'
+        AND target.value->>'hash' = b.value->>'hash'
+        AND target.value->>'state' IN (${Prisma.join(examStates)})
     )`;
     // Retry aliases share an owner/hash binding and must not be reported as unlinked claims.
     const binding = Prisma.sql`EXISTS (
       SELECT 1 FROM system_settings b
-      WHERE b.\`key\` LIKE 'ai-generation-content:%'
-        AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
-        AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
+      WHERE b."key" LIKE 'ai-generation-content:%'
+        AND b.value->>'owner' = r.value->>'owner'
+        AND b.value->>'hash' = r.value->>'hash'
         ${scope === "broken" ? brokenTarget : Prisma.empty}
     )`;
     const relationship = scope === "unlinked" ? Prisma.sql`NOT ${binding}` : binding;
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r.\`key\`, 15) AS id,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.owner')) AS ownerId,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) AS state,
-        r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      SELECT SUBSTRING(r."key", 15) AS id,
+        r.value->>'owner' AS "ownerId",
+        r.value->>'state' AS state,
+        r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
       FROM system_settings r
-      WHERE r.\`key\` LIKE 'ai-generation:%'
+      WHERE r."key" LIKE 'ai-generation:%'
         AND ${relationship}
         AND ${filter}
-      ORDER BY r.effective_at DESC, r.\`key\` DESC
+      ORDER BY r.effective_at DESC, r."key" DESC
       LIMIT ${limit}
     `);
   }
@@ -375,20 +375,20 @@ export class AiGradingOperationsService {
   /** Start canonical reconciliation from bindings, then perform one primary-key lookup per target claim. */
   private canonicalExamRows(filter: Prisma.Sql, limit: number): Promise<ExamOperation[]> {
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
-      SELECT DISTINCT SUBSTRING(r.\`key\`, 15) AS id,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.owner')) AS ownerId,
-        JSON_UNQUOTE(JSON_EXTRACT(r.value, '$.state')) AS state,
-        r.version, r.effective_at AS createdAt, r.updated_at AS updatedAt
+      SELECT DISTINCT SUBSTRING(r."key", 15) AS id,
+        r.value->>'owner' AS "ownerId",
+        r.value->>'state' AS state,
+        r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
       FROM system_settings b
       JOIN system_settings r
-        ON r.\`key\` = CONCAT('ai-generation:', JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId')))
-        AND JSON_EXTRACT(b.value, '$.owner') = JSON_EXTRACT(r.value, '$.owner')
-        AND JSON_EXTRACT(b.value, '$.hash') = JSON_EXTRACT(r.value, '$.hash')
-      WHERE b.\`key\` LIKE 'ai-generation-content:%'
-        AND JSON_TYPE(JSON_EXTRACT(b.value, '$.canonicalRequestId')) = 'STRING'
-        AND CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(b.value, '$.canonicalRequestId'))) > 0
+        ON r."key" = 'ai-generation:' || (b.value->>'canonicalRequestId')
+        AND b.value->>'owner' = r.value->>'owner'
+        AND b.value->>'hash' = r.value->>'hash'
+      WHERE b."key" LIKE 'ai-generation-content:%'
+        AND jsonb_typeof(b.value->'canonicalRequestId') = 'string'
+        AND CHAR_LENGTH(b.value->>'canonicalRequestId') > 0
         AND ${filter}
-      ORDER BY createdAt DESC, id DESC
+      ORDER BY "createdAt" DESC, id DESC
       LIMIT ${limit}
     `);
   }
