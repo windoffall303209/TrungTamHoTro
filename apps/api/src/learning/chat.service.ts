@@ -588,7 +588,7 @@ export class ChatService {
     const rows = await this.prisma.chatMessage.findMany({
       where: {
         conversationId,
-        content: { contains: query },
+        content: { contains: query, mode: "insensitive" },
         ...(membership.removedAt
           ? { createdAt: { lte: membership.removedAt } }
           : {}),

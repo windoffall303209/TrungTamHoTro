@@ -136,8 +136,8 @@ export class ContentController {
   @Get("materials/:materialId/versions/:version/download") @RequirePermissions("material:view")
   /** Xác minh chữ ký truy cập phiên bản rồi stream tệp với Content-Disposition phù hợp. */
   async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
-    const download = await this.learning.readMaterialVersionDownload(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
-    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.buffer.length });
+    const download = await this.learning.readMaterialVersionDownloadStream(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
+    return new StreamableFile(download.stream, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.size });
   }
 
   @Post("instructor/materials/:materialId/versions") @RequirePermissions("material:manage")
@@ -187,14 +187,14 @@ export class ContentController {
     @Req() request: Request,
   ): Promise<StreamableFile> {
     const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", session.roleCode, action, {
+    const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, {
       ipAddress: request.ip,
       userAgent: request.header("user-agent"),
     }, session.user.id);
-    return new StreamableFile(download.buffer, {
+    return new StreamableFile(download.stream, {
       type: download.mimeType,
       disposition: fileContentDisposition(action === "PREVIEW" ? "inline" : "attachment", download.fileName),
-      length: download.buffer.length,
+      length: download.size,
     });
   }
 

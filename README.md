@@ -6,6 +6,14 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 
 ## Tính năng
 
+### Cập nhật bảo mật và kiểm thử
+
+- Trước khi khởi động bản cập nhật này trên database ứng dụng, chạy `pnpm db:deploy`. Migration `20260915130000_retention_verified_approval` bổ sung thời điểm duyệt; các job retention cũ chưa có dấu duyệt mới sẽ phải được duyệt lại.
+- Retention dùng hai tài khoản khác nhau: tạo yêu cầu tại `POST /system/retention-jobs` với `policyId`, rồi tài khoản thứ hai gọi `POST /system/retention-jobs/:jobId/approve`. Không truyền tên người duyệt từ client. Các đường dẫn này nằm dưới prefix/version API đã cấu hình.
+- `GET /admin/users` trả `{ items, total, active, locked, page, pageSize }`, không còn trả mảng trực tiếp. Query `page` từ 1–10000, `pageSize` từ 1–50, `query` tối đa 200 ký tự; tìm kiếm không phân biệt hoa thường.
+- Tải học liệu kiểm tra checksum trên tệp tạm trước khi stream; tối đa 4 lượt đồng thời mỗi tiến trình, 500 MiB mỗi tệp. Máy chạy API cần đủ dung lượng tạm. Archive retention mới dùng JSONL v3 và checksum từng tệp; archive v2 vẫn được kiểm chứng tương thích.
+- Test API và Playwright dùng `WIND_TEST_DB_NAME` (mặc định `trung_tam_giang_day_test`), bắt buộc hậu tố `_test`. Chuẩn bị riêng bằng `pnpm --filter @wind-of-fall/api db:test:prepare`; không dùng dữ liệu thật trong database test. Playwright khởi động server riêng ở cổng 3300/4400 và không tái sử dụng server có sẵn.
+
 ### Khóa học, lớp và học liệu
 
 - Quản lý khóa học theo phiên bản; lớp ghim đúng snapshot chương trình đang sử dụng.

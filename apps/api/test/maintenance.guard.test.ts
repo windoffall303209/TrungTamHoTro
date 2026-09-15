@@ -25,5 +25,9 @@ describe("MaintenanceGuard", () => {
     await expect(
       guard.canActivate(requestContext("PATCH", "/system/settings")),
     ).resolves.toBe(true);
+    await expect(guard.canActivate(requestContext("PATCH", "/api/v1/system/settings"))).resolves.toBe(true);
+    await expect(guard.canActivate(requestContext("POST", "/api/v1/auth/login"))).resolves.toBe(true);
+    await expect(guard.canActivate(requestContext("POST", "/api/v1/academic/exams"))).rejects.toThrow(ServiceUnavailableException);
+    await expect(guard.canActivate(requestContext("POST", "/api/v1/health-fake"))).rejects.toThrow(ServiceUnavailableException);
   });
 });

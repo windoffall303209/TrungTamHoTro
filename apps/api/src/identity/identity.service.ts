@@ -19,6 +19,7 @@ import type { Environment } from "../config/environment.js";
 import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
 import type {
   CreateUserDto,
+  UserListQueryDto,
   UpdateRolePermissionsDto,
   UpdateUserDto,
 } from "./identity.dto.js";
@@ -135,6 +136,24 @@ export class IdentityService {
   ) {}
 
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
+  async listUsersPage(input: UserListQueryDto): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
+    const { page, pageSize } = input;
+    if (!Number.isInteger(page) || page < 1 || page > 10000 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50 || (input.query?.length ?? 0) > 200) throw new BadRequestException("Tham số phân trang không hợp lệ.");
+    const prisma = this.database();
+    if (!prisma) {
+      const all = await this.listUsers(input.query);
+      return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, active: all.filter((user) => user.status === "ACTIVE").length, locked: all.filter((user) => user.status === "LOCKED").length, page, pageSize };
+    }
+    const query = input.query?.trim();
+    const where: Prisma.UserWhereInput = query ? { OR: [{ username: { contains: query, mode: "insensitive" } }, { displayName: { contains: query, mode: "insensitive" } }, { email: { contains: query, mode: "insensitive" } }] } : {};
+    const [rows, total, active, locked] = await prisma.$transaction([
+      prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
+      prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),
+    ], { isolationLevel: "RepeatableRead" });
+    return { items: rows.map((row) => this.mapUser(row)), total, active, locked, page, pageSize };
+  }
+
+  /** Cung cấp danh sách nội bộ cho chế độ dữ liệu mẫu. HTTP dùng listUsersPage có giới hạn. */
   async listUsers(query?: string): Promise<IdentityUser[]> {
     const normalized = query?.trim() ?? "";
     const prisma = this.database();
@@ -143,9 +162,9 @@ export class IdentityService {
         where: normalized
           ? {
               OR: [
-                { username: { contains: normalized } },
-                { displayName: { contains: normalized } },
-                { email: { contains: normalized } },
+                { username: { contains: normalized, mode: "insensitive" } },
+                { displayName: { contains: normalized, mode: "insensitive" } },
+                { email: { contains: normalized, mode: "insensitive" } },
               ],
             }
           : undefined,

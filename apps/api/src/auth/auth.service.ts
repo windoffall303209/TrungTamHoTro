@@ -613,19 +613,20 @@ export class AuthService {
     return this.mapSession(row.id, row.user, roleCode as RoleCode);
   }
 
-  /** Sinh CSRF token ngẫu nhiên, chỉ lưu bản băm gắn với phiên. */
-  async issueCsrf(sessionId: string): Promise<string> {
-    const csrfToken = randomBytes(32).toString("base64url");
-    await this.prisma.authSession.update({ where: { id: sessionId }, data: { csrfTokenHash: this.hashToken(csrfToken) } });
-    return csrfToken;
+  /** Dẫn xuất token theo phiên bằng HMAC để việc mở tab mới không thu hồi token của tab cũ. */
+  issueCsrf(sessionId: string): Promise<string> {
+    return Promise.resolve(`v2.${createHmac("sha256", this.encryptionSecret).update(`wind-edu:csrf:v2:${sessionId}`).digest("base64url")}`);
   }
 
   /** Xác nhận CSRF token thuộc đúng phiên cookie và so sánh theo constant-time. */
   async validateCsrf(sessionToken: string, csrfToken: string | undefined): Promise<boolean> {
     if (!csrfToken) return false;
-    const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { csrfTokenHash: true, revokedAt: true, expiresAt: true } });
-    if (!row?.csrfTokenHash || row.revokedAt || row.expiresAt <= new Date()) return false;
-    const expected = Buffer.from(row.csrfTokenHash, "hex");
+    const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { id: true, csrfTokenHash: true, revokedAt: true, expiresAt: true } });
+    if (!row || row.revokedAt || row.expiresAt <= new Date()) return false;
+    // Giữ tương thích token ngẫu nhiên cũ đến khi phiên hết hạn, không ghi đè bản băm của chúng.
+    const expectedHash = csrfToken.startsWith("v2.") ? this.hashToken(await this.issueCsrf(row.id)) : row.csrfTokenHash;
+    if (!expectedHash) return false;
+    const expected = Buffer.from(expectedHash, "hex");
     const actual = Buffer.from(this.hashToken(csrfToken), "hex");
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }

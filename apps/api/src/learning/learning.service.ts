@@ -1,3 +1,4 @@
+import { prepareVerifiedDownload } from "../infrastructure/verified-download.js";
 import {
   BadRequestException,
   ConflictException,
@@ -2366,8 +2367,23 @@ export class LearningService {
     };
   }
 
-  /** Xác minh chữ ký/quyền, tải object và ghi audit lượt xem hoặc tải xuống. */
-  async readMaterialDownload(
+  /** Giữ API đọc bộ đệm cho tác vụ nội bộ và kiểm thử với xác minh checksum. */
+  async readMaterialDownload(...args: Parameters<LearningService["resolveMaterialDownload"]>): Promise<MaterialDownload> {
+    const file = await this.resolveMaterialDownload(...args);
+    const buffer = await this.readStoredFile(file.objectKey);
+    if (file.checksum && `sha256:${createHash("sha256").update(buffer).digest("hex")}` !== file.checksum) throw new BadRequestException("Checksum học liệu không hợp lệ.");
+    return { fileName: file.fileName, mimeType: file.mimeType, buffer };
+  }
+
+  /** Chuẩn bị luồng đã kiểm chứng với bộ nhớ giới hạn cho HTTP download. */
+  async readMaterialDownloadStream(...args: Parameters<LearningService["resolveMaterialDownload"]>): Promise<{ stream: ReturnType<typeof createReadStream>; size: number; fileName: string; mimeType: string }> {
+    const file = await this.resolveMaterialDownload(...args);
+    const content = await prepareVerifiedDownload(async () => this.objectStorage ? this.objectStorage.openReadStream(file.objectKey) : createReadStream(this.resolveObjectPath(file.objectKey)), file.checksum);
+    return { ...content, fileName: file.fileName, mimeType: file.mimeType };
+  }
+
+  /** Xác minh chữ ký/quyền và lấy vị trí object, không nạp toàn bộ nội dung vào RAM. */
+  private async resolveMaterialDownload(
     materialId: string,
     expires: number,
     signature: string,
@@ -2375,7 +2391,7 @@ export class LearningService {
     action: MaterialAccessAction = "DOWNLOAD",
     context: { ipAddress?: string; userAgent?: string } = {},
     actorId = this.userIdForRole(role),
-  ): Promise<MaterialDownload> {
+  ): Promise<{ fileName: string; mimeType: string; objectKey: string; checksum?: string }> {
     this.verifyMaterialAccess(materialId, expires, signature, action);
     const prisma = this.database();
     let fileName: string;
@@ -2453,14 +2469,6 @@ export class LearningService {
       throw new NotFoundException(
         "Tệp học liệu không tồn tại trong kho bytes.",
       );
-    const buffer = await this.readStoredFile(objectKey);
-    if (expectedChecksum) {
-      const actualChecksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
-      if (actualChecksum !== expectedChecksum)
-        throw new BadRequestException(
-          "Checksum học liệu không hợp lệ; tệp đã được cách ly.",
-        );
-    }
     const userId = actorId;
     if (prisma) {
       await prisma.materialAccessLog.create({
@@ -2481,7 +2489,7 @@ export class LearningService {
         createdAt: now(),
       });
     }
-    return { fileName, mimeType, buffer };
+    return { fileName, mimeType, objectKey, checksum: expectedChecksum };
   }
 
   /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
@@ -2633,8 +2641,8 @@ export class LearningService {
         ...(text
           ? {
               OR: [
-                { displayName: { contains: text } },
-                { email: { contains: text } },
+                { displayName: { contains: text, mode: "insensitive" } },
+                { email: { contains: text, mode: "insensitive" } },
               ],
             }
           : {}),
@@ -2756,8 +2764,23 @@ export class LearningService {
     };
   }
 
-  /** Xác minh quyền/chữ ký version rồi đọc object tương ứng từ storage. */
-  async readMaterialVersionDownload(
+  /** Giữ API đọc bộ đệm cho tác vụ nội bộ và kiểm thử với xác minh checksum. */
+  async readMaterialVersionDownload(...args: Parameters<LearningService["resolveMaterialVersionDownload"]>): Promise<MaterialDownload> {
+    const file = await this.resolveMaterialVersionDownload(...args);
+    const buffer = await this.readStoredFile(file.objectKey);
+    if (file.checksum && `sha256:${createHash("sha256").update(buffer).digest("hex")}` !== file.checksum) throw new BadRequestException("Checksum học liệu không hợp lệ.");
+    return { fileName: file.fileName, mimeType: file.mimeType, buffer };
+  }
+
+  /** Chuẩn bị luồng đã kiểm chứng với bộ nhớ giới hạn cho HTTP download. */
+  async readMaterialVersionDownloadStream(...args: Parameters<LearningService["resolveMaterialVersionDownload"]>): Promise<{ stream: ReturnType<typeof createReadStream>; size: number; fileName: string; mimeType: string }> {
+    const file = await this.resolveMaterialVersionDownload(...args);
+    const content = await prepareVerifiedDownload(async () => this.objectStorage ? this.objectStorage.openReadStream(file.objectKey) : createReadStream(this.resolveObjectPath(file.objectKey)), file.checksum);
+    return { ...content, fileName: file.fileName, mimeType: file.mimeType };
+  }
+
+  /** Xác minh quyền/chữ ký phiên bản và lấy metadata của object được phép truy cập. */
+  private async resolveMaterialVersionDownload(
     materialId: string,
     version: number,
     expires: number,
@@ -2765,7 +2788,7 @@ export class LearningService {
     role: string,
     action: MaterialAccessAction = "DOWNLOAD",
     actorId = this.userIdForRole(role),
-  ): Promise<MaterialDownload> {
+  ): Promise<{ fileName: string; mimeType: string; objectKey: string; checksum?: string }> {
     this.verifyMaterialAccess(
       `${materialId}:${version}`,
       expires,
@@ -2822,14 +2845,6 @@ export class LearningService {
       throw new NotFoundException(
         "Tệp phiên bản không tồn tại trong kho bytes.",
       );
-    const buffer = await this.readStoredFile(objectKey);
-    if (
-      checksum &&
-      `sha256:${createHash("sha256").update(buffer).digest("hex")}` !== checksum
-    )
-      throw new BadRequestException(
-        "Checksum phiên bản học liệu không hợp lệ.",
-      );
     if (prisma)
       await prisma.materialAccessLog.create({
         data: {
@@ -2846,7 +2861,7 @@ export class LearningService {
         action,
         createdAt: now(),
       });
-    return { fileName, mimeType, buffer };
+    return { fileName, mimeType, objectKey, checksum: checksum };
   }
 
   /** Quét và lưu tệp mới, tăng version nguyên tử, giữ snapshot cũ và dọn object khi lỗi. */

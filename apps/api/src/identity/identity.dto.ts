@@ -4,6 +4,9 @@ import {
   IsArray,
   IsEmail,
   IsIn,
+  IsInt,
+  Min,
+  Max,
   IsOptional,
   IsString,
   Length,
@@ -19,6 +22,16 @@ import {
   type RoleCode,
 } from "../auth/permissions.js";
 import type { AccountStatus } from "./identity.types.js";
+
+/** Giới hạn phân trang và độ dài tìm kiếm trước khi truy vấn database. */
+export class UserListQueryDto {
+  @IsOptional() @IsString() @MaxLength(200)
+  query?: string;
+  @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(10000)
+  page = 1;
+  @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(50)
+  pageSize = 20;
+}
 
 /** Chuẩn hóa query vai trò từ mảng hoặc chuỗi phân tách bằng dấu phẩy. */
 function normalizeRoleCodes(value: unknown): string[] {
