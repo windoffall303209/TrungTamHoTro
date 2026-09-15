@@ -4,6 +4,16 @@ Wind EDU là nền tảng vận hành trung tâm giảng dạy song ngữ Việt
 
 Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thái nghiệp vụ. Các thao tác quan trọng dùng transaction, khóa phiên bản, audit và idempotency; việc ẩn nút trên giao diện không thay thế kiểm tra quyền ở API.
 
+## Tổ chức mã nguồn
+
+- Backend giữ controller và lớp service làm điểm vào ổn định. Với học tập, học vụ và hệ thống, phần xử lý nằm trong `operations/`, chia theo nghiệp vụ như ghi danh, phân công giảng viên, phiên bản học liệu, duyệt đề và retention. Sửa quy tắc tại file nghiệp vụ tương ứng thay vì thêm tiếp vào service lớn.
+- Các file `*.context.ts` mô tả phụ thuộc và trạng thái nội bộ bằng kiểu tĩnh; service sở hữu trạng thái và cung cấp truy cập tới cùng một phiên bản. Các file `*.shared.ts` chứa kiểu, hằng số và hàm thuần dùng chung trong miền. Các lời gọi nội bộ vẫn đi qua service để giữ hành vi và điểm chặn kiểm thử hiện có.
+- API đối soát AI có DTO, service và controller riêng; `ai-grading-operations.ts` chỉ giữ đường import tương thích.
+- Bảy màn hình lớn nằm tại `apps/web/src/features/`: `exams`, `academic`, `operations`, `settings`, `teaching`, `messages`, `class-detail`. `page.tsx` chỉ trỏ tới màn hình; `*-screen.tsx` lắp ghép giao diện, `use-*-model.tsx` quản lý trạng thái/tải dữ liệu/hành động, `*-dialog.tsx` xử lý giao diện hộp thoại theo nghiệp vụ và `*.shared.tsx` chứa phần dùng chung trong tính năng.
+- Component riêng của tính năng không đưa vào thư viện UI chung. `apps/web/src/components/` tiếp tục chứa các thành phần dùng lại ở nhiều nơi.
+- Chú thích tiếng Việt giải thích trách nhiệm của hàm và các ràng buộc quan trọng, không diễn giải từng dòng. `pnpm comments:check` kiểm tra hàm có tên, phương thức có thân và callback có tên qua `useCallback` trong mã nguồn, script và kiểm thử. Đây là kiểm tra sự hiện diện, không thay thế việc đọc và đánh giá chất lượng chú thích; callback nội tuyến đơn giản, getter/setter chuyển tiếp và mã sinh tự động không thuộc phép đếm.
+- `docs/` là tài liệu hỏi đáp riêng tại máy, giữ nguyên nội dung và quy tắc bỏ qua hiện tại; không dùng thư mục này làm nơi chứa mã thực thi hoặc tài liệu bắt buộc cho build. `.gitignore` không tự bỏ theo dõi file đã được Git quản lý từ trước.
+
 ## Tính năng
 
 ### Cập nhật bảo mật và kiểm thử
