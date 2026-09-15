@@ -24,6 +24,10 @@ export default defineConfig({
       name: "chromium-mobile",
       use: { ...devices["Pixel 7"], locale: "vi-VN", timezoneId: "Asia/Bangkok" },
     },
+    {
+      name: "firefox-desktop",
+      use: { ...devices["Desktop Firefox"], locale: "vi-VN", timezoneId: "Asia/Bangkok" },
+    },
   ],
   webServer: [
     {
@@ -41,6 +45,9 @@ export default defineConfig({
         DATABASE_CONNECT_ON_START: "true",
         DB_NAME: testDatabase,
         NODE_ENV: "test",
+        // Nhiều tài khoản E2E dùng chung IP; chỉ tăng ngân sách trên server test riêng.
+        // Hành vi HTTP 429 được kiểm tra độc lập trong network-recovery.spec.ts.
+        RATE_LIMIT_MAX: "1000",
         RESEND_API_KEY: "",
         RESEND_FROM: "",
       },
