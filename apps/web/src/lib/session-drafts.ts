@@ -1,5 +1,5 @@
 const PREFIX = "wind-edu:draft:v1:";
-const MAX_AGE = 24 * 60 * 60 * 1000;
+export const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000;
 const MAX_SIZE = 200_000;
 
 /** Lưu bản nháp trong tab hiện tại, giới hạn kích thước và không làm hỏng form khi bộ nhớ bị chặn. */
@@ -35,7 +35,7 @@ export function readSessionDraft<T>(
       entry?.version !== 1 ||
       typeof entry.savedAt !== "number" ||
       entry.savedAt > Date.now() ||
-      Date.now() - entry.savedAt > MAX_AGE ||
+      Date.now() - entry.savedAt >= DRAFT_MAX_AGE ||
       !valid(entry.value)
     ) {
       removeSessionDraft(key);
