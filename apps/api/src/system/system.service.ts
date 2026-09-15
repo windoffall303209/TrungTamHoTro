@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
+import { withTemporaryFile } from "../infrastructure/file-streams.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
@@ -311,12 +312,15 @@ export class SystemService {
     const claimed = await prisma.restoreJob.updateMany({ where: { id: restoreId, status: "PENDING" }, data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() } });
     if (claimed.count !== 1) throw new BadRequestException("Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.");
     try {
-      const content = await this.objectStorage.get(restore.backup.objectKey);
-      const checksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-      if (checksum !== restore.backup.checksum) throw new BadRequestException("Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.");
-      const result = restore.mode === "OPERATIONAL"
-        ? await this.databaseBackup.restoreToDatabase(content, restore.targetDatabase ?? "")
-        : await this.databaseBackup.verifyRestore(content);
+      const result = await withTemporaryFile(async (path) => {
+        const expectedSize = Number(restore.backup.sizeBytes);
+        if (!Number.isSafeInteger(expectedSize) || expectedSize < 5) throw new BadRequestException("Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.");
+        const downloaded = await this.objectStorage!.getToFile(restore.backup.objectKey!, path, expectedSize);
+        if (downloaded.checksum !== restore.backup.checksum || downloaded.size !== expectedSize) throw new BadRequestException("Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.");
+        return restore.mode === "OPERATIONAL"
+          ? this.databaseBackup!.restoreToDatabase(path, restore.targetDatabase ?? "")
+          : this.databaseBackup!.verifyRestore(path);
+      });
       const verification = restore.mode === "OPERATIONAL"
         ? `Checksum hợp lệ; đã khôi phục ${result.tableCount} bảng và ${result.rowCount} dòng vào database staging ${result.database}. Cần cutover hạ tầng theo runbook riêng.`
         : `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
@@ -560,22 +564,24 @@ export class SystemService {
     try {
       if (!this.databaseBackup || !this.objectStorage)
         throw new ServiceUnavailableException("Hạ tầng backup chưa sẵn sàng.");
-      const content = await this.databaseBackup.createFullBackup();
+      await withTemporaryFile(async (path) => {
+      const content = await this.databaseBackup!.createFullBackup(path);
       await prisma.backupJob.update({ where: { id: candidate.id }, data: { progress: 60 } });
-      const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}.json`;
-      const stored = await this.objectStorage.put(objectKey, content);
+      const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}-${candidate.attempts + 1}.dump`;
+      const stored = await this.objectStorage!.putFile(objectKey, path);
       const row = await prisma.backupJob.update({
         where: { id: candidate.id },
         data: {
           status: "COMPLETED",
           progress: 100,
           checksum: stored.checksum,
-          sizeBytes: BigInt(content.length),
+          sizeBytes: BigInt(content.size),
           objectKey: stored.objectKey,
           completedAt: new Date(),
         },
       });
-      await this.logDatabase(prisma, row.requestedBy, "BACKUP_COMPLETED", row.id, `${row.type} · ${stored.checksum} · ${content.length} bytes`);
+      await this.logDatabase(prisma, row.requestedBy, "BACKUP_COMPLETED", row.id, `${row.type} · ${stored.checksum} · ${content.size} bytes`);
+      });
     } catch (error) {
       await this.retryBackupJob(prisma, candidate.id, candidate.attempts + 1, error);
     }

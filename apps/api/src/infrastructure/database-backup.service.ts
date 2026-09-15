@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { open, stat } from "node:fs/promises";
+import { readFileHead } from "./file-streams.js";
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Client, type ClientConfig } from "pg";
@@ -31,16 +33,19 @@ export class DatabaseBackupService {
   }
 
   /** Chụp toàn bộ schema và dữ liệu trong định dạng custom của pg_dump. */
-  async createFullBackup(): Promise<Buffer> {
+  async createFullBackup(path: string): Promise<{ size: number }> {
     try {
-      const content = await this.runUtility(this.pgDumpPath, [
+      const file = await open(path, "wx", 0o600);
+      await file.close();
+      await this.runUtility(this.pgDumpPath, [
         "--format=custom",
+        "--file", path,
         "--no-owner",
         "--no-privileges",
         ...this.connectionArguments(this.databaseName),
       ]);
-      this.assertBackup(content);
-      return content;
+      this.assertBackup(await readFileHead(path, 5));
+      return { size: (await stat(path)).size };
     } catch (error) {
       if (error instanceof ServiceUnavailableException) throw error;
       throw new ServiceUnavailableException("Không thể tạo bản sao lưu PostgreSQL.");
@@ -48,14 +53,14 @@ export class DatabaseBackupService {
   }
 
   /** Phục hồi vào database tạm, kiểm đếm dữ liệu và luôn xóa database sau khi xác minh. */
-  async verifyRestore(buffer: Buffer): Promise<RestoreSummary> {
-    this.assertBackup(buffer);
+  async verifyRestore(path: string): Promise<RestoreSummary> {
+    this.assertBackup(await readFileHead(path, 5));
     const temporaryDatabase = `wind_restore_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
     this.assertIdentifier(temporaryDatabase);
     const administrator = await this.open("postgres");
     try {
       await this.createDatabase(administrator, temporaryDatabase);
-      await this.restore(buffer, temporaryDatabase);
+      await this.restore(path, temporaryDatabase);
       return await this.readRestoreSummary(temporaryDatabase);
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
@@ -67,8 +72,8 @@ export class DatabaseBackupService {
   }
 
   /** Phục hồi backup vào database mới và không bao giờ ghi đè database đang vận hành. */
-  async restoreToDatabase(buffer: Buffer, targetDatabase: string): Promise<RestoreSummary> {
-    this.assertBackup(buffer);
+  async restoreToDatabase(path: string, targetDatabase: string): Promise<RestoreSummary> {
+    this.assertBackup(await readFileHead(path, 5));
     this.assertIdentifier(targetDatabase);
     if (targetDatabase === this.databaseName) throw new BadRequestException("Không được khôi phục trực tiếp đè lên database đang vận hành.");
     const administrator = await this.open("postgres");
@@ -78,7 +83,7 @@ export class DatabaseBackupService {
       if (existing.rowCount) throw new BadRequestException("Database đích đã tồn tại; cần chọn tên database mới để tránh ghi đè dữ liệu.");
       await this.createDatabase(administrator, targetDatabase);
       created = true;
-      await this.restore(buffer, targetDatabase);
+      await this.restore(path, targetDatabase);
       return await this.readRestoreSummary(targetDatabase);
     } catch (error) {
       if (created) await this.dropDatabase(administrator, targetDatabase).catch(() => undefined);
@@ -101,15 +106,16 @@ export class DatabaseBackupService {
     await connection.query(`DROP DATABASE IF EXISTS ${this.quoteIdentifier(database)} WITH (FORCE)`);
   }
 
-  /** Chạy pg_restore với bundle qua stdin để không ghi tệp backup nhạy cảm xuống đĩa. */
-  private async restore(buffer: Buffer, database: string): Promise<void> {
+  /** Chạy pg_restore từ tệp tạm riêng tư, không nạp toàn bộ backup vào RAM. */
+  private async restore(path: string, database: string): Promise<void> {
     try {
       await this.runUtility(this.pgRestorePath, [
         "--exit-on-error",
         "--no-owner",
         "--no-privileges",
         ...this.connectionArguments(database),
-      ], buffer);
+        path,
+      ]);
     } catch {
       throw new BadRequestException("Bản sao lưu PostgreSQL không thể phục hồi hoặc đã bị hỏng.");
     }
@@ -133,40 +139,24 @@ export class DatabaseBackupService {
     }
   }
 
-  /** Chạy PostgreSQL utility không qua shell, giới hạn thời gian và trả stdout dạng Buffer. */
-  private runUtility(executable: string, args: string[], input?: Buffer): Promise<Buffer> {
+  /** Run utilities without a shell or buffered output; wait for process exit before scratch-file cleanup. */
+  private runUtility(executable: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(executable, args, {
         env: { ...process.env, PGPASSWORD: String(this.connection.password ?? "") },
         shell: false,
         windowsHide: true,
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: ["ignore", "ignore", "ignore"],
       });
-      const output: Buffer[] = [];
-      const errors: Buffer[] = [];
-      let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        child.kill();
-        reject(new ServiceUnavailableException(`PostgreSQL utility vượt quá giới hạn ${this.timeoutMs} ms.`));
-      }, this.timeoutMs);
-      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
-      child.stderr.on("data", (chunk: Buffer) => errors.push(chunk));
-      child.on("error", (error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(new ServiceUnavailableException(`Không chạy được PostgreSQL utility: ${error.message}`));
-      });
+      let timedOut = false;
+      let failed = false;
+      const timer = setTimeout(() => { timedOut = true; child.kill(); }, this.timeoutMs);
+      child.on("error", () => { failed = true; });
       child.on("close", (code) => {
-        if (settled) return;
-        settled = true;
         clearTimeout(timer);
-        if (code === 0) resolve(Buffer.concat(output));
-        else reject(new ServiceUnavailableException(Buffer.concat(errors).toString("utf8").trim() || `PostgreSQL utility kết thúc với mã ${code ?? "unknown"}.`));
+        if (!timedOut && !failed && code === 0) resolve();
+        else reject(new ServiceUnavailableException("PostgreSQL backup utility failed or timed out."));
       });
-      child.stdin.end(input);
     });
   }
 
@@ -199,7 +189,7 @@ export class DatabaseBackupService {
 
   /** Chặn identifier chứa ký tự có thể thoát khỏi ngữ cảnh tên database, bảng hoặc cột. */
   private assertIdentifier(value: string): void {
-    if (!/^[a-zA-Z0-9_]+$/.test(value)) throw new BadRequestException("Định danh database không hợp lệ.");
+    if (!/^[a-zA-Z0-9_]{1,63}$/.test(value)) throw new BadRequestException("Định danh database không hợp lệ.");
   }
 
   /** Quote identifier PostgreSQL chỉ sau khi đã xác thực whitelist ký tự. */
