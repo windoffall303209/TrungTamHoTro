@@ -150,7 +150,7 @@ export default function ClassDetailScreen() {
               {["INSTRUCTOR", "LEARNER"].includes(session.roleCode) ? (
                 <nav
                   aria-label="Không gian lớp"
-                  className="mb-7 grid gap-px border-y border-[var(--rule-strong)] bg-[var(--rule)] sm:grid-cols-2 lg:grid-cols-5"
+                  className="mb-5 grid grid-cols-2 gap-px border-y border-[var(--rule-strong)] bg-[var(--rule)] lg:grid-cols-5"
                 >
                   {[
                     {
@@ -180,7 +180,7 @@ export default function ClassDetailScreen() {
                     },
                   ].map(({ label, href, icon: Icon }) => (
                     <Link
-                      className="flex min-h-16 items-center gap-3 bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] hover:bg-[var(--surface-muted)]"
+                      className="flex min-h-12 items-center gap-2 bg-[var(--surface)] px-3 py-2 text-sm font-bold text-[var(--ink)] last:col-span-2 hover:bg-[var(--surface-muted)] lg:min-h-16 lg:last:col-span-1"
                       href={href}
                       key={label}
                     >
@@ -190,7 +190,7 @@ export default function ClassDetailScreen() {
                   ))}
                 </nav>
               ) : null}
-              <div className="grid gap-px border-y border-[var(--rule-strong)] bg-[var(--rule)] sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-px border-y border-[var(--rule-strong)] bg-[var(--rule)] lg:grid-cols-4">
                 {[
                   {
                     label: "Khai giảng",
@@ -211,20 +211,20 @@ export default function ClassDetailScreen() {
                   { label: "Múi giờ", value: item.timezone },
                 ].map((metric) => (
                   <div
-                    className="bg-[var(--surface)] px-5 py-5"
+                    className="min-w-0 bg-[var(--surface)] px-3 py-3 sm:px-5 sm:py-5"
                     key={metric.label}
                   >
                     <p className="text-xs font-bold text-[var(--ink-muted)]">
                       {metric.label}
                     </p>
-                    <p className="mt-1 text-lg font-extrabold tabular-nums text-[var(--ink)]">
+                    <p className="mt-1 break-words text-sm font-extrabold tabular-nums text-[var(--ink)] sm:text-lg">
                       {metric.value}
                     </p>
                   </div>
                 ))}
               </div>
               <div className="mt-7 grid gap-7 lg:grid-cols-[1fr_.85fr]">
-                <section className="border-y border-[var(--rule)] py-5">
+                <section className="order-2 border-y border-[var(--rule)] py-5 lg:order-none">
                   <h2 className="font-heading text-xl font-extrabold text-[var(--ink)]">
                     Thông tin lớp
                   </h2>
@@ -264,7 +264,45 @@ export default function ClassDetailScreen() {
                     Việc nên làm tiếp
                   </h2>
                   <ol className="mt-4 space-y-4 text-sm leading-6 text-[var(--ink-soft)]">
-                    {item.status === "DRAFT" ? (
+                    {!canManage ? (
+                      item.status === "ACTIVE" ? (
+                        <>
+                          <li>
+                            <Link
+                              className="font-bold text-[var(--accent-ink)] underline underline-offset-4"
+                              href={`/academic?classId=${encodeURIComponent(item.id)}`}
+                            >
+                              {session.roleCode === "LEARNER"
+                                ? "Xem lịch và bài tập của lớp"
+                                : "Theo dõi lịch dạy và bài tập"}
+                            </Link>
+                          </li>
+                          <li>
+                            <Link
+                              className="font-bold text-[var(--accent-ink)] underline underline-offset-4"
+                              href={`/exams?classId=${encodeURIComponent(item.id)}`}
+                            >
+                              {session.roleCode === "LEARNER"
+                                ? "Làm đề thi và xem kết quả"
+                                : "Quản lý đề thi của lớp"}
+                            </Link>
+                          </li>
+                          <li>
+                            <Link
+                              className="font-bold text-[var(--accent-ink)] underline underline-offset-4"
+                              href={`/materials?classId=${encodeURIComponent(item.id)}`}
+                            >
+                              Mở học liệu của lớp
+                            </Link>
+                          </li>
+                        </>
+                      ) : (
+                        <li>
+                          Lớp chưa hoạt động hoặc đã kết thúc. Bạn có thể xem
+                          thông tin lớp; liên hệ quản lý nếu cần hỗ trợ.
+                        </li>
+                      )
+                    ) : item.status === "DRAFT" ? (
                       <>
                         <li>
                           <strong className="text-[var(--ink)]">

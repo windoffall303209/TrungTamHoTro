@@ -21,6 +21,8 @@ export function useAcademicModel() {
   const { session, notify } = useApp();
 
   const searchParams = useSearchParams();
+  const [dataReady, setDataReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   const [classes, setClasses] = useState<LearningClass[]>([]);
 
@@ -98,6 +100,8 @@ export function useAcademicModel() {
   /** Nạp các lớp và dữ liệu học vụ tương ứng với vai trò, sau đó chọn lớp khả dụng đầu tiên. */
   const load = useCallback(async () => {
     if (!allowed) return;
+    setDataReady(false);
+    setLoadError("");
     try {
       const [classData, assignmentData, calendarData, announcementData] =
         await Promise.all([
@@ -150,7 +154,9 @@ export function useAcademicModel() {
             { roleCode: session.roleCode },
           ),
         );
+      setDataReady(true);
     } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Không tải được dữ liệu học vụ.");
       notify(
         error instanceof Error
           ? error.message
@@ -563,6 +569,9 @@ export function useAcademicModel() {
 
   const submissionPagination = usePagination(submissions);
   return {
+    dataReady,
+    loadError,
+    reload: load,
     session,
     classes,
     announcements,
