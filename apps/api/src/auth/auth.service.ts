@@ -194,7 +194,7 @@ export class AuthService {
       });
       if (!used.count) throw new UnauthorizedException("Mã khôi phục không chính xác hoặc đã được sử dụng.");
     } else {
-      const secret = decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret);
+      const secret = await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret);
       if (!verifyTotp(secret, code)) throw new UnauthorizedException("Mã xác thực không chính xác hoặc đã hết hạn.");
     }
     await this.consumeAccountToken(challenge.id);
@@ -534,7 +534,7 @@ export class AuthService {
     if (user.mfaEnabledAt) throw new ConflictException("MFA đã được bật cho tài khoản.");
     if (user.googleSubject) await this.consumeSecurityEmailCode(userId, "MFA_SETUP_OTP", challengeId, code);
     const secret = createMfaSecret();
-    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecretEncrypted: encryptMfaSecret(secret, this.encryptionSecret) } });
+    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecretEncrypted: await encryptMfaSecret(secret, this.encryptionSecret) } });
     return { secret, otpauthUri: createTotpUri(secret, user.username, this.issuer) };
   }
 
@@ -542,7 +542,7 @@ export class AuthService {
   async confirmMfa(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted) throw new BadRequestException("Hãy khởi tạo cấu hình MFA trước.");
-    if (!verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new BadRequestException("Mã xác thực không chính xác.");
+    if (!verifyTotp(await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new BadRequestException("Mã xác thực không chính xác.");
     const recoveryCodes = createRecoveryCodes();
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: new Date() } }),
@@ -567,7 +567,7 @@ export class AuthService {
     if (challenge.userId !== userId) throw new UnauthorizedException("Phiên tắt xác thực hai bước không hợp lệ.");
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted || !user.mfaEnabledAt) throw new BadRequestException("MFA chưa được bật.");
-    if (!verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new UnauthorizedException("Mã xác thực không chính xác.");
+    if (!verifyTotp(await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new UnauthorizedException("Mã xác thực không chính xác.");
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: null, mfaSecretEncrypted: null } }),
       this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),

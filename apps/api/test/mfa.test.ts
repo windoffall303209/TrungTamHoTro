@@ -8,13 +8,13 @@ describe("MFA TOTP", () => {
     expect(verifyTotp(rfcSecret, "000000", 59_000)).toBe(false);
   });
 
-  it("mã hóa bí mật MFA có xác thực và giải mã đúng khóa", () => {
+  it("mã hóa bí mật MFA có xác thực và giải mã đúng khóa", async () => {
     const secret = createMfaSecret();
     const key = "test-auth-encryption-secret-at-least-32-characters";
-    const encrypted = encryptMfaSecret(secret, key);
+    const encrypted = await encryptMfaSecret(secret, key);
     expect(encrypted).not.toContain(secret);
-    expect(decryptMfaSecret(encrypted, key)).toBe(secret);
-    expect(() => decryptMfaSecret(encrypted, `${key}-wrong`)).toThrow();
+    expect(await decryptMfaSecret(encrypted, key)).toBe(secret);
+    await expect(decryptMfaSecret(encrypted, `${key}-wrong`)).rejects.toThrow();
   });
 
   it("tạo mã khôi phục duy nhất đúng định dạng", () => {
