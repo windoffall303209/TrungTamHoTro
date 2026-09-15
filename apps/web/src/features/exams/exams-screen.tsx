@@ -1,6 +1,7 @@
 "use client";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { RequestError } from "@/components/request-error";
 import { QuestionImage } from "@/components/question-image";
 import { SectionState } from "@/components/section-state";
 import {
@@ -82,7 +83,11 @@ export default function ExamsScreen() {
       <PageHeader
         eyebrow="Assessment Workflow"
         title="Đề thi & kết quả"
-        description="Thiết kế, công bố, làm bài và chấm điểm theo cùng một vòng đời dữ liệu."
+        description={
+          learner
+            ? "Làm các đề đã được công bố và theo dõi kết quả học tập của bạn."
+            : "Thiết kế, công bố và theo dõi kết quả đánh giá của lớp."
+        }
         actions={
           instructor ? (
             <div className="flex flex-wrap gap-2">
@@ -98,6 +103,7 @@ export default function ExamsScreen() {
           ) : undefined
         }
       />
+      <RequestError message={model.loadError} retry={() => void model.reload()} />
       {attempt ? (
         <section className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -260,7 +266,22 @@ export default function ExamsScreen() {
       ) : null}
       {!learner || learnerView === "exams" ? (
         <>
-          <SectionState loading={loading} empty={visibleItems.length === 0}>
+          <SectionState
+            loading={loading}
+            empty={visibleItems.length === 0}
+            emptyTitle={
+              learner
+                ? "Chưa có đề được công bố"
+                : "Chưa có đề thi trong phạm vi này"
+            }
+            emptyDescription={
+              learner
+                ? "Đề thi sẽ xuất hiện khi giảng viên công bố cho lớp của bạn."
+                : instructor
+                  ? "Tạo đề thủ công hoặc dùng AI, sau đó kiểm tra nội dung trước khi gửi duyệt."
+                  : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
+            }
+          >
             <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
               {pagination.pageItems.map((item) => (
                 <article

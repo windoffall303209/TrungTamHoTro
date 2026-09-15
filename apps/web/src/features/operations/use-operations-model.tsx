@@ -3,7 +3,7 @@ import { usePagination } from "@/components/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Audit,
   Backup,
@@ -40,6 +40,9 @@ export function useOperationsModel() {
   const [policy, setPolicy] = useState<Policy | null>(null);
 
   const [query, setQuery] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [auditError, setAuditError] = useState("");
+  const auditSequence = useRef(0);
 
   const [auditFilter, setAuditFilter] = useState({
     actor: "",
@@ -110,9 +113,11 @@ export function useOperationsModel() {
     body: "",
   });
 
-  /** Nạp song song toàn bộ dữ liệu vận hành để tránh chuỗi request tuần tự không cần thiết. */
-  const load = useCallback(async () => {
+  /** Tìm nhật ký độc lập để không tải lại mọi phân hệ hoặc ghi đè form khi gõ bộ lọc. */
+  const loadAudit = useCallback(async () => {
     if (!canConfigure) return;
+    const sequence = ++auditSequence.current;
+    setAuditError("");
     try {
       const params = new URLSearchParams({ query, ...auditFilter });
       if (auditFilter.from)
@@ -120,8 +125,27 @@ export function useOperationsModel() {
       if (auditFilter.to) params.set("to", `${auditFilter.to}T23:59:59.999Z`);
       for (const [key, value] of [...params.entries()])
         if (!value) params.delete(key);
+      const data = await apiRequest<Audit[]>(
+        `/system/audit?${params.toString()}`,
+        { roleCode: session.roleCode },
+      );
+      if (sequence === auditSequence.current) setAudit(data);
+    } catch (error) {
+      if (sequence === auditSequence.current)
+        setAuditError(
+          error instanceof Error
+            ? error.message
+            : "Không tải được nhật ký hoạt động.",
+        );
+    }
+  }, [auditFilter, canConfigure, query, session.roleCode]);
+
+  /** Nạp dữ liệu vận hành; bộ lọc nhật ký không kích hoạt lại các request này. */
+  const load = useCallback(async (refreshPolicy = true) => {
+    if (!canConfigure) return;
+    setLoadError("");
+    try {
       const [
-        auditData,
         backupData,
         exportData,
         restoreData,
@@ -134,9 +158,6 @@ export function useOperationsModel() {
         cleanupData,
         outboxData,
       ] = await Promise.all([
-        apiRequest<Audit[]>(`/system/audit?${params.toString()}`, {
-          roleCode: session.roleCode,
-        }),
         apiRequest<Backup[]>("/system/backups", {
           roleCode: session.roleCode,
         }),
@@ -149,9 +170,9 @@ export function useOperationsModel() {
         apiRequest<Template[]>("/system/notification-templates", {
           roleCode: session.roleCode,
         }),
-        apiRequest<Policy>("/system/moderation-policy", {
+        refreshPolicy ? apiRequest<Policy>("/system/moderation-policy", {
           roleCode: session.roleCode,
-        }),
+        }) : Promise.resolve(null),
         apiRequest<RetentionPolicy[]>("/system/retention-policies", {
           roleCode: session.roleCode,
         }),
@@ -172,12 +193,11 @@ export function useOperationsModel() {
           roleCode: session.roleCode,
         }),
       ]);
-      setAudit(auditData);
       setBackups(backupData);
       setExports(exportData);
       setRestores(restoreData);
       setTemplates(templateData);
-      setPolicy(policyData);
+      if (policyData) setPolicy(policyData);
       setRetentionPolicies(retentionPolicyData);
       setRetentionJobs(retentionJobData);
       setLegalHolds(legalHoldData);
@@ -185,6 +205,11 @@ export function useOperationsModel() {
       setCleanupFailures(cleanupData);
       setOutboxStats(outboxData);
     } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Không tải được dữ liệu vận hành.",
+      );
       notify(
         error instanceof Error
           ? error.message
@@ -192,7 +217,15 @@ export function useOperationsModel() {
         "error",
       );
     }
-  }, [auditFilter, canConfigure, notify, query, session.roleCode]);
+  }, [canConfigure, notify, session.roleCode]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadAudit(), 250);
+    return () => {
+      window.clearTimeout(timer);
+      auditSequence.current += 1;
+    };
+  }, [loadAudit]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
@@ -204,7 +237,7 @@ export function useOperationsModel() {
       (item) => item.status === "PENDING" || item.status === "RUNNING",
     );
     if (!hasActiveJobs) return;
-    const timer = window.setInterval(() => void load(), 5_000);
+    const timer = window.setInterval(() => void load(false), 5_000);
     return () => window.clearInterval(timer);
   }, [backups, exports, load, retentionJobs]);
 
@@ -592,6 +625,10 @@ export function useOperationsModel() {
     }
   };
   return {
+    loadError,
+    auditError,
+    reload: load,
+    reloadAudit: loadAudit,
     session,
     canConfigure,
     audit,

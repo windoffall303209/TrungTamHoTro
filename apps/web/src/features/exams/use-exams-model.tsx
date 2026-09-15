@@ -15,6 +15,13 @@ import type {
   Question,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
+import {
+  readSessionDraft,
+  removeSessionDraft,
+  writeSessionDraft,
+} from "@/lib/session-drafts";
+import { isExamEditorDraft } from "./exam-draft";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -29,6 +36,7 @@ import {
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình đề thi; giữ nguyên thứ tự hook. */
 export function useExamsModel() {
   const { session, notify } = useApp();
+  const { t } = useI18n();
 
   const searchParams = useSearchParams();
 
@@ -92,6 +100,7 @@ export function useExamsModel() {
   >("IDLE");
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   const [open, setOpen] = useState(false);
 
@@ -125,7 +134,71 @@ export function useExamsModel() {
 
   const [aiConfig, setAiConfig] = useState(blankAiConfig);
 
+  const editorDrafts = useRef(
+    new Map<string, { form: typeof blank; aiConfig: typeof blankAiConfig }>(),
+  );
+  const editorKey = `${session.user.id}:${session.roleCode}:${editingExam ? `${editingExam.id}:${editingExam.version}` : createMode}`;
+  const storageWarning = useRef(false);
+
+  // Ghi sau mỗi thay đổi để chuyển trang, tải lại hoặc hết phiên không làm mất nội dung trong tab.
+  useEffect(() => {
+    if (!open || !session.user.id) return;
+    const draft = { form, aiConfig };
+    editorDrafts.current.set(editorKey, draft);
+    if (!writeSessionDraft(editorKey, draft) && !storageWarning.current) {
+      storageWarning.current = true;
+      notify(
+        "Trình duyệt không lưu được bản nháp. Hãy lưu đề trước khi rời trang.",
+        "error",
+      );
+    }
+  }, [open, editorKey, form, aiConfig, notify, session.user.id]);
+
+  /** Giữ nội dung riêng cho từng đề/chế độ khi tạm đóng trong tab hiện tại. */
+  const closeEditor = () => {
+    if (saving) return;
+    editorDrafts.current.set(editorKey, { form, aiConfig });
+    setOpen(false);
+  };
+
+  /** Chỉ bỏ nội dung đang soạn sau khi người dùng xác nhận rõ ràng. */
+  const discardEditor = () => {
+    if (
+      saving ||
+      !window.confirm(
+        t("Bỏ nội dung đang soạn? Thao tác này không thể hoàn tác."),
+      )
+    )
+      return;
+    editorDrafts.current.delete(editorKey);
+    removeSessionDraft(editorKey);
+    setForm(blank);
+    setAiConfig({
+      ...blankAiConfig,
+      providerId: aiConfig.providerId,
+      model: aiConfig.model,
+    });
+    setEditingExam(null);
+    setOpen(false);
+  };
+
+  // Cảnh báo khi tải lại hoặc đóng tab có nội dung đang soạn chưa được lưu lên máy chủ.
+  useEffect(() => {
+    const hasDraft =
+      editorDrafts.current.size > 0 ||
+      (open && (form !== blank || aiConfig.focus.trim() !== ""));
+    if (!hasDraft || !storageWarning.current) return;
+    /** Cho trình duyệt yêu cầu xác nhận trước khi rời trang có bản nháp chưa lưu. */
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [open, form, aiConfig]);
+
   const aiSubmitting = useRef(false);
+  const manualSubmitting = useRef(false);
 
   const [aiProviders, setAiProviders] = useState<AiProviderSummary[]>([]);
 
@@ -195,6 +268,7 @@ export function useExamsModel() {
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
+    setLoadError("");
     try {
       const [exams, classData, questionData, resultData, providerData] =
         await Promise.all([
@@ -247,6 +321,9 @@ export function useExamsModel() {
       notify(
         error instanceof Error ? error.message : "Không tải được đề thi.",
         "error",
+      );
+      setLoadError(
+        error instanceof Error ? error.message : "Không tải được đề thi.",
       );
     } finally {
       setLoading(false);
@@ -320,6 +397,8 @@ export function useExamsModel() {
   /** Tạo đề từ các câu hỏi đã chọn, giữ thứ tự gốc và cấu hình xáo trộn riêng. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (manualSubmitting.current) return;
+    manualSubmitting.current = true;
     setSaving(true);
     try {
       await apiRequest(
@@ -342,6 +421,8 @@ export function useExamsModel() {
         },
       );
       notify(editingExam ? "Đã cập nhật đề nháp." : "Đã tạo đề thi bản nháp.");
+      editorDrafts.current.delete(editorKey);
+      removeSessionDraft(editorKey);
       setOpen(false);
       setEditingExam(null);
       setForm(blank);
@@ -352,6 +433,7 @@ export function useExamsModel() {
         "error",
       );
     } finally {
+      manualSubmitting.current = false;
       setSaving(false);
     }
   };
@@ -412,6 +494,8 @@ export function useExamsModel() {
       );
       setOpen(false);
       setForm(blank);
+      editorDrafts.current.delete(editorKey);
+      removeSessionDraft(editorKey);
       setAiConfig((current) => ({
         ...blankAiConfig,
         providerId: current.providerId,
@@ -432,8 +516,18 @@ export function useExamsModel() {
 
   /** Mở hộp tạo đề ở chế độ thường hoặc AI và giữ provider đã chọn. */
   const openCreate = (mode: "MANUAL" | "AI") => {
+    const key = `${session.user.id}:${session.roleCode}:${mode}`;
+    const draft =
+      editorDrafts.current.get(key) ?? readSessionDraft(key, isExamEditorDraft);
     setEditingExam(null);
-    setForm(blank);
+    setForm(draft?.form ?? blank);
+    setAiConfig(
+      draft?.aiConfig ?? {
+        ...blankAiConfig,
+        providerId: aiConfig.providerId,
+        model: aiConfig.model,
+      },
+    );
     setCreateMode(mode);
     setQuestionQuery("");
     setOpen(true);
@@ -441,24 +535,29 @@ export function useExamsModel() {
 
   /** Nạp toàn bộ cấu hình đề nháp vào biểu mẫu chỉnh sửa. */
   const openEdit = (item: LearnerExam) => {
+    const key = `${session.user.id}:${session.roleCode}:${item.id}:${item.version}`;
+    const draft =
+      editorDrafts.current.get(key) ?? readSessionDraft(key, isExamEditorDraft);
     setEditingExam(item);
     setCreateMode("MANUAL");
     setQuestionQuery("");
-    setForm({
-      classId: item.classId,
-      title: item.title,
-      questionIds: [...item.questionIds],
-      durationMinutes: item.durationMinutes,
-      totalScore: item.totalScore,
-      openAt: toLocalDateTimeInput(item.openAt),
-      closeAt: toLocalDateTimeInput(item.closeAt),
-      attemptLimit: item.attemptLimit,
-      shuffleQuestions: item.shuffleQuestions ?? false,
-      randomSeed: item.randomSeed ?? "wind-exam-2026",
-      scoreAllocations:
-        item.questionScores ??
-        distributeScores(item.questionIds, item.totalScore),
-    });
+    setForm(
+      draft?.form ?? {
+        classId: item.classId,
+        title: item.title,
+        questionIds: [...item.questionIds],
+        durationMinutes: item.durationMinutes,
+        totalScore: item.totalScore,
+        openAt: toLocalDateTimeInput(item.openAt),
+        closeAt: toLocalDateTimeInput(item.closeAt),
+        attemptLimit: item.attemptLimit,
+        shuffleQuestions: item.shuffleQuestions ?? false,
+        randomSeed: item.randomSeed ?? "wind-exam-2026",
+        scoreAllocations:
+          item.questionScores ??
+          distributeScores(item.questionIds, item.totalScore),
+      },
+    );
     setOpen(true);
   };
 
@@ -805,8 +904,12 @@ export function useExamsModel() {
     remainingSeconds,
     autosaveStatus,
     loading,
+    loadError,
+    reload: load,
     open,
     setOpen,
+    closeEditor,
+    discardEditor,
     editingExam,
     setEditingExam,
     createMode,

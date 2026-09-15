@@ -1,6 +1,7 @@
 "use client";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { RequestError } from "@/components/request-error";
 import {
   Button,
   Field,
@@ -21,10 +22,16 @@ import {
 } from "lucide-react";
 import { operationalStatusText, Policy } from "./operations.shared";
 import { useOperationsModel } from "./use-operations-model";
+import { useState } from "react";
+import {
+  OperationsNavigation,
+  type OperationsView,
+} from "./operations-navigation";
 
 /** Lắp ghép màn hình vận hành từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function OperationsScreen() {
   const model = useOperationsModel();
+  const [view, setView] = useState<OperationsView>("monitoring");
   const {
     session,
     canConfigure,
@@ -93,20 +100,30 @@ export default function OperationsScreen() {
         title="Vận hành và tuân thủ"
         description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
       />
-      <div className="grid gap-7 xl:grid-cols-2">
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <div className="flex items-center justify-between">
+      <OperationsNavigation value={view} onChange={setView} />
+      <RequestError
+        message={model.loadError}
+        retry={() => void model.reload()}
+      />
+      <div className="grid gap-7">
+        <section
+          hidden={view !== "monitoring"}
+          className="order-2 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <FileClock className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">Audit log</h2>
+              <h2 className="font-heading text-xl font-extrabold">
+                Nhật ký hoạt động
+              </h2>
             </div>
             <div className="relative w-48">
               <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-soft)]"
                 size={15}
               />
               <input
-                aria-label="Tìm audit log"
+                aria-label="Tìm nhật ký hoạt động"
                 className={`${inputClass} pl-9`}
                 placeholder="Tìm sự kiện…"
                 value={query}
@@ -114,56 +131,105 @@ export default function OperationsScreen() {
               />
             </div>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <input
-              aria-label="Lọc actor"
-              className={inputClass}
-              placeholder="Actor"
-              value={auditFilter.actor}
-              onChange={(event) =>
-                setAuditFilter({ ...auditFilter, actor: event.target.value })
-              }
-            />
-            <input
-              aria-label="Lọc action"
-              className={inputClass}
-              placeholder="Action"
-              value={auditFilter.action}
-              onChange={(event) =>
-                setAuditFilter({ ...auditFilter, action: event.target.value })
-              }
-            />
-            <input
-              aria-label="Lọc target"
-              className={inputClass}
-              placeholder="Target"
-              value={auditFilter.target}
-              onChange={(event) =>
-                setAuditFilter({ ...auditFilter, target: event.target.value })
-              }
-            />
-            <input
-              aria-label="Audit từ ngày"
-              className={inputClass}
-              type="date"
-              value={auditFilter.from}
-              onChange={(event) =>
-                setAuditFilter({ ...auditFilter, from: event.target.value })
-              }
-            />
-            <input
-              aria-label="Audit đến ngày"
-              className={inputClass}
-              type="date"
-              value={auditFilter.to}
-              onChange={(event) =>
-                setAuditFilter({ ...auditFilter, to: event.target.value })
-              }
-            />
+          <details className="mt-4 border-y border-[var(--rule)] py-2">
+            <summary className="min-h-11 cursor-pointer py-3 text-sm font-bold text-[var(--ink)]">
+              Bộ lọc chi tiết
+            </summary>
+            <div className="grid gap-3 pb-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Người thực hiện">
+                <input
+                  aria-label="Lọc người thực hiện"
+                  className={inputClass}
+                  placeholder="Tên hoặc mã người dùng"
+                  value={auditFilter.actor}
+                  onChange={(event) =>
+                    setAuditFilter({
+                      ...auditFilter,
+                      actor: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Hành động">
+                <input
+                  aria-label="Lọc hành động"
+                  className={inputClass}
+                  placeholder="Mã hành động"
+                  value={auditFilter.action}
+                  onChange={(event) =>
+                    setAuditFilter({
+                      ...auditFilter,
+                      action: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Đối tượng">
+                <input
+                  aria-label="Lọc đối tượng"
+                  className={inputClass}
+                  placeholder="Tên hoặc mã đối tượng"
+                  value={auditFilter.target}
+                  onChange={(event) =>
+                    setAuditFilter({
+                      ...auditFilter,
+                      target: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Từ ngày">
+                <input
+                  aria-label="Audit từ ngày"
+                  className={inputClass}
+                  type="date"
+                  value={auditFilter.from}
+                  onChange={(event) =>
+                    setAuditFilter({ ...auditFilter, from: event.target.value })
+                  }
+                />
+              </Field>
+              <Field label="Đến ngày">
+                <input
+                  aria-label="Audit đến ngày"
+                  className={inputClass}
+                  type="date"
+                  value={auditFilter.to}
+                  onChange={(event) =>
+                    setAuditFilter({ ...auditFilter, to: event.target.value })
+                  }
+                />
+              </Field>
+              <Button
+                onClick={() =>
+                  setAuditFilter({
+                    actor: "",
+                    action: "",
+                    target: "",
+                    from: "",
+                    to: "",
+                  })
+                }
+                variant="ghost"
+              >
+                Xóa bộ lọc
+              </Button>
+            </div>
+          </details>
+          <div className="mt-3 flex justify-end">
             <Button onClick={() => void exportAudit()} variant="secondary">
-              Xuất audit
+              Xuất nhật ký
             </Button>
           </div>
+          <RequestError
+            message={model.auditError}
+            retry={() => void model.reloadAudit()}
+          />
+          {!model.auditError && !auditPagination.totalItems ? (
+            <p className="mt-5 text-sm text-[var(--ink-soft)]">
+              Không có hoạt động phù hợp với bộ lọc hiện tại.
+            </p>
+          ) : null}
           <div className="mt-5 max-h-80 divide-y divide-slate-100 overflow-y-auto">
             {auditPagination.pageItems.map((item) => (
               <div className="py-3" key={item.id}>
@@ -171,12 +237,12 @@ export default function OperationsScreen() {
                   <p className="text-xs font-extrabold text-sky-700">
                     {item.action}
                   </p>
-                  <time className="text-[10px] text-slate-400">
+                  <time className="text-xs text-[var(--ink-soft)]">
                     {new Date(item.createdAt).toLocaleString(activeLocale())}
                   </time>
                 </div>
                 <p className="mt-1 text-sm font-semibold">{item.target}</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-[var(--ink-soft)]">
                   {item.actor} · {item.detail}
                 </p>
               </div>
@@ -191,7 +257,10 @@ export default function OperationsScreen() {
             totalItems={auditPagination.totalItems}
           />
         </section>
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section
+          hidden={view !== "data"}
+          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -203,7 +272,7 @@ export default function OperationsScreen() {
               Yêu cầu khôi phục
             </Button>
             <Button onClick={() => void runBackup()} variant="secondary">
-              Backup FULL
+              Sao lưu toàn bộ
             </Button>
             <Button onClick={() => void exportData()}>Xuất dữ liệu CSV</Button>
           </div>
@@ -217,7 +286,7 @@ export default function OperationsScreen() {
                   <p className="text-sm font-bold">
                     {item.type} · {item.checksum || operationalStatusText(item)}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-[var(--ink-soft)]">
                     {operationalStatusText(item)} ·{" "}
                     {new Date(item.createdAt).toLocaleString(activeLocale())}
                   </p>
@@ -271,7 +340,7 @@ export default function OperationsScreen() {
                       : "Khôi phục vận hành"}{" "}
                     · {item.status}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-[var(--ink-soft)]">
                     Yêu cầu bởi {item.requestedBy}
                     {item.approvedBy
                       ? ` · duyệt bởi ${item.approvedBy}`
@@ -323,7 +392,10 @@ export default function OperationsScreen() {
             ))}
           </div>
         </section>
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section
+          hidden={view !== "content"}
+          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <BellRing className="text-sky-700" />
@@ -349,11 +421,11 @@ export default function OperationsScreen() {
                   <StatusBadge status={item.status} />
                 </div>
                 <p className="mt-2 text-sm font-bold">{item.subject}</p>
-                <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                <p className="mt-1 line-clamp-2 text-xs text-[var(--ink-soft)]">
                   {item.body}
                 </p>
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-[10px] font-bold text-slate-400">
+                  <p className="text-xs font-bold text-[var(--ink-soft)]">
                     Phiên bản {item.version}
                   </p>
                   <Button
@@ -375,7 +447,10 @@ export default function OperationsScreen() {
             totalItems={templatePagination.totalItems}
           />
         </section>
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section
+          hidden={view !== "content"}
+          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
@@ -433,7 +508,7 @@ export default function OperationsScreen() {
                 </Field>
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[var(--ink-soft)]">
                   Phiên bản {policy.version}
                 </p>
                 <Button onClick={() => void savePolicy()}>
@@ -445,11 +520,14 @@ export default function OperationsScreen() {
             <div className="mt-5 h-52 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section
+          hidden={view !== "data"}
+          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
             <h2 className="font-heading text-xl font-extrabold">
-              Retention & legal hold
+              Lưu giữ và bảo toàn dữ liệu
             </h2>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -520,15 +598,15 @@ export default function OperationsScreen() {
             <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center">
               <div>
                 <strong>{retentionPreview.estimatedRows}</strong>
-                <p className="text-xs text-slate-500">Đủ điều kiện</p>
+                <p className="text-xs text-[var(--ink-soft)]">Đủ điều kiện</p>
               </div>
               <div>
                 <strong>{retentionPreview.legalHoldRows}</strong>
-                <p className="text-xs text-slate-500">Legal hold</p>
+                <p className="text-xs text-[var(--ink-soft)]">Legal hold</p>
               </div>
               <div>
                 <strong>{retentionPreview.deletableRows}</strong>
-                <p className="text-xs text-slate-500">Sẽ xử lý</p>
+                <p className="text-xs text-[var(--ink-soft)]">Sẽ xử lý</p>
               </div>
             </div>
           ) : null}
@@ -610,7 +688,7 @@ export default function OperationsScreen() {
                   <p className="text-sm font-bold">
                     {item.category} · v{item.version} · {item.action}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-[var(--ink-soft)]">
                     {item.retentionDays} ngày · duyệt bởi {item.approvedBy}
                   </p>
                 </div>
@@ -620,7 +698,7 @@ export default function OperationsScreen() {
                   onClick={() => void runRetention(item)}
                   variant="ghost"
                 >
-                  Chạy job
+                  Chạy tác vụ
                 </Button>
               </div>
             ))}
@@ -674,16 +752,19 @@ export default function OperationsScreen() {
             ))}
           </div>
         </section>
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section
+          hidden={view !== "monitoring"}
+          className="order-first border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+        >
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-rose-600" />
             <h2 className="font-heading text-xl font-extrabold">
               Cảnh báo hệ thống
             </h2>
           </div>
-          <p className="mt-2 text-sm text-slate-500">
-            Chống trùng theo fingerprint, hỗ trợ nhận việc, im lặng tạm thời và
-            ghi thời điểm phục hồi.
+          <p className="mt-2 text-sm text-[var(--ink-soft)]">
+            Nhận xử lý cảnh báo, tạm dừng thông báo hoặc đánh dấu đã khôi phục.
+            Các cảnh báo trùng được tự động gộp.
           </p>
           <div className="mt-5 space-y-3">
             {alerts.length ? (
@@ -698,7 +779,7 @@ export default function OperationsScreen() {
                         {item.serviceName} · {item.severity}
                       </p>
                       <p className="mt-1 text-sm font-bold">{item.summary}</p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-[var(--ink-soft)]">
                         Phát hiện{" "}
                         {new Date(item.detectedAt).toLocaleString(
                           activeLocale(),

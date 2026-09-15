@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
+import { clearSessionDrafts } from "@/lib/session-drafts";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 import { isSupportedLocale } from "@/i18n/catalog";
 import { useI18n } from "@/providers/i18n-provider";
@@ -83,7 +84,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
-    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
+    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { clearSessionDrafts(); setSession(emptySession); }
   }, []);
   /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */
   const setRole = useCallback(async (role: RoleCode) => {

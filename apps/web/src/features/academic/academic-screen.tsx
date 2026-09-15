@@ -1,6 +1,7 @@
 "use client";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
+import { RequestError } from "@/components/request-error";
 import { SearchableSelect } from "@/components/searchable-select";
 import {
   Button,
@@ -36,6 +37,7 @@ import { useAcademicModel } from "./use-academic-model";
 export default function AcademicScreen() {
   const model = useAcademicModel();
   const {
+    dataReady,
     session,
     classes,
     announcements,
@@ -90,6 +92,7 @@ export default function AcademicScreen() {
   if (!allowed) return <AccessDenied />;
   return (
     <div className="workspace-enter mx-auto max-w-7xl px-4 py-8 md:px-7 md:py-10">
+      <RequestError message={model.loadError} retry={() => void model.reload()} />
       <PageHeader
         eyebrow="Học vụ"
         title="Bài tập & kết quả học tập"
@@ -273,6 +276,14 @@ export default function AcademicScreen() {
               <CalendarDays className="text-[var(--accent)]" size={21} />
               <h2 className="section-title">Lịch sắp tới</h2>
             </div>
+            {dataReady &&
+            !upcomingEvents.some(
+              (item) => !selectedClassId || item.classId === selectedClassId,
+            ) ? (
+              <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">
+                Không có lịch sắp tới trong phạm vi đã chọn.
+              </p>
+            ) : null}
             <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
               {upcomingEvents
                 .filter(
@@ -309,6 +320,14 @@ export default function AcademicScreen() {
               <Megaphone className="text-[var(--accent)]" size={21} />
               <h2 className="section-title">Thông báo lớp</h2>
             </div>
+            {dataReady &&
+            !announcements.some(
+              (item) => !selectedClassId || item.classId === selectedClassId,
+            ) ? (
+              <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">
+                Chưa có thông báo cho lớp đã chọn.
+              </p>
+            ) : null}
             <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
               {announcements
                 .filter(

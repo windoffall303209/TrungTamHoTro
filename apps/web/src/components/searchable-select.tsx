@@ -97,7 +97,7 @@ export function SearchableSelect({
           value={open ? query : selected?.label ?? ""}
         />
         {value && !disabled ? (
-          <button aria-label={`Bỏ chọn ${selected?.label ?? "lựa chọn"}`} className="absolute right-10 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); setQuery(""); setOpen(true); }} type="button"><X size={15} /></button>
+          <button aria-label={`Bỏ chọn ${selected?.label ?? "lựa chọn"}`} className="absolute right-10 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]" onMouseDown={(event) => event.preventDefault()} onClick={() => { onChange(""); setQuery(""); setOpen(true); }} type="button"><X size={15} /></button>
         ) : null}
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} />
       </div>

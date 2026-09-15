@@ -24,7 +24,6 @@ import {
   ShieldEllipsis,
   UserCheck,
   Users,
-  X,
   LogOut,
   UserRoundCog,
   ChevronDown,
@@ -40,6 +39,7 @@ import type { LearningNotification } from "@/lib/learning-types";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { MobileDrawer } from "@/components/mobile-drawer";
 import { useI18n } from "@/providers/i18n-provider";
 
 interface NavigationItem {
@@ -206,7 +206,7 @@ function Sidebar({ close }: { close?: () => void }) {
           <p className="font-heading text-lg font-bold tracking-[-0.025em]">
             Wind EDU
           </p>
-          <p className="text-[10px] font-bold tracking-[0.14em] text-[var(--nav-muted)] uppercase">
+          <p className="text-xs font-bold text-[var(--nav-muted)]">
             Sổ giáo vụ số
           </p>
         </div>
@@ -215,7 +215,7 @@ function Sidebar({ close }: { close?: () => void }) {
         aria-label="Điều hướng chính"
         className="flex-1 overflow-y-auto px-3 py-5"
       >
-        <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--nav-subtle)]">
+        <p className="mb-3 px-3 text-xs font-bold text-[var(--nav-subtle)]">
           Không gian chung
         </p>
         <div className="space-y-1">
@@ -299,22 +299,18 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }, [loadNotifications]);
 
   useEffect(() => {
-    if (!menuOpen && !notificationOpen && !profileOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    if (menuOpen) document.body.style.overflow = "hidden";
+    if (!notificationOpen && !profileOpen) return;
     /** Đóng các lớp nổi trên cùng bằng Escape để bảo đảm thao tác bàn phím nhất quán. */
     const closeOverlay = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setMenuOpen(false);
       setNotificationOpen(false);
       setProfileOpen(false);
     };
     document.addEventListener("keydown", closeOverlay);
     return () => {
       document.removeEventListener("keydown", closeOverlay);
-      document.body.style.overflow = previousOverflow;
     };
-  }, [menuOpen, notificationOpen, profileOpen]);
+  }, [notificationOpen, profileOpen]);
 
   // Đóng trung tâm thông báo khi người dùng bấm ra ngoài cả nút mở và bảng nội dung.
   useEffect(() => {
@@ -433,50 +429,46 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         <Sidebar />
       </aside>
       {menuOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            aria-label="Đóng menu"
-            className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm"
-            onClick={() => setMenuOpen(false)}
-            type="button"
-          />
-          <aside
-            aria-label="Điều hướng trên thiết bị di động"
-            className="relative h-full w-72 animate-slide-in shadow-2xl"
-          >
-            <button
-              aria-label="Đóng menu"
-              className="absolute right-3 top-3 z-10 grid size-11 place-items-center rounded-xl text-[var(--nav-muted)] hover:bg-[var(--surface)]/10"
-              onClick={() => setMenuOpen(false)}
-              type="button"
-            >
-              <X size={19} />
-            </button>
-            <Sidebar close={() => setMenuOpen(false)} />
-          </aside>
-        </div>
+        <MobileDrawer onClose={() => setMenuOpen(false)}>
+          <Sidebar close={() => setMenuOpen(false)} />
+        </MobileDrawer>
       ) : null}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--rule-strong)] bg-[var(--canvas)]/92 px-4 backdrop-blur md:px-7">
+        <a
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-2 focus:z-[90] focus:rounded-lg focus:bg-[var(--surface)] focus:p-3 focus:text-[var(--ink)]"
+          href="#workspace-main"
+        >
+          Đi tới nội dung chính
+        </a>
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-y-2 border-b border-[var(--rule-strong)] bg-[var(--canvas)]/92 px-4 py-2 backdrop-blur md:px-7">
           <div className="flex min-w-0 items-center gap-3">
             <button
               aria-label="Mở menu"
+              aria-expanded={menuOpen}
+              aria-haspopup="dialog"
               className="grid size-11 shrink-0 place-items-center rounded-lg border border-[var(--rule-strong)] text-[var(--ink)] lg:hidden"
-              onClick={() => setMenuOpen(true)}
+              onClick={() => {
+                setNotificationOpen(false);
+                setProfileOpen(false);
+                setMenuOpen(true);
+              }}
               type="button"
             >
               <Menu size={20} />
             </button>
             <div className="min-w-0 max-[359px]:hidden">
-              <p className="max-w-22 text-xs font-bold leading-4 text-[var(--ink)] sm:max-w-none sm:text-[1.05rem] sm:leading-5">
-                Trung tâm hỗ trợ giảng dạy
+              <p className="text-sm font-bold leading-5 text-[var(--ink)] sm:text-[1.05rem]">
+                <span className="sm:hidden">Wind EDU</span>
+                <span className="hidden sm:inline">
+                  Trung tâm hỗ trợ giảng dạy
+                </span>
               </p>
               <p className="mt-0.5 hidden text-[0.9rem] leading-[1.125rem] text-[var(--ink-soft)] sm:block">
                 Một không gian vận hành theo vai trò
               </p>
             </div>
           </div>
-          <div className="relative flex items-center gap-2 md:gap-3">
+          <div className="relative flex max-w-full flex-wrap items-center justify-end gap-2 md:gap-3">
             {session.availableRoles.length > 1 ? (
               <>
                 <label className="sr-only" htmlFor="role-switcher">
@@ -685,7 +677,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
-        <main>{children}</main>
+        <main id="workspace-main" tabIndex={-1}>
+          {children}
+        </main>
       </div>
     </div>
   );
