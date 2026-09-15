@@ -14,6 +14,7 @@ import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import {
   CreateUserDto,
+  UserListQueryDto,
   UpdatePermissionsBodyDto,
   UpdateRolePermissionsDto,
   UpdateUserDto,
@@ -37,8 +38,8 @@ export class IdentityController {
   @RequirePermissions("user:view")
   @ApiOperation({ summary: "Danh sách và tìm kiếm tài khoản" })
   /** Tìm tài khoản theo tên đăng nhập, họ tên hoặc email. */
-  listUsers(@Query("query") query?: string): Promise<IdentityUser[]> {
-    return this.identityService.listUsers(query);
+  listUsers(@Query() query: UserListQueryDto): ReturnType<IdentityService["listUsersPage"]> {
+    return this.identityService.listUsersPage(query);
   }
 
   @Post("users")

@@ -103,6 +103,7 @@ interface RetentionJob {
   skippedRows: number;
   requestedBy: string;
   approvedBy: string;
+  approvedAt?: string;
   createdAt: string;
   evidence: Record<string, unknown>;
   attempts: number;
@@ -164,13 +165,13 @@ export default function OperationsPage() {
   const [retentionPolicies, setRetentionPolicies] = useState<RetentionPolicy[]>(
     [],
   );
+  const [retentionBusy, setRetentionBusy] = useState<string | null>(null);
   const [retentionJobs, setRetentionJobs] = useState<RetentionJob[]>([]);
   const [legalHolds, setLegalHolds] = useState<LegalHold[]>([]);
   const [retentionForm, setRetentionForm] = useState({
     category: "LEARNING",
     retentionDays: 365,
     action: "ARCHIVE" as "ARCHIVE" | "DELETE",
-    approvedBy: "Trưởng quản trị",
   });
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
   const [cleanupFailures, setCleanupFailures] = useState<StorageCleanupFailure[]>([]);
@@ -398,29 +399,36 @@ export default function OperationsPage() {
   };
   /** Thực thi chính sách lưu trữ cụ thể và làm mới lịch sử chạy. */
   const runRetention = async (item: RetentionPolicy) => {
-    const approvedBy = window.prompt(
-      "Người phê duyệt thực thi (phải khác người yêu cầu)",
-      "Trưởng tuân thủ",
-    );
-    if (!approvedBy) return;
+    if (retentionBusy) return;
+    setRetentionBusy(item.id);
     try {
       await apiRequest("/system/retention-jobs", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
           policyId: item.id,
-          requestedBy: session.user.name,
-          approvedBy,
         }),
       });
-      notify("Đã xếp retention vào hàng đợi; bằng chứng xuất hiện sau khi worker hoàn tất.");
+      notify("Đã gửi yêu cầu. Một quản trị viên khác cần đăng nhập để phê duyệt.");
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không chạy được retention.",
         "error",
       );
-    }
+    } finally { setRetentionBusy(null); }
+  };
+  /** Xác nhận thao tác xóa/lưu trữ bằng phiên hiện tại và khóa nút trong khi gửi. */
+  const approveRetention = async (item: RetentionJob) => {
+    if (retentionBusy || !window.confirm("Phê duyệt xử lý dữ liệu theo chính sách này? Hành động có thể xóa dữ liệu đã hết hạn.")) return;
+    setRetentionBusy(item.id);
+    try {
+      await apiRequest(`/system/retention-jobs/${item.id}/approve`, { method: "POST", roleCode: session.roleCode });
+      notify("Đã phê duyệt bằng tài khoản hiện tại.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không phê duyệt được tác vụ.", "error");
+    } finally { setRetentionBusy(null); }
   };
   /** Xác minh archive và từng asset nhúng trước khi dùng làm bằng chứng phục hồi. */
   const verifyRetention = async (item: RetentionJob) => {
@@ -907,18 +915,7 @@ export default function OperationsPage() {
                 <option value="DELETE">Xóa theo chính sách</option>
               </select>
             </Field>
-            <Field label="Người phê duyệt">
-              <input
-                className={inputClass}
-                value={retentionForm.approvedBy}
-                onChange={(event) =>
-                  setRetentionForm({
-                    ...retentionForm,
-                    approvedBy: event.target.value,
-                  })
-                }
-              />
-            </Field>
+
           </div>
           <div className="mt-3 flex gap-2">
             <Button onClick={() => void previewRetention()} variant="secondary">
@@ -988,14 +985,19 @@ export default function OperationsPage() {
                     {item.retentionDays} ngày · duyệt bởi {item.approvedBy}
                   </p>
                 </div>
-                <Button onClick={() => void runRetention(item)} variant="ghost">
+                <Button disabled={Boolean(retentionBusy)} loading={retentionBusy === item.id} onClick={() => void runRetention(item)} variant="ghost">
                   Chạy job
                 </Button>
               </div>
             ))}
-            {retentionJobs.slice(0, 2).map((item) => (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-2 text-xs text-slate-700" key={item.id}>
-                <span>{operationalStatusText(item)} · xử lý {item.affectedRows}, giữ {item.skippedRows}</span>
+            {retentionJobs.map((item) => (
+              <div className="flex flex-col items-start justify-between gap-3 border-b border-[var(--rule)] py-3 text-sm text-[var(--ink)] sm:flex-row sm:flex-wrap sm:items-center" key={item.id}>
+                <div className="min-w-0 flex-1 break-words">
+                  <p className="font-bold">{String(item.evidence.category ?? item.policyId)} · {String(item.evidence.action ?? "")}</p>
+                  <p className="text-xs text-[var(--ink-soft)]">{item.requestedBy} · {typeof item.evidence.cutoffAt === "string" ? new Date(item.evidence.cutoffAt).toLocaleDateString(activeLocale()) : ""}</p>
+                  <p>{item.status === "PENDING" && !item.approvedAt ? "Chờ quản trị viên khác phê duyệt" : operationalStatusText(item)} · xử lý {item.affectedRows}, giữ {item.skippedRows}</p>
+                </div>
+                {item.status === "PENDING" && !item.approvedAt ? <Button disabled={Boolean(retentionBusy) || item.requestedBy === session.user.id} loading={retentionBusy === item.id} onClick={() => void approveRetention(item)} variant="secondary">Phê duyệt tác vụ</Button> : null}
                 {typeof item.evidence.archiveObjectKey === "string" ? <Button onClick={() => void verifyRetention(item)} variant="ghost">Kiểm tra phục hồi</Button> : null}
               </div>
             ))}

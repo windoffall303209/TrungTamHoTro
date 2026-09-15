@@ -115,6 +115,21 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
     }
   });
 
+  it("phân trang tài khoản tại server và từ chối tham số vượt giới hạn", async () => {
+    const cookie = cookies.get("admin") ?? "";
+    const response = await request(cookie, `/admin/users?pageSize=2&query=${fixtureSuffix.toUpperCase()}`);
+    expect(response.status).toBe(200);
+    const data = (response.body as ApiEnvelope<{ items: ApiItem[]; total: number }>).data;
+    expect(data.items).toHaveLength(2);
+    expect(data.total).toBe(6);
+    const next = await request(cookie, `/admin/users?page=2&pageSize=2&query=${fixtureSuffix}`);
+    const nextItems = (next.body as ApiEnvelope<{ items: ApiItem[] }>).data.items;
+    expect(nextItems.some((item) => data.items.some((first) => first.id === item.id))).toBe(false);
+    for (const query of ["page=0", "page=1.5", "pageSize=51", "pageSize=abc", `query=${"a".repeat(201)}`]) {
+      expect((await request(cookie, `/admin/users?${query}`)).status).toBe(400);
+    }
+  });
+
   it("cô lập toàn bộ không gian học tập giữa hai học viên", async () => {
     const paths = ["/classes", "/materials", "/exams", "/forum/topics", "/sessions"];
     for (const path of paths) {

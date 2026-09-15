@@ -3,13 +3,18 @@ import { config as loadEnvironment } from "dotenv";
 
 loadEnvironment({ path: "../../.env" });
 
+const testDatabase = process.env.WIND_TEST_DB_NAME ?? "trung_tam_giang_day_test";
+if (!/^[a-zA-Z0-9_]+_test$/.test(testDatabase) || testDatabase.length > 63) {
+  throw new Error("WIND_TEST_DB_NAME phải là database kiểm thử riêng có hậu tố _test.");
+}
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
-  use: { baseURL: "http://localhost:3000", trace: "retain-on-failure", screenshot: "only-on-failure" },
+  use: { baseURL: "http://localhost:3300", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     {
       name: "chromium-desktop",
@@ -23,17 +28,23 @@ export default defineConfig({
   webServer: [
     {
       command: "pnpm --dir ../.. dev:api",
-      url: "http://127.0.0.1:4000/api/v1/health",
-      reuseExistingServer: !process.env.CI,
+      url: "http://127.0.0.1:4400/api/v1/health",
+      reuseExistingServer: false,
       timeout: 120_000,
       env: {
+        API_PORT: "4400",
+        WEB_ORIGIN: "http://localhost:3300",
+        API_PREFIX: "api",
+        API_VERSION: "1",
+        STORAGE_PROVIDER: "local",
+        STORAGE_ROOT: "../../output/playwright/storage",
         DATABASE_CONNECT_ON_START: "true",
-        DB_NAME: process.env.WIND_TEST_DB_NAME ?? "trung_tam_giang_day_test",
+        DB_NAME: testDatabase,
         NODE_ENV: "test",
         RESEND_API_KEY: "",
         RESEND_FROM: "",
       },
     },
-    { command: "pnpm dev", url: "http://127.0.0.1:3000/login", reuseExistingServer: !process.env.CI, timeout: 120_000 },
+    { command: "pnpm exec next dev --port 3300", url: "http://127.0.0.1:3300/login", reuseExistingServer: false, timeout: 120_000, env: { NEXT_PUBLIC_API_URL: "http://localhost:4400/api/v1" } },
   ],
 });

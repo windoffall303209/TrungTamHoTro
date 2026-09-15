@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
@@ -20,7 +22,7 @@ type RetentionPrismaMocks = {
 
 /** Tạo Prisma mock đủ để kiểm tra phạm vi AI retention mà không cần database ngoài. */
 function createRetentionPrisma(): { prisma: PrismaService; mocks: RetentionPrismaMocks } {
-  const systemDelete = vi.fn().mockResolvedValue({ count: 2 });
+  const systemDelete = vi.fn().mockResolvedValue({ count: 1 });
   const gradingDelete = vi.fn().mockResolvedValue({ count: 1 });
   const studyDelete = vi.fn().mockResolvedValue({ count: 1 });
   const prisma = {
@@ -43,7 +45,7 @@ function createRetentionPrisma(): { prisma: PrismaService; mocks: RetentionPrism
       findMany: vi.fn().mockResolvedValue([{ id: "study-ready-unpublished", state: "READY", publishedAt: null, updatedAt: new Date("2025-01-01") }]),
       deleteMany: studyDelete,
     },
-    $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    $transaction: vi.fn(async (operation: (transaction: unknown) => Promise<unknown>) => operation(prisma)),
   };
   return { prisma: prisma as unknown as PrismaService, mocks: { ...prisma, systemDelete, gradingDelete, studyDelete } };
 }
@@ -62,27 +64,23 @@ describe("AI results retention", () => {
     const { prisma, mocks } = createRetentionPrisma();
     let archived: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     const storage = {
-      put: vi.fn((_key: string, content: Buffer) => {
+      putFile: vi.fn(async (_key: string, path: string) => {
+        const content = await readFile(path);
         archived = content;
         return Promise.resolve({ objectKey: "retention/ai_results/job-ai.json", checksum: `sha256:${createHash("sha256").update(content).digest("hex")}`, sizeBytes: content.length });
       }),
-      get: vi.fn(() => Promise.resolve(archived)),
+      openReadStream: vi.fn(() => Promise.resolve(Readable.from([archived]))),
       remove: vi.fn(),
     } as unknown as ObjectStorageService;
     const service = new SystemService(undefined, undefined, undefined, storage);
 
     await expect((service as unknown as RetentionInternals).executeRetention(prisma, "AI_RESULTS", "ARCHIVE", new Date("2026-01-01"), "job-ai")).resolves.toMatchObject({ affectedRows: 4 });
-    const archive = JSON.parse(archived.toString("utf8")) as { category: string; records: Array<{ entity: string; record: { key?: string; id?: string } }> };
-    expect(archive.category).toBe("AI_RESULTS");
-    expect(archive.records.map((item) => item.entity)).toEqual([
-      "system_setting_ai_result",
-      "system_setting_ai_result",
-      "ai_grading_suggestion",
-      "ai_study_draft",
-    ]);
-    expect(mocks.systemDelete).toHaveBeenCalledWith({ where: { key: { in: ["ai-doc:ready-legacy", "ai-doc-answer:ready"] } } });
-    expect(mocks.gradingDelete).toHaveBeenCalledWith({ where: { id: { in: ["grading-ready"] } } });
-    expect(mocks.studyDelete).toHaveBeenCalledWith({ where: { id: { in: ["study-ready-unpublished"] } } });
+    const lines = archived.toString("utf8").trim().split("\n").map((line) => JSON.parse(line) as { kind: string });
+    expect(lines[0]).toMatchObject({ category: "AI_RESULTS", version: 3 });
+    expect(lines.filter((line) => line.kind === "record")).toHaveLength(4);
+    expect(mocks.systemDelete).toHaveBeenCalledWith({ where: { key: "ai-doc:ready-legacy", updatedAt: new Date("2025-01-01") } });
+    expect(mocks.gradingDelete).toHaveBeenCalledWith({ where: { id: "grading-ready", state: "READY", updatedAt: new Date("2025-01-01") } });
+    expect(mocks.studyDelete).toHaveBeenCalledWith({ where: { id: "study-ready-unpublished", state: "READY", publishedAt: null, updatedAt: new Date("2025-01-01") } });
   });
 
   it("rejects retention categories without a matching executor", async () => {
