@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
-/** Issue a fresh script nonce and protect document responses without trusting client-supplied policy headers. */
+/** Tạo nonce mới cho script và bảo vệ phản hồi HTML; không tin các header chính sách do client gửi. */
 export function proxy(request: NextRequest) {
   const nonce = randomBytes(24).toString("base64");
   const isDev = process.env.NODE_ENV === "development";
@@ -9,7 +9,7 @@ export function proxy(request: NextRequest) {
   const policy = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
-    // React dynamic styles and KaTeX require inline CSS, but never inline JavaScript.
+    // Kiểu động của React và KaTeX cần CSS nội tuyến, nhưng không cho phép JavaScript nội tuyến.
     "style-src 'self' 'unsafe-inline'",
     `connect-src 'self' ${apiOrigin}${isDev ? " ws: wss:" : ""}`,
     `img-src 'self' ${apiOrigin} https: data: blob:`,
@@ -25,7 +25,7 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("Content-Security-Policy", policy);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", policy);
-  // Nonced HTML must not be reused by shared caches across requests.
+  // Không cho bộ nhớ đệm dùng chung tái sử dụng HTML có nonce giữa các yêu cầu.
   response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

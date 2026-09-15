@@ -10,7 +10,7 @@ type Entry = { id: string; question: string; language: "VI" | "EN" | "BILINGUAL"
 type Page = { items: Entry[]; nextCursor: string | null };
 const labels = { READY: "Đã lưu câu trả lời", GENERATING: "Đã bắt đầu xử lý", UNCERTAIN: "Chưa rõ kết quả" };
 
-/** Read private history on demand; selection restores input without creating a new AI request. */
+/** Chỉ đọc lịch sử riêng khi được yêu cầu; chọn lịch sử khôi phục đầu vào mà không gọi AI mới. */
 export function MaterialQuestionHistory({ materialId, version, disabled, onSelect }: { materialId: string; version: number; disabled: boolean; onSelect: (entry: Pick<Entry, "question" | "language"> & { version: number }) => void }) {
   const { session } = useApp();
   const [page, setPage] = useState<Page | null>(null);
@@ -22,7 +22,7 @@ export function MaterialQuestionHistory({ materialId, version, disabled, onSelec
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => { request.current?.abort(); request.current = null; }, []);
 
-  /** Bound read time and discard responses after unmount; never retry or generate automatically. */
+  /** Giới hạn thời gian đọc và bỏ phản hồi sau khi tháo component; không tự thử lại hoặc sinh nội dung. */
   async function load(next: string[]): Promise<void> {
     if (request.current || disabled || !validVersion) return;
     const controller = new AbortController(); request.current = controller;

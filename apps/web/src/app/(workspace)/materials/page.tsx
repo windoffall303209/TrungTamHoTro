@@ -67,7 +67,7 @@ export default function MaterialsPage() {
   const visibleItems = items;
   const pagination = { page, pageSize, totalItems, pageItems: items, setPage, setPageSize: (size: number) => { setPageSize(size); setPage(1); } };
 
-  /** Fetch only the visible page; cancel stale searches so slow responses cannot replace newer filters. */
+  /** Chỉ tải trang đang hiển thị; hủy tìm kiếm cũ để phản hồi chậm không ghi đè bộ lọc mới. */
   useEffect(() => {
     if (!allowed || !selectedCourseId) return;
     const controller = new AbortController();

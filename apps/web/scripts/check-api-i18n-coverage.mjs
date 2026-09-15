@@ -27,12 +27,14 @@ function normalize(value) {
 function extractExceptionMessages(path) {
   const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const values = [];
+  /** Thu thập chuỗi tiếng Việt từ nút cú pháp để kiểm tra bản dịch thông báo API. */
   const addLiteral = (node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const value = normalize(node.text);
       if (vietnamesePattern.test(value)) values.push(value);
     }
   };
+  /** Duyệt lệnh tạo ngoại lệ để thu thập thông báo cần có bản dịch. */
   const visit = (node) => {
     if (ts.isNewExpression(node) && /Exception$/.test(node.expression.getText(source))) {
       const first = node.arguments?.[0];
@@ -55,6 +57,7 @@ function extractExceptionMessages(path) {
 function catalogKeys() {
   const keys = new Set(existsSync(generatedCatalogPath) ? Object.keys(JSON.parse(readFileSync(generatedCatalogPath, "utf8"))) : []);
   const source = ts.createSourceFile(catalogPath, readFileSync(catalogPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  /** Duyệt cây cú pháp để thu thập khóa bản dịch đã khai báo. */
   const visit = (node) => {
     if (ts.isPropertyAssignment(node) && (ts.isStringLiteral(node.name) || ts.isNoSubstitutionTemplateLiteral(node.name))) keys.add(normalize(node.name.text));
     ts.forEachChild(node, visit);

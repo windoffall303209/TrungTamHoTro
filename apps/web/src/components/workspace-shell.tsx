@@ -319,6 +319,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   // Đóng trung tâm thông báo khi người dùng bấm ra ngoài cả nút mở và bảng nội dung.
   useEffect(() => {
     if (!notificationOpen) return;
+    /** Đóng danh sách thông báo khi người dùng nhấn bên ngoài vùng thông báo. */
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!notificationRef.current?.contains(event.target as Node))
         setNotificationOpen(false);

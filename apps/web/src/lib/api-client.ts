@@ -146,6 +146,7 @@ function previewPalette(): PreviewPalette {
   const root = document.documentElement;
   const styles = window.getComputedStyle(root);
   const bodyStyles = window.getComputedStyle(document.body);
+  /** Đọc giá trị biến CSS và dùng giá trị dự phòng khi giao diện chưa khai báo biến. */
   const read = (token: string, fallback: string) => styles.getPropertyValue(token).trim() || fallback;
   return {
     action: read("--action", "#102a43"),

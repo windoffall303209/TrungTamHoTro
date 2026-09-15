@@ -6,7 +6,7 @@ import type { RoleCode } from "@/lib/app-types";
 import type { Material } from "@/lib/learning-types";
 import { inputClass, Pagination } from "./ui";
 
-/** Load a bounded, cancellable material page for pickers and review queues. */
+/** Tải một trang học liệu có giới hạn và hỗ trợ hủy yêu cầu cho bộ chọn và hàng đợi duyệt. */
 export function useMaterialSearch(roleCode: RoleCode, filters: Record<string, string>, enabled: boolean, actorId: string) {
   const scope = JSON.stringify(filters);
   const [query, setQuery] = useState("");
@@ -19,6 +19,7 @@ export function useMaterialSearch(roleCode: RoleCode, filters: Record<string, st
   const pageScope = `${actorId}:${roleCode}:${scope}:${query}:${pageSize}`;
   const page = requested.scope === pageScope ? requested.page : 1;
   const key = `${pageScope}:${page}:${revision}`;
+  /** Tăng phiên tải để yêu cầu lại trang học liệu hiện tại. */
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
   useEffect(() => {
     if (!enabled) return;
@@ -45,7 +46,7 @@ export function useMaterialSearch(roleCode: RoleCode, filters: Record<string, st
   };
 }
 
-/** Reuse the established search and pagination controls without changing selection semantics. */
+/** Dùng lại điều khiển tìm kiếm và phân trang, giữ nguyên cách lựa chọn học liệu. */
 export function MaterialSearchControls({ search }: { search: ReturnType<typeof useMaterialSearch> }) {
   return <div className="my-3 space-y-2" aria-busy={search.loading}>
     <input aria-label="Tìm học liệu" className={inputClass} maxLength={255} onChange={(event) => search.setQuery(event.target.value)} placeholder="Tìm học liệu" value={search.query} />

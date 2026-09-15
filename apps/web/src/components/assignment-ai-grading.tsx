@@ -18,7 +18,7 @@ type Props = { assignment: Assignment; submission: AssignmentSubmission; onUse: 
 const OCR_TYPES: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i };
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** Mirror server attachment limits for immediate guidance; the server remains authoritative. */
+/** Hiển thị sớm giới hạn tệp đính kèm tương ứng với server; server vẫn quyết định tính hợp lệ. */
 function supportedAttachment(file: AssignmentSubmission["attachments"][number]): boolean {
   if (!Number.isFinite(file.sizeBytes) || file.sizeBytes <= 0) return false;
   if (file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)) return file.sizeBytes <= 80_000;
