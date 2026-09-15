@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { parseExamPageQuery, type ExamPage } from "./operations/learning-exam-page.js";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { MaterialUploadInterceptor } from "../infrastructure/material-upload.interceptor.js";
 import { readFileHead } from "../infrastructure/file-streams.js";
@@ -293,6 +294,12 @@ export class ContentController {
   @Get("exams") @RequirePermissions("exam:view")
   /** Liệt kê đề thi theo vai trò và quan hệ lớp. */
   listExams(@CurrentSession() session: AuthenticatedSession): Promise<LearningExam[]> { return this.learning.listExams(session.roleCode, session.user.id); }
+
+  @Get("exams/page") @RequirePermissions("exam:view")
+  /** Trả trang đề có giới hạn, kiểm tra query ở server và phạm vi truy cập trong truy vấn DB. */
+  listExamPage(@Query() query: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<ExamPage> {
+    return this.learning.listExamPage(session.roleCode, session.user.id, parseExamPageQuery(query));
+  }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
   /** Trả đề thi khả dụng và trạng thái lượt làm của học viên trong một lớp. */

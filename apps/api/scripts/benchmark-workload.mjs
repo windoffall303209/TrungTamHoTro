@@ -13,6 +13,7 @@ const { values } = parseArgs({ options: {
   concurrency: { type: "string", default: "10" }, iterations: { type: "string", default: "20" },
   label: { type: "string", default: "baseline" }, verbose: { type: "boolean", default: false },
   "fixture-exams": { type: "string", default: "0" },
+  paginated: { type: "boolean", default: false },
 }, strict: true });
 const concurrency = Number(values.concurrency);
 const iterations = Number(values.iterations);
@@ -97,7 +98,7 @@ async function worker(index) {
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       await measure("classes", "/classes", { headers });
       await measure(learner ? "learner-exams" : "instructor-exams",
-        learner ? "/learner/exams?page=1&pageSize=20" : "/exams?page=1&pageSize=20", { headers });
+        values.paginated ? "/exams/page?page=1&pageSize=20" : learner ? "/learner/exams?page=1&pageSize=20" : "/exams?page=1&pageSize=20", { headers });
     }
   } finally {
     await fetch(base + "/auth/logout", { method: "POST", headers, signal: AbortSignal.timeout(10_000) });
@@ -136,7 +137,7 @@ async function main() {
     const results = await Promise.allSettled(Array.from({ length: concurrency }, (_, index) => worker(index)));
     const seconds = (performance.now() - started) / 1000;
     const metrics = Object.fromEntries([...measurements].map(([name, samples]) => [name, summarize(samples)]));
-    const report = { label: values.label, database, examCount, concurrency, iterations, seconds, node: process.version,
+    const report = { label: values.label, database, examCount, paginated: values.paginated, concurrency, iterations, seconds, node: process.version,
       note: "Local API build, test DB; read workload with independent authenticated sessions; not a production capacity guarantee.",
       requestsPerSecond: [...measurements.values()].reduce((sum, items) => sum + items.length, 0) / seconds,
       failedWorkers: results.filter((result) => result.status === "rejected").map((result) => result.reason.message), metrics };
