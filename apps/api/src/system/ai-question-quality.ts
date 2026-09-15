@@ -5,6 +5,7 @@ import type { ScannedQuestionDraft } from "./ai-provider.service.js";
 export function assertAiQuestionQuality(questions: ScannedQuestionDraft[]): void {
   const seen = new Set<string>();
   for (const [index, question] of questions.entries()) {
+    /** Dừng xử lý câu hỏi AI không hợp lệ và trả lý do kèm vị trí câu hỏi. */
     const fail = (reason: string): never => { throw new ServiceUnavailableException(`Câu AI ${index + 1}: ${reason}. Kết quả chưa được lưu thành đề.`); };
     const normalized = question.content.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("vi-VN");
     if (normalized.length < 5) fail("nội dung quá ngắn");

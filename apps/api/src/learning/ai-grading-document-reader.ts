@@ -10,7 +10,7 @@ const DOCX_ENTRY_LIMIT = 8 * 1024 * 1024;
 const DOCX_TOTAL_LIMIT = 32 * 1024 * 1024;
 const DOCX_ENTRY_COUNT_LIMIT = 2_048;
 
-/** Inspect the ZIP directory without expanding entries so compressed bombs fail before DOCX parsing. */
+/** Kiểm tra danh mục ZIP mà không giải nén, chặn tệp nén phình lớn trước khi đọc DOCX. */
 function validateDocxArchive(buffer: Buffer): Promise<void> {
   return new Promise((resolve, reject) => {
     let archive: ZipFile | undefined;
@@ -18,6 +18,7 @@ function validateDocxArchive(buffer: Buffer): Promise<void> {
     let entries = 0;
     let total = 0;
     let hasDocument = false;
+    /** Kết thúc việc đọc tệp nén đúng một lần, đóng tài nguyên rồi trả kết quả hoặc lỗi. */
     const finish = (error?: Error): void => {
       if (settled) return;
       settled = true;
@@ -44,7 +45,7 @@ function validateDocxArchive(buffer: Buffer): Promise<void> {
   });
 }
 
-/** Extract DOCX text locally after bounded archive validation; no model or provider is resolved. */
+/** Trích xuất văn bản DOCX tại chỗ sau khi kiểm tra giới hạn tệp nén; không chọn mô hình hoặc nhà cung cấp. */
 async function readDocx(buffer: Buffer): Promise<string> {
   await validateDocxArchive(buffer);
   try {
@@ -57,16 +58,16 @@ async function readDocx(buffer: Buffer): Promise<string> {
   }
 }
 
-/** Signal that an explicit generation request may create OCR; ordinary status reads must stay provider-free. */
+/** Đánh dấu yêu cầu sinh nội dung được phép tạo OCR; đọc trạng thái thông thường không được gọi nhà cung cấp. */
 export class GradingExtractionMissingError extends ConflictException {
   constructor() { super("Bài nộp chưa có bản trích xuất đã lưu. Chỉ thao tác tạo gợi ý mới được phép gọi OCR."); }
 }
 
-/** Read private, version-bound OCR snapshots; the caller must verify teaching access before and after use. */
+/** Đọc bản lưu OCR riêng gắn với phiên bản; bên gọi phải kiểm tra quyền giảng dạy trước và sau khi dùng. */
 export class AiGradingDocumentReader {
   constructor(private readonly store: AiDocumentExtractionStore, private readonly ai: AiProviderService) {}
 
-  /** Parse DOCX locally or reuse persisted OCR; only explicit PDF/image generation contacts a provider. */
+  /** Đọc DOCX tại chỗ hoặc dùng lại OCR đã lưu; chỉ yêu cầu sinh rõ ràng cho PDF hoặc ảnh mới gọi nhà cung cấp. */
   async read(submissionId: string, ownerId: string, file: VerifiedGradingAttachment, allowGeneration = false): Promise<string> {
     if (!submissionId || !ownerId || !file.attachmentId || !Number.isSafeInteger(file.submissionRevision) || file.submissionRevision < 1 || !isGradingDocument(file.mimeType, file.fileName)) throw new BadRequestException("Nguồn trích xuất bài nộp không hợp lệ.");
     if (!file.buffer.length || file.buffer.length > 12 * 1024 * 1024 || file.checksum !== `sha256:${createHash("sha256").update(file.buffer).digest("hex")}`) throw new BadRequestException("Nguồn trích xuất bài nộp không hợp lệ.");

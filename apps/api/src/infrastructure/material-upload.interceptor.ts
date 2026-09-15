@@ -7,8 +7,9 @@ import { withTemporaryFile } from "./file-streams.js";
 let activeUploads = 0;
 
 @Injectable()
-/** Spool large material uploads to private disk with process-wide admission control and deterministic cleanup. */
+/** Ghi học liệu lớn xuống tệp riêng, giới hạn lượt tải đồng thời trong tiến trình và luôn dọn dẹp. */
 export class MaterialUploadInterceptor implements NestInterceptor {
+  /** Giới hạn tải lên đồng thời, ghi multipart vào tệp tạm và giải phóng tài nguyên sau xử lý. */
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return defer(async () => {
       if (activeUploads >= 2) throw new HttpException("Upload capacity reached. Please retry shortly.", 429);

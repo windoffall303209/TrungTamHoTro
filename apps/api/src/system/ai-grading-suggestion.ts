@@ -16,7 +16,7 @@ const outputSchema = z.object({
 export type GradingSuggestionInput = z.infer<typeof inputSchema>;
 export type GradingSuggestion = z.infer<typeof outputSchema> & { suggestedTotal: number | null; requiresHumanReview: true };
 
-/** Validate assignment rules before chargeable extraction, using the same schema as final grading input. */
+/** Kiểm tra quy tắc bài tập trước bước trích xuất có phí, dùng cùng lược đồ với đầu vào chấm bài. */
 export function validateGradingDefinition(raw: unknown): Pick<GradingSuggestionInput, "instructions" | "rubric"> {
   const parsed = inputSchema.pick({ instructions: true, rubric: true }).safeParse(raw);
   if (!parsed.success) throw new BadRequestException("Bài làm hoặc rubric cho gợi ý chấm AI không hợp lệ.");

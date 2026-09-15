@@ -31,7 +31,9 @@ import type {
   IdentityUser,
 } from "./identity.types.js";
 
+/** Lấy thời điểm hiện tại theo định dạng ISO để lưu và trả về nhất quán. */
 const now = (): string => new Date().toISOString();
+/** Nhận diện lỗi ràng buộc duy nhất của Prisma để chuyển thành thông báo nghiệp vụ. */
 const isUniqueConstraintError = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&

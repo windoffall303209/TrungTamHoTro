@@ -14,7 +14,7 @@ type Fixture = {
   email: { isConfigured: () => boolean; send: Mock<() => Promise<{ providerMessageId: string }>> };
 };
 
-/** Build a deterministic worker fixture without sending real email. */
+/** Tạo dữ liệu kiểm thử worker ổn định mà không gửi email thật. */
 function fixture(status = "PROCESSING", attempts = 1, ageMs = 0): Fixture {
   const candidate = { id: "job", recipientId: "recipient", dedupKey: "same-key", status, attempts, availableAt: new Date(0), event: { createdAt: new Date(Date.now() - ageMs), payload: { title: "Notice" } } };
   const updateMany = vi.fn<(input: Mutation) => Promise<{ count: number }>>().mockResolvedValue({ count: 1 });

@@ -16,6 +16,7 @@ if (unknownOptions.length) {
 }
 
 const checks = [];
+/** Ghi kết quả từng bước để tổng hợp báo cáo chẩn đoán cơ sở dữ liệu. */
 const record = (name, status, detail) => checks.push({ name, status, detail });
 const seedPassword = process.env.SEED_DEFAULT_PASSWORD ?? "";
 
@@ -81,6 +82,7 @@ try {
 
 finish(checks.some((check) => check.status === "FAILED") ? 1 : 0);
 
+/** Xuất báo cáo văn bản hoặc JSON và kết thúc bằng mã trạng thái tương ứng. */
 function finish(exitCode) {
   if (jsonOutput) console.log(JSON.stringify({ ok: exitCode === 0, checks }, null, 2));
   else {

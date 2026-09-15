@@ -142,7 +142,7 @@ export class DatabaseBackupService {
     }
   }
 
-  /** Run utilities without a shell or buffered output; wait for process exit before scratch-file cleanup. */
+  /** Chạy tiện ích không qua shell và không gom đầu ra vào bộ nhớ; đợi tiến trình thoát trước khi dọn tệp tạm. */
   private runUtility(executable: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(executable, args, {

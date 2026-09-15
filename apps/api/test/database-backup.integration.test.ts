@@ -13,13 +13,13 @@ describe.skipIf(!databaseEnabled || !utilitiesAvailable)("PostgreSQL backup and 
   let moduleRef: TestingModule;
   let service: DatabaseBackupService;
 
-  // Load the real PostgreSQL backup service against the dedicated test database.
+  // Nạp dịch vụ sao lưu PostgreSQL thật trên cơ sở dữ liệu kiểm thử riêng.
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     service = moduleRef.get(DatabaseBackupService);
   });
 
-  // Close application resources after the temporary restore database has been removed.
+  // Đóng tài nguyên ứng dụng sau khi đã xóa cơ sở dữ liệu khôi phục tạm.
   afterAll(async () => {
     await moduleRef?.close();
   });

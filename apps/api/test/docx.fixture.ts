@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 
-/** Build a minimal valid DOCX fixture containing caller-provided OOXML body content. */
+/** Tạo DOCX tối thiểu hợp lệ chứa phần nội dung OOXML do ca kiểm thử cung cấp. */
 export async function docxFixture(documentBody = "<w:p><w:r><w:t>Opening paragraph</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell one</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell two</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');

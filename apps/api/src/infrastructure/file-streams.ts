@@ -6,21 +6,21 @@ import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-/** Scope private scratch files to a unique directory and always remove them after the operation. */
+/** Đặt tệp tạm riêng trong thư mục duy nhất và luôn dọn dẹp sau thao tác. */
 export async function withTemporaryFile<T>(operation: (path: string) => Promise<T>): Promise<T> {
   const directory = await mkdtemp(join(tmpdir(), "wind-private-"));
   try { return await operation(join(directory, "payload")); }
   finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-/** Hash a file incrementally without retaining its contents. */
+/** Tính mã băm tăng dần mà không giữ toàn bộ nội dung tệp trong bộ nhớ. */
 export async function hashFile(path: string): Promise<string> {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
   return `sha256:${hash.digest("hex")}`;
 }
 
-/** Read only the signature prefix needed for format validation. */
+/** Chỉ đọc phần đầu cần thiết để kiểm tra định dạng tệp. */
 export async function readFileHead(path: string, length = 8192): Promise<Buffer> {
   const file = await open(path, "r");
   try {
@@ -30,14 +30,15 @@ export async function readFileHead(path: string, length = 8192): Promise<Buffer>
   } finally { await file.close(); }
 }
 
-/** Copy with backpressure, a hard byte ceiling and exclusive creation; delete only our partial file on failure. */
+/** Sao chép theo tốc độ bên nhận, giới hạn số byte và chỉ tạo tệp mới; khi lỗi chỉ xóa tệp dở do thao tác này tạo. */
 export async function streamToFile(source: Readable, target: string, maxBytes = Number.MAX_SAFE_INTEGER): Promise<{ checksum: string; size: number }> {
   const hash = createHash("sha256");
   let size = 0;
   let created = false;
   const output = createWriteStream(target, { flags: "wx", mode: 0o600 });
   output.on("open", () => { created = true; });
-  const meter = new Transform({ transform(chunk: Buffer, _encoding, callback): void {
+  const meter = new Transform({ /** Giới hạn số byte và cập nhật mã băm trong khi chuyển tiếp từng khối dữ liệu. */
+  transform(chunk: Buffer, _encoding, callback): void {
     size += chunk.length;
     if (size > maxBytes) return callback(new Error("File exceeds the permitted byte limit."));
     hash.update(chunk);

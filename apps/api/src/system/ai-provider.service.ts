@@ -770,6 +770,7 @@ export class AiProviderService {
   /** Thu thập và khử trùng lặp nguồn URL mà Web Search đã dùng. */
   private webSources(payload: Record<string, unknown> | undefined): Array<{ title: string; url: string }> {
     const found = new Map<string, { title: string; url: string }>();
+    /** Duyệt dữ liệu trả về để gom các đường dẫn nguồn hợp lệ, loại trùng theo URL. */
     const visit = (value: unknown): void => {
       if (Array.isArray(value)) { value.forEach(visit); return; }
       if (typeof value !== "object" || value === null) return;

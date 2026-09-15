@@ -7,13 +7,13 @@ export type VerifiedGradingAttachment = { attachmentId: string; buffer: Buffer; 
 export type GradingDocumentReader = (file: VerifiedGradingAttachment) => Promise<string>;
 export const GRADING_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** Accept only document formats whose MIME and filename extension agree. */
+/** Chỉ chấp nhận tài liệu có MIME phù hợp với phần mở rộng tên tệp. */
 export function isGradingDocument(mimeType: string, name: string): boolean {
   const extensions: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i, [GRADING_DOCX_MIME]: /\.docx$/i };
   return Object.hasOwn(extensions, mimeType) && extensions[mimeType]!.test(name);
 }
 
-/** Identify DOCX separately because it is parsed locally and must never consume an OCR request. */
+/** Nhận diện riêng DOCX vì định dạng này được đọc tại chỗ và không được tiêu tốn yêu cầu OCR. */
 export function isGradingDocx(mimeType: string, name: string): boolean {
   return mimeType === GRADING_DOCX_MIME && /\.docx$/i.test(name);
 }

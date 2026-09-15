@@ -16,7 +16,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
   let prisma: PrismaService;
   let learning: LearningService;
 
-  // Create isolated relational fixtures without modifying existing courses or provider settings.
+  // Tạo dữ liệu quan hệ riêng cho kiểm thử, không sửa khóa học hoặc cấu hình nhà cung cấp có sẵn.
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     prisma = moduleRef.get(PrismaService);
@@ -26,7 +26,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     await prisma.learningClass.create({ data: { id: fixture, courseId: fixture, courseVersion: 1, code: fixture, name: "AI fixture", term: "test", startAt: new Date("2026-01-01"), endAt: new Date("2027-01-01"), capacity: 1, status: "ACTIVE", instructors: { create: { instructorId: fixture, assignedBy: fixture } } } });
   });
 
-  // Delete only rows belonging to this unique fixture, in foreign-key order.
+  // Chỉ xóa bản ghi thuộc bộ dữ liệu duy nhất này, theo thứ tự khóa ngoại.
   afterAll(async () => {
     if (prisma) {
       await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
@@ -61,13 +61,14 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
     const prepared = { courseId: fixture, generated: { questions: [question], model: "fixture", context: { ...context, materialNames: [] }, providerId: "fixture", provider: "CUSTOM", warnings: [] } satisfies GeneratedExamDraft };
     const generate = vi.fn(() => Promise.resolve(prepared));
+    /** Mô phỏng thao tác bất đồng bộ không trả bản ghi tại ranh giới lưu trữ. */
     const noResult = (): Promise<undefined> => Promise.resolve(undefined);
     await expect(new AiGenerationRequestService(prisma).run(requestId, fixture, input, generate, () => Promise.reject(new Error("fixture interruption")), noResult)).rejects.toThrow("fixture interruption");
     const key = `ai-generation:${requestId}`;
     const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key } });
-    // Simulate process death after the durable SAVING transition, before the exam transaction starts.
+    // Mô phỏng tiến trình dừng sau khi lưu trạng thái SAVING, trước khi bắt đầu giao dịch tạo đề.
     await prisma.systemSetting.update({ where: { key }, data: { value: { ...(claim.value as object), state: "SAVING" }, version: { increment: 1 } } });
-    // This callback uses the production transaction and its unique generationRequestId constraint.
+    // Callback này dùng giao dịch thật cùng ràng buộc duy nhất generationRequestId.
     const save = async (draft: { courseId: string; generated: GeneratedExamDraft }, canonicalId: string): Promise<AiGeneratedExamResult> => ({ exam: await learning.createGeneratedExam(input, draft.generated.questions, draft.courseId, context, canonicalId, fixture) } as AiGeneratedExamResult);
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiGenerationRequestService(prisma).run(randomUUID(), fixture, input, generate, save, noResult, { idempotentSave: true })));
     expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);

@@ -176,6 +176,7 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
     expect(adminTickets).toEqual(expect.arrayContaining(ticketIds));
   });
 
+  /** Đăng nhập tài khoản kiểm thử và xác nhận cookie cùng mã CSRF hợp lệ. */
   async function login(username: string): Promise<{ cookie: string; csrfToken: string }> {
     const response = await fetch(`${baseUrl}/auth/login`, {
       method: "POST",
@@ -190,6 +191,7 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
     return { cookie: cookie ?? "", csrfToken: body.data.csrfToken };
   }
 
+  /** Gửi yêu cầu HTTP tới máy chủ kiểm thử và thu nhận trạng thái cùng phản hồi. */
   async function request(cookie: string, path: string, options: { method?: string; body?: object } = {}): Promise<{ status: number; body: unknown }> {
     const response = await fetch(`${baseUrl}${path}`, {
       method: options.method ?? "GET",
@@ -208,6 +210,7 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
     return { status: response.status, body };
   }
 
+  /** Lấy danh sách mã đối tượng từ API và xác nhận yêu cầu thành công. */
   async function idsFrom(path: string, cookie: string): Promise<string[]> {
     const response = await request(cookie, path);
     expect(response.status).toBe(200);
@@ -215,6 +218,7 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
   }
 });
 
+/** Chọn mã đối tượng thuộc một trong hai nhóm dữ liệu dùng kiểm tra cách ly. */
 function domainId(path: string, side: "A" | "B"): string {
   const suffix = side === "A" ? "A" : "B";
   if (path === "/classes") return ids[`class${suffix}`];
@@ -224,6 +228,7 @@ function domainId(path: string, side: "A" | "B"): string {
   return ids[`session${suffix}`];
 }
 
+/** Tạo tài khoản, khóa học và dữ liệu liên quan riêng cho kiểm thử cách ly người dùng. */
 async function createFixture(prisma: PrismaService): Promise<void> {
   const roleRows = await prisma.role.findMany({
     where: { code: { in: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] } },
@@ -292,6 +297,7 @@ async function createFixture(prisma: PrismaService): Promise<void> {
   ]);
 }
 
+/** Xóa đúng dữ liệu của bộ kiểm thử theo thứ tự quan hệ, giữ nguyên dữ liệu có sẵn. */
 async function cleanupFixture(prisma: PrismaService): Promise<void> {
   await prisma.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
   await prisma.learningClass.deleteMany({ where: { id: { in: classIds } } });
