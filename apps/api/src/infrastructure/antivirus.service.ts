@@ -81,7 +81,7 @@ export class AntivirusService {
       socket.on("connect", () => {
         // Await write callbacks so a slow scanner cannot accumulate the file in socket buffers.
         const write = (chunk: Buffer | string): Promise<void> => new Promise((done, failed) => socket.write(chunk, (error) => error ? failed(error) : done()));
-        void (async () => {
+        void (async (): Promise<void> => {
           await write("zINSTREAM\0");
           for await (const raw of input) {
             const buffer = raw as Buffer;

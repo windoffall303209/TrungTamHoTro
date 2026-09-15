@@ -37,7 +37,7 @@ export async function streamToFile(source: Readable, target: string, maxBytes = 
   let created = false;
   const output = createWriteStream(target, { flags: "wx", mode: 0o600 });
   output.on("open", () => { created = true; });
-  const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+  const meter = new Transform({ transform(chunk: Buffer, _encoding, callback): void {
     size += chunk.length;
     if (size > maxBytes) return callback(new Error("File exceeds the permitted byte limit."));
     hash.update(chunk);
