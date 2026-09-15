@@ -25,7 +25,7 @@ export class ContentController {
 
   @Get("instructor/materials/:materialId/ai-questions") @RequirePermissions("material:manage")
   @Header("Cache-Control", "no-store")
-  /** List private saved questions without generating answers or accepting a client-supplied owner. */
+  /** Liệt kê câu hỏi riêng đã lưu, không sinh câu trả lời hoặc nhận chủ sở hữu do client cung cấp. */
   questionHistory(@Param("materialId") materialId: string, @Query() query: MaterialAiHistoryQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionHistory"]> {
     return this.materialAi.questionHistory(materialId, query.version, session.user.id, session.roleCode, query.cursor);
   }
@@ -41,7 +41,7 @@ export class ContentController {
 
   @Post("instructor/materials/:materialId/ai-question/status") @RequirePermissions("material:manage")
   @HttpCode(200) @Header("Cache-Control", "no-store")
-  /** Read-only status lookup uses a body so private question text is not put into URLs. */
+  /** Tra cứu trạng thái chỉ đọc qua body để nội dung câu hỏi riêng không xuất hiện trong URL. */
   questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionStatusDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language, input.version); }
 
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")

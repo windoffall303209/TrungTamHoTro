@@ -13,6 +13,7 @@ import { AntivirusService } from "../src/infrastructure/antivirus.service.js";
 import { streamToFile, withTemporaryFile } from "../src/infrastructure/file-streams.js";
 import { Readable } from "node:stream";
 
+/** Tạo dịch vụ cấu hình giả lập từ các giá trị riêng của ca kiểm thử. */
 function config(values: Partial<Environment>): ConfigService<Environment, true> {
   return { get: (key: keyof Environment) => values[key] ?? "" } as unknown as ConfigService<Environment, true>;
 }

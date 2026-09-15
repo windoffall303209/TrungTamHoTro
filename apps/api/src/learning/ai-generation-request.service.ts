@@ -7,7 +7,7 @@ import type { AiGeneratedExamResult } from "./learning.types.js";
 type Prepared = { courseId: string; generated: GeneratedExamDraft };
 type RecordValue = { owner: string; hash: string; canonicalRequestId?: string; state: "CLAIMED" | "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
 
-/** Reject damaged stored claims before they can authorize provider execution or replay an empty result. */
+/** Từ chối bản ghi tác vụ hỏng trước khi nó cho phép gọi nhà cung cấp hoặc trả lại kết quả rỗng. */
 function validRecord(value: unknown): value is RecordValue {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
@@ -77,7 +77,7 @@ export class AiGenerationRequestService {
       row = (await this.read(key))!;
     }
     if (row.value.state === "UNCERTAIN") throw new ConflictException("Lần gọi AI trước chưa có kết quả xác định. Hệ thống không tự gọi lại để tránh tính phí trùng. Liên hệ quản trị viên kiểm tra mã yêu cầu.");
-    // Opt in only for a transactional save with a unique canonical request ID: an earlier save may still be running.
+    // Chỉ bật khi lưu trong giao dịch với mã yêu cầu chính thức duy nhất: lượt lưu trước có thể vẫn đang chạy.
     const resumableSave = row.value.state === "SAVING" && options.idempotentSave === true;
     if (row.value.state !== "READY" && !resumableSave) throw new HttpException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.", 409);
     if (!await this.replace(key, row.version, { ...row.value, state: "SAVING" })) throw new ConflictException("Yêu cầu AI đang được lưu. Hãy thử lấy lại kết quả.");

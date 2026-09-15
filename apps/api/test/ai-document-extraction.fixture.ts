@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
-/** Model unique insert and version CAS at the database boundary for extraction unit tests. */
+/** Mô phỏng thêm bản ghi duy nhất và so sánh phiên bản khi cập nhật tại ranh giới cơ sở dữ liệu cho kiểm thử trích xuất. */
 export function extractionDatabase(): {
   prisma: PrismaService;
   rows: Map<string, { key: string; value: unknown; version: number }>;

@@ -24,7 +24,7 @@ const answerSchema = z.object({
   model: z.string().min(1).optional(), citations: z.array(sourceSchema).max(8),
 }).refine((answer) => answer.insufficientContext ? answer.citations.length === 0 : answer.citations.length > 0);
 
-/** Validate stored and fresh answers identically, bind citations to the source, and strip undeclared fields. */
+/** Kiểm tra câu trả lời mới và đã lưu bằng cùng quy tắc, ràng buộc trích dẫn với nguồn và bỏ trường ngoài khai báo. */
 function readAnswer(value: unknown, identity: DocumentAnswerIdentity): SavedDocumentAnswer | undefined {
   const parsed = answerSchema.safeParse(value);
   if (!parsed.success || parsed.data.version !== identity.version) return undefined;
@@ -34,11 +34,11 @@ function readAnswer(value: unknown, identity: DocumentAnswerIdentity): SavedDocu
   return answer;
 }
 
-/** Durable private answer cache; the caller must check source permissions before and after every use. */
+/** Bộ đệm câu trả lời riêng lưu bền vững; bên gọi kiểm tra quyền nguồn trước và sau mỗi lần sử dụng. */
 export class AiDocumentAnswerStore {
   constructor(private readonly prisma?: PrismaService) {}
 
-  /** Read one private source-version history page; legacy claims without request metadata stay replayable but unlisted. */
+  /** Đọc một trang lịch sử riêng theo phiên bản nguồn; tác vụ cũ thiếu thông tin yêu cầu vẫn dùng lại được nhưng không liệt kê. */
   async list(scope: HistoryScope, cursor?: string): Promise<{ items: HistoryItem[]; nextCursor: string | null }> {
     if (!scope.ownerId || !scope.materialId || !Number.isSafeInteger(scope.version) || scope.version < 1 || (cursor !== undefined && !/^[a-f0-9]{64}$/.test(cursor))) throw new BadRequestException("Mốc phân trang bản nháp không hợp lệ.");
     const anchor = cursor ? (await this.historyRows(scope, Prisma.sql`AND r."key" = ${`ai-doc-answer:${cursor}`}`, 1))[0] : undefined;
@@ -49,7 +49,7 @@ export class AiDocumentAnswerStore {
     return { items, nextCursor: rows.length > 20 ? items.at(-1)!.id : null };
   }
 
-  /** Apply owner and source constraints before pagination; do not load answers or citations into history lists. */
+  /** Áp dụng ràng buộc chủ sở hữu và nguồn trước phân trang; không tải câu trả lời hoặc trích dẫn vào danh sách lịch sử. */
   private async historyRows(scope: HistoryScope, position: Prisma.Sql, limit: number): Promise<HistoryItem[]> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const rows = await this.prisma.$queryRaw<HistoryItem[]>(Prisma.sql`
@@ -74,7 +74,7 @@ export class AiDocumentAnswerStore {
     return rows;
   }
 
-  /** Read the exact private claim without creating records or invoking a provider. */
+  /** Đọc đúng bản ghi tác vụ riêng mà không tạo dữ liệu hoặc gọi nhà cung cấp. */
   async status(identity: DocumentAnswerIdentity): Promise<DocumentAnswerStatus> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const row = await this.prisma.systemSetting.findUnique({ where: { key: this.key(identity) }, select: { value: true } });
@@ -86,16 +86,16 @@ export class AiDocumentAnswerStore {
     return { state: claim?.state === "GENERATING" ? "GENERATING" : "UNCERTAIN" };
   }
 
-  /** Use the same normalized identity for status reads and generation claims. */
+  /** Dùng cùng định danh đã chuẩn hóa cho đọc trạng thái và giữ quyền sinh nội dung. */
   private key(identity: DocumentAnswerIdentity): string {
     return `ai-doc-answer:${createHash("sha256").update(JSON.stringify(["v1", identity.ownerId, identity.materialId, identity.version, identity.question.trim(), identity.language])).digest("hex")}`;
   }
 
-  /** Claim one answer per owner/source version/question/language and never repeat uncertain provider work. */
+  /** Giữ quyền sinh một câu trả lời theo chủ sở hữu, phiên bản nguồn, câu hỏi và ngôn ngữ; không gọi lại tác vụ chưa rõ kết quả. */
   async generate(identity: DocumentAnswerIdentity, generate: () => Promise<SavedDocumentAnswer>): Promise<SavedDocumentAnswer> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const key = this.key(identity);
-    // Private history metadata is stored with the claim, never in its key or admin queue projection.
+    // Thông tin lịch sử riêng được lưu cùng tác vụ, không nằm trong khóa hoặc dữ liệu hàng đợi quản trị.
     const request = { materialId: identity.materialId, version: identity.version, question: identity.question.trim(), language: identity.language };
     let claimed = false;
     try {

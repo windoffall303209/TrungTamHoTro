@@ -11,7 +11,7 @@ let receivedPath = "";
 class UploadTestController {
   @Post("upload")
   @UseInterceptors(MaterialUploadInterceptor)
-  /** Expose only spool metadata to verify Multer did not buffer the body. */
+  /** Chỉ trả thông tin tệp tạm để xác nhận Multer không giữ toàn bộ nội dung trong bộ nhớ. */
   upload(@UploadedFile() file: { path: string; size: number; buffer?: Buffer }): { size: number; buffered: boolean; exists: boolean } {
     receivedPath = file.path;
     return { size: file.size, buffered: Boolean(file.buffer), exists: existsSync(file.path) };
@@ -19,7 +19,7 @@ class UploadTestController {
 
   @Post("failure")
   @UseInterceptors(MaterialUploadInterceptor)
-  /** Simulate business validation failure after multipart parsing. */
+  /** Mô phỏng lỗi quy tắc nghiệp vụ sau khi đọc multipart. */
   failure(@UploadedFile() file: { path: string }): never {
     receivedPath = file.path;
     throw new BadRequestException("Rejected");

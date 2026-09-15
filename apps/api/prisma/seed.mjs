@@ -14,6 +14,7 @@ const adapter = new PrismaPg({ connectionString: buildDatabaseUrl(process.env), 
 const prisma = new PrismaClient({ adapter });
 const seedPasswordSalt = "wind-edu-seed-v1";
 const passwordHash = `scrypt:${seedPasswordSalt}:${scryptSync(defaultPassword, seedPasswordSalt, 64).toString("hex")}`;
+/** Chuẩn hóa nội dung rồi tạo mã băm để nhận diện câu hỏi mẫu trùng nhau. */
 const questionHash = (content) => createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
 
 const permissions = ["user:view", "user:create", "user:update", "user:suspend", "role:view", "role:update", "course:view", "course:manage", "class:view", "class:manage", "material:view", "material:manage", "question:view", "question:manage", "exam:view", "exam:manage", "forum:view", "forum:post", "forum:moderate", "session:view", "session:manage", "report:view", "support:create", "support:manage", "system:configure"];
@@ -25,6 +26,7 @@ const roleMatrix = {
 };
 const roleNames = { SYSTEM_ADMIN: "Quản trị hệ thống", CENTER_MANAGER: "Quản lý trung tâm", INSTRUCTOR: "Giảng viên", LEARNER: "Học viên" };
 
+/** Khởi tạo quyền, vai trò, tài khoản và dữ liệu nền trong cơ sở dữ liệu đã cấu hình. */
 async function seed() {
   for (const code of permissions) await prisma.permission.upsert({ where: { code }, update: {}, create: { code, description: `Quyền ${code}` } });
   for (const [code, name] of Object.entries(roleNames)) {

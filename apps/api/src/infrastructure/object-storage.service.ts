@@ -68,7 +68,7 @@ export class ObjectStorageService {
     return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
   }
 
-  /** Upload a file with bounded-memory local/Cloudinary streaming and an incremental checksum. */
+  /** Tải tệp lên bằng luồng local hoặc Cloudinary có bộ nhớ giới hạn và tính mã kiểm tra tăng dần. */
   async putFile(objectKey: string, path: string): Promise<StoredObject> {
     this.assertObjectKey(objectKey);
     if (this.provider === "local") {
@@ -100,7 +100,7 @@ export class ObjectStorageService {
     return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
   }
 
-  /** Download directly to a private file; checksum and optional size limit are enforced while streaming. */
+  /** Tải trực tiếp vào tệp riêng; kiểm tra mã toàn vẹn và giới hạn kích thước tùy chọn trong khi truyền. */
   async getToFile(objectKey: string, target: string, maxBytes: number): Promise<{ checksum: string; size: number }> {
     return streamToFile(await this.openReadStream(objectKey), target, maxBytes);
   }
@@ -112,7 +112,7 @@ export class ObjectStorageService {
     return Buffer.concat(chunks);
   }
 
-  /** Open authenticated content as a stream; callers own consumption and cancellation. */
+  /** Mở nội dung đã xác thực dưới dạng luồng; bên gọi chịu trách nhiệm đọc và hủy luồng. */
   async openReadStream(objectKey: string): Promise<Readable> {
     if (!objectKey.startsWith("cloudinary:")) {
       const file = await open(this.resolveLocalPath(objectKey), "r").catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
@@ -157,6 +157,7 @@ export class ObjectStorageService {
   /** Chọn upload stream thường hoặc chunked stream theo kích thước buffer. */
   private uploadCloudinary(publicId: string, buffer: Buffer): Promise<UploadApiResponse> {
     return new Promise((resolveUpload, rejectUpload) => {
+      /** Chuyển kết quả tải lên Cloudinary thành Promise thành công hoặc lỗi dịch vụ. */
       const callback = (error?: UploadApiErrorResponse, result?: UploadApiResponse): void => {
         if (error || !result) {
           rejectUpload(new ServiceUnavailableException(`Cloudinary từ chối tệp tải lên${error?.http_code ? ` (${error.http_code})` : ""}.`));

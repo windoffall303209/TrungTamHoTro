@@ -14,9 +14,9 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   const result = { answer: "Insufficient fixture context.", insufficientContext: true, citations: [], warning: "Fixture", version: 1 };
   let moduleRef: TestingModule;
   let prisma: PrismaService;
-  // Load real database services without calling AI providers.
+  // Nạp các dịch vụ cơ sở dữ liệu thật mà không gọi nhà cung cấp AI.
   beforeAll(async () => { moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile(); prisma = moduleRef.get(PrismaService); });
-  // Remove only this run's hashed answer records.
+  // Chỉ xóa bản ghi câu trả lời có mã băm thuộc lần chạy này.
   afterAll(async () => {
     if (prisma) {
       const rows = await prisma.systemSetting.findMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } }, select: { key: true } });
@@ -141,7 +141,7 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
       const other = { ...scope, ...change };
       await store.generate({ ...other, question: "Private elsewhere?", language: "VI" }, () => Promise.resolve({ ...result, version: other.version }));
     }
-    // Force equal timestamps to exercise the identifier tie-breaker on the real PostgreSQL collation.
+    // Ép thời điểm bằng nhau để kiểm tra phân xử theo mã định danh với cách sắp xếp thật của PostgreSQL.
     await prisma.systemSetting.updateMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } }, data: { effectiveAt: new Date("2091-01-01") } });
     const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
     const first = await store.list(scope);

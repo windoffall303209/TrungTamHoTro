@@ -14,9 +14,9 @@ describe.skipIf(!enabled)("Durable extraction on PostgreSQL", () => {
   const pages = [{ page: 1, text: "Synthetic OCR result; no real provider invoked." }];
   let moduleRef: TestingModule;
   let prisma: PrismaService;
-  // Load the real database service; provider work remains mocked.
+  // Nạp dịch vụ cơ sở dữ liệu thật; phần gọi nhà cung cấp vẫn được mô phỏng.
   beforeAll(async () => { moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile(); prisma = moduleRef.get(PrismaService); });
-  // Delete only this run's exact fixture keys, never production caches.
+  // Chỉ xóa đúng khóa dữ liệu của lần chạy này, không xóa bộ đệm của ứng dụng.
   afterAll(async () => {
     if (prisma) {
       await prisma.auditLog.deleteMany({ where: { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: keys[6]!.slice(7) } });

@@ -41,8 +41,8 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
       const candidates = await this.prisma.outboxDelivery.findMany({ where: { status: { in: ["PENDING", "FAILED", "PROCESSING"] }, availableAt: { lte: new Date() } }, orderBy: { availableAt: "asc" }, take: Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 25, include: { event: true } });
       for (const candidate of candidates) {
         const claimWhere = { id: candidate.id, status: candidate.status, attempts: candidate.attempts, availableAt: candidate.availableAt };
-        // Resend deduplicates for 24h. Conservatively measure from event creation, not a retry.
-        // Old uncertain deliveries require manual reconciliation instead of risking duplicate mail.
+        // Resend chống gửi trùng trong 24 giờ; tính thận trọng từ lúc tạo sự kiện, không tính từ lần thử lại.
+        // Lượt gửi cũ chưa rõ kết quả phải được đối soát thủ công để tránh gửi thư trùng.
         if (candidate.attempts >= 8 || (candidate.attempts > 0 && Date.now() - candidate.event.createdAt.getTime() >= 23 * 60 * 60_000)) {
           const terminal = await this.prisma.outboxDelivery.updateMany({ where: claimWhere, data: { status: "DEAD_LETTER", lastError: "Retry exhausted or idempotency window expired; reconcile with provider before retrying." } });
           failed += terminal.count;
@@ -73,7 +73,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Contain database/provider outages so the interval never emits an unhandled rejection. */
+  /** Chặn lỗi cơ sở dữ liệu hoặc nhà cung cấp để tác vụ định kỳ không phát sinh Promise bị từ chối mà không được xử lý. */
   private runSafely(): void {
     void this.drain().catch(() => this.logger.error("Outbox drain failed; pending leases will be retried."));
   }

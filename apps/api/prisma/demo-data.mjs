@@ -1,10 +1,14 @@
 const ANCHOR = new Date("2026-08-30T00:00:00.000Z");
 
 const DAY = 86_400_000;
+/** Tạo thời điểm theo mốc cố định để lịch học mẫu có thể tái lập giữa các lần seed. */
 const addDays = (days, hour = 0) => new Date(ANCHOR.getTime() + days * DAY + hour * 3_600_000);
+/** Bổ sung số không ở đầu để mã mẫu có độ rộng thống nhất. */
 const pad = (value, width = 2) => String(value).padStart(width, "0");
+/** Chia dữ liệu thành lô hữu hạn để tránh gửi một lần chèn quá lớn. */
 const chunk = (rows, size = 500) => Array.from({ length: Math.ceil(rows.length / size) }, (_, index) => rows.slice(index * size, (index + 1) * size));
 
+/** Chèn dữ liệu mẫu theo lô và bỏ qua khóa đã tồn tại. */
 async function createMany(prismaModel, rows) {
   for (const batch of chunk(rows)) await prismaModel.createMany({ data: batch, skipDuplicates: true });
 }
@@ -43,6 +47,7 @@ const questionTemplates = [
   ["ESSAY", "Phân tích cách áp dụng {topic} vào một dự án giáo dục trực tuyến.", [], ["Chấm theo rubric phân tích, giải pháp và lập luận."]],
 ];
 
+/** Khởi tạo dữ liệu minh họa liên kết giữa tài khoản, lớp và các nghiệp vụ của trung tâm. */
 export async function seedDemoData({ prisma, passwordHash, questionHash }) {
   const roles = new Map((await prisma.role.findMany()).map((role) => [role.code, role.id]));
   const manager = await prisma.user.findUniqueOrThrow({ where: { email: "manager@wind.edu.vn" } });

@@ -1,6 +1,6 @@
 import { createHash, scrypt } from "node:crypto";
 
-/** Cache one configured key per purpose; derive off the event loop and coalesce concurrent requests. */
+/** Lưu đệm khóa theo mục đích; dẫn xuất ngoài luồng sự kiện và gộp các yêu cầu đồng thời. */
 export function createEncryptionKeyDeriver(salt: string): (secret: string) => Promise<Buffer> {
   let cached: { fingerprint: string; key: Promise<Buffer> } | undefined;
   return (secret: string) => {

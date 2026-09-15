@@ -25,12 +25,12 @@ export class AntivirusService {
     return this.scanSource(() => Readable.from([buffer]));
   }
 
-  /** Scan disk-backed uploads without allocating their entire payload. */
+  /** Quét tệp đã lưu trên đĩa mà không nạp toàn bộ nội dung vào bộ nhớ. */
   async scanFile(path: string): Promise<AntivirusScanResult> {
     return this.scanSource(() => createReadStream(path, { highWaterMark: 64 * 1024 }));
   }
 
-  /** Normalize engine results and open the source only when scanning is enabled. */
+  /** Chuẩn hóa kết quả quét và chỉ mở nguồn khi tính năng quét được bật. */
   private async scanSource(source: () => Readable): Promise<AntivirusScanResult> {
     if (this.config.get("ANTIVIRUS_PROVIDER", { infer: true }) === "disabled") {
       return { clean: true, engine: "disabled" };
@@ -53,6 +53,7 @@ export class AntivirusService {
       const chunks: Buffer[] = [];
       let settled = false;
       let responseBytes = 0;
+      /** Hủy kết nối và luồng đọc, giải phóng bộ hẹn giờ rồi báo lỗi quét đúng một lần. */
       const fail = (): void => {
         if (settled) return;
         settled = true;
@@ -79,7 +80,7 @@ export class AntivirusService {
       });
       socket.on("close", (): void => { if (!settled) fail(); });
       socket.on("connect", () => {
-        // Await write callbacks so a slow scanner cannot accumulate the file in socket buffers.
+        // Đợi callback ghi để máy quét chậm không làm bộ đệm socket giữ toàn bộ tệp.
         const write = (chunk: Buffer | string): Promise<void> => new Promise((done, failed) => socket.write(chunk, (error) => error ? failed(error) : done()));
         void (async (): Promise<void> => {
           await write("zINSTREAM\0");

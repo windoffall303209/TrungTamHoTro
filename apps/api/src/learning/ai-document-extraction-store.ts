@@ -4,7 +4,7 @@ import type { DocumentPage } from "../system/ai-document-context.js";
 
 export type DocumentExtractionStatus = { state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; pages: DocumentPage[] };
 
-/** Validate fresh and legacy page snapshots without truncating or exposing undeclared fields. */
+/** Kiểm tra bản lưu trang mới và cũ mà không cắt bớt dữ liệu hoặc lộ trường ngoài khai báo. */
 function readPages(raw: unknown): DocumentPage[] | undefined {
   if (!Array.isArray(raw) || !raw.length || raw.length > 200) return undefined;
   const pages: DocumentPage[] = [];
@@ -19,7 +19,7 @@ function readPages(raw: unknown): DocumentPage[] | undefined {
   return pages.some((page) => page.text.trim()) ? pages : undefined;
 }
 
-/** Interpret both legacy arrays and durable claims without trusting the persisted READY label alone. */
+/** Đọc cả mảng cũ và bản ghi tác vụ bền vững; không chỉ dựa vào nhãn READY đã lưu. */
 function readStatus(value: unknown): Exclude<DocumentExtractionStatus, { state: "NOT_REQUESTED" }> {
   const claim = value as { state?: unknown; pages?: unknown } | null;
   const pages = readPages(Array.isArray(value) ? value : claim?.state === "READY" ? claim.pages : undefined);
@@ -27,16 +27,16 @@ function readStatus(value: unknown): Exclude<DocumentExtractionStatus, { state: 
   return { state: claim?.state === "GENERATING" ? "GENERATING" : "UNCERTAIN" };
 }
 
-/** Detect the explicit one-shot retry entitlement without treating malformed values as retryable. */
+/** Nhận diện quyền thử lại đúng một lần; dữ liệu sai định dạng không được coi là có thể thử lại. */
 function isRetryAuthorized(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && "state" in value && value.state === "RETRY_AUTHORIZED");
 }
 
-/** Share verified source/model extraction across workers; callers enforce source access on both sides. */
+/** Chia sẻ kết quả trích xuất đã xác minh giữa các worker; bên gọi kiểm tra quyền nguồn trước và sau khi dùng. */
 export class AiDocumentExtractionStore {
   constructor(private readonly prisma?: PrismaService) {}
 
-  /** Inspect exact source/model OCR state without reserving work, mutating records, or invoking providers. */
+  /** Đọc đúng trạng thái OCR của nguồn và mô hình, không giữ quyền xử lý, sửa dữ liệu hoặc gọi nhà cung cấp. */
   async status(key: string): Promise<DocumentExtractionStatus> {
     const db = this.database(key);
     const row = await db.systemSetting.findUnique({ where: { key }, select: { value: true } });
@@ -44,14 +44,14 @@ export class AiDocumentExtractionStore {
     return row ? readStatus(row.value) : { state: "NOT_REQUESTED" };
   }
 
-  /** Validate the internal key and require durable storage for both reads and generation. */
+  /** Kiểm tra khóa nội bộ và yêu cầu lưu trữ bền vững cho cả đọc lẫn sinh nội dung. */
   private database(key: string): PrismaService {
     if (!/^ai-doc:[a-f0-9]{64}$/.test(key)) throw new BadRequestException("Khóa trích xuất tài liệu AI không hợp lệ.");
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Trích xuất AI yêu cầu database bền vững để chống gọi trùng.");
     return this.prisma;
   }
 
-  /** Reserve durable OCR work once, replay valid legacy caches, and never retry uncertain work automatically. */
+  /** Giữ quyền OCR bền vững một lần, dùng lại bộ đệm cũ hợp lệ và không tự thử lại tác vụ chưa rõ kết quả. */
   async generate(key: string, actorId: string, extract: () => Promise<DocumentPage[]>): Promise<{ pages: DocumentPage[]; cached: boolean }> {
     if (!actorId) throw new BadRequestException("Khóa trích xuất tài liệu AI không hợp lệ.");
     const db = this.database(key);

@@ -13,6 +13,7 @@ const session: AuthenticatedSession = {
   availableRoles: [{ code: "LEARNER", name: "Học viên" }],
 };
 
+/** Tạo ngữ cảnh HTTP tối thiểu để kiểm tra phân quyền trên yêu cầu giả lập. */
 function contextFor(request: Partial<RequestWithRole>): ExecutionContext {
   return {
     getHandler: () => function handler() {},

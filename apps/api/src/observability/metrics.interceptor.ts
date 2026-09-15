@@ -18,6 +18,7 @@ export class MetricsInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request & RequestWithId>();
     const response = context.switchToHttp().getResponse<Response>();
     const route = `${context.getClass().name}.${context.getHandler().name}`;
+    /** Ghi phương thức, tuyến, trạng thái và thời gian xử lý của yêu cầu vào số liệu vận hành. */
     const record = (): void => {
       this.metrics.record(request.method, route, response.statusCode, performance.now() - startedAt, request.requestId);
     };

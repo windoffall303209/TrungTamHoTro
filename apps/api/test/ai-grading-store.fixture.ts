@@ -1,20 +1,20 @@
 import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learning/ai-grading-store.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
-/** Simulate database constraints for unit tests without adding a production memory fallback. */
+/** Mô phỏng ràng buộc cơ sở dữ liệu cho kiểm thử đơn vị, không thêm đường dự phòng RAM vào sản phẩm. */
 export function testGradingStore(): AiGradingStoreService {
   type Row = { id: string; fingerprint: string; state: string; result: SavedGradingSuggestion | null };
   const rows = new Map<string, Row>();
   const prisma = { isStartupConnectionEnabled: (): boolean => true, aiGradingSuggestion: {
-    // Reserve a fingerprint exactly once across callers of this fixture.
+    // Chỉ cho phép một bên gọi giữ quyền xử lý mỗi dấu vân tay trong bộ dữ liệu kiểm thử.
     create: ({ data }: { data: Omit<Row, "state" | "result"> }): Promise<void> => {
       if (rows.has(data.fingerprint)) return Promise.reject(Object.assign(new Error("Duplicate"), { code: "P2002" }));
       rows.set(data.fingerprint, { ...data, state: "GENERATING", result: null });
       return Promise.resolve();
     },
-    // Return isolated snapshots as a database driver would.
+    // Trả bản sao độc lập như trình điều khiển cơ sở dữ liệu.
     findUnique: ({ where }: { where: { fingerprint: string } }): Promise<Row | null> => Promise.resolve(structuredClone(rows.get(where.fingerprint) ?? null)),
-    // Apply only state-matched writes to preserve READY after ambiguous acknowledgements.
+    // Chỉ ghi khi trạng thái khớp để giữ READY sau phản hồi xác nhận không rõ ràng.
     updateMany: ({ where, data }: { where: { id: string; state: string }; data: { state: string; result?: SavedGradingSuggestion } }): Promise<{ count: number }> => {
       const row = [...rows.values()].find((item) => item.id === where.id && item.state === where.state);
       if (!row) return Promise.resolve({ count: 0 });
