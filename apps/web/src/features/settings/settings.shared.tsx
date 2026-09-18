@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   BookCheck,
   Bot,
   CloudCog,
@@ -24,6 +25,7 @@ export interface Settings {
   questionApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;
+  learnerEmailNotificationsEnabled: boolean;
   version: number;
   effectiveAt: string;
   updatedBy: string;
@@ -101,6 +103,7 @@ export type ModelCatalog = Record<
 
 export type SettingsSection =
   | "general"
+  | "notifications"
   | "exam-approval"
   | "question-approval"
   | "ai-providers"
@@ -122,6 +125,13 @@ export const settingsSections: Array<{
     description:
       "Tên trung tâm, vùng thời gian, dữ liệu, kiểm duyệt và bảo trì.",
     icon: ShieldCheck,
+  },
+  {
+    id: "notifications",
+    title: "Cài đặt thông báo",
+    description:
+      "Quản lý gửi thông báo hệ thống và nhắc việc qua email tới học viên.",
+    icon: Bell,
   },
   {
     id: "exam-approval",

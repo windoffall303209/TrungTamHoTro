@@ -64,6 +64,7 @@ export default function SettingsScreen() {
     backup,
     saveExamApprovalMode,
     saveQuestionApprovalMode,
+    saveLearnerEmailNotifications,
     openAiEditor,
     loadProviderModels,
     availableModelOptions,
@@ -110,8 +111,12 @@ export default function SettingsScreen() {
           {settingsSections.map((item) => {
             const Icon = item.icon;
             const summary =
-              item.id === "exam-approval"
-                ? settings?.examApprovalMode === "MANUAL"
+              item.id === "notifications"
+                ? settings?.learnerEmailNotificationsEnabled
+                  ? "Đang bật"
+                  : "Đang tắt"
+                : item.id === "exam-approval"
+                  ? settings?.examApprovalMode === "MANUAL"
                   ? "Duyệt thủ công"
                   : "Tự động duyệt"
                 : item.id === "question-approval"
@@ -168,6 +173,78 @@ export default function SettingsScreen() {
             );
           })}
         </nav>
+      ) : null}
+      {activeSection === "notifications" && settings ? (
+        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-sm leading-6 text-[var(--ink-soft)]">
+              Cấu hình việc chuyển tiếp thông báo hệ thống (nhắc lịch học, bài tập mới, kết quả chấm thi, thông báo lớp...) tới hòm thư cá nhân của học viên thông qua dịch vụ Resend.
+            </p>
+            <div className="mt-6 grid gap-3 md:grid-cols-2">
+              {[
+                {
+                  enabled: false,
+                  title: "Tắt gửi email (Mặc định)",
+                  badge: "Không gửi email",
+                  description:
+                    "Thông báo chỉ hiển thị nội bộ trên nền tảng web. Không gửi email qua Resend để tiết kiệm hạn ngạch và tránh gây phiền tới hòm thư cá nhân.",
+                },
+                {
+                  enabled: true,
+                  title: "Bật gửi thông báo qua email",
+                  badge: "Gửi email tự động",
+                  description:
+                    "Tự động gửi email tới học viên cho các thông báo lớp học, lịch học trực tuyến và bài tập mới.",
+                },
+              ].map((option) => {
+                const selected =
+                  settings.learnerEmailNotificationsEnabled === option.enabled;
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
+                    disabled={saving}
+                    key={String(option.enabled)}
+                    onClick={() =>
+                      void saveLearnerEmailNotifications(option.enabled)
+                    }
+                    type="button"
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="font-heading text-lg font-extrabold">
+                        {option.title}
+                      </span>
+                      <span
+                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
+                      >
+                        {selected ? (
+                          <span className="size-2 rounded-full bg-white" />
+                        ) : null}
+                      </span>
+                    </span>
+                    <span className="mt-2 block">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                          option.enabled
+                            ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                            : "bg-[var(--surface-muted)] text-[var(--ink-soft)]"
+                        }`}
+                      >
+                        {option.badge}
+                      </span>
+                    </span>
+                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
+                      {option.description}
+                    </span>
+                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
+                      {selected ? "Đang áp dụng" : "Chọn cấu hình này"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
       ) : null}
       {activeSection === "exam-approval" && settings ? (
         <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
