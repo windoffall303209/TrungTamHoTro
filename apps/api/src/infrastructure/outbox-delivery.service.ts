@@ -38,6 +38,9 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
     let delivered = 0;
     let failed = 0;
     try {
+      const platformRow = await this.prisma.systemSetting?.findUnique?.({ where: { key: "platform" } }).catch(() => null);
+      const platformSettings = (platformRow?.value as Record<string, unknown>) ?? {};
+      const learnerEmailEnabled = Boolean(platformSettings.learnerEmailNotificationsEnabled ?? false);
       const candidates = await this.prisma.outboxDelivery.findMany({ where: { status: { in: ["PENDING", "FAILED", "PROCESSING"] }, availableAt: { lte: new Date() } }, orderBy: { availableAt: "asc" }, take: Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 25, include: { event: true } });
       for (const candidate of candidates) {
         const claimWhere = { id: candidate.id, status: candidate.status, attempts: candidate.attempts, availableAt: candidate.availableAt };
@@ -53,8 +56,28 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
         if (claimed.count !== 1) continue;
         const owned = { id: candidate.id, status: "PROCESSING", attempts: candidate.attempts + 1, availableAt: leaseUntil };
         try {
-          const recipient = await this.prisma.user.findUnique({ where: { id: candidate.recipientId }, select: { email: true, displayName: true, status: true } });
+          const recipient = await this.prisma.user.findUnique({
+            where: { id: candidate.recipientId },
+            select: {
+              email: true,
+              displayName: true,
+              status: true,
+              roles: { select: { role: { select: { code: true } } } },
+            },
+          });
           if (!recipient || recipient.status !== "ACTIVE") throw new Error("Người nhận không còn hoạt động.");
+          const isLearner = Array.isArray(recipient.roles) && recipient.roles.some((r) => r.role?.code === "LEARNER");
+          if (isLearner && !learnerEmailEnabled && (candidate.event as { type?: string }).type === "NOTIFICATION_CREATED") {
+            const skipped = await this.prisma.outboxDelivery.updateMany({
+              where: owned,
+              data: {
+                status: "SKIPPED",
+                lastError: "Thông báo email tới học viên đang tắt theo Cấu hình hệ thống.",
+              },
+            });
+            failed += skipped.count;
+            continue;
+          }
           const payload = candidate.event.payload as Record<string, unknown>;
           const title = typeof payload.title === "string" ? payload.title : "Thông báo mới từ Wind EDU";
           const result = await this.email.send({ to: recipient.email, subject: title, text: `${title}\n\nMở Wind EDU để xem chi tiết.`, idempotencyKey: candidate.dedupKey });

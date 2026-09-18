@@ -10,7 +10,10 @@ type Fixture = {
   service: OutboxDeliveryService;
   candidate: Candidate;
   updateMany: UpdateMock;
-  prisma: { outboxDelivery: { findMany: Mock<() => Promise<Candidate[]>>; updateMany: UpdateMock } };
+  prisma: {
+    outboxDelivery: { findMany: Mock<() => Promise<Candidate[]>>; updateMany: UpdateMock };
+    user: { findUnique: Mock };
+  };
   email: { isConfigured: () => boolean; send: Mock<() => Promise<{ providerMessageId: string }>> };
 };
 
@@ -60,5 +63,22 @@ describe("outbox lease recovery", () => {
     f.prisma.outboxDelivery.findMany.mockRejectedValueOnce(new Error("offline"));
     await expect(f.service.drain()).rejects.toThrow("offline");
     expect((await f.service.drain()).delivered).toBe(1);
+  });
+
+  it("skips in-app notification emails for learners when learner email notifications are disabled", async () => {
+    const f = fixture("PENDING", 0);
+    (f.candidate.event as unknown as { type: string }).type = "NOTIFICATION_CREATED";
+    f.prisma.user.findUnique.mockResolvedValueOnce({
+      email: "learner@wind.edu.vn",
+      status: "ACTIVE",
+      roles: [{ role: { code: "LEARNER" } }],
+    });
+    const result = await f.service.drain();
+    expect(result.delivered).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(f.email.send).not.toHaveBeenCalled();
+    const updateCall = f.updateMany.mock.calls.find(c => c[0].data?.status === "SKIPPED");
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].data.status).toBe("SKIPPED");
   });
 });

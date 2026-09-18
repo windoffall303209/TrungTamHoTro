@@ -15,6 +15,7 @@ export interface SystemSettings {
   questionApprovalMode: ExamApprovalMode;
   notificationSender: string;
   maintenanceMode: boolean;
+  learnerEmailNotificationsEnabled: boolean;
   version: number;
   effectiveAt: string;
   updatedBy: string;
@@ -257,6 +258,7 @@ export const defaultSettings = (): SystemSettings => ({
   questionApprovalMode: "AUTO",
   notificationSender: "Wind EDU",
   maintenanceMode: false,
+  learnerEmailNotificationsEnabled: false,
   version: 1,
   effectiveAt: new Date().toISOString(),
   updatedBy: "system",

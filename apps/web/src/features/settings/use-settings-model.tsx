@@ -149,6 +149,8 @@ export function useSettingsModel() {
             moderationEnabled: settings.moderationEnabled,
             notificationSender: settings.notificationSender,
             maintenanceMode: settings.maintenanceMode,
+            learnerEmailNotificationsEnabled:
+              settings.learnerEmailNotificationsEnabled,
             effectiveAt: effectiveAt
               ? new Date(effectiveAt).toISOString()
               : undefined,
@@ -350,6 +352,35 @@ export function useSettingsModel() {
     }
   };
 
+  /** Bật hoặc tắt việc gửi thông báo qua email tới học viên qua Resend. */
+  const saveLearnerEmailNotifications = async (enabled: boolean) => {
+    if (!settings || settings.learnerEmailNotificationsEnabled === enabled) return;
+    setSaving(true);
+    try {
+      const updated = await apiRequest<Settings>("/system/settings", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ learnerEmailNotificationsEnabled: enabled }),
+      });
+      setSettings(updated);
+      notify(
+        enabled
+          ? "Đã bật gửi thông báo qua email cho học viên."
+          : "Đã tắt gửi thông báo qua email cho học viên.",
+      );
+      await load();
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Không đổi được cài đặt thông báo email.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Mở editor với cấu hình đã che bí mật hoặc mẫu mặc định của nhà cung cấp mới. */
   const openAiEditor = (
     item?: AiProvider,
@@ -534,6 +565,7 @@ export function useSettingsModel() {
     backup,
     saveExamApprovalMode,
     saveQuestionApprovalMode,
+    saveLearnerEmailNotifications,
     openAiEditor,
     loadProviderModels,
     availableModelOptions,

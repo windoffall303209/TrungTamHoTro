@@ -78,6 +78,10 @@ export function mapSettings(
       record.maintenanceMode,
       fallback.maintenanceMode,
     ),
+    learnerEmailNotificationsEnabled: serviceContext.booleanValue(
+      record.learnerEmailNotificationsEnabled,
+      fallback.learnerEmailNotificationsEnabled,
+    ),
     version,
     effectiveAt: effectiveAt.toISOString(),
     updatedBy,
