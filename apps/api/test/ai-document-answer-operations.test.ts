@@ -20,7 +20,7 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
   const auditCreate = vi.fn();
   const row = { id: "a".repeat(64), ownerId: "teacher", state: "GENERATING", version: 1, createdAt: new Date("2026-09-08"), updatedAt: new Date("2026-09-08") };
 
-  // Exercise real controller, service, DTO and guard; replace authentication and the SQL boundary only.
+  // Kiểm tra controller, service, DTO và guard thật; chỉ thay xác thực và ranh giới SQL.
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [AiGradingOperationsController], providers: [
       AiGradingOperationsService,
@@ -41,7 +41,7 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
     await app.listen(0, "127.0.0.1");
     url = `${await app.getUrl()}/admin/ai-operations/${route}`;
   });
-  // Close the test server without touching application data.
+  // Đóng máy chủ kiểm thử mà không chạm dữ liệu ứng dụng.
   afterAll(async () => { await app?.close(); });
   beforeEach(() => {
     vi.resetAllMocks(); queryRaw.mockResolvedValue([row]); enabled.mockReturnValue(true); updateMany.mockResolvedValue({ count: 1 }); auditCreate.mockResolvedValue({});
@@ -50,7 +50,7 @@ describe.each([{ route: "document-answers", prefix: "ai-doc-answer:" }, { route:
     const transactionClient = { systemSetting: { findUnique, updateMany }, auditLog: { create: auditCreate } };
     transaction.mockImplementation((callback: (client: typeof transactionClient) => Promise<unknown>) => callback(transactionClient));
   });
-  // Read the metadata endpoint with a fixture identity.
+  // Đọc API thông tin quản lý bằng danh tính kiểm thử.
   const read = (query = "", cookie = "admin"): Promise<Response> => fetch(`${url}${query}`, { headers: { cookie } });
 
   it.each(["", "?state=RETRY_AUTHORIZED", "?state=GENERATING", "?state=READY", "?state=UNCERTAIN"])("reads bounded metadata without caching: %s", async (query) => {

@@ -7,7 +7,7 @@ export interface DatabaseConnectionConfig {
 }
 
 /**
- * Đọc và kiểm tra các trường kết nối MariaDB từ một nguồn cấu hình thô.
+ * Đọc và kiểm tra các trường kết nối PostgreSQL từ một nguồn cấu hình thô.
  * Tên database bị giới hạn ký tự để có thể dùng an toàn trong các lệnh backup/restore.
  */
 export function readDatabaseConnection(source: Record<string, unknown>): DatabaseConnectionConfig {
@@ -15,7 +15,7 @@ export function readDatabaseConnection(source: Record<string, unknown>): Databas
   const user = requiredString(source.DB_USER, "DB_USER");
   const password = typeof source.DB_PASSWORD === "string" ? source.DB_PASSWORD : "";
   const database = requiredString(source.DB_NAME, "DB_NAME");
-  const port = Number(source.DB_PORT ?? 3306);
+  const port = Number(source.DB_PORT ?? 5432);
 
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("DB_PORT phải là số nguyên từ 1 đến 65535.");
@@ -30,7 +30,7 @@ export function readDatabaseConnection(source: Record<string, unknown>): Databas
 /** Tạo Prisma-compatible connection URL và mã hóa riêng username/password. */
 export function buildDatabaseUrl(source: Record<string, unknown>): string {
   const connection = readDatabaseConnection(source);
-  return `mysql://${encodeURIComponent(connection.user)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}/${connection.database}`;
+  return `postgresql://${encodeURIComponent(connection.user)}:${encodeURIComponent(connection.password)}@${connection.host}:${connection.port}/${connection.database}?schema=public`;
 }
 
 /** Bắt buộc một biến cấu hình phải là chuỗi không rỗng và trả về bản đã trim. */

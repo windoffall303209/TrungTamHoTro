@@ -53,7 +53,7 @@ export class AiGradingStoreService {
 
   /** Phân biệt người tạo, bài nộp, nội dung nguồn và ngôn ngữ; key không chứa văn bản bài làm. */
   private fingerprint(identity: GradingIdentity): string { return createHash("sha256").update(JSON.stringify([identity.ownerId, identity.submissionId, identity.contextHash, identity.language])).digest("hex"); }
-  /** Fail closed before AI work when durable claims cannot survive process replacement. */
+  /** Từ chối gọi AI khi bản ghi giữ quyền xử lý không thể tồn tại sau khi tiến trình bị thay thế. */
   private database(): PrismaService {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Gợi ý chấm AI yêu cầu database bền vững để chống gửi trùng.");
     return this.prisma;

@@ -3,6 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Modal } from "./ui";
 
 describe("Modal keyboard containment", () => {
+  it("cô lập nền, kéo focus ngoài về modal và trả trạng thái khi đóng", () => {
+    const background = document.createElement("button");
+    background.textContent = "Nền";
+    document.body.append(background);
+    background.focus();
+    const view = render(<Modal open title="Kiểm tra" onClose={vi.fn()}><input aria-label="Nội dung" /></Modal>);
+    expect(background).toHaveAttribute("inert");
+    screen.getByLabelText("Nội dung").focus();
+    background.focus();
+    expect(screen.getByRole("button", { name: "Đóng" })).toHaveFocus();
+    view.unmount();
+    expect(background).not.toHaveAttribute("inert");
+    expect(background).toHaveFocus();
+    background.remove();
+  });
   afterEach(cleanup);
   it("wraps around the last collapsed summary, not its hidden child button", () => {
     render(<Modal open title="Sources" onClose={vi.fn()}><details><summary>Last source</summary><button>Hidden source action</button></details></Modal>);

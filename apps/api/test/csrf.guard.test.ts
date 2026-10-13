@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../src/auth/auth.service.js";
 import { CsrfGuard } from "../src/auth/csrf.guard.js";
 
+/** Tạo ngữ cảnh HTTP tối thiểu để kiểm thử cổng bảo vệ CSRF. */
 function context(request: Partial<Request>): ExecutionContext {
   return { switchToHttp: () => ({ getRequest: () => request }) } as unknown as ExecutionContext;
 }

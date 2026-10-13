@@ -1,10 +1,14 @@
 const ANCHOR = new Date("2026-08-30T00:00:00.000Z");
 
 const DAY = 86_400_000;
+/** Tạo thời điểm theo mốc cố định để lịch học mẫu có thể tái lập giữa các lần seed. */
 const addDays = (days, hour = 0) => new Date(ANCHOR.getTime() + days * DAY + hour * 3_600_000);
+/** Bổ sung số không ở đầu để mã mẫu có độ rộng thống nhất. */
 const pad = (value, width = 2) => String(value).padStart(width, "0");
+/** Chia dữ liệu thành lô hữu hạn để tránh gửi một lần chèn quá lớn. */
 const chunk = (rows, size = 500) => Array.from({ length: Math.ceil(rows.length / size) }, (_, index) => rows.slice(index * size, (index + 1) * size));
 
+/** Chèn dữ liệu mẫu theo lô và bỏ qua khóa đã tồn tại. */
 async function createMany(prismaModel, rows) {
   for (const batch of chunk(rows)) await prismaModel.createMany({ data: batch, skipDuplicates: true });
 }
@@ -14,7 +18,7 @@ const courseDefinitions = [
   { code: "DATA-FOUNDATION", name: "Nền tảng dữ liệu", description: "Tổ chức, làm sạch, phân tích và trực quan hóa dữ liệu.", outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu", "Xây dựng dashboard"] },
   { code: "UIUX-PRACTICE", name: "Thiết kế UI/UX thực chiến", description: "Nghiên cứu người dùng và thiết kế giao diện có khả năng sử dụng cao.", outcomes: ["Thiết kế luồng", "Xây dựng design system", "Kiểm thử usability"] },
   { code: "NODEJS-BACKEND", name: "Backend Node.js chuyên sâu", description: "Thiết kế dịch vụ backend an toàn, dễ kiểm thử và mở rộng.", outcomes: ["Thiết kế API", "Tối ưu truy vấn", "Quan sát hệ thống"] },
-  { code: "MYSQL-DESIGN", name: "Thiết kế cơ sở dữ liệu MySQL", description: "Thiết kế lược đồ, chỉ mục và giao dịch cho hệ thống nghiệp vụ.", outcomes: ["Chuẩn hóa dữ liệu", "Tối ưu chỉ mục", "Kiểm soát giao dịch"] },
+  { code: "POSTGRESQL-DESIGN", name: "Thiết kế cơ sở dữ liệu PostgreSQL", description: "Thiết kế lược đồ, chỉ mục và giao dịch cho hệ thống nghiệp vụ.", outcomes: ["Chuẩn hóa dữ liệu", "Tối ưu chỉ mục", "Kiểm soát giao dịch"] },
   { code: "CLOUD-DEVOPS", name: "Cloud & DevOps căn bản", description: "Tự động hóa kiểm thử, phát hành và giám sát ứng dụng.", outcomes: ["Xây dựng CI/CD", "Quản lý cấu hình", "Thiết lập giám sát"] },
   { code: "CYBER-SECURITY", name: "An toàn ứng dụng Web", description: "Nhận diện và xử lý các rủi ro bảo mật phổ biến của ứng dụng web.", outcomes: ["Threat modeling", "Bảo vệ xác thực", "Kiểm thử bảo mật"] },
   { code: "BUSINESS-ANALYSIS", name: "Phân tích nghiệp vụ hệ thống", description: "Chuyển nhu cầu vận hành thành yêu cầu và quy trình có thể triển khai.", outcomes: ["Mô hình hóa quy trình", "Đặc tả yêu cầu", "Thiết kế UAT"] },
@@ -28,7 +32,7 @@ const classDefinitions = [
   ["UX-K01", "Thiết kế trải nghiệm K01", "UIUX-PRACTICE", "2026-HK1", "ACTIVE", -40, 76, 32],
   ["NODE-K01", "Backend Node.js K01", "NODEJS-BACKEND", "2026-HK1", "ACTIVE", -18, 104, 40],
   ["NODE-K02", "Backend Node.js K02", "NODEJS-BACKEND", "2025-HK2", "CLOSED", -240, -110, 35],
-  ["DB-K01", "MySQL thực chiến K01", "MYSQL-DESIGN", "2026-HK1", "ACTIVE", -30, 94, 36],
+  ["DB-K01", "PostgreSQL thực chiến K01", "POSTGRESQL-DESIGN", "2026-HK1", "ACTIVE", -30, 94, 36],
   ["OPS-K01", "Cloud & DevOps K01", "CLOUD-DEVOPS", "2026-HK1", "ACTIVE", -5, 120, 34],
   ["SEC-K01", "An toàn Web K01", "CYBER-SECURITY", "2026-HK1", "ACTIVE", -22, 102, 34],
   ["BA-K01", "Phân tích nghiệp vụ K01", "BUSINESS-ANALYSIS", "2026-HK1", "ACTIVE", -15, 108, 40],
@@ -43,6 +47,7 @@ const questionTemplates = [
   ["ESSAY", "Phân tích cách áp dụng {topic} vào một dự án giáo dục trực tuyến.", [], ["Chấm theo rubric phân tích, giải pháp và lập luận."]],
 ];
 
+/** Khởi tạo dữ liệu minh họa liên kết giữa tài khoản, lớp và các nghiệp vụ của trung tâm. */
 export async function seedDemoData({ prisma, passwordHash, questionHash }) {
   const roles = new Map((await prisma.role.findMany()).map((role) => [role.code, role.id]));
   const manager = await prisma.user.findUniqueOrThrow({ where: { email: "manager@wind.edu.vn" } });

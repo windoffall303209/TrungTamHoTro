@@ -14,7 +14,7 @@ import { AiGradingDocumentReader, GradingExtractionMissingError } from "./ai-gra
 export class AiGradingAssistService {
   constructor(private readonly academic: AcademicService, private readonly ai: AiProviderService, @Optional() private readonly store: AiGradingStoreService = new AiGradingStoreService(), @Optional() private readonly prisma?: PrismaService) {}
 
-  /** Validate language before any paid OCR and use read-only snapshots for inspection and final source checks. */
+  /** Kiểm tra ngôn ngữ trước OCR có phí; dùng bản lưu chỉ đọc để xem trước và kiểm tra nguồn lần cuối. */
   private context(submissionId: string, revision: number, language: ExamLanguage, session: AuthenticatedSession, generate = false): ReturnType<AcademicService["gradingAiContext"]> {
     if (!["VI", "EN", "BILINGUAL"].includes(language)) throw new BadRequestException("Ngôn ngữ AI không hợp lệ.");
     const reader = new AiGradingDocumentReader(new AiDocumentExtractionStore(this.prisma), this.ai);

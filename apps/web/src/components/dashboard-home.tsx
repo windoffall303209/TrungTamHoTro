@@ -4,7 +4,7 @@ import { ArrowUpRight, BookOpenCheck, CalendarDays, Database, FileQuestion, Grad
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
-import type { IdentityRole, IdentityUser, PermissionCode, RoleCode } from "@/lib/app-types";
+import type { IdentityRole, PermissionCode, RoleCode } from "@/lib/app-types";
 import type { Assignment, GradingQueueGroup, LearnerExamSummary, LearnerResult, LearningClass, LiveSession, OperationalReport } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { PageHeader } from "./page-header";
@@ -43,13 +43,13 @@ const modules = [
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
-      apiRequest<IdentityUser[]>("/admin/users", { roleCode }),
+      apiRequest<{ active: number }>("/admin/users?pageSize=1", { roleCode }),
       apiRequest<IdentityRole[]>("/admin/roles", { roleCode }),
       apiRequest<HealthOverview>("/system/health-overview", { roleCode }),
     ]);
     const healthLabel = health.status === "healthy" ? "Sẵn sàng" : health.status === "warning" ? "Cần theo dõi" : "Suy giảm";
     return [
-      { value: String(users.filter((user) => user.status === "ACTIVE").length), label: "tài khoản đang hoạt động" },
+      { value: String(users.active), label: "tài khoản đang hoạt động" },
       { value: String(roles.length), label: "vai trò được cấu hình" },
       { value: healthLabel, label: `dịch vụ · CSDL ${health.database}` },
     ];

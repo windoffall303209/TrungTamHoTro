@@ -32,7 +32,7 @@ describe("Đăng ký và xác minh email qua API", () => {
   const sentEmails: SendEmailInput[] = [];
   let storageRoot: string | undefined;
 
-  // Keep HTTP/auth/database real, but use an isolated real local store instead of live Cloudinary.
+  // Giữ HTTP, xác thực và cơ sở dữ liệu thật; dùng kho tệp local riêng thay vì Cloudinary đang hoạt động.
   beforeAll(async () => {
     storageRoot = await mkdtemp(join(tmpdir(), "wind-auth-storage-"));
     const storageConfig = new ConfigService<Environment, true>({ STORAGE_PROVIDER: "local", STORAGE_ROOT: storageRoot, CLOUDINARY_FOLDER: "test", CLOUDINARY_CLOUD_NAME: "", CLOUDINARY_API_KEY: "", CLOUDINARY_API_SECRET: "" });
@@ -60,7 +60,7 @@ describe("Đăng ký và xác minh email qua API", () => {
     prisma = app.get(PrismaService);
   }, 30_000);
 
-  // Remove only this run's temporary storage, including when an assertion fails before avatar deletion.
+  // Chỉ xóa kho tệp tạm của lần chạy này, kể cả khi kiểm thử thất bại trước bước xóa ảnh đại diện.
   afterAll(async () => {
     try {
       if (prisma) await prisma.user.deleteMany({ where: { email: { in: [email, correctedEmail, legacyOldEmail, legacyNewEmail] } } });
@@ -196,6 +196,7 @@ describe("Đăng ký và xác minh email qua API", () => {
     expect((loginByEmail.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
   }, 30_000);
 
+  /** Gửi JSON bằng POST tới API kiểm thử và trả trạng thái, header cùng nội dung. */
   async function post(path: string, body: object): Promise<{ status: number; headers: Headers; body: unknown }> {
     const response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
@@ -205,6 +206,7 @@ describe("Đăng ký và xác minh email qua API", () => {
     return { status: response.status, headers: response.headers, body: await response.json() as unknown };
   }
 
+  /** Gửi yêu cầu đã đăng nhập bằng cookie và mã CSRF của tài khoản kiểm thử. */
   async function authenticatedRequest(method: string, path: string, cookie: string, csrfToken: string, body?: object): Promise<{ status: number; body: unknown }> {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
@@ -215,6 +217,7 @@ describe("Đăng ký và xác minh email qua API", () => {
   }
 });
 
+/** Sinh mã TOTP từ khóa Base32 và thời gian hiện tại để kiểm tra đăng nhập nhiều yếu tố. */
 function generateTotp(secret: string): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = 0;

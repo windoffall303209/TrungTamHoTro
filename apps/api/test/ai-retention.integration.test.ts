@@ -8,17 +8,17 @@ import { SystemService } from "../src/system/system.service.js";
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 type RetentionInternals = {
   countRetentionRows(prisma: PrismaService, category: string, cutoffAt: Date): Promise<number>;
-  executeRetention(prisma: PrismaService, category: string, action: "ARCHIVE" | "DELETE", cutoffAt: Date, jobId: string): Promise<{ affectedRows: number }>;
+  executeRetention(prisma: PrismaService, category: string, action: "ARCHIVE" | "DELETE", cutoffAt: Date, jobId: string, assertOwned?: () => Promise<void>): Promise<{ affectedRows: number }>;
 };
 
-describe.skipIf(!enabled)("AI results retention on dedicated MySQL", () => {
+describe.skipIf(!enabled)("AI results retention on dedicated PostgreSQL", () => {
   const fixture = randomUUID();
   const keyPrefix = `ai-doc:${fixture}`;
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let service: SystemService;
 
-  /** Khởi tạo module thật để kiểm tra JSON state và delete transaction trên MySQL test riêng. */
+  /** Khởi tạo module thật để kiểm tra JSON state và delete transaction trên PostgreSQL test riêng. */
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     prisma = moduleRef.get(PrismaService);
@@ -54,5 +54,15 @@ describe.skipIf(!enabled)("AI results retention on dedicated MySQL", () => {
     expect(result.affectedRows).toBe(2);
     expect(await prisma.systemSetting.findMany({ where: { key: { in: Object.values(keys) } }, select: { key: true } })).toEqual(expect.arrayContaining([{ key: keys.generating }, { key: keys.uncertain }]));
     expect(await prisma.systemSetting.count({ where: { key: { in: [keys.ready, keys.legacy] } } })).toBe(0);
+  });
+
+  it("giữ bản ghi được sửa sau khi lấy snapshot retention", async () => {
+    const key = `${keyPrefix}:concurrent`;
+    await prisma.systemSetting.create({ data: { key, updatedBy: fixture, value: { state: "READY" }, updatedAt: new Date("1999-01-01") } });
+    const result = await (service as unknown as RetentionInternals).executeRetention(prisma, "AI_RESULTS", "DELETE", new Date("1999-01-02"), fixture, async () => {
+      await prisma.systemSetting.update({ where: { key }, data: { value: { state: "GENERATING" } } });
+    });
+    expect(result.affectedRows).toBe(0);
+    expect(await prisma.systemSetting.findUnique({ where: { key } })).not.toBeNull();
   });
 });
