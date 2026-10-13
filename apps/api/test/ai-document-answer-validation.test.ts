@@ -7,7 +7,7 @@ const request = { materialId: identity.materialId, version: identity.version, qu
 const source = { id: "chunk", materialId: "material", version: 2, checksum: "checksum", name: "Lesson.pdf", page: 1, start: 0, end: 7, text: "Context" };
 const answer = { answer: "Explanation", insufficientContext: false, version: 2, warning: "Check source", citations: [source] };
 
-// Mock only durable storage, keeping the store's claim/replay/validation implementation real.
+// Chỉ mô phỏng lưu trữ bền vững; giữ nguyên triển khai giữ quyền xử lý, đọc lại và kiểm tra dữ liệu.
 function fixture(value: unknown, duplicate = true): { store: AiDocumentAnswerStore; create: ReturnType<typeof vi.fn>; findUnique: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> } {
   const create = duplicate ? vi.fn().mockRejectedValue({ code: "P2002" }) : vi.fn().mockResolvedValue({});
   const findUnique = vi.fn().mockResolvedValue({ value, version: 1 });

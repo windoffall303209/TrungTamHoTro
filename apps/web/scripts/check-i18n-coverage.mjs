@@ -29,6 +29,7 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
   const sourceText = readFileSync(path, "utf8");
   const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const values = [];
+  /** Duyệt JSX và chuỗi mẫu để thu thập nội dung tiếng Việt cần dịch. */
   const visit = (node) => {
     if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const value = normalize(node.text);
@@ -59,6 +60,7 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
 function catalogKeys() {
   const source = ts.createSourceFile(catalogPath, readFileSync(catalogPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const keys = new Set();
+  /** Duyệt cây cú pháp để thu thập khóa bản dịch đã khai báo. */
   const visit = (node) => {
     if (ts.isPropertyAssignment(node) && (ts.isStringLiteral(node.name) || ts.isNoSubstitutionTemplateLiteral(node.name))) keys.add(normalize(node.name.text));
     ts.forEachChild(node, visit);

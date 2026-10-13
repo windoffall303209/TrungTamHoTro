@@ -157,6 +157,7 @@ describe("Google OAuth và xác minh tăng cường bằng email", () => {
     profileVerified = true;
   }, 30_000);
 
+  /** Gửi yêu cầu HTTP tới máy chủ kiểm thử và thu nhận trạng thái cùng phản hồi. */
   async function request(method: string, path: string, body?: object, cookie?: string, manualRedirect = false): Promise<HttpResult> {
     const response = await nativeFetch(`${baseUrl}${path}`, {
       method,
@@ -167,10 +168,12 @@ describe("Google OAuth và xác minh tăng cường bằng email", () => {
     return { status: response.status, headers: response.headers, body: await parseBody(response) };
   }
 
+  /** Gửi yêu cầu đã đăng nhập bằng cookie và mã CSRF của tài khoản kiểm thử. */
   function authenticatedRequest(method: string, path: string, cookie: string, csrfToken: string, body?: object): Promise<HttpResult> {
     return requestWithHeaders(method, path, { cookie, "x-csrf-token": csrfToken }, body);
   }
 
+  /** Gửi yêu cầu kiểm thử với các header chỉ định và đọc phản hồi theo định dạng trả về. */
   async function requestWithHeaders(method: string, path: string, headers: Record<string, string>, body?: object): Promise<HttpResult> {
     const response = await nativeFetch(`${baseUrl}${path}`, {
       method,
@@ -180,6 +183,7 @@ describe("Google OAuth và xác minh tăng cường bằng email", () => {
     return { status: response.status, headers: response.headers, body: await parseBody(response) };
   }
 
+  /** Lấy mã xác nhận sáu chữ số từ email mô phỏng mới nhất ứng với hành động. */
   function latestEmailCode(action: string): string {
     const email = [...sentEmails].reverse().find((item) => item.text.includes(action));
     const code = email?.text.match(/là:\s*(\d{6})/)?.[1];
@@ -188,6 +192,7 @@ describe("Google OAuth và xác minh tăng cường bằng email", () => {
   }
 });
 
+/** Đọc phản hồi JSON hoặc văn bản và xử lý trường hợp body rỗng. */
 async function parseBody(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -195,12 +200,14 @@ async function parseBody(response: Response): Promise<unknown> {
   return JSON.parse(text) as unknown;
 }
 
+/** Tìm cookie theo tên trong các header Set-Cookie của phản hồi. */
 function cookieByName(headers: Headers, name: string): string {
   const values = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [headers.get("set-cookie") ?? ""];
   const cookie = values.find((value) => value.startsWith(`${name}=`));
   return cookie?.split(";", 1)[0] ?? "";
 }
 
+/** Sinh mã TOTP từ khóa Base32 và thời gian hiện tại để kiểm tra đăng nhập nhiều yếu tố. */
 function generateTotp(secret: string): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = 0;

@@ -18,12 +18,12 @@ type PublishedSummary = { id: string; sourceVersion: number; publishedAt: Date; 
 export class AiStudyDraftService {
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
-  /** Look up the exact private request before provider configuration checks, without creating a claim. */
+  /** Tra đúng yêu cầu riêng trước khi kiểm tra cấu hình nhà cung cấp; không tạo bản ghi giữ quyền xử lý. */
   async find(identity: DraftIdentity): Promise<Draft | null> {
     return await this.database().aiStudyDraft.findUnique({ where: { fingerprint: this.fingerprint(identity) } }) as unknown as Draft | null;
   }
 
-  /** Keep replay lookup and claim creation on the same owner/source/options identity. */
+  /** Dùng cùng định danh chủ sở hữu, nguồn và tùy chọn cho cả tra cứu kết quả và giữ quyền xử lý. */
   private fingerprint(identity: DraftIdentity): string {
     return createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
   }
@@ -138,7 +138,7 @@ export class AiStudyDraftService {
     return structuredClone({ items, nextCursor: rows.length > 20 ? items.at(-1)!.id : null });
   }
 
-  /** Refuse all draft operations when their state cannot survive process replacement. */
+  /** Từ chối thao tác bản nháp nếu trạng thái không thể tồn tại sau khi tiến trình bị thay thế. */
   private database(): PrismaService {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Bộ ôn tập AI yêu cầu database bền vững để chống gửi trùng.");
     return this.prisma;

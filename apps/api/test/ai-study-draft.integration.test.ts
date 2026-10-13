@@ -10,7 +10,7 @@ import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const result: SavedStudyGuide = { insufficientContext: true, summary: [], flashcards: [], version: 1, warning: "Integration fixture", coverage: { totalChunks: 1, selectedChunks: 1, selectedPages: [1], partial: false, fromPage: null, toPage: null } };
 
-describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test database", () => {
+describe.skipIf(!enabled)("Study draft persistence on dedicated PostgreSQL test database", () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let ownerId: string;
@@ -55,8 +55,14 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
       expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
       expect((await prisma.aiStudyDraft.findUniqueOrThrow({ where: { id: ids[0]! } })).editedResult).toEqual({ private: "private edit" });
       await expect(service.listStudy({ limit: 1, cursor: "other-domain-cursor" }, session)).rejects.toMatchObject({ status: 400 });
-      const indexes = await prisma.$queryRaw<Array<{ Column_name: string }>>`SHOW INDEX FROM ai_study_drafts WHERE Key_name = 'ai_study_operations_state_created_id'`;
-      expect(indexes.map((item) => item.Column_name)).toEqual(["state", "created_at", "id"]);
+      const indexes = await prisma.$queryRaw<Array<{ indexdef: string }>>`
+        SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'ai_study_drafts'
+          AND indexname = 'ai_study_operations_state_created_id'
+      `;
+      expect(indexes).toHaveLength(1);
+      expect(indexes[0]?.indexdef).toContain("(state, created_at, id)");
     } finally {
       // Chỉ xóa hai claim fixture, không ảnh hưởng số lượng bản nháp ở các ca còn lại.
       await prisma.aiStudyDraft.deleteMany({ where: { id: { in: ids }, materialId } });
@@ -110,7 +116,10 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated MySQL test datab
     const generate = vi.fn().mockResolvedValue(result);
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiStudyDraftService(prisma).generate(identity, generate)));
 
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    const fulfilled = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const outcome of fulfilled) if (outcome.status === "fulfilled") expect(outcome.value).toMatchObject(result);
+    for (const outcome of outcomes) if (outcome.status === "rejected") expect(outcome.reason).toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledOnce();
     expect(await prisma.aiStudyDraft.findUniqueOrThrow({ where: { id: claim!.id } })).toMatchObject({ state: "READY", publishedAt: null });
     expect(await prisma.auditLog.count({ where: { entityId: claim!.id, action: "AI_STUDY_RETRY_AUTHORIZED" } })).toBe(1);

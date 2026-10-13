@@ -3,12 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import type { ConfigService } from "@nestjs/config";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { v2 as cloudinary, type UploadApiErrorResponse } from "cloudinary";
+import { PassThrough } from "node:stream";
 import type { Environment } from "../src/config/environment.js";
 import { EmailDeliveryService, normalizeResendSender } from "../src/infrastructure/email-delivery.service.js";
 import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 import { AntivirusService } from "../src/infrastructure/antivirus.service.js";
+import { streamToFile, withTemporaryFile } from "../src/infrastructure/file-streams.js";
+import { Readable } from "node:stream";
 
+/** Tạo dịch vụ cấu hình giả lập từ các giá trị riêng của ca kiểm thử. */
 function config(values: Partial<Environment>): ConfigService<Environment, true> {
   return { get: (key: keyof Environment) => values[key] ?? "" } as unknown as ConfigService<Environment, true>;
 }
@@ -46,6 +51,39 @@ describe("Infrastructure services", () => {
     }
   });
 
+  it("streams files through local storage with exact checksums and byte ceilings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "wind-storage-stream-"));
+    try {
+      const storage = new ObjectStorageService(config({ STORAGE_PROVIDER: "local", STORAGE_ROOT: root, CLOUDINARY_FOLDER: "wind-edu" }));
+      await withTemporaryFile(async (source) => {
+        await streamToFile(Readable.from([Buffer.alloc(1024 * 1024, 7)]), source);
+        const stored = await storage.putFile("backup/test.dump", source);
+        await withTemporaryFile(async (target) => {
+          expect(await storage.getToFile(stored.objectKey, target, 1024 * 1024)).toEqual({ size: 1024 * 1024, checksum: stored.checksum });
+        });
+        await withTemporaryFile(async (target) => {
+          await expect(storage.getToFile(stored.objectKey, target, 10)).rejects.toThrow("byte limit");
+        });
+      });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("closes cloud upload streams before propagating provider rejection", async () => {
+    const stream = new PassThrough();
+    const upload = vi.spyOn(cloudinary.uploader, "upload_chunked_stream").mockImplementation((_options, callback) => {
+      queueMicrotask(() => callback?.({ message: "rejected", http_code: 400, name: "test" } as UploadApiErrorResponse));
+      return stream as ReturnType<typeof cloudinary.uploader.upload_chunked_stream>;
+    });
+    try {
+      const storage = new ObjectStorageService(config({ STORAGE_PROVIDER: "cloudinary", CLOUDINARY_FOLDER: "test", CLOUDINARY_CLOUD_NAME: "fake", CLOUDINARY_API_KEY: "fake", CLOUDINARY_API_SECRET: "fake" }));
+      await withTemporaryFile(async (source) => {
+        await streamToFile(Readable.from([Buffer.alloc(1024 * 1024)]), source);
+        await expect(storage.putFile("backup/test.dump", source)).rejects.toThrow("Cloudinary");
+        expect(stream.destroyed).toBe(true);
+      });
+    } finally { upload.mockRestore(); }
+  });
+
   it("từ chối Cloudinary và Resend khi credential chưa được cấu hình", async () => {
     const storage = new ObjectStorageService(config({ STORAGE_PROVIDER: "cloudinary", STORAGE_ROOT: "unused", CLOUDINARY_FOLDER: "wind-edu" }));
     const email = new EmailDeliveryService(config({ RESEND_API_KEY: "", RESEND_FROM: "" }));
@@ -64,6 +102,10 @@ describe("Infrastructure services", () => {
       if (!address || typeof address === "string") throw new Error("Không lấy được cổng kiểm thử ClamAV.");
       const antivirus = new AntivirusService(config({ ANTIVIRUS_PROVIDER: "clamav", CLAMAV_HOST: "127.0.0.1", CLAMAV_PORT: address.port, CLAMAV_TIMEOUT_MS: 2_000 }));
       await expect(antivirus.scan(Buffer.from("sample"))).resolves.toEqual({ clean: false, engine: "clamav", signature: "Win.Test.EICAR_HDB-1" });
+      await withTemporaryFile(async (path) => {
+        await streamToFile(Readable.from([Buffer.alloc(1024 * 1024)]), path);
+        await expect(antivirus.scanFile(path)).resolves.toEqual({ clean: false, engine: "clamav", signature: "Win.Test.EICAR_HDB-1" });
+      });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

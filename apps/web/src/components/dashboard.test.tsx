@@ -33,8 +33,8 @@ describe("DashboardHome", () => {
 
   it("hiển thị trạng thái suy giảm thay vì số liệu dựng sẵn cho quản trị", async () => {
     useApp.mockReturnValue({ session: { roleCode: "SYSTEM_ADMIN", permissions: ["user:view", "role:view", "system:configure", "course:view", "class:view", "class:manage", "material:view", "question:view", "forum:view", "session:view", "report:view"], user: { roleName: "Quản trị hệ thống" } } });
-    apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/admin/users"
-      ? [{ status: "ACTIVE" }, { status: "LOCKED" }]
+    apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/admin/users?pageSize=1"
+      ? { active: 1 }
       : path === "/admin/roles"
         ? [{ code: "SYSTEM_ADMIN" }, { code: "LEARNER" }]
         : path === "/system/health-overview"

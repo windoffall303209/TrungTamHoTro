@@ -155,6 +155,36 @@ function modalControls(dialog: HTMLElement): HTMLElement[] {
   });
 }
 
+const modalInertLocks = new WeakMap<Element, { count: number; original: boolean }>();
+
+/** Cô lập các nhánh ngoài hộp thoại và khôi phục đúng trạng thái khi hộp thoại lồng nhau đóng. */
+function isolateModal(wrapper: HTMLElement) {
+  const locked: Element[] = [];
+  let branch: Element = wrapper;
+  while (branch.parentElement) {
+    for (const sibling of Array.from(branch.parentElement.children)) {
+      if (sibling === branch) continue;
+      const lock = modalInertLocks.get(sibling) ?? { count: 0, original: sibling.hasAttribute("inert") };
+      lock.count += 1;
+      modalInertLocks.set(sibling, lock);
+      sibling.setAttribute("inert", "");
+      locked.push(sibling);
+    }
+    branch = branch.parentElement;
+    if (branch === document.body) break;
+  }
+  return () => {
+    for (const element of locked) {
+      const lock = modalInertLocks.get(element)!;
+      lock.count -= 1;
+      if (lock.count === 0) {
+        if (!lock.original) element.removeAttribute("inert");
+        modalInertLocks.delete(element);
+      }
+    }
+  };
+}
+
 /** Hộp thoại khóa cuộn, giữ focus bên trong, đóng bằng Escape và trả focus về phần tử trước. */
 export function Modal({ open, title, description, onClose, children, size = "md" }: { open: boolean; title: string; description?: string; onClose: () => void; children: React.ReactNode; size?: "md" | "xl" }) {
   const titleId = useId();
@@ -171,10 +201,18 @@ export function Modal({ open, title, description, onClose, children, size = "md"
     document.body.style.overflow = "hidden";
     const dialog = dialogRef.current;
     const focusable = dialog ? modalControls(dialog)[0] : undefined;
-    window.requestAnimationFrame(() => focusable?.focus());
+    const releaseIsolation = dialog?.parentElement ? isolateModal(dialog.parentElement) : () => {};
+    const frame = window.requestAnimationFrame(() => focusable?.focus());
+
+    /** Đưa focus bị chuyển ra nền về hộp thoại đang hoạt động. */
+    const containFocus = (event: FocusEvent) => {
+      if (!dialog || dialog.closest("[inert]") || dialog.contains(event.target as Node)) return;
+      modalControls(dialog)[0]?.focus();
+    };
 
     /** Đóng modal bằng Escape trong khi vẫn để trình duyệt xử lý các phím khác. */
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (dialog?.closest("[inert]")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onCloseRef.current();
@@ -190,8 +228,12 @@ export function Modal({ open, title, description, onClose, children, size = "md"
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("focusin", containFocus);
     return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("focusin", containFocus);
       document.removeEventListener("keydown", handleKeyDown);
+      releaseIsolation();
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };

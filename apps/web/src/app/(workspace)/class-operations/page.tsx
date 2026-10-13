@@ -8,6 +8,7 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Tabs } from "@/components/ui";
 import { UserPicker } from "@/components/user-picker";
 import { apiRequest } from "@/lib/api-client";
+import { MaterialSearchControls, useMaterialSearch } from "@/components/material-search";
 import { hasPermission } from "@/lib/access-control";
 import type { ClassRoster, EnrollmentImportResult, Exam, InstructorRole, LearningClass, Material } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -19,7 +20,6 @@ export default function ClassOperationsPage() {
   const { session, notify } = useApp();
   const canManage = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const [classes, setClasses] = useState<LearningClass[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [member, setMember] = useState({ classId: "", instructorId: "", instructorRole: "PRIMARY" as InstructorRole, learnerId: "" });
   const [roster, setRoster] = useState<ClassRoster | null>(null);
@@ -31,23 +31,26 @@ export default function ClassOperationsPage() {
   const [reviewing, setReviewing] = useState(false);
   const [activeTab, setActiveTab] = useState<"members" | "materials" | "exams">("members");
 
+  const materialSearch = useMaterialSearch(session.roleCode, { visibility: "DRAFT" }, canManage, session.user.id);
+  const materials = materialSearch.items;
+  const refreshMaterials = materialSearch.refresh;
+
   /** Nạp song song lớp, người dùng và các hàng đợi duyệt theo quyền hiện tại. */
   const load = useCallback(async () => {
     if (!canManage) return;
     try {
-      const [classData, materialData, examData] = await Promise.all([
+      const [classData, examData] = await Promise.all([
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
-        apiRequest<Material[]>("/materials", { roleCode: session.roleCode }),
         apiRequest<Exam[]>("/exams", { roleCode: session.roleCode }),
       ]);
       setClasses(classData);
-      setMaterials(materialData);
+      refreshMaterials();
       setExams(examData);
       setMember((current) => ({ ...current, classId: current.classId || classData[0]?.id || "" }));
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được dữ liệu điều hành.", "error");
     }
-  }, [canManage, notify, session.roleCode]);
+  }, [canManage, notify, refreshMaterials, session.roleCode]);
 
   /** Nạp giảng viên và học viên của lớp để hiển thị, phân công hoặc gỡ thành viên. */
   const loadRoster = useCallback(async (classId: string) => {
@@ -151,7 +154,7 @@ export default function ClassOperationsPage() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
-      <Tabs className="mt-6" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materials.filter((item) => item.visibility === "DRAFT").length }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
+      <Tabs className="mt-6" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materialSearch.total }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
 
       {activeTab === "members" ? <section className="mt-7 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
         <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-[var(--surface)] p-6">
@@ -175,6 +178,7 @@ export default function ClassOperationsPage() {
 
       {activeTab === "materials" ? <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
           <h2 className="font-heading text-xl font-extrabold">Học liệu chờ duyệt</h2>
+          <MaterialSearchControls search={materialSearch} />
           <div className="mt-4 space-y-3">
             {materials.some((item) => item.visibility === "DRAFT") ? materials.filter((item) => item.visibility === "DRAFT").map((item) => (
               <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4" key={item.id}>

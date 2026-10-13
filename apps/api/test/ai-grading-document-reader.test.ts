@@ -10,12 +10,12 @@ import { docxFixture } from "./docx.fixture.js";
 const buffer = Buffer.from("synthetic PDF bytes");
 const file = { attachmentId: "attachment", buffer, fileName: "answer.pdf", mimeType: "application/pdf", checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}`, submissionRevision: 1 };
 
-/** Bind a fixture buffer to the same checksum contract used by verified attachment downloads. */
+/** Gắn buffer kiểm thử với cùng hợp đồng mã kiểm tra của luồng tải tệp đã xác minh. */
 function docxFile(value: Buffer): VerifiedGradingAttachment {
   return { ...file, buffer: value, fileName: "answer.docx", mimeType: GRADING_DOCX_MIME, checksum: `sha256:${createHash("sha256").update(value).digest("hex")}` };
 }
 
-/** Use production claim semantics over a database fixture and a non-network provider stub. */
+/** Dùng quy tắc giữ quyền xử lý thật với cơ sở dữ liệu mô phỏng và nhà cung cấp không gọi mạng. */
 function fixture(): ReturnType<typeof extractionDatabase> & { reader: AiGradingDocumentReader; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn> } } {
   const database = extractionDatabase();
   const ai = { resolveTask: vi.fn().mockResolvedValue({ providerId: "configured", model: "admin-model" }), extractDocumentPages: vi.fn().mockResolvedValue([{ page: 1, text: "First page" }, { page: 2, text: "Second page" }]) };

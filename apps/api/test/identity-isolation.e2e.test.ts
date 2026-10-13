@@ -53,7 +53,7 @@ interface ApiEnvelope<T> { data: T }
 interface ApiError { error: { code: string; message: string } }
 interface ApiItem { id: string }
 
-describe("Cô lập danh tính qua API và MySQL", () => {
+describe("Cô lập danh tính qua API và PostgreSQL", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
@@ -115,6 +115,21 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     }
   });
 
+  it("phân trang tài khoản tại server và từ chối tham số vượt giới hạn", async () => {
+    const cookie = cookies.get("admin") ?? "";
+    const response = await request(cookie, `/admin/users?pageSize=2&query=${fixtureSuffix.toUpperCase()}`);
+    expect(response.status).toBe(200);
+    const data = (response.body as ApiEnvelope<{ items: ApiItem[]; total: number }>).data;
+    expect(data.items).toHaveLength(2);
+    expect(data.total).toBe(6);
+    const next = await request(cookie, `/admin/users?page=2&pageSize=2&query=${fixtureSuffix}`);
+    const nextItems = (next.body as ApiEnvelope<{ items: ApiItem[] }>).data.items;
+    expect(nextItems.some((item) => data.items.some((first) => first.id === item.id))).toBe(false);
+    for (const query of ["page=0", "page=1.5", "pageSize=51", "pageSize=abc", `query=${"a".repeat(201)}`]) {
+      expect((await request(cookie, `/admin/users?${query}`)).status).toBe(400);
+    }
+  });
+
   it("cô lập toàn bộ không gian học tập giữa hai học viên", async () => {
     const paths = ["/classes", "/materials", "/exams", "/forum/topics", "/sessions"];
     for (const path of paths) {
@@ -161,6 +176,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     expect(adminTickets).toEqual(expect.arrayContaining(ticketIds));
   });
 
+  /** Đăng nhập tài khoản kiểm thử và xác nhận cookie cùng mã CSRF hợp lệ. */
   async function login(username: string): Promise<{ cookie: string; csrfToken: string }> {
     const response = await fetch(`${baseUrl}/auth/login`, {
       method: "POST",
@@ -175,6 +191,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     return { cookie: cookie ?? "", csrfToken: body.data.csrfToken };
   }
 
+  /** Gửi yêu cầu HTTP tới máy chủ kiểm thử và thu nhận trạng thái cùng phản hồi. */
   async function request(cookie: string, path: string, options: { method?: string; body?: object } = {}): Promise<{ status: number; body: unknown }> {
     const response = await fetch(`${baseUrl}${path}`, {
       method: options.method ?? "GET",
@@ -193,6 +210,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
     return { status: response.status, body };
   }
 
+  /** Lấy danh sách mã đối tượng từ API và xác nhận yêu cầu thành công. */
   async function idsFrom(path: string, cookie: string): Promise<string[]> {
     const response = await request(cookie, path);
     expect(response.status).toBe(200);
@@ -200,6 +218,7 @@ describe("Cô lập danh tính qua API và MySQL", () => {
   }
 });
 
+/** Chọn mã đối tượng thuộc một trong hai nhóm dữ liệu dùng kiểm tra cách ly. */
 function domainId(path: string, side: "A" | "B"): string {
   const suffix = side === "A" ? "A" : "B";
   if (path === "/classes") return ids[`class${suffix}`];
@@ -209,6 +228,7 @@ function domainId(path: string, side: "A" | "B"): string {
   return ids[`session${suffix}`];
 }
 
+/** Tạo tài khoản, khóa học và dữ liệu liên quan riêng cho kiểm thử cách ly người dùng. */
 async function createFixture(prisma: PrismaService): Promise<void> {
   const roleRows = await prisma.role.findMany({
     where: { code: { in: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"] } },
@@ -277,6 +297,7 @@ async function createFixture(prisma: PrismaService): Promise<void> {
   ]);
 }
 
+/** Xóa đúng dữ liệu của bộ kiểm thử theo thứ tự quan hệ, giữ nguyên dữ liệu có sẵn. */
 async function cleanupFixture(prisma: PrismaService): Promise<void> {
   await prisma.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
   await prisma.learningClass.deleteMany({ where: { id: { in: classIds } } });

@@ -1,8 +1,8 @@
 import { createHash, scryptSync } from "node:crypto";
 import { config } from "dotenv";
-import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
-import { readDatabaseConnection } from "../src/config/database-connection.js";
+import { buildDatabaseUrl } from "../src/config/database-connection.js";
 import { seedDemoData } from "./demo-data.mjs";
 
 config({ path: new URL("../../../.env", import.meta.url) });
@@ -10,11 +10,11 @@ config({ path: new URL("../../../.env", import.meta.url) });
 const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
 if (!defaultPassword || defaultPassword.length < 12) throw new Error("SEED_DEFAULT_PASSWORD phải có ít nhất 12 ký tự.");
 
-const database = readDatabaseConnection(process.env);
-const adapter = new PrismaMariaDb({ ...database, connectionLimit: 4, allowPublicKeyRetrieval: true });
+const adapter = new PrismaPg({ connectionString: buildDatabaseUrl(process.env), max: 4 });
 const prisma = new PrismaClient({ adapter });
 const seedPasswordSalt = "wind-edu-seed-v1";
 const passwordHash = `scrypt:${seedPasswordSalt}:${scryptSync(defaultPassword, seedPasswordSalt, 64).toString("hex")}`;
+/** Chuẩn hóa nội dung rồi tạo mã băm để nhận diện câu hỏi mẫu trùng nhau. */
 const questionHash = (content) => createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
 
 const permissions = ["user:view", "user:create", "user:update", "user:suspend", "role:view", "role:update", "course:view", "course:manage", "class:view", "class:manage", "material:view", "material:manage", "question:view", "question:manage", "exam:view", "exam:manage", "forum:view", "forum:post", "forum:moderate", "session:view", "session:manage", "report:view", "support:create", "support:manage", "system:configure"];
@@ -26,6 +26,7 @@ const roleMatrix = {
 };
 const roleNames = { SYSTEM_ADMIN: "Quản trị hệ thống", CENTER_MANAGER: "Quản lý trung tâm", INSTRUCTOR: "Giảng viên", LEARNER: "Học viên" };
 
+/** Khởi tạo quyền, vai trò, tài khoản và dữ liệu nền trong cơ sở dữ liệu đã cấu hình. */
 async function seed() {
   for (const code of permissions) await prisma.permission.upsert({ where: { code }, update: {}, create: { code, description: `Quyền ${code}` } });
   for (const [code, name] of Object.entries(roleNames)) {
@@ -62,7 +63,7 @@ async function seed() {
   const topic = await prisma.forumTopic.upsert({ where: { id: "topic-rest" }, update: {}, create: { id: "topic-rest", classId: learningClass.id, authorId: "usr-instructor", title: "Thảo luận: REST hay GraphQL?", body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.", tags: ["api", "thảo luận"], isPinned: true } });
   await prisma.forumPost.upsert({ where: { id: "post-rest-01" }, update: {}, create: { id: "post-rest-01", topicId: topic.id, authorId: "usr-learner", body: "Em chọn REST cho hệ thống CRUD vì dễ cache và theo dõi.", status: "PUBLISHED" } });
   await prisma.liveSession.upsert({ where: { id: "session-web-01" }, update: {}, create: { id: "session-web-01", classId: learningClass.id, hostId: "usr-instructor", title: "Thiết kế API có version", startsAt: new Date("2026-08-26T02:00:00.000Z"), endsAt: new Date("2026-08-26T03:30:00.000Z"), provider: "JITSI", requestedProvider: "JITSI", hostUrl: "https://meet.jit.si/wind-web-01-host", attendeeUrl: "https://meet.jit.si/wind-web-01", status: "SCHEDULED" } });
-  await prisma.systemSetting.upsert({ where: { key: "platform" }, update: {}, create: { key: "platform", value: { centerName: "Trung tâm hỗ trợ giảng dạy Wind EDU", timezone: "Asia/Bangkok", locale: "vi-VN", retentionDays: 365, maxFileSizeMb: 50, storageQuotaMb: 10240, allowedMimeTypes: ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "video/mp4", "image/png", "image/jpeg"], moderationEnabled: true, notificationSender: "Wind EDU", maintenanceMode: false }, updatedBy: "usr-admin" } });
+  await prisma.systemSetting.upsert({ where: { key: "platform" }, update: {}, create: { key: "platform", value: { centerName: "Trung tâm hỗ trợ giảng dạy Wind EDU", timezone: "Asia/Bangkok", locale: "vi-VN", retentionDays: 365, maxFileSizeMb: 50, storageQuotaMb: 10240, allowedMimeTypes: ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "video/mp4", "image/png", "image/jpeg"], moderationEnabled: true, notificationSender: "Wind EDU", maintenanceMode: false, learnerEmailNotificationsEnabled: false }, updatedBy: "usr-admin" } });
   for (const [index, provider] of ["GOOGLE_MEET", "ZOOM", "JITSI"].entries()) await prisma.integrationProvider.upsert({ where: { provider }, update: {}, create: { id: `int-${index + 1}`, provider, enabled: provider !== "ZOOM", credentialRef: provider === "JITSI" ? null : `secret://${provider.toLowerCase()}` } });
   await prisma.notificationTemplate.upsert({ where: { eventCode_locale_version: { eventCode: "CLASS_REMINDER", locale: "vi-VN", version: 1 } }, update: {}, create: { id: "tpl-class-reminder", eventCode: "CLASS_REMINDER", locale: "vi-VN", subject: "Nhắc lịch học {{className}}", body: "Buổi học {{sessionTitle}} bắt đầu lúc {{startsAt}}.", version: 1, status: "PUBLISHED" } });
   await prisma.moderationPolicy.upsert({ where: { version: 1 }, update: {}, create: { id: "policy-initial", version: 1, prohibitedTerms: ["spam", "lừa đảo"], maxPostsPerMinute: 5, action: "FLAG", publishedBy: "usr-admin" } });
@@ -74,4 +75,4 @@ async function seed() {
   console.table(summary);
 }
 
-seed().then(() => console.log("Seed MySQL hoàn tất.")).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; }).finally(async () => prisma.$disconnect());
+seed().then(() => console.log("Seed PostgreSQL hoàn tất.")).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; }).finally(async () => prisma.$disconnect());

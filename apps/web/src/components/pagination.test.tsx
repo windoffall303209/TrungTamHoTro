@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { useState } from "react";
 import { Pagination, Tabs, usePagination } from "./ui";
 
+/** Dựng màn hình nhỏ để kiểm tra danh sách và thao tác phân trang. */
 function Harness() {
   const pagination = usePagination(Array.from({ length: 23 }, (_, index) => index + 1));
   return (
@@ -41,6 +42,7 @@ describe("Pagination", () => {
   });
 });
 
+/** Dựng trạng thái tab để kiểm tra lựa chọn và chuyển tab bằng bàn phím. */
 function TabsHarness() {
   const [tab, setTab] = useState<"courses" | "classes">("classes");
   return (

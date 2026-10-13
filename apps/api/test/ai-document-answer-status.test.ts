@@ -14,7 +14,7 @@ let app: INestApplication;
 let url: string;
 const status = vi.fn();
 const history = vi.fn();
-// Exercise real HTTP routing, DTO validation and permissions with only the context boundary mocked.
+// Kiểm tra tuyến HTTP, DTO và quyền thật; chỉ mô phỏng ranh giới ngữ cảnh.
 beforeAll(async () => {
   const module = await Test.createTestingModule({ controllers: [ContentController], providers: [
     { provide: LearningService, useValue: {} }, { provide: AiProviderService, useValue: {} }, { provide: AiGenerationRequestService, useValue: {} },
@@ -29,10 +29,10 @@ beforeAll(async () => {
   await app.listen(0, "127.0.0.1");
   url = `${await app.getUrl()}/instructor/materials/material-1/ai-question/status`;
 });
-// Close the isolated HTTP server after the suite.
+// Đóng máy chủ HTTP riêng sau bộ kiểm thử.
 afterAll(async () => { await app?.close(); });
 beforeEach(() => { vi.resetAllMocks(); status.mockResolvedValue({ state: "NOT_REQUESTED" }); history.mockResolvedValue({ items: [], nextCursor: null }); });
-// Keep question text in the request body, not in the URL or query string.
+// Giữ nội dung câu hỏi trong body, không đưa vào URL hoặc chuỗi truy vấn.
 const read = (body: object, cookie = "allowed"): Promise<Response> => fetch(url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
 
 it("returns 200/no-store and derives the requester from the authenticated session", async () => {
@@ -61,7 +61,7 @@ it.each([["", 401], ["denied", 403]])("rejects unauthenticated or unprivileged c
   expect(status).not.toHaveBeenCalled();
 });
 
-// Read history without putting question content in URLs or allowing caller-selected ownership.
+// Đọc lịch sử mà không đưa câu hỏi vào URL hoặc cho phép bên gọi chọn chủ sở hữu.
 const readHistory = (query = "?version=2", cookie = "allowed"): Promise<Response> => fetch(`${url.replace("/ai-question/status", "/ai-questions")}${query}`, { headers: { cookie } });
 
 it("lists private history with no-store and the session owner", async () => {

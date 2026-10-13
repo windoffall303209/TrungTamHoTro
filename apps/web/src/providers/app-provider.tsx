@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { apiRequest } from "@/lib/api-client";
+import { ApiError, apiRequest } from "@/lib/api-client";
+import { clearSessionDrafts } from "@/lib/session-drafts";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 import { isSupportedLocale } from "@/i18n/catalog";
 import { useI18n } from "@/providers/i18n-provider";
@@ -18,6 +19,7 @@ interface AppContextValue {
   session: SessionData;
   authenticated: boolean;
   authLoading: boolean;
+  authError: string;
   login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
   register: (input: RegisterInput) => Promise<RegistrationResult>;
   completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
@@ -35,18 +37,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { setLocale } = useI18n();
   const [session, setSession] = useState<SessionData>(emptySession);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
 
   /** Nhận phiên hợp lệ và áp tùy chọn ngôn ngữ đã lưu trong hồ sơ người dùng. */
   const adoptSession = useCallback((nextSession: SessionData) => {
+    setAuthError("");
     setSession(nextSession);
     if (isSupportedLocale(nextSession.user.locale)) setLocale(nextSession.user.locale);
   }, [setLocale]);
 
-  /** Đồng bộ phiên từ server; mọi lỗi đều đưa client về trạng thái chưa đăng nhập. */
+  /** Chỉ hủy phiên khi server xác nhận hết quyền; lỗi mạng và giới hạn tần suất cho phép thử lại. */
   const refreshSession = useCallback(async (): Promise<boolean> => {
+    setAuthLoading(true);
+    setAuthError("");
     try { adoptSession(await apiRequest<SessionData>("/auth/session")); return true; }
-    catch { setSession(emptySession); return false; }
+    catch (error) {
+      if (error instanceof ApiError && [401, 403].includes(error.status)) setSession(emptySession);
+      else setAuthError("Chưa kiểm tra được phiên làm việc. Vui lòng thử lại.");
+      return false;
+    }
     finally { setAuthLoading(false); }
   }, [adoptSession]);
 
@@ -83,7 +93,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
-    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { setSession(emptySession); }
+    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { clearSessionDrafts(); setSession(emptySession); }
   }, []);
   /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */
   const setRole = useCallback(async (role: RoleCode) => {
@@ -96,7 +106,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
   }, []);
 
-  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, login, register, completeMfa, completeGoogleMfa, logout, setRole, refreshSession, notify }), [authLoading, completeGoogleMfa, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
+  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, authError, login, register, completeMfa, completeGoogleMfa, logout, setRole, refreshSession, notify }), [authError, authLoading, completeGoogleMfa, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
   return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-[var(--danger-fill)] text-[var(--status-on-fill)]" : toast.tone === "info" ? "bg-[var(--action)] text-[var(--action-ink)]" : "bg-[var(--success-fill)] text-[var(--status-on-fill)]"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 

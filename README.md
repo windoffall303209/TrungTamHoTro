@@ -4,7 +4,25 @@ Wind EDU là nền tảng vận hành trung tâm giảng dạy song ngữ Việt
 
 Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thái nghiệp vụ. Các thao tác quan trọng dùng transaction, khóa phiên bản, audit và idempotency; việc ẩn nút trên giao diện không thay thế kiểm tra quyền ở API.
 
+## Tổ chức mã nguồn
+
+- Backend giữ controller và lớp service làm điểm vào ổn định. Với học tập, học vụ và hệ thống, phần xử lý nằm trong `operations/`, chia theo nghiệp vụ như ghi danh, phân công giảng viên, phiên bản học liệu, duyệt đề và retention. Sửa quy tắc tại file nghiệp vụ tương ứng thay vì thêm tiếp vào service lớn.
+- Các file `*.context.ts` mô tả phụ thuộc và trạng thái nội bộ bằng kiểu tĩnh; service sở hữu trạng thái và cung cấp truy cập tới cùng một phiên bản. Các file `*.shared.ts` chứa kiểu, hằng số và hàm thuần dùng chung trong miền. Các lời gọi nội bộ vẫn đi qua service để giữ hành vi và điểm chặn kiểm thử hiện có.
+- API đối soát AI có DTO, service và controller riêng; `ai-grading-operations.ts` chỉ giữ đường import tương thích.
+- Bảy màn hình lớn nằm tại `apps/web/src/features/`: `exams`, `academic`, `operations`, `settings`, `teaching`, `messages`, `class-detail`. `page.tsx` chỉ trỏ tới màn hình; `*-screen.tsx` lắp ghép giao diện, `use-*-model.tsx` quản lý trạng thái/tải dữ liệu/hành động, `*-dialog.tsx` xử lý giao diện hộp thoại theo nghiệp vụ và `*.shared.tsx` chứa phần dùng chung trong tính năng.
+- Component riêng của tính năng không đưa vào thư viện UI chung. `apps/web/src/components/` tiếp tục chứa các thành phần dùng lại ở nhiều nơi.
+- Chú thích tiếng Việt giải thích trách nhiệm của hàm và các ràng buộc quan trọng, không diễn giải từng dòng. `pnpm comments:check` kiểm tra hàm có tên, phương thức có thân và callback có tên qua `useCallback` trong mã nguồn, script và kiểm thử. Đây là kiểm tra sự hiện diện, không thay thế việc đọc và đánh giá chất lượng chú thích; callback nội tuyến đơn giản, getter/setter chuyển tiếp và mã sinh tự động không thuộc phép đếm.
+- `docs/` là tài liệu hỏi đáp riêng tại máy, giữ nguyên nội dung và quy tắc bỏ qua hiện tại; không dùng thư mục này làm nơi chứa mã thực thi hoặc tài liệu bắt buộc cho build. `.gitignore` không tự bỏ theo dõi file đã được Git quản lý từ trước.
+
 ## Tính năng
+
+### Cập nhật bảo mật và kiểm thử
+
+- Trước khi khởi động bản cập nhật này trên database ứng dụng, chạy `pnpm db:deploy`. Migration `20260915130000_retention_verified_approval` bổ sung thời điểm duyệt; các job retention cũ chưa có dấu duyệt mới sẽ phải được duyệt lại.
+- Retention dùng hai tài khoản khác nhau: tạo yêu cầu tại `POST /system/retention-jobs` với `policyId`, rồi tài khoản thứ hai gọi `POST /system/retention-jobs/:jobId/approve`. Không truyền tên người duyệt từ client. Các đường dẫn này nằm dưới prefix/version API đã cấu hình.
+- `GET /admin/users` trả `{ items, total, active, locked, page, pageSize }`, không còn trả mảng trực tiếp. Query `page` từ 1–10000, `pageSize` từ 1–50, `query` tối đa 200 ký tự; tìm kiếm không phân biệt hoa thường.
+- Tải học liệu kiểm tra checksum trên tệp tạm trước khi stream; tối đa 4 lượt đồng thời mỗi tiến trình, 500 MiB mỗi tệp. Máy chạy API cần đủ dung lượng tạm. Archive retention mới dùng JSONL v3 và checksum từng tệp; archive v2 vẫn được kiểm chứng tương thích.
+- Test API và Playwright dùng `WIND_TEST_DB_NAME` (mặc định `trung_tam_giang_day_test`), bắt buộc hậu tố `_test`. Chuẩn bị riêng bằng `pnpm --filter @wind-of-fall/api db:test:prepare`; không dùng dữ liệu thật trong database test. Playwright khởi động server riêng ở cổng 3300/4400 và không tái sử dụng server có sẵn.
 
 ### Khóa học, lớp và học liệu
 
@@ -60,7 +78,7 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 
 ### Chống gọi AI trùng
 
-Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùng claim bền vững trong MySQL:
+Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùng claim bền vững trong PostgreSQL:
 
 - Khóa được tạo trước khi gọi provider và gắn với người dùng, nguồn, phiên bản cùng fingerprint yêu cầu.
 - Kết quả `READY` được phát lại sau khi process restart mà không cần gọi provider.
@@ -92,7 +110,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 | --- | --- |
 | Web | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | API | NestJS 11, REST API versioned, Swagger/OpenAPI |
-| Dữ liệu | MySQL 8, Prisma ORM 7, MariaDB adapter |
+| Dữ liệu | PostgreSQL 18, Prisma ORM 7, node-postgres adapter |
 | Realtime | Server-Sent Events |
 | Email | Resend với idempotency key |
 | Object storage | Local hoặc Cloudinary authenticated assets |
@@ -104,7 +122,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 TestDoAn/
 ├── apps/
 │   ├── api/
-│   │   ├── prisma/          # Schema, migration và seed MySQL
+│   │   ├── prisma/          # Schema, migration và seed PostgreSQL
 │   │   ├── scripts/         # Công cụ database thử độc lập
 │   │   ├── src/auth/        # Session, OAuth, xác minh và MFA
 │   │   ├── src/identity/    # Người dùng, vai trò và quyền
@@ -130,13 +148,13 @@ Dự án chạy trực tiếp trên máy, không yêu cầu Docker.
 
 - Node.js `>=24`.
 - pnpm `>=11` qua Corepack.
-- MySQL 8 đang hoạt động.
+- PostgreSQL 18 đang hoạt động.
 - Git.
 
 ```powershell
 node --version
 corepack --version
-mysql --version
+& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' --version
 ```
 
 ## Cài đặt nhanh
@@ -152,8 +170,8 @@ Sửa `.env`, sau đó tạo database:
 
 ```sql
 CREATE DATABASE trung_tam_giang_day
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+  WITH OWNER = postgres
+       ENCODING = 'UTF8';
 ```
 
 Kiểm tra cấu hình, áp migration và seed:
@@ -192,7 +210,7 @@ corepack pnpm dev:web
 
 Không commit `.env`, API key, secret, credential provider hoặc dữ liệu người dùng thật.
 
-### Ứng dụng và MySQL
+### Ứng dụng và PostgreSQL
 
 ```dotenv
 NODE_ENV=development
@@ -203,12 +221,14 @@ WEB_ORIGIN=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
 
 DB_HOST=localhost
-DB_USER=root
+DB_USER=postgres
 DB_PASSWORD=CHANGE_ME
 DB_NAME=trung_tam_giang_day
-DB_PORT=3306
+DB_PORT=5432
 DATABASE_CONNECT_ON_START=true
 DB_BACKUP_TIMEOUT_MS=30000
+PG_DUMP_PATH=pg_dump
+PG_RESTORE_PATH=pg_restore
 ```
 
 Production và mọi tác vụ AI chống trùng phải dùng `DATABASE_CONNECT_ON_START=true`. Một số fixture phát triển cũ có thể đọc dữ liệu trong bộ nhớ khi database tắt, nhưng không được xem đây là chế độ vận hành thật.
@@ -356,9 +376,21 @@ Khi kiểm tra một thay đổi có ghi database, phải dùng `trung_tam_giang
 
 ## Quy ước đóng góp
 
+### Vận hành sau hardening
+
+- Web dùng CSP nonce riêng cho mỗi request và không cache HTML dùng chung. Reverse proxy phải giữ CSP/header gốc; inline CSS vẫn được cho phép cho React/KaTeX, inline JavaScript không được cho phép trong production.
+- Upload học liệu giữ trần 500 MB nhưng ghi xuống thư mục tạm, tối đa 2 upload đồng thời **mỗi process**; request vượt năng lực nhận HTTP 429. Cần cấp đủ dung lượng đĩa tạm và cấu hình body/request timeout ở reverse proxy.
+- Backup/restore dùng tệp custom-format `.dump`, checksum tăng dần và kiểm tra kích thước trước restore. Tệp tạm được dọn khi tác vụ kết thúc; khi máy/process bị kill cứng, vận hành cần đối soát thư mục `wind-private-*` trong temp của tài khoản dịch vụ trước khi dọn tệp còn sót.
+- Outbox dùng lease 5 phút. Job quá 8 lần thử hoặc retry không chắc chắn ngoài cửa sổ 23 giờ từ lúc tạo event chuyển `DEAD_LETTER`; phải đối soát provider trước khi gửi lại, không tự đổi hàng loạt về `PENDING`.
+- `GET /materials` trả tối đa 50 bản ghi/trang (tham số `page`). Client cần tổng số và bộ lọc dùng `GET /materials/search`; giao diện đã chuyển sang phân trang server, không tải toàn bộ kho.
+- Chạy `corepack pnpm audit --prod` định kỳ. Kết quả không có advisory chỉ nói về lỗ hổng dependency đã biết, không thay thế pentest hoặc đo tải trên cấu hình production.
+- Chưa có benchmark production hoặc UAT Cloudinary/ClamAV/Resend với dịch vụ thật. Kiểm thử hiện dùng PostgreSQL local, HTTP multipart thật và adapter/provider mô phỏng; cần xác minh quota, latency, TLS/proxy và giới hạn tài nguyên khi triển khai.
+
+### Quy tắc thay đổi
+
 - Không commit `.env`, secret, API key hoặc dữ liệu người dùng thật.
 - Biến môi trường mới phải được thêm vào `.env.example` và schema kiểm tra backend.
-- Thay đổi database phải có Prisma migration và kiểm thử MySQL tương ứng.
+- Thay đổi database phải có Prisma migration và kiểm thử PostgreSQL tương ứng.
 - Luồng nghiệp vụ mới phải kiểm tra quyền ở backend, xử lý cạnh tranh và có regression test.
 - Chuỗi giao diện/lỗi API mới phải qua quality gate i18n.
 - Chạy `corepack pnpm check` trước khi merge.

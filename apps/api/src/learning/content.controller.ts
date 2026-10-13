@@ -1,6 +1,9 @@
 import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { parseExamPageQuery, type ExamPage } from "./operations/learning-exam-page.js";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { MaterialUploadInterceptor } from "../infrastructure/material-upload.interceptor.js";
+import { readFileHead } from "../infrastructure/file-streams.js";
 import type { Request } from "express";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
@@ -23,7 +26,7 @@ export class ContentController {
 
   @Get("instructor/materials/:materialId/ai-questions") @RequirePermissions("material:manage")
   @Header("Cache-Control", "no-store")
-  /** List private saved questions without generating answers or accepting a client-supplied owner. */
+  /** Liệt kê câu hỏi riêng đã lưu, không sinh câu trả lời hoặc nhận chủ sở hữu do client cung cấp. */
   questionHistory(@Param("materialId") materialId: string, @Query() query: MaterialAiHistoryQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionHistory"]> {
     return this.materialAi.questionHistory(materialId, query.version, session.user.id, session.roleCode, query.cursor);
   }
@@ -39,7 +42,7 @@ export class ContentController {
 
   @Post("instructor/materials/:materialId/ai-question/status") @RequirePermissions("material:manage")
   @HttpCode(200) @Header("Cache-Control", "no-store")
-  /** Read-only status lookup uses a body so private question text is not put into URLs. */
+  /** Tra cứu trạng thái chỉ đọc qua body để nội dung câu hỏi riêng không xuất hiện trong URL. */
   questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionStatusDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language, input.version); }
 
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
@@ -76,21 +79,24 @@ export class ContentController {
 
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
-  listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id); }
+  listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string, @Query("page") page?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id, Number(page)); }
 
-  @Get("learner/materials/search") @RequirePermissions("material:view")
+  @Get(["learner/materials/search", "materials/search"]) @RequirePermissions("material:view")
   /** Tìm học liệu học viên được truy cập với bộ lọc và phân trang đã chuẩn hóa trong service. */
   searchMaterials(
     @CurrentSession() session: AuthenticatedSession,
     @Query("query") query?: string,
     @Query("classId") classId?: string,
+    @Query("courseId") courseId?: string,
+    @Query("visibility") visibility?: string,
+    @Query("aiOnly") aiOnly?: string,
     @Query("folder") folder?: string,
     @Query("mimeType") mimeType?: string,
     @Query("tag") tag?: string,
     @Query("page") rawPage?: string,
     @Query("pageSize") rawPageSize?: string,
   ): Promise<MaterialSearchResult> {
-    return this.learning.searchAccessibleMaterials({ query, classId, folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id);
+    return this.learning.searchAccessibleMaterials({ query, classId, courseId, visibility, aiOnly: aiOnly === "true", folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id, session.roleCode);
   }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
@@ -98,17 +104,17 @@ export class ContentController {
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id); }
 
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
+  @UseInterceptors(MaterialUploadInterceptor)
   /** Chuẩn hóa tên/tags của tệp multipart rồi giao service quét virus và lưu object. */
-  uploadMaterial(
+  async uploadMaterial(
     @Param("classId") classId: string,
     @Body() input: UploadMaterialDto,
     @CurrentSession() session: AuthenticatedSession,
-    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
     const originalName = normalizeMultipartFileName(file.originalname);
-    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, buffer: file.buffer };
+    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) };
     return this.learning.createMaterial(classId, {
       name: originalName,
       mimeType: file.mimetype,
@@ -131,21 +137,21 @@ export class ContentController {
   @Get("materials/:materialId/versions/:version/download") @RequirePermissions("material:view")
   /** Xác minh chữ ký truy cập phiên bản rồi stream tệp với Content-Disposition phù hợp. */
   async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
-    const download = await this.learning.readMaterialVersionDownload(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
-    return new StreamableFile(download.buffer, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.buffer.length });
+    const download = await this.learning.readMaterialVersionDownloadStream(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
+    return new StreamableFile(download.stream, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.size });
   }
 
   @Post("instructor/materials/:materialId/versions") @RequirePermissions("material:manage")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 500_000_000, files: 1 } }))
+  @UseInterceptors(MaterialUploadInterceptor)
   /** Tải tệp thay thế để tạo phiên bản học liệu mới, không ghi đè lịch sử cũ. */
-  uploadMaterialVersion(
+  async uploadMaterialVersion(
     @Param("materialId") materialId: string,
     @Body() input: UploadMaterialDto,
     @CurrentSession() session: AuthenticatedSession,
-    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
     if (!file) throw new BadRequestException("Cần chọn tệp cho phiên bản mới.");
-    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
+    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) }, session.user.id);
   }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
@@ -182,14 +188,14 @@ export class ContentController {
     @Req() request: Request,
   ): Promise<StreamableFile> {
     const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    const download = await this.learning.readMaterialDownload(materialId, Number(expires), signature ?? "", session.roleCode, action, {
+    const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, {
       ipAddress: request.ip,
       userAgent: request.header("user-agent"),
     }, session.user.id);
-    return new StreamableFile(download.buffer, {
+    return new StreamableFile(download.stream, {
       type: download.mimeType,
       disposition: fileContentDisposition(action === "PREVIEW" ? "inline" : "attachment", download.fileName),
-      length: download.buffer.length,
+      length: download.size,
     });
   }
 
@@ -288,6 +294,12 @@ export class ContentController {
   @Get("exams") @RequirePermissions("exam:view")
   /** Liệt kê đề thi theo vai trò và quan hệ lớp. */
   listExams(@CurrentSession() session: AuthenticatedSession): Promise<LearningExam[]> { return this.learning.listExams(session.roleCode, session.user.id); }
+
+  @Get("exams/page") @RequirePermissions("exam:view")
+  /** Trả trang đề có giới hạn, kiểm tra query ở server và phạm vi truy cập trong truy vấn DB. */
+  listExamPage(@Query() query: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<ExamPage> {
+    return this.learning.listExamPage(session.roleCode, session.user.id, parseExamPageQuery(query));
+  }
 
   @Get("learner/classes/:classId/exams") @RequirePermissions("exam:view")
   /** Trả đề thi khả dụng và trạng thái lượt làm của học viên trong một lớp. */

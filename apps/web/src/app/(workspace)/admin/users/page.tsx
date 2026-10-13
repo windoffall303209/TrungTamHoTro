@@ -7,7 +7,7 @@ import {
   UnlockKeyhole,
   UserRoundCog,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { AccessDenied } from "@/components/access-denied";
 import {
@@ -17,7 +17,6 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-  usePagination,
 } from "@/components/ui";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { hasEveryPermission, hasPermission } from "@/lib/access-control";
@@ -101,17 +100,36 @@ export default function UsersPage() {
   const [handoffUserId, setHandoffUserId] = useState("");
   const [handoffReason, setHandoffReason] = useState("");
   const [form, setForm] = useState<UserForm>(emptyForm);
-  const pagination = usePagination(users);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totals, setTotals] = useState({ total: 0, active: 0, locked: 0 });
+  const requestVersion = useRef(0);
+  const [handoffQuery, setHandoffQuery] = useState("");
+  const [handoffUsers, setHandoffUsers] = useState<IdentityUser[]>([]);
+  // Tìm người nhận độc lập với trang tài khoản đang hiển thị.
+  useEffect(() => {
+    if (!impact?.requiresHandoff) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void apiRequest<{ items: IdentityUser[] }>(`/admin/users?pageSize=50&query=${encodeURIComponent(handoffQuery)}`, { roleCode: session.roleCode, signal: controller.signal })
+        .then((data) => setHandoffUsers(data.items)).catch(() => { if (!controller.signal.aborted) setHandoffUsers([]); });
+    }, 220);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [handoffQuery, impact?.requiresHandoff, session.roleCode]);
 
   /** Nạp danh sách người dùng theo truy vấn tìm kiếm hiện tại. */
   const loadUsers = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     try {
-      const data = await apiRequest<IdentityUser[]>(
-        `/admin/users${query ? `?query=${encodeURIComponent(query)}` : ""}`,
+      const data = await apiRequest<{ items: IdentityUser[]; total: number; active: number; locked: number }>(
+        `/admin/users?page=${page}&pageSize=${pageSize}&query=${encodeURIComponent(query)}`,
         { roleCode: session.roleCode },
       );
-      setUsers(data);
+      if (version !== requestVersion.current) return;
+      setUsers(data.items);
+      setTotals(data);
+      if (page > 1 && !data.items.length) setPage(Math.max(1, Math.ceil(data.total / pageSize)));
     } catch (error) {
       notify(
         error instanceof Error
@@ -120,22 +138,14 @@ export default function UsersPage() {
         "error",
       );
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, [notify, query, session.roleCode]);
+  }, [notify, query, page, pageSize, session.roleCode]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadUsers(), 220);
     return () => window.clearTimeout(timeout);
   }, [loadUsers]);
-
-  const totals = useMemo(
-    () => ({
-      active: users.filter((user) => user.status === "ACTIVE").length,
-      locked: users.filter((user) => user.status === "LOCKED").length,
-    }),
-    [users],
-  );
 
   /** Mở hộp thoại tạo với biểu mẫu người dùng rỗng. */
   const openCreate = () => {
@@ -248,10 +258,9 @@ export default function UsersPage() {
 
   /** Dùng chung biểu mẫu tạo/sửa và điều chỉnh các trường theo ngữ cảnh. */
   const formContent = (
-    submit: (event: React.FormEvent) => Promise<void>,
     includeEmail: boolean,
   ) => (
-    <form className="space-y-5" onSubmit={(event) => void submit(event)}>
+    <form className="space-y-5" onSubmit={(event) => void (includeEmail ? createUser(event) : updateUser(event))}>
       {includeEmail ? (
         <Field label="Tài khoản">
           <input
@@ -395,6 +404,7 @@ export default function UsersPage() {
           {impact.requiresHandoff ? (
             <div className="mt-4 space-y-3">
               <Field label="Người nhận bàn giao">
+                <input className={inputClass} aria-label="Tìm người nhận bàn giao" placeholder="Tìm theo tên hoặc email" value={handoffQuery} onChange={(event) => { setHandoffQuery(event.target.value); setHandoffUserId(""); }} />
                 <select
                   className={inputClass}
                   onChange={(event) => setHandoffUserId(event.target.value)}
@@ -402,7 +412,7 @@ export default function UsersPage() {
                   value={handoffUserId}
                 >
                   <option value="">Chọn tài khoản phù hợp…</option>
-                  {users
+                  {handoffUsers
                     .filter(
                       (user) =>
                         user.id !== editing?.id && user.status === "ACTIVE",
@@ -500,7 +510,7 @@ export default function UsersPage() {
             className={`${inputClass} pl-10`}
             onChange={(event) => {
               setQuery(event.target.value);
-              pagination.resetPage();
+              setPage(1);
             }}
             placeholder="Tìm theo tài khoản, tên hoặc email…"
             value={query}
@@ -538,7 +548,7 @@ export default function UsersPage() {
                   </td>
                 </tr>
               ) : (
-                pagination.pageItems.map((user) => (
+                users.map((user) => (
                   <tr className="hover:bg-slate-50/70" key={user.id}>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
@@ -610,11 +620,11 @@ export default function UsersPage() {
       </div>
       <Pagination
         itemLabel="tài khoản"
-        onPageChange={pagination.setPage}
-        onPageSizeChange={pagination.setPageSize}
-        page={pagination.page}
-        pageSize={pagination.pageSize}
-        totalItems={pagination.totalItems}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+        page={page}
+        pageSize={pageSize}
+        totalItems={totals.total}
       />
       <Modal
         description="Tài khoản được kích hoạt ngay với vai trò và mật khẩu ban đầu do quản trị viên cấp."
@@ -622,7 +632,7 @@ export default function UsersPage() {
         open={canCreate && createOpen}
         title="Tạo tài khoản"
       >
-        {formContent(createUser, true)}
+        {formContent(true)}
       </Modal>
       <Modal
         description="Thay đổi quyền cần xem trước ảnh hưởng; công việc được bàn giao trước và mọi phiên đang mở bị thu hồi ngay."
@@ -630,7 +640,7 @@ export default function UsersPage() {
         open={canUpdate && Boolean(editing)}
         title="Cập nhật tài khoản"
       >
-        {formContent(updateUser, false)}
+        {formContent(false)}
       </Modal>
     </div>
   );

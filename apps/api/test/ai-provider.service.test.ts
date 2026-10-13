@@ -204,10 +204,10 @@ describe("AI provider configuration and image scanning", () => {
     expect(catalog.OPENAI.length).toBeGreaterThanOrEqual(15);
   });
 
-  it("encrypts API keys with authenticated encryption", () => {
-    const encrypted = encryptSecret("secret-api-key", encryptionSecret);
+  it("encrypts API keys with authenticated encryption", async () => {
+    const encrypted = await encryptSecret("secret-api-key", encryptionSecret);
     expect(encrypted).not.toContain("secret-api-key");
-    expect(decryptSecret(encrypted, encryptionSecret)).toBe("secret-api-key");
+    expect(await decryptSecret(encrypted, encryptionSecret)).toBe("secret-api-key");
   });
 
   it("never returns the API key and normalizes scan output", async () => {

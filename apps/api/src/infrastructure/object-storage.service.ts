@@ -2,7 +2,11 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ConfigService } from "@nestjs/config";
 import { v2 as cloudinary, type UploadApiErrorResponse, type UploadApiResponse } from "cloudinary";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { hashFile, streamToFile } from "./file-streams.js";
+import { mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { Environment } from "../config/environment.js";
 
@@ -64,16 +68,61 @@ export class ObjectStorageService {
     return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
   }
 
+  /** Tải tệp lên bằng luồng local hoặc Cloudinary có bộ nhớ giới hạn và tính mã kiểm tra tăng dần. */
+  async putFile(objectKey: string, path: string): Promise<StoredObject> {
+    this.assertObjectKey(objectKey);
+    if (this.provider === "local") {
+      const target = this.resolveLocalPath(objectKey);
+      await mkdir(dirname(target), { recursive: true });
+      const result = await streamToFile(createReadStream(path), target);
+      return { objectKey, checksum: result.checksum };
+    }
+    this.assertCloudinaryConfigured();
+    const checksum = await hashFile(path);
+    const publicId = `${this.cloudinaryFolder}/${objectKey}`;
+    let resolveUpload!: (result: UploadApiResponse) => void;
+    let rejectUpload!: (error: Error) => void;
+    const completed = new Promise<UploadApiResponse>((resolveResult, rejectResult) => { resolveUpload = resolveResult; rejectUpload = rejectResult; });
+    const stream = cloudinary.uploader.upload_chunked_stream({ public_id: publicId, resource_type: "raw", type: "authenticated", overwrite: false, unique_filename: false, chunk_size: 6 * 1024 * 1024, timeout: 120_000 }, (error, response) => {
+      if (error) rejectUpload(new ServiceUnavailableException("Cloudinary từ chối tệp tải lên."));
+      else if (response && response.done !== false) resolveUpload(response);
+    });
+    const source = createReadStream(path);
+    const transfer = pipeline(source, stream);
+    let result: UploadApiResponse;
+    try { [result] = await Promise.all([completed, transfer]); }
+    catch (error) {
+      source.destroy();
+      stream.destroy();
+      await transfer.catch(() => undefined);
+      throw error;
+    }
+    return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
+  }
+
+  /** Tải trực tiếp vào tệp riêng; kiểm tra mã toàn vẹn và giới hạn kích thước tùy chọn trong khi truyền. */
+  async getToFile(objectKey: string, target: string, maxBytes: number): Promise<{ checksum: string; size: number }> {
+    return streamToFile(await this.openReadStream(objectKey), target, maxBytes);
+  }
+
   /** Đọc object từ local hoặc URL Cloudinary đã ký, có fallback private download cho raw file. */
   async get(objectKey: string): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of await this.openReadStream(objectKey)) chunks.push(Buffer.from(chunk as Uint8Array));
+    return Buffer.concat(chunks);
+  }
+
+  /** Mở nội dung đã xác thực dưới dạng luồng; bên gọi chịu trách nhiệm đọc và hủy luồng. */
+  async openReadStream(objectKey: string): Promise<Readable> {
     if (!objectKey.startsWith("cloudinary:")) {
-      return readFile(this.resolveLocalPath(objectKey)).catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
+      const file = await open(this.resolveLocalPath(objectKey), "r").catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
+      return file.createReadStream();
     }
 
     this.assertCloudinaryConfigured();
     const publicId = this.cloudinaryPublicId(objectKey);
     const url = cloudinary.url(publicId, { resource_type: "raw", type: "authenticated", sign_url: true, secure: true });
-    let response = await fetch(url, { signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+    let response = await fetch(url, { signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
     if (response.status === 401 || response.status === 403) {
       // Một số tài khoản Cloudinary chặn URL delivery cho PDF/raw nhưng vẫn cho phép
       // endpoint tải riêng tư đã ký. Dùng endpoint này để không biến upload thành tệp chết.
@@ -82,11 +131,13 @@ export class ObjectStorageService {
         type: "authenticated",
         expires_at: Math.floor(Date.now() / 1000) + 60,
       });
-      response = await fetch(privateUrl, { signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+      await response.body?.cancel();
+      response = await fetch(privateUrl, { signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
     }
     if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
     if (!response.ok) throw new ServiceUnavailableException(`Cloudinary trả về lỗi tải tệp (${response.status}).`);
-    return Buffer.from(await response.arrayBuffer());
+    if (!response.body) throw new ServiceUnavailableException("Cloudinary trả về tệp rỗng.");
+    return Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
   }
 
   /** Xóa object; thao tác được coi là thành công nếu object vốn đã không còn tồn tại. */
@@ -106,6 +157,7 @@ export class ObjectStorageService {
   /** Chọn upload stream thường hoặc chunked stream theo kích thước buffer. */
   private uploadCloudinary(publicId: string, buffer: Buffer): Promise<UploadApiResponse> {
     return new Promise((resolveUpload, rejectUpload) => {
+      /** Chuyển kết quả tải lên Cloudinary thành Promise thành công hoặc lỗi dịch vụ. */
       const callback = (error?: UploadApiErrorResponse, result?: UploadApiResponse): void => {
         if (error || !result) {
           rejectUpload(new ServiceUnavailableException(`Cloudinary từ chối tệp tải lên${error?.http_code ? ` (${error.http_code})` : ""}.`));

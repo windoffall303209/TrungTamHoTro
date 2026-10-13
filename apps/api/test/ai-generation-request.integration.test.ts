@@ -15,7 +15,7 @@ const result = { exam: { id: "fixture-exam" } } as AiGeneratedExamResult;
 // Mô phỏng chưa có đề đã lưu; không gọi AI hoặc tạo đề thật.
 const noResult = (): Promise<undefined> => Promise.resolve(undefined);
 
-describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test database", () => {
+describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test database", () => {
   const owner = `ai-dedupe-test-${randomUUID()}`;
   const adminId = `ai-reconcile-admin-${randomUUID()}`;
   let moduleRef: TestingModule;
@@ -131,7 +131,7 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
       key: `ai-generation:${id}`, updatedBy: owner, effectiveAt: new Date("2100-09-08T00:00:00Z"),
       value: { owner, hash: id, state: "CLAIMED", prepared: { secret: "private orphan draft" } },
     } });
-    // A newer retry alias must not displace actual unlinked claims in the first page.
+    // Bí danh thử lại mới hơn không được đẩy tác vụ thực sự mất liên kết khỏi trang đầu.
     const canonicalId = `${prefix}-canonical`;
     const generate = vi.fn().mockRejectedValue(new Error("fixture uncertain"));
     await expect(new AiGenerationRequestService(prisma).run(canonicalId, owner, { topic: prefix }, generate, vi.fn(), noResult)).rejects.toThrow("fixture uncertain");
@@ -151,7 +151,7 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated MySQL test databa
     const stored = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${ids[1]}` } });
     expect(stored.version).toBe(1);
     expect(stored.value).toMatchObject({ state: "CLAIMED", prepared: { secret: "private orphan draft" } });
-    // A binding added between reads removes the claim from this scope; a stale cursor fails explicitly.
+    // Liên kết thêm giữa hai lượt đọc loại tác vụ khỏi phạm vi này; mốc phân trang cũ phải báo lỗi rõ ràng.
     await prisma.systemSetting.create({ data: { key: `ai-generation-content:${prefix}`, updatedBy: owner, value: { owner, hash: ids[1], canonicalRequestId: ids[1] } } });
     const afterBinding = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked" }, session);
     expect(afterBinding.items.map((item) => item.id)).toEqual([ids[0]]);

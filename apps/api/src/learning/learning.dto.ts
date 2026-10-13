@@ -34,12 +34,12 @@ export class MaterialAiQuestionDto {
   @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
 }
 
-/** Only read-only status requests may select a historical source version. */
+/** Chỉ yêu cầu đọc trạng thái mới được chọn phiên bản nguồn trong lịch sử. */
 export class MaterialAiQuestionStatusDto extends MaterialAiQuestionDto {
   @IsOptional() @IsInt() @Min(1) @Max(2147483647) version?: number;
 }
 
-/** History selects an explicit source version; owner identity always comes from the authenticated session. */
+/** Lịch sử chọn phiên bản nguồn cụ thể; định danh chủ sở hữu luôn lấy từ phiên đăng nhập. */
 export class MaterialAiHistoryQueryDto {
   @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)
   @IsInt() @Min(1) @Max(2147483647) version!: number;

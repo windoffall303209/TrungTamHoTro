@@ -15,7 +15,7 @@ import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 export class AiMaterialContextService {
   constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
 
-  /** Read private history only while both the material and the requested source version remain accessible. */
+  /** Chỉ đọc lịch sử riêng khi vẫn có quyền truy cập học liệu và phiên bản nguồn được yêu cầu. */
   async questionHistory(materialId: string, version: number, actorId: string, role: string, cursor?: string): ReturnType<AiDocumentAnswerStore["list"]> {
     if (!Number.isSafeInteger(version) || version < 1) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
     await this.requireMaterial(materialId, actorId, role);
@@ -25,7 +25,7 @@ export class AiMaterialContextService {
     return page;
   }
 
-  /** Read saved status without provider work, checking source access on both sides of the lookup. */
+  /** Đọc trạng thái đã lưu mà không gọi nhà cung cấp; kiểm tra quyền nguồn trước và sau khi tra cứu. */
   async questionStatus(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL", sourceVersion?: number): ReturnType<AiDocumentAnswerStore["status"]> {
     const text = this.questionText(question, language);
     if (sourceVersion !== undefined && (!Number.isSafeInteger(sourceVersion) || sourceVersion < 1 || sourceVersion > 2147483647)) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
@@ -37,7 +37,7 @@ export class AiMaterialContextService {
     return status;
   }
 
-  /** Normalize and validate the common question identity for both read and generation paths. */
+  /** Chuẩn hóa và kiểm tra định danh câu hỏi chung cho cả đường đọc và đường sinh nội dung. */
   private questionText(question: string, language: string): string {
     const text = typeof question === "string" ? question.trim() : "";
     if (text.length < 2 || text.length > 2000) throw new BadRequestException("Câu hỏi cần từ 2 đến 2.000 ký tự.");
@@ -45,7 +45,7 @@ export class AiMaterialContextService {
     return text;
   }
 
-  /** Generate or replay a saved answer, rechecking current source access before returning it. */
+  /** Sinh hoặc trả lại câu trả lời đã lưu; kiểm tra lại quyền truy cập nguồn hiện tại trước khi trả kết quả. */
   async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
     const text = this.questionText(question, language);
     const material = await this.requireMaterial(materialId, actorId, role);
@@ -57,7 +57,7 @@ export class AiMaterialContextService {
       return previous.result;
     }
     if (previous.state !== "NOT_REQUESTED") throw new ConflictException("Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.");
-    // Complete the independently claimed OCR prerequisite before reserving answer generation.
+    // Hoàn tất bước OCR có quyền xử lý độc lập trước khi giữ quyền sinh câu trả lời.
     const context = await this.prepare(materialId, actorId, role, text, true, material.version);
     const result = await this.answers.generate(identity, async () => {
       const answer = await this.ai.answerDocument(text, context.chunks, language);
@@ -79,7 +79,7 @@ export class AiMaterialContextService {
       await this.learning.createMaterialVersionAccess(materialId, previous.result.version, role, "PREVIEW", actorId);
       return { ...previous.result, draftId: previous.id };
     }
-    // Finish OCR and validate selected coverage before reserving a chargeable study-generation attempt.
+    // Hoàn tất OCR và kiểm tra phạm vi trang đã chọn trước khi giữ quyền sinh bộ ôn tập có phí.
     const context = await this.prepare(materialId, actorId, role, undefined, true, sourceVersion);
     const selected = selectStudyContext(context.chunks, options);
     const result = await this.drafts.generate(identity, async () => {

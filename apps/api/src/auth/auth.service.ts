@@ -194,7 +194,7 @@ export class AuthService {
       });
       if (!used.count) throw new UnauthorizedException("Mã khôi phục không chính xác hoặc đã được sử dụng.");
     } else {
-      const secret = decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret);
+      const secret = await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret);
       if (!verifyTotp(secret, code)) throw new UnauthorizedException("Mã xác thực không chính xác hoặc đã hết hạn.");
     }
     await this.consumeAccountToken(challenge.id);
@@ -534,7 +534,7 @@ export class AuthService {
     if (user.mfaEnabledAt) throw new ConflictException("MFA đã được bật cho tài khoản.");
     if (user.googleSubject) await this.consumeSecurityEmailCode(userId, "MFA_SETUP_OTP", challengeId, code);
     const secret = createMfaSecret();
-    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecretEncrypted: encryptMfaSecret(secret, this.encryptionSecret) } });
+    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecretEncrypted: await encryptMfaSecret(secret, this.encryptionSecret) } });
     return { secret, otpauthUri: createTotpUri(secret, user.username, this.issuer) };
   }
 
@@ -542,7 +542,7 @@ export class AuthService {
   async confirmMfa(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted) throw new BadRequestException("Hãy khởi tạo cấu hình MFA trước.");
-    if (!verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new BadRequestException("Mã xác thực không chính xác.");
+    if (!verifyTotp(await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new BadRequestException("Mã xác thực không chính xác.");
     const recoveryCodes = createRecoveryCodes();
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: new Date() } }),
@@ -567,7 +567,7 @@ export class AuthService {
     if (challenge.userId !== userId) throw new UnauthorizedException("Phiên tắt xác thực hai bước không hợp lệ.");
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.mfaSecretEncrypted || !user.mfaEnabledAt) throw new BadRequestException("MFA chưa được bật.");
-    if (!verifyTotp(decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new UnauthorizedException("Mã xác thực không chính xác.");
+    if (!verifyTotp(await decryptMfaSecret(user.mfaSecretEncrypted, this.encryptionSecret), code)) throw new UnauthorizedException("Mã xác thực không chính xác.");
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: null, mfaSecretEncrypted: null } }),
       this.prisma.mfaRecoveryCode.deleteMany({ where: { userId } }),
@@ -613,19 +613,20 @@ export class AuthService {
     return this.mapSession(row.id, row.user, roleCode as RoleCode);
   }
 
-  /** Sinh CSRF token ngẫu nhiên, chỉ lưu bản băm gắn với phiên. */
-  async issueCsrf(sessionId: string): Promise<string> {
-    const csrfToken = randomBytes(32).toString("base64url");
-    await this.prisma.authSession.update({ where: { id: sessionId }, data: { csrfTokenHash: this.hashToken(csrfToken) } });
-    return csrfToken;
+  /** Dẫn xuất token theo phiên bằng HMAC để việc mở tab mới không thu hồi token của tab cũ. */
+  issueCsrf(sessionId: string): Promise<string> {
+    return Promise.resolve(`v2.${createHmac("sha256", this.encryptionSecret).update(`wind-edu:csrf:v2:${sessionId}`).digest("base64url")}`);
   }
 
   /** Xác nhận CSRF token thuộc đúng phiên cookie và so sánh theo constant-time. */
   async validateCsrf(sessionToken: string, csrfToken: string | undefined): Promise<boolean> {
     if (!csrfToken) return false;
-    const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { csrfTokenHash: true, revokedAt: true, expiresAt: true } });
-    if (!row?.csrfTokenHash || row.revokedAt || row.expiresAt <= new Date()) return false;
-    const expected = Buffer.from(row.csrfTokenHash, "hex");
+    const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { id: true, csrfTokenHash: true, revokedAt: true, expiresAt: true } });
+    if (!row || row.revokedAt || row.expiresAt <= new Date()) return false;
+    // Giữ tương thích token ngẫu nhiên cũ đến khi phiên hết hạn, không ghi đè bản băm của chúng.
+    const expectedHash = csrfToken.startsWith("v2.") ? this.hashToken(await this.issueCsrf(row.id)) : row.csrfTokenHash;
+    if (!expectedHash) return false;
+    const expected = Buffer.from(expectedHash, "hex");
     const actual = Buffer.from(this.hashToken(csrfToken), "hex");
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
@@ -887,6 +888,6 @@ export class AuthService {
   private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
   /** Chặn nghiệp vụ xác thực khi cấu hình chủ động không kết nối cơ sở dữ liệu. */
   private assertDatabase(): void {
-    if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối MySQL. Hãy bật DATABASE_CONNECT_ON_START.");
+    if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối PostgreSQL. Hãy bật DATABASE_CONNECT_ON_START.");
   }
 }
