@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.": "Only system administrators can create accounts with the System Administrator role.",
   "Cloudinary trả về tệp rỗng.": "Cloudinary returned an empty file response.",
   "Cloudinary từ chối tệp tải lên.": "Cloudinary rejected the uploaded file.",
   "Admin cần chọn Gemini hỗ trợ ngữ cảnh cho model Custom.": "The administrator must select Gemini context support for the Custom model.",
@@ -618,6 +619,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Tác vụ không có liên kết nội dung hợp lệ; chưa thể mở lại để tránh tạo trùng.": "The task has no valid content binding and cannot be reopened without risking duplicates.",
   "Tài khoản chưa có ảnh đại diện.": "Account does not have a profile picture.",
   "Tài khoản chưa được cấp vai trò sử dụng.": "The account has not been assigned a user role.",
+  "Tài khoản chưa được xác thực nên chưa thể đăng nhập.": "This account has not been verified yet, so it cannot sign in.",
   "Tài khoản chưa hoàn tất xác minh email. Hãy nhập mã 6 số hoặc mở liên kết đã gửi tới email của bạn.": "Account has not completed email verification. Please enter the 6-digit code or open the link sent to your email.",
   "Tài khoản đang bị khóa hoặc chưa được kích hoạt.": "Account is locked or not activated.",
   "Tài khoản đang giữ việc ở nhiều miền quyền; cần bàn giao từng miền trước khi đổi vai trò.": "Account holds jobs in multiple domains; need to hand over each domain before changing roles.",

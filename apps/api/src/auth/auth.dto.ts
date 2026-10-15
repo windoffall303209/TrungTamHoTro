@@ -15,27 +15,6 @@ export class LoginDto {
   rememberMe?: boolean;
 }
 
-/** Dữ liệu tạo tài khoản học viên, gồm quy tắc định dạng tài khoản và độ mạnh mật khẩu. */
-export class RegisterDto {
-  @IsString()
-  @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
-  displayName!: string;
-
-  @IsString()
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự, bắt đầu bằng chữ hoặc số; chỉ dùng dấu chấm, gạch dưới hoặc gạch ngang." })
-  username!: string;
-
-  @IsEmail({}, { message: "Email không đúng định dạng." })
-  email!: string;
-
-  @IsString()
-  @Length(8, 128, { message: "Mật khẩu phải có từ 8 đến 128 ký tự." })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
-    message: "Mật khẩu cần có chữ hoa, chữ thường, số và ký tự đặc biệt.",
-  })
-  password!: string;
-}
-
 /** Các trường hồ sơ người dùng được phép tự cập nhật. */
 export class UpdateProfileDto {
   @IsString()
@@ -55,22 +34,11 @@ export class UpdateProfileDto {
   locale!: string;
 }
 
-/** Dữ liệu đổi mật khẩu bằng mật khẩu hiện tại hoặc thử thách email đối với tài khoản Google. */
+/** Dữ liệu đổi mật khẩu: bắt buộc mật khẩu hiện tại và mật khẩu mới đủ mạnh. */
 export class ChangePasswordDto {
-  @IsOptional()
   @IsString()
   @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
-  currentPassword?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
-  challengeId?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
-  code?: string;
+  currentPassword!: string;
 
   @IsString()
   @Length(8, 128, { message: "Mật khẩu mới phải có từ 8 đến 128 ký tự." })
@@ -152,24 +120,6 @@ export class MfaCodeDto {
   code!: string;
 }
 
-/** Mục đích nghiệp vụ của mã xác thực email nâng cao trước thao tác nhạy cảm. */
-export class SecurityEmailChallengeDto {
-  @IsIn(["PASSWORD_CHANGE", "MFA_SETUP", "MFA_DISABLE"], { message: "Mục đích xác thực email không hợp lệ." })
-  purpose!: "PASSWORD_CHANGE" | "MFA_SETUP" | "MFA_DISABLE";
-}
-
-export class StartMfaSetupDto {
-  @IsOptional()
-  @IsString()
-  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
-  challengeId?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
-  code?: string;
-}
-
 export class MfaLoginDto extends MfaCodeDto {
   @IsString()
   @Length(32, 512, { message: "Phiên xác thực hai bước không hợp lệ." })
@@ -181,20 +131,9 @@ export class MfaLoginDto extends MfaCodeDto {
 }
 
 export class DisableMfaPasswordDto {
-  @IsOptional()
   @IsString()
   @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
-  password?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(20, 64, { message: "Phiên xác thực email không hợp lệ." })
-  challengeId?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{6}$/, { message: "Mã xác thực email phải gồm 6 chữ số." })
-  code?: string;
+  password!: string;
 }
 
 export class DisableMfaDto extends MfaCodeDto {
@@ -215,10 +154,4 @@ export class RecoveryMfaLoginDto {
   @IsOptional()
   @IsBoolean()
   rememberMe?: boolean;
-}
-
-export class GoogleMfaRecoveryDto {
-  @IsString()
-  @Matches(/^[A-F0-9]{5}-[A-F0-9]{5}$/i, { message: "Mã khôi phục không đúng định dạng." })
-  recoveryCode!: string;
 }

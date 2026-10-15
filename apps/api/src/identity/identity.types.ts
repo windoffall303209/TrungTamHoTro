@@ -2,6 +2,7 @@ import type { PermissionCode, RoleCode } from "../auth/permissions.js";
 
 /** Trạng thái vòng đời tài khoản được dùng chung giữa DTO, service và giao diện quản trị. */
 export type AccountStatus =
+  | "PENDING"
   | "PENDING_VERIFICATION"
   | "ACTIVE"
   | "INACTIVE"
@@ -12,11 +13,10 @@ export interface IdentityUser {
   id: string;
   username: string;
   displayName: string;
-  email: string;
+  email: string | null;
   roleCode: RoleCode;
   roleCodes: RoleCode[];
   status: AccountStatus;
-  invitationSent?: boolean;
   createdAt: string;
   updatedAt: string;
 }

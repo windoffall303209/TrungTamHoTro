@@ -83,12 +83,12 @@ export interface ClassMemberHistory {
 export interface ClassRoster {
   classId: string;
   instructors: Array<
-    ClassInstructorAssignment & { displayName?: string; email?: string }
+    ClassInstructorAssignment & { displayName?: string; email?: string | null }
   >;
   enrollments: Array<{
     learnerId: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     status: "ACTIVE" | "CANCELLED";
     source: string;
     joinedAt: string;
@@ -105,7 +105,7 @@ export interface EnrollmentImportResult {
 export interface DirectoryUser {
   id: string;
   displayName: string;
-  email: string;
+  email: string | null;
   roleCode: "INSTRUCTOR" | "LEARNER";
 }
 
@@ -266,7 +266,7 @@ export interface AiGeneratedExamResult {
 export interface ExamAttemptReview {
   attempt: ExamAttempt;
   exam: { id: string; classId: string; title: string; totalScore: number };
-  learner: { id: string; name?: string; email?: string };
+  learner: { id: string; name?: string; email?: string | null };
   questions: Array<{
     questionId: string;
     type: LearningQuestion["type"];

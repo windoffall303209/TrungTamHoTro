@@ -21,7 +21,7 @@ const roleContent: Record<RoleCode, { title: string; description: string }> = {
 };
 
 const modules = [
-  { href: "/admin/users", name: "Người dùng", detail: "Tài khoản, trạng thái và phạm vi truy cập", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN"] },
+  { href: "/admin/users", name: "Người dùng", detail: "Tài khoản, trạng thái và phạm vi truy cập", icon: Users, permissions: ["user:view"], roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"] },
   { href: "/admin/roles", name: "Vai trò & quyền", detail: "Ma trận quyền và lịch sử thay đổi", icon: ShieldCheck, permissions: ["role:view"], roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/settings", name: "Cấu hình hệ thống", detail: "Tích hợp, email và thiết lập dùng chung", icon: Settings, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },
   { href: "/admin/operations", name: "Vận hành & tuân thủ", detail: "Sao lưu, nhật ký và sức khỏe dịch vụ", icon: ShieldEllipsis, permissions: ["system:configure"], roles: ["SYSTEM_ADMIN"] },

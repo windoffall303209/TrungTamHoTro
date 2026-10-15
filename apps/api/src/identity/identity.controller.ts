@@ -45,12 +45,12 @@ export class IdentityController {
   @Post("users")
   @RequirePermissions("user:create")
   @ApiOperation({ summary: "Tạo tài khoản người dùng" })
-  /** Tạo tài khoản quản trị chỉ định và ghi người thực hiện vào nhật ký. */
+  /** Tạo tài khoản theo vai trò đang dùng của người thực hiện và ghi người đó vào nhật ký. */
   createUser(
     @Body() input: CreateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.createUser(input, session.user.id);
+    return this.identityService.createUser(input, session.user.id, session.roleCode);
   }
 
   @Get("users/:userId/change-impact")

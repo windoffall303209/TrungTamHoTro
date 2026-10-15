@@ -1,23 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-test("đăng ký, mở hồ sơ tài khoản và không có lỗi accessibility nghiêm trọng", async ({ page }, testInfo) => {
-  const suffix = `${Date.now()}${testInfo.project.name.replace(/\W/g, "")}`;
-  const email = `e2e+${suffix}@windoffall3k32k9.online`;
-  const username = `e2e${suffix}`.slice(0, 32);
-  const password = "WindE2e!2026";
-  await page.goto("/register");
-  await page.getByLabel("Họ và tên").fill("Học viên E2E");
-  await page.getByPlaceholder("nguyenvanan").fill(username);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
-  await page.getByLabel("Xác nhận mật khẩu").fill(password);
-  await page.getByRole("button", { name: "Tạo tài khoản" }).click();
-  await expect(page).toHaveURL(/\/verify-email\?/, { timeout: 20_000 });
-  await expect(page.getByRole("heading", { name: "Xác minh email" })).toBeVisible();
-  const verificationAudit = await new AxeBuilder({ page }).exclude("[data-nextjs-dev-tools-button]").analyze();
-  expect(verificationAudit.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
-
+test("mở hồ sơ tài khoản và không có lỗi accessibility nghiêm trọng", async ({ page }) => {
   const seedPassword = process.env.SEED_DEFAULT_PASSWORD;
   if (!seedPassword) throw new Error("SEED_DEFAULT_PASSWORD chưa được cấu hình cho E2E.");
   await page.goto("/login");

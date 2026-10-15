@@ -1,12 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
   Optional,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import {
@@ -15,8 +14,6 @@ import {
   type RoleCode,
 } from "../auth/permissions.js";
 import { PrismaService } from "../database/prisma.service.js";
-import type { Environment } from "../config/environment.js";
-import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
 import type {
   CreateUserDto,
   UserListQueryDto,
@@ -50,7 +47,6 @@ type RoleWithPermissions = Prisma.RoleGetPayload<{
 @Injectable()
 /** Quản lý danh tính bằng Prisma khi có DB và dùng dữ liệu nhớ tương đương cho chế độ demo cục bộ. */
 export class IdentityService {
-  private readonly logger = new Logger(IdentityService.name);
   private readonly users: IdentityUser[] = [
     {
       id: "usr-admin",
@@ -131,11 +127,7 @@ export class IdentityService {
 
   private readonly auditEvents: IdentityAuditEvent[] = [];
 
-  constructor(
-    @Optional() private readonly prisma?: PrismaService,
-    @Optional() private readonly emailDelivery?: EmailDeliveryService,
-    @Optional() private readonly config?: ConfigService<Environment, true>,
-  ) {}
+  constructor(@Optional() private readonly prisma?: PrismaService) {}
 
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
   async listUsersPage(input: UserListQueryDto): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
@@ -188,20 +180,21 @@ export class IdentityService {
       .map((user) => ({ ...user }));
   }
 
-  /** Tạo user, gán vai trò và ghi audit trong cùng transaction; xử lý cả xung đột unique. */
+  /** Tạo tài khoản chưa xác thực bằng mật khẩu tạm; chỉ vai trò Quản trị hệ thống được cấp vai trò quản trị. */
   async createUser(
     input: CreateUserDto,
-    actorId = "usr-admin",
+    actorId: string,
+    actorRoleCode: RoleCode,
   ): Promise<IdentityUser> {
-    const normalizedEmail = input.email.trim().toLowerCase();
     const normalizedUsername = input.username.trim().toLowerCase();
     const roleCodes = [...new Set(input.roleCodes?.length ? input.roleCodes : [input.roleCode])];
-    const invitationToken = input.initialPassword
-      ? undefined
-      : randomBytes(48).toString("base64url");
-    const invitationExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    if (actorRoleCode !== "SYSTEM_ADMIN" && roleCodes.includes("SYSTEM_ADMIN"))
+      throw new ForbiddenException(
+        "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.",
+      );
     const prisma = this.database();
     if (prisma) {
+      const passwordHash = await hashPassword(input.initialPassword);
       try {
         const row = await prisma.$transaction(async (transaction) => {
           const roles = await transaction.role.findMany({
@@ -215,27 +208,13 @@ export class IdentityService {
             data: {
               id: `usr-${randomUUID()}`,
               username: normalizedUsername,
-              displayName: input.displayName.trim(),
-              email: normalizedEmail,
-              status: invitationToken ? "PENDING_VERIFICATION" : "ACTIVE",
-              emailVerifiedAt: invitationToken ? null : new Date(),
-              passwordHash: input.initialPassword
-                ? await hashPassword(input.initialPassword)
-                : null,
+              // Họ tên tạm lấy theo tên tài khoản; email và hồ sơ do người dùng bổ sung sau khi đăng nhập.
+              displayName: normalizedUsername,
+              status: "PENDING",
+              passwordHash,
               roles: {
                 create: roles.map((role) => ({ roleId: role.id })),
               },
-              accountTokens: invitationToken
-                ? {
-                    create: {
-                      tokenHash: createHash("sha256")
-                        .update(invitationToken)
-                        .digest("hex"),
-                      type: "PASSWORD_RESET",
-                      expiresAt: invitationExpiresAt,
-                    },
-                  }
-                : undefined,
             },
             include: { roles: { include: { role: true } } },
           });
@@ -244,55 +223,39 @@ export class IdentityService {
             actorId,
             "USER_CREATED",
             user.id,
-            `Tạo tài khoản ${user.email}`,
+            `Tạo tài khoản ${user.username}`,
           );
           return user;
         });
-        const invitationSent = invitationToken
-          ? await this.sendInvitationEmail(
-              row.id,
-              row.email,
-              row.displayName,
-              invitationToken,
-              invitationExpiresAt,
-            )
-          : undefined;
-        return { ...this.mapUser(row), invitationSent };
+        return this.mapUser(row);
       } catch (error) {
         if (isUniqueConstraintError(error))
           throw new ConflictException(
-            "Tài khoản hoặc email đã tồn tại trong hệ thống.",
+            "Tên tài khoản đã được sử dụng. Hãy chọn tên khác.",
           );
         throw error;
       }
     }
 
-    if (
-      this.users.some(
-        (user) =>
-          user.email.toLowerCase() === normalizedEmail ||
-          user.username === normalizedUsername,
-      )
-    ) {
+    if (this.users.some((user) => user.username === normalizedUsername)) {
       throw new ConflictException(
-        "Tài khoản hoặc email đã tồn tại trong hệ thống.",
+        "Tên tài khoản đã được sử dụng. Hãy chọn tên khác.",
       );
     }
     const timestamp = now();
     const user: IdentityUser = {
       id: `usr-${randomUUID()}`,
       username: normalizedUsername,
-      displayName: input.displayName.trim(),
-      email: normalizedEmail,
+      displayName: normalizedUsername,
+      email: null,
       roleCode: roleCodes[0]!,
       roleCodes,
-      status: invitationToken ? "PENDING_VERIFICATION" : "ACTIVE",
-      invitationSent: false,
+      status: "PENDING",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     this.users.unshift(user);
-    this.audit(actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
+    this.audit(actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.username}`);
     return { ...user };
   }
 
@@ -912,7 +875,7 @@ export class IdentityService {
     const code = row.roles[0]?.role.code;
     if (!code || !Object.hasOwn(DEFAULT_ROLE_PERMISSIONS, code)) {
       throw new BadRequestException(
-        `Tài khoản ${row.email} chưa có vai trò hợp lệ.`,
+        `Tài khoản ${row.username} chưa có vai trò hợp lệ.`,
       );
     }
     return code as RoleCode;
@@ -921,31 +884,6 @@ export class IdentityService {
   /** So sánh hai tập vai trò không phụ thuộc thứ tự để tránh thu hồi phiên không cần thiết. */
   private sameRoleSet(left: RoleCode[], right: RoleCode[]): boolean {
     return left.length === right.length && left.every((code) => right.includes(code));
-  }
-
-  /** Gửi liên kết kích hoạt một lần; lỗi provider giữ tài khoản ở trạng thái chờ để quản trị viên xử lý lại. */
-  private async sendInvitationEmail(
-    userId: string,
-    email: string,
-    displayName: string,
-    token: string,
-    expiresAt: Date,
-  ): Promise<boolean> {
-    if (!this.emailDelivery?.isConfigured()) return false;
-    const origin = this.config?.get("WEB_ORIGIN", { infer: true })?.replace(/\/$/, "") ?? "http://localhost:3000";
-    const link = `${origin}/reset-password?token=${encodeURIComponent(token)}&invitation=1`;
-    try {
-      await this.emailDelivery.send({
-        to: email,
-        subject: "Kích hoạt tài khoản Wind EDU",
-        text: `Xin chào ${displayName},\n\nTài khoản Wind EDU của bạn đã được tạo. Hãy đặt mật khẩu bằng liên kết dùng một lần trước ${expiresAt.toISOString()}:\n${link}`,
-        idempotencyKey: `account-invitation/${userId}/${createHash("sha256").update(token).digest("hex")}`,
-      });
-      return true;
-    } catch (error) {
-      this.logger.error("Không gửi được email kích hoạt tài khoản.", error instanceof Error ? error.stack : String(error));
-      return false;
-    }
   }
 
   /** Ánh xạ vai trò Prisma và kiểm tra mã vai trò trước khi ép kiểu. */

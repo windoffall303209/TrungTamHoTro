@@ -3,29 +3,32 @@ import { describe, expect, it } from "vitest";
 import { IdentityService } from "../src/identity/identity.service.js";
 
 describe("IdentityService", () => {
-  it("tạo tài khoản và chặn email trùng không phân biệt hoa thường", async () => {
+  it("tạo tài khoản chưa xác thực và chặn tên tài khoản trùng không phân biệt hoa thường", async () => {
     const service = new IdentityService();
     const created = await service.createUser(
       {
         username: "new.user",
-        displayName: "Người dùng mới",
-        email: "new@wind.edu.vn",
         roleCode: "LEARNER",
+        initialPassword: "Temp-2026-pass",
       },
       "admin-real",
+      "SYSTEM_ADMIN",
     );
     expect(created).toMatchObject({
-      status: "PENDING_VERIFICATION",
+      status: "PENDING",
+      email: null,
       roleCodes: ["LEARNER"],
-      invitationSent: false,
     });
     await expect(
-      service.createUser({
-        username: "other.user",
-        displayName: "Trùng",
-        email: "NEW@wind.edu.vn",
-        roleCode: "LEARNER",
-      }),
+      service.createUser(
+        {
+          username: "NEW.user",
+          roleCode: "LEARNER",
+          initialPassword: "Temp-2026-pass",
+        },
+        "admin-real",
+        "SYSTEM_ADMIN",
+      ),
     ).rejects.toThrow(ConflictException);
     expect((await service.listAuditEvents())[0]).toMatchObject({
       actorId: "admin-real",
@@ -34,19 +37,21 @@ describe("IdentityService", () => {
     });
   });
 
-  it("giữ nhiều vai trò và chỉ kích hoạt ngay khi quản trị viên đặt mật khẩu ban đầu", async () => {
+  it("giữ nhiều vai trò khi tạo tài khoản bằng mật khẩu tạm", async () => {
     const service = new IdentityService();
-    const created = await service.createUser({
-      username: "multi.role",
-      displayName: "Người dùng đa vai trò",
-      email: "multi.role@wind.edu.vn",
-      roleCode: "INSTRUCTOR",
-      roleCodes: ["INSTRUCTOR", "LEARNER"],
-      initialPassword: "Password-2030",
-    });
+    const created = await service.createUser(
+      {
+        username: "multi.role",
+        roleCode: "INSTRUCTOR",
+        roleCodes: ["INSTRUCTOR", "LEARNER"],
+        initialPassword: "Password-2030",
+      },
+      "usr-admin",
+      "SYSTEM_ADMIN",
+    );
 
     expect(created).toMatchObject({
-      status: "ACTIVE",
+      status: "PENDING",
       roleCode: "INSTRUCTOR",
       roleCodes: ["INSTRUCTOR", "LEARNER"],
     });

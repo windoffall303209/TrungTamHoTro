@@ -90,7 +90,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 ### Quản trị và vận hành
 
 - Tài khoản nhiều vai trò, ma trận quyền, impact preview và bàn giao công việc trước khi đổi quyền.
-- Đăng ký/xác minh email, Google OAuth + PKCE, phiên server-side, CSRF, TOTP MFA và mã khôi phục.
+- Tài khoản do quản trị hệ thống hoặc quản lý trung tâm cấp (quản lý không cấp được vai trò quản trị); xác minh email, phiên server-side, CSRF, TOTP MFA và mã khôi phục.
 - Báo cáo, export tệp thật, backup, restore drill/operational và background worker có lease/retry.
 - Retention theo policy/version, archive checksum, kiểm tra khả năng phục hồi và cơ chế phê duyệt bốn mắt.
 - Legal hold có vòng đời tạo, xem và giải tỏa; danh mục `AI_RESULTS` quản lý kết quả AI đã hoàn tất.
@@ -114,7 +114,7 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 | Realtime | Server-Sent Events |
 | Email | Resend với idempotency key |
 | Object storage | Local hoặc Cloudinary authenticated assets |
-| Xác thực | Server session, CSRF, Google OAuth + PKCE, TOTP MFA |
+| Xác thực | Server session, CSRF, TOTP MFA |
 | Kiểm thử | Vitest, Testing Library, Playwright, axe-core |
 | Workspace | pnpm monorepo |
 
@@ -254,25 +254,17 @@ CLOUDINARY_FOLDER=wind-edu
 STORAGE_SIGNING_SECRET=CHANGE_ME_WITH_AT_LEAST_32_CHARACTERS
 ```
 
-### Email và Google OAuth
+### Email và xác thực
 
 ```dotenv
 RESEND_API_KEY=
 RESEND_FROM=Wind EDU <noreply@your-verified-domain.example>
 
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback
 AUTH_ENCRYPTION_SECRET=CHANGE_ME_WITH_AT_LEAST_32_CHARACTERS
 MFA_ISSUER=Wind EDU
 ```
 
-Google Cloud Console phải có:
-
-- Authorized JavaScript origin: `http://localhost:3000`.
-- Authorized redirect URI: `http://localhost:4000/api/v1/auth/google/callback`.
-
-Ba biến Google phải được cấu hình cùng nhau. `RESEND_FROM` trên production phải dùng domain đã xác minh, không dùng `resend.dev`.
+`RESEND_FROM` trên production phải dùng domain đã xác minh, không dùng `resend.dev`.
 
 ### Antivirus, rate limit và lớp trực tuyến
 
