@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { ChangePasswordDto, ChangeVerificationEmailDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -14,12 +14,26 @@ export class SessionController {
   @Post("login")
   @HttpCode(200)
   @ApiOperation({ summary: "Đăng nhập bằng tên tài khoản và mật khẩu" })
-  /** Xác thực mật khẩu; nếu không cần MFA thì phát cookie phiên và CSRF token. */
+  /** Xác thực mật khẩu; nếu không cần MFA hay xác thực tài khoản tạm thì phát cookie phiên và CSRF token. */
   async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
     const result = await this.auth.login(input.username, input.password, input.rememberMe, this.context(request));
-    if ("requiresMfa" in result) return result;
+    if ("requiresMfa" in result || "requiresAccountSetup" in result) return result;
     this.setSessionCookie(response, result.token, result.maxAgeMs);
     return { ...result.session, csrfToken: result.csrfToken };
+  }
+
+  @Post("account-setup/otp")
+  @HttpCode(200)
+  /** Gửi hoặc gửi lại mã OTP tới email người dùng nhập ở trang xác thực tài khoản. */
+  sendAccountSetupOtp(@Body() input: AccountSetupOtpDto): Promise<object> {
+    return this.auth.sendAccountSetupOtp(input.setupToken, input.email);
+  }
+
+  @Post("account-setup/complete")
+  @HttpCode(200)
+  /** Hoàn tất xác thực tài khoản tạm bằng mã OTP, tên tài khoản và mật khẩu mới. */
+  completeAccountSetup(@Body() input: CompleteAccountSetupDto): Promise<object> {
+    return this.auth.completeAccountSetup(input);
   }
 
   @Post("mfa/verify")
@@ -164,11 +178,19 @@ export class AccountController {
     return this.auth.updateProfile(session.user.id, input);
   }
 
+  @Post("password/otp")
+  @HttpCode(200)
+  /** Gửi mã OTP đổi mật khẩu khi người dùng nhập đúng email đã xác thực của tài khoản. */
+  async sendPasswordChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: PasswordChangeOtpDto): Promise<object> {
+    const session = await this.session(cookies);
+    return this.auth.sendPasswordChangeOtp(session.user.id, input.email);
+  }
+
   @Patch("password")
-  /** Đổi mật khẩu bằng mật khẩu hiện tại và giữ lại phiên đang thao tác. */
+  /** Đổi mật khẩu bằng mã OTP gửi tới email và giữ lại phiên đang thao tác. */
   async changePassword(@Headers("cookie") cookies: string | undefined, @Body() input: ChangePasswordDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.changePassword(session.user.id, session.sessionId, input.currentPassword, input.newPassword);
+    return this.auth.changePassword(session.user.id, session.sessionId, input.challengeId, input.code, input.newPassword);
   }
 
   @Get("sessions")

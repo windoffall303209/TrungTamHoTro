@@ -15,6 +15,39 @@ export class LoginDto {
   rememberMe?: boolean;
 }
 
+/** Email nhận mã OTP ở bước đầu xác thực tài khoản được cấp bằng mật khẩu tạm. */
+export class AccountSetupOtpDto {
+  @IsString()
+  @Length(32, 512, { message: "Phiên xác thực tài khoản không hợp lệ." })
+  setupToken!: string;
+
+  @IsEmail({}, { message: "Email không đúng định dạng." })
+  @Length(3, 191, { message: "Email không được vượt quá 191 ký tự." })
+  email!: string;
+}
+
+/** Dữ liệu hoàn tất xác thực: mã OTP đã gửi tới email, tên tài khoản và mật khẩu mới thay mật khẩu tạm. */
+export class CompleteAccountSetupDto extends AccountSetupOtpDto {
+  @IsString()
+  @Length(20, 64, { message: "Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới." })
+  challengeId!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã OTP phải gồm 6 chữ số." })
+  code!: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, { message: "Tài khoản phải có 4–32 ký tự hợp lệ." })
+  username!: string;
+
+  @IsString()
+  @Length(8, 128, { message: "Mật khẩu mới phải có từ 8 đến 128 ký tự." })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
+    message: "Mật khẩu mới cần có chữ hoa, chữ thường, số và ký tự đặc biệt.",
+  })
+  newPassword!: string;
+}
+
 /** Các trường hồ sơ người dùng được phép tự cập nhật. */
 export class UpdateProfileDto {
   @IsString()
@@ -34,11 +67,22 @@ export class UpdateProfileDto {
   locale!: string;
 }
 
-/** Dữ liệu đổi mật khẩu: bắt buộc mật khẩu hiện tại và mật khẩu mới đủ mạnh. */
+/** Email đã xác thực của tài khoản, nhập lại để nhận mã OTP đổi mật khẩu. */
+export class PasswordChangeOtpDto {
+  @IsEmail({}, { message: "Email không đúng định dạng." })
+  @Length(3, 191, { message: "Email không được vượt quá 191 ký tự." })
+  email!: string;
+}
+
+/** Dữ liệu đổi mật khẩu: mã OTP gửi tới email tài khoản và mật khẩu mới đủ mạnh. */
 export class ChangePasswordDto {
   @IsString()
-  @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
-  currentPassword!: string;
+  @Length(20, 64, { message: "Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới." })
+  challengeId!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã OTP phải gồm 6 chữ số." })
+  code!: string;
 
   @IsString()
   @Length(8, 128, { message: "Mật khẩu mới phải có từ 8 đến 128 ký tự." })
