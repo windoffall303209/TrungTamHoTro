@@ -13,12 +13,13 @@ const emptySession: SessionData = {
 
 interface ToastState { id: number; message: string; tone: "success" | "error" | "info" }
 interface LoginInput { username: string; password: string; rememberMe: boolean }
+interface AccountSetupStart { setupToken: string; username: string }
 interface AppContextValue {
   session: SessionData;
   authenticated: boolean;
   authLoading: boolean;
   authError: string;
-  login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
+  login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string; accountSetup?: AccountSetupStart }>;
   completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
@@ -64,10 +65,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("wind-edu:unauthorized", clearExpiredSession);
   }, []);
 
-  /** Đăng nhập và tách kết quả cần MFA khỏi phiên hoàn chỉnh. */
+  /** Đăng nhập và tách kết quả cần MFA hoặc cần xác thực tài khoản tạm khỏi phiên hoàn chỉnh. */
   const login = useCallback(async (input: LoginInput) => {
-    const result = await apiRequest<SessionData | { requiresMfa: true; challengeToken: string }>("/auth/login", { method: "POST", body: JSON.stringify(input) });
+    const result = await apiRequest<SessionData | { requiresMfa: true; challengeToken: string } | ({ requiresAccountSetup: true } & AccountSetupStart)>("/auth/login", { method: "POST", body: JSON.stringify(input) });
     if ("requiresMfa" in result) return { requiresMfa: true, challengeToken: result.challengeToken };
+    if ("requiresAccountSetup" in result) return { requiresMfa: false, accountSetup: { setupToken: result.setupToken, username: result.username } };
     adoptSession(result);
     return { requiresMfa: false };
   }, [adoptSession]);

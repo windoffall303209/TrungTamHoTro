@@ -1,5 +1,18 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Bạn đã nhập sai mã OTP quá nhiều lần. Hãy nhận mã OTP mới.": "Too many incorrect OTP attempts. Request a new code.",
+  "Bạn đã yêu cầu mã OTP quá nhiều lần. Hãy thử lại sau một giờ.": "You have requested too many OTP codes. Try again in one hour.",
+  "Không gửi được mã OTP tới email này. Hãy kiểm tra lại email hoặc thử lại sau.": "The OTP code could not be sent to this email. Check the address or try again later.",
+  "Mã OTP không chính xác.": "The OTP code is incorrect.",
+  "Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới.": "This OTP code is no longer valid. Request a new code.",
+  "Mã OTP đã hết hạn. Hãy nhận mã OTP mới.": "This OTP code has expired. Request a new code.",
+  "Mật khẩu mới phải khác mật khẩu tạm thời.": "The new password must be different from the temporary password.",
+  "Phiên xác thực tài khoản đã hết hạn. Hãy đăng nhập lại bằng mật khẩu tạm thời.": "Your account verification session has expired. Sign in again with your temporary password.",
+  "Tài khoản không còn ở trạng thái chờ xác thực.": "This account is no longer awaiting verification.",
+  "Tên tài khoản hoặc email vừa được tài khoản khác sử dụng. Hãy kiểm tra lại.": "The username or email was just taken by another account. Please review them.",
+  "Vui lòng đợi một phút trước khi nhận mã OTP mới.": "Please wait one minute before requesting a new OTP code.",
+  "Email không khớp với email đã xác thực của tài khoản.": "This email does not match the account's verified email.",
+  "Tài khoản chưa có email đã xác thực nên chưa thể đổi mật khẩu.": "This account has no verified email, so the password cannot be changed.",
   "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.": "Only system administrators can create accounts with the System Administrator role.",
   "Cloudinary trả về tệp rỗng.": "Cloudinary returned an empty file response.",
   "Cloudinary từ chối tệp tải lên.": "Cloudinary rejected the uploaded file.",

@@ -15,6 +15,11 @@ const LONG_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const EMAIL_TOKEN_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_TOKEN_MS = 30 * 60 * 1000;
 const MFA_CHALLENGE_MS = 5 * 60 * 1000;
+const ACCOUNT_SETUP_MS = 30 * 60 * 1000;
+const EMAIL_OTP_MS = 5 * 60 * 1000;
+const EMAIL_OTP_RESEND_MS = 60 * 1000;
+
+type EmailOtpType = "ACCOUNT_SETUP_OTP" | "PASSWORD_CHANGE_OTP";
 
 type UserWithRoles = {
   id: string; username: string; email: string | null; emailVerifiedAt: Date | null; passwordHash: string | null; displayName: string; status: string; locale: string;
@@ -34,8 +39,11 @@ export interface SessionContext { ipAddress?: string; userAgent?: string }
 export interface AccountProfile { id: string; username: string; displayName: string; email: string | null; phone: string; timezone: string; locale: string; avatarUrl: string | null; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; hasPassword: boolean; createdAt: string }
 export interface AccountSession { id: string; current: boolean; currentRoleCode: string; ipAddress: string; userAgent: string; createdAt: string; lastSeenAt: string; expiresAt: string }
 export interface SessionIssue { token: string; csrfToken: string; maxAgeMs: number; session: AuthenticatedSession }
-export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: string };
+export interface AccountSetupRequired { requiresAccountSetup: true; setupToken: string; username: string }
+export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: string } | AccountSetupRequired;
 export interface RegistrationResult { verificationRequired: true; verificationId: string; email: string; verificationEmailSent: boolean }
+export interface EmailOtpChallenge { challengeId: string; email: string; expiresInSeconds: number; resendAfterSeconds: number }
+export interface AccountSetupInput { setupToken: string; challengeId: string; email: string; code: string; username: string; newPassword: string }
 
 @Injectable()
 /** Điều phối toàn bộ vòng đời xác thực: mật khẩu, MFA, phiên, CSRF và hồ sơ tài khoản. */
@@ -59,13 +67,14 @@ export class AuthService {
   /** Cung cấp tên cookie tập trung để controller không lặp hằng số xác thực. */
   cookieName(): string { return SESSION_COOKIE; }
 
-  /** Kiểm tra tài khoản/mật khẩu với lỗi chung chống dò tài khoản, sau đó phát MFA hoặc phiên. */
+  /** Kiểm tra tài khoản/mật khẩu với lỗi chung chống dò tài khoản, sau đó phát MFA, phiên hoặc phiên xác thực lần đầu. */
   async login(username: string, password: string, rememberMe = false, context: SessionContext = {}): Promise<LoginResult> {
     this.assertDatabase();
     const user = await this.loadUserByUsername(username);
     if (!user || !(await verifyPassword(password, user.passwordHash))) throw new UnauthorizedException("Tài khoản hoặc mật khẩu không chính xác.");
-    // Tài khoản chưa xác thực bị chặn ở assertActive; chỉ tài khoản có email mới đi luồng xác minh email.
-    if (user.status !== "PENDING" && user.email && (user.status === "PENDING_VERIFICATION" || !user.emailVerifiedAt)) {
+    // Tài khoản được cấp bằng mật khẩu tạm phải xác thực email và đổi mật khẩu trước khi có phiên đăng nhập.
+    if (user.status === "PENDING") return this.startAccountSetup(user);
+    if (user.email && (user.status === "PENDING_VERIFICATION" || !user.emailVerifiedAt)) {
       const verificationId = await this.pendingVerificationId(user.id) ?? (await this.sendVerificationEmail(user.id, user.email)).verificationId;
       throw new ForbiddenException({
         statusCode: 403,
@@ -100,6 +109,59 @@ export class AuthService {
     }
     await this.consumeAccountToken(challenge.id);
     return this.createSession(user, rememberMe, context);
+  }
+
+  /** Gửi hoặc gửi lại mã OTP tới email người dùng nhập; email chỉ ràng buộc vào mã, chưa ghi vào tài khoản. */
+  async sendAccountSetupOtp(setupToken: string, email: string): Promise<EmailOtpChallenge> {
+    this.assertDatabase();
+    const setup = await this.validAccountSetup(setupToken);
+    const normalizedEmail = email.trim().toLowerCase();
+    await this.assertEmailAvailable(setup.userId, normalizedEmail);
+    return this.sendEmailOtp(setup.userId, normalizedEmail, "ACCOUNT_SETUP_OTP", "xác thực tài khoản");
+  }
+
+  /** Xác minh OTP rồi lưu cùng lúc email, tên tài khoản, mật khẩu mới và trạng thái đã xác thực. */
+  async completeAccountSetup(input: AccountSetupInput): Promise<{ completed: true; username: string }> {
+    this.assertDatabase();
+    const setup = await this.validAccountSetup(input.setupToken);
+    const email = input.email.trim().toLowerCase();
+    const otp = await this.verifyEmailOtp(input.challengeId, setup.userId, email, input.code, "ACCOUNT_SETUP_OTP");
+
+    const username = input.username.trim().toLowerCase();
+    if (username !== setup.user.username && await this.prisma.user.findUnique({ where: { username }, select: { id: true } })) {
+      throw new ConflictException("Tên tài khoản đã được sử dụng. Hãy chọn tên khác.");
+    }
+    await this.assertEmailAvailable(setup.userId, email);
+    if (await verifyPassword(input.newPassword, setup.user.passwordHash)) throw new BadRequestException("Mật khẩu mới phải khác mật khẩu tạm thời.");
+    const passwordHash = await hashPassword(input.newPassword);
+    const now = new Date();
+    try {
+      await this.prisma.$transaction(async (transaction) => {
+        const claimedSetup = await transaction.accountToken.updateMany({ where: { id: setup.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+        if (claimedSetup.count !== 1) throw this.accountSetupExpired();
+        const claimedOtp = await transaction.accountToken.updateMany({ where: { id: otp.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+        if (claimedOtp.count !== 1) throw new BadRequestException("Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới.");
+        const updated = await transaction.user.updateMany({
+          where: { id: setup.userId, status: "PENDING" },
+          data: {
+            username, email, emailVerifiedAt: now, passwordHash, status: "ACTIVE",
+            // Họ tên mặc định lấy theo tên tài khoản lúc tạo; nếu chưa được sửa thì đổi theo tên tài khoản mới.
+            ...(setup.user.displayName === setup.user.username ? { displayName: username } : {}),
+          },
+        });
+        if (updated.count !== 1) throw new BadRequestException("Tài khoản không còn ở trạng thái chờ xác thực.");
+        await transaction.accountToken.updateMany({ where: { userId: setup.userId, consumedAt: null }, data: { consumedAt: now } });
+        await transaction.auditLog.create({
+          data: { actorId: setup.userId, action: "ACCOUNT_SETUP_COMPLETED", entityType: "user", entityId: setup.userId, context: { previousUsername: setup.user.username, username } },
+        });
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        throw new ConflictException("Tên tài khoản hoặc email vừa được tài khoản khác sử dụng. Hãy kiểm tra lại.");
+      }
+      throw error;
+    }
+    return { completed: true, username };
   }
 
   /** Phát token đặt lại nếu email hợp lệ nhưng luôn trả cùng kết quả để chống liệt kê tài khoản. */
@@ -328,19 +390,31 @@ export class AuthService {
     return { buffer: await this.objectStorage.get(user.avatarObjectKey), mimeType: user.avatarMimeType };
   }
 
-  /** Xác thực mật khẩu hiện tại, đổi mật khẩu và thu hồi mọi phiên khác. */
-  async changePassword(userId: string, currentSessionId: string, currentPassword: string, newPassword: string): Promise<{ revokedSessions: number }> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  /** Gửi OTP đổi mật khẩu khi email người dùng nhập khớp email đã xác thực của tài khoản. */
+  async sendPasswordChangeOtp(userId: string, email: string): Promise<EmailOtpChallenge> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, emailVerifiedAt: true } });
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    const accountEmail = this.verifiedEmail(user);
+    if (email.trim().toLowerCase() !== accountEmail) throw new BadRequestException("Email không khớp với email đã xác thực của tài khoản.");
+    return this.sendEmailOtp(userId, accountEmail, "PASSWORD_CHANGE_OTP", "đổi mật khẩu");
+  }
+
+  /** Xác minh OTP gửi tới email tài khoản, đổi mật khẩu và thu hồi mọi phiên khác. */
+  async changePassword(userId: string, currentSessionId: string, challengeId: string, code: string, newPassword: string): Promise<{ revokedSessions: number }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, emailVerifiedAt: true, passwordHash: true } });
+    if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    const otp = await this.verifyEmailOtp(challengeId, userId, this.verifiedEmail(user), code, "PASSWORD_CHANGE_OTP");
     if (user.passwordHash && await verifyPassword(newPassword, user.passwordHash)) throw new BadRequestException("Mật khẩu mới phải khác mật khẩu hiện tại.");
-    if (!(await verifyPassword(currentPassword, user.passwordHash))) throw new UnauthorizedException("Mật khẩu hiện tại không chính xác.");
+    const passwordHash = await hashPassword(newPassword);
     const now = new Date();
-    const [, revoked] = await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } }),
-      this.prisma.authSession.updateMany({ where: { userId, id: { not: currentSessionId }, revokedAt: null }, data: { revokedAt: now } }),
-      this.prisma.auditLog.create({ data: { actorId: userId, action: "PASSWORD_CHANGED", entityType: "user", entityId: userId, context: { verificationMethod: "CURRENT_PASSWORD" } } }),
-    ]);
-    return { revokedSessions: revoked.count };
+    return this.prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.accountToken.updateMany({ where: { id: otp.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+      if (claimed.count !== 1) throw new BadRequestException("Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới.");
+      await transaction.user.update({ where: { id: userId }, data: { passwordHash } });
+      const revoked = await transaction.authSession.updateMany({ where: { userId, id: { not: currentSessionId }, revokedAt: null }, data: { revokedAt: now } });
+      await transaction.auditLog.create({ data: { actorId: userId, action: "PASSWORD_CHANGED", entityType: "user", entityId: userId, context: { verificationMethod: "EMAIL_OTP" } } });
+      return { revokedSessions: revoked.count };
+    });
   }
 
   /** Sinh bí mật TOTP mã hóa và trả URI cấu hình cho ứng dụng xác thực. */
@@ -523,6 +597,92 @@ export class AuthService {
     }
   }
 
+  /** Mở phiên xác thực lần đầu mới và hủy phiên cùng mã OTP còn dang dở của lần đăng nhập trước. */
+  private async startAccountSetup(user: { id: string; username: string }): Promise<AccountSetupRequired> {
+    await this.prisma.accountToken.updateMany({ where: { userId: user.id, type: "ACCOUNT_SETUP_OTP", consumedAt: null }, data: { consumedAt: new Date() } });
+    const setupToken = await this.issueAccountToken(user.id, "ACCOUNT_SETUP", ACCOUNT_SETUP_MS);
+    return { requiresAccountSetup: true, setupToken, username: user.username };
+  }
+
+  /** Xác nhận phiên xác thực lần đầu còn hạn và tài khoản vẫn đang chờ xác thực. */
+  private async validAccountSetup(setupToken: string): Promise<{ id: string; userId: string; user: { username: string; displayName: string; passwordHash: string | null } }> {
+    const row = await this.prisma.accountToken.findUnique({
+      where: { tokenHash: this.hashToken(setupToken) },
+      include: { user: { select: { username: true, displayName: true, passwordHash: true, status: true } } },
+    });
+    if (!row || row.type !== "ACCOUNT_SETUP" || row.consumedAt || row.expiresAt <= new Date() || row.user.status !== "PENDING") throw this.accountSetupExpired();
+    return row;
+  }
+
+  /** Lỗi có mã riêng để giao diện đưa người dùng về đăng nhập lại khi phiên xác thực không còn hiệu lực. */
+  private accountSetupExpired(): UnauthorizedException {
+    return new UnauthorizedException({ statusCode: 401, code: "ACCOUNT_SETUP_EXPIRED", message: "Phiên xác thực tài khoản đã hết hạn. Hãy đăng nhập lại bằng mật khẩu tạm thời." });
+  }
+
+  /** Gửi mã OTP 6 số tới email, thay mã cũ cùng loại, có thời gian chờ gửi lại và giới hạn theo giờ. */
+  private async sendEmailOtp(userId: string, email: string, type: EmailOtpType, purpose: string): Promise<EmailOtpChallenge> {
+    const now = Date.now();
+    const waiting = await this.prisma.accountToken.findFirst({
+      where: { userId, type, consumedAt: null, createdAt: { gt: new Date(now - EMAIL_OTP_RESEND_MS) } },
+      select: { id: true },
+    });
+    if (waiting) throw new HttpException("Vui lòng đợi một phút trước khi nhận mã OTP mới.", HttpStatus.TOO_MANY_REQUESTS);
+    const recentDeliveries = await this.prisma.accountToken.count({ where: { userId, type, createdAt: { gt: new Date(now - 60 * 60 * 1000) } } });
+    if (recentDeliveries >= 5) throw new HttpException("Bạn đã yêu cầu mã OTP quá nhiều lần. Hãy thử lại sau một giờ.", HttpStatus.TOO_MANY_REQUESTS);
+
+    const challengeId = randomBytes(18).toString("hex");
+    const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    await this.prisma.$transaction([
+      this.prisma.accountToken.updateMany({ where: { userId, type, consumedAt: null }, data: { consumedAt: new Date(now) } }),
+      // Mã OTP không có liên kết đi kèm nên token_hash chỉ là giá trị ngẫu nhiên giữ ràng buộc duy nhất của bảng.
+      this.prisma.accountToken.create({ data: {
+        id: challengeId, tokenHash: this.hashToken(randomBytes(32).toString("base64url")), codeHash: this.hashEmailOtp(type, challengeId, email, code),
+        type, userId, expiresAt: new Date(now + EMAIL_OTP_MS),
+      } }),
+    ]);
+    try {
+      await this.email.send({
+        to: email, subject: `Mã OTP ${purpose} Wind EDU`,
+        text: `Mã OTP ${purpose} Wind EDU của bạn là: ${code}\n\nMã có hiệu lực trong 5 phút. Nếu bạn không yêu cầu mã này, hãy bỏ qua email.`,
+        idempotencyKey: `email-otp/${challengeId}`,
+      });
+    } catch (error) {
+      this.logger.error("Không gửi được mã OTP qua email.", error instanceof Error ? error.stack : String(error));
+      await this.prisma.accountToken.updateMany({ where: { id: challengeId, consumedAt: null }, data: { consumedAt: new Date() } });
+      throw new ServiceUnavailableException("Không gửi được mã OTP tới email này. Hãy kiểm tra lại email hoặc thử lại sau.");
+    }
+    return { challengeId, email, expiresInSeconds: EMAIL_OTP_MS / 1000, resendAfterSeconds: EMAIL_OTP_RESEND_MS / 1000 };
+  }
+
+  /** Kiểm tra mã OTP còn hiệu lực, đúng người dùng và đúng email đã nhận mã; nhập sai thì tăng bộ đếm. */
+  private async verifyEmailOtp(challengeId: string, userId: string, email: string, code: string, type: EmailOtpType): Promise<{ id: string }> {
+    const otp = await this.prisma.accountToken.findUnique({ where: { id: challengeId } });
+    if (!otp || otp.type !== type || otp.userId !== userId || otp.consumedAt || !otp.codeHash) {
+      throw new BadRequestException("Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới.");
+    }
+    if (otp.expiresAt <= new Date()) throw new BadRequestException("Mã OTP đã hết hạn. Hãy nhận mã OTP mới.");
+    if (otp.failedAttempts >= 5) throw new UnauthorizedException("Bạn đã nhập sai mã OTP quá nhiều lần. Hãy nhận mã OTP mới.");
+    const expected = Buffer.from(otp.codeHash, "hex");
+    const actual = Buffer.from(this.hashEmailOtp(type, otp.id, email, code), "hex");
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      await this.prisma.accountToken.update({ where: { id: otp.id }, data: { failedAttempts: { increment: 1 } } });
+      throw new UnauthorizedException("Mã OTP không chính xác.");
+    }
+    return { id: otp.id };
+  }
+
+  /** Lấy email đã xác thực của tài khoản; chưa có thì không thể nhận OTP đổi mật khẩu. */
+  private verifiedEmail(user: { email: string | null; emailVerifiedAt: Date | null }): string {
+    if (!user.email || !user.emailVerifiedAt) throw new BadRequestException("Tài khoản chưa có email đã xác thực nên chưa thể đổi mật khẩu.");
+    return user.email.toLowerCase();
+  }
+
+  /** Chặn email đã thuộc tài khoản khác trước khi gửi OTP và trước khi lưu. */
+  private async assertEmailAvailable(userId: string, email: string): Promise<void> {
+    const owner = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (owner && owner.id !== userId) throw new ConflictException("Email này đã được liên kết với một tài khoản khác.");
+  }
+
   /** Tìm phiên xác minh email mới nhất còn hiệu lực của người dùng. */
   private async pendingVerificationId(userId: string): Promise<string | undefined> {
     const row = await this.prisma.accountToken.findFirst({
@@ -534,7 +694,7 @@ export class AuthService {
   }
 
   /** Vô hiệu hóa token cũ cùng loại và phát token tài khoản mới chỉ lưu dưới dạng băm. */
-  private async issueAccountToken(userId: string, type: "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE", ttlMs: number): Promise<string> {
+  private async issueAccountToken(userId: string, type: "PASSWORD_RESET" | "MFA_LOGIN" | "MFA_DISABLE" | "ACCOUNT_SETUP", ttlMs: number): Promise<string> {
     const token = randomBytes(48).toString("base64url");
     const now = new Date();
     await this.prisma.$transaction([
@@ -585,6 +745,8 @@ export class AuthService {
   }
   /** Ràng buộc mã xác minh với verificationId bằng HMAC trước khi lưu/so sánh. */
   private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
+  /** Ràng buộc mã OTP với loại mã, challenge và email đã nhận mã, nhờ vậy không phải lưu email trước khi xác thực xong. */
+  private hashEmailOtp(type: EmailOtpType, challengeId: string, email: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${type}:${challengeId}:${email}:${code}`).digest("hex"); }
   /** Chặn nghiệp vụ xác thực khi cấu hình chủ động không kết nối cơ sở dữ liệu. */
   private assertDatabase(): void {
     if (!this.prisma.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Xác thực cần kết nối PostgreSQL. Hãy bật DATABASE_CONNECT_ON_START.");

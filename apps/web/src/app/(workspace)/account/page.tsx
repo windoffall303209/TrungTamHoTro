@@ -43,7 +43,12 @@ export default function AccountPage() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
+  const [passwordEmail, setPasswordEmail] = useState("");
+  const [passwordOtp, setPasswordOtp] = useState<{ challengeId: string; email: string } | null>(null);
+  const [passwordCode, setPasswordCode] = useState("");
+  const [passwordResendAt, setPasswordResendAt] = useState(0);
+  const [clock, setClock] = useState(0);
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState("");
   const [authenticatorApp, setAuthenticatorApp] = useState<(typeof authenticatorApps)[number]["id"]>("google");
@@ -80,6 +85,17 @@ export default function AccountPage() {
       .catch(() => { if (active) notify("Không thể tạo mã QR. Bạn vẫn có thể nhập khóa thiết lập thủ công.", "error"); });
     return () => { active = false; };
   }, [mfaSetup, notify]);
+  // Đếm ngược thời gian chờ trước khi được nhận mã OTP đổi mật khẩu mới.
+  useEffect(() => {
+    if (passwordResendAt <= Date.now()) return;
+    const timer = window.setInterval(() => {
+      const current = Date.now();
+      setClock(current);
+      if (current >= passwordResendAt) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [passwordResendAt]);
+  const passwordResendSeconds = Math.max(0, Math.ceil((passwordResendAt - clock) / 1000));
 
   /** Chỉ cập nhật các trường hồ sơ được phép rồi làm mới session dùng chung trên header. */
   async function saveProfile(event: FormEvent) {
@@ -121,15 +137,45 @@ export default function AccountPage() {
     finally { setAvatarSaving(false); }
   }
 
-  /** Đổi mật khẩu bằng mật khẩu hiện tại rồi nạp lại danh sách phiên. */
+  /** Gửi mã OTP đổi mật khẩu tới email đã xác thực; dùng chung cho bước nhập email và nút nhận mã mới. */
+  async function requestPasswordOtp(email: string): Promise<boolean> {
+    setPasswordSaving(true);
+    try {
+      const result = await apiRequest<{ challengeId: string; email: string; resendAfterSeconds: number }>("/account/password/otp", { method: "POST", body: JSON.stringify({ email }) });
+      const sentAt = Date.now();
+      setClock(sentAt); setPasswordResendAt(sentAt + result.resendAfterSeconds * 1000);
+      setPasswordOtp({ challengeId: result.challengeId, email: result.email }); setPasswordCode("");
+      return true;
+    } catch (error) { notify(error instanceof Error ? error.message : "Không gửi được mã OTP. Hãy thử lại.", "error"); return false; }
+    finally { setPasswordSaving(false); }
+  }
+
+  /** Bước 1: xác nhận email đã xác thực của tài khoản để nhận mã OTP. */
+  async function submitPasswordEmail(event: FormEvent) {
+    event.preventDefault();
+    await requestPasswordOtp(passwordEmail);
+  }
+
+  /** Gửi lại mã OTP tới cùng email khi mã cũ hết hạn hoặc chưa nhận được. */
+  async function resendPasswordOtp() {
+    if (passwordOtp && await requestPasswordOtp(passwordOtp.email)) notify("Đã gửi mã OTP mới tới email của bạn.", "info");
+  }
+
+  /** Đưa form đổi mật khẩu về bước nhập email; thời gian chờ gửi mã vẫn được giữ. */
+  function resetPasswordForm() {
+    setPasswordOtp(null); setPasswordCode(""); setPasswords({ newPassword: "", confirmPassword: "" });
+  }
+
+  /** Bước 2: đổi mật khẩu bằng mã OTP gửi tới email rồi nạp lại danh sách phiên. */
   async function changePassword(event: FormEvent) {
     event.preventDefault();
+    if (!passwordOtp) return;
     if (passwords.newPassword !== passwords.confirmPassword) { notify("Xác nhận mật khẩu mới chưa khớp.", "error"); return; }
     setPasswordSaving(true);
     try {
-      const body = { currentPassword: passwords.currentPassword, newPassword: passwords.newPassword };
+      const body = { challengeId: passwordOtp.challengeId, code: passwordCode, newPassword: passwords.newPassword };
       const result = await apiRequest<{ revokedSessions: number }>("/account/password", { method: "PATCH", body: JSON.stringify(body) });
-      setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      resetPasswordForm(); setPasswordEmail("");
       notify(`${profile.hasPassword ? "Đã đổi" : "Đã thiết lập"} mật khẩu và đóng ${result.revokedSessions} phiên khác.`); await load();
     } catch (error) { notify(error instanceof Error ? error.message : "Không thể đổi mật khẩu.", "error"); }
     finally { setPasswordSaving(false); }
@@ -211,14 +257,26 @@ export default function AccountPage() {
         <div className="mt-7 flex justify-end"><Button loading={saving} type="submit"><Save size={16} />Lưu thay đổi</Button></div>
       </form>
 
-      <form className="content-panel p-5 md:p-7" onSubmit={changePassword}>
+      <form className="content-panel p-5 md:p-7" onSubmit={(event) => void (passwordOtp ? changePassword(event) : submitPasswordEmail(event))}>
         <div className="flex items-start gap-3"><KeyRound className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Đổi mật khẩu</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Sau khi đổi, các phiên khác sẽ được đóng để bảo vệ tài khoản.</p></div></div>
-        <div className="mt-6 space-y-5">
-          <Field label="Mật khẩu hiện tại"><input autoComplete="current-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, currentPassword: event.target.value })} required type="password" value={passwords.currentPassword} /></Field>
-          <Field label="Mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} required type="password" value={passwords.newPassword} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[var(--ink-muted)]">Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</span></Field>
-          <Field label="Nhập lại mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, confirmPassword: event.target.value })} required type="password" value={passwords.confirmPassword} /></Field>
-        </div>
-        <div className="mt-7 flex justify-end"><Button loading={passwordSaving} type="submit"><ShieldCheck size={16} />Đổi mật khẩu</Button></div>
+        {loading ? null : !profile.email || !profile.emailVerifiedAt ? <p className="mt-6 text-sm leading-6 text-[var(--ink-soft)]">Tài khoản chưa có email đã xác thực nên chưa thể đổi mật khẩu.</p> : !passwordOtp ? <>
+          <div className="mt-6 space-y-5">
+            <Field label="Email đã xác thực"><input autoComplete="email" className={inputClass} maxLength={191} onChange={(event) => setPasswordEmail(event.target.value)} required type="email" value={passwordEmail} /></Field>
+          </div>
+          <div className="mt-7 flex justify-end"><Button disabled={passwordSaving || passwordResendSeconds > 0} loading={passwordSaving} type="submit"><MailCheck size={16} />Gửi mã OTP{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}</Button></div>
+        </> : <>
+          <p className="mt-6 border-y border-[var(--rule)] py-3 text-xs leading-5 text-[var(--ink-muted)]">Mã OTP đã được gửi tới<br /><strong className="text-sm text-[var(--ink)]">{passwordOtp.email}</strong></p>
+          <div className="mt-5 space-y-5">
+            <Field label="Mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} required type="password" value={passwords.newPassword} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[var(--ink-muted)]">Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</span></Field>
+            <Field label="Nhập lại mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, confirmPassword: event.target.value })} required type="password" value={passwords.confirmPassword} /></Field>
+            <Field label="Mã OTP"><input autoComplete="one-time-code" className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setPasswordCode(event.target.value.replace(/\D/g, ""))} required value={passwordCode} /></Field>
+          </div>
+          <div className="mt-7 flex flex-wrap justify-end gap-2">
+            <Button disabled={passwordSaving} onClick={resetPasswordForm} type="button" variant="ghost">Hủy</Button>
+            <Button disabled={passwordSaving || passwordResendSeconds > 0} onClick={() => void resendPasswordOtp()} type="button" variant="ghost"><RefreshCw size={15} />Nhận mã OTP mới{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}</Button>
+            <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode)} loading={passwordSaving} type="submit"><ShieldCheck size={16} />Đổi mật khẩu</Button>
+          </div>
+        </>}
       </form>
     </div>
 

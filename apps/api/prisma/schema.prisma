@@ -153,6 +153,8 @@ enum AccountTokenType {
   PASSWORD_CHANGE_OTP
   MFA_SETUP_OTP
   MFA_DISABLE_OTP
+  ACCOUNT_SETUP
+  ACCOUNT_SETUP_OTP
 }
 
 enum AssignmentStatus {

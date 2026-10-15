@@ -282,9 +282,6 @@ export default function UsersPage() {
               spellCheck={false}
               value={form.username}
             />
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              Dùng để đăng nhập; không thể thay đổi sau khi tạo.
-            </p>
           </Field>
           <Field label="Mật khẩu tạm thời">
             <span className="relative block">
@@ -312,9 +309,6 @@ export default function UsersPage() {
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
             </span>
-            <p className="mt-2 text-xs text-slate-500">
-              Tối thiểu 8 ký tự. Gửi mật khẩu này cho người dùng để đăng nhập lần đầu.
-            </p>
           </Field>
         </>
       ) : (

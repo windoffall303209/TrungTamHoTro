@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, BookOpenCheck, Eye, EyeOff, GraduationCap, KeyRo
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { saveAccountSetup } from "@/lib/account-setup";
 import { ApiError } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -20,6 +21,7 @@ export function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [challengeToken, setChallengeToken] = useState("");
   const [mfaValue, setMfaValue] = useState("");
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
@@ -29,7 +31,13 @@ export function AuthScreen() {
     if (!authLoading && authenticated) router.replace("/dashboard");
   }, [authenticated, authLoading, router]);
 
-  /** Điều phối đăng nhập hoặc bước MFA và chuyển tài khoản chờ xác minh email sang màn hình xác minh. */
+  // Báo xác thực thành công khi người dùng được chuyển về từ trang xác thực tài khoản.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("verified") !== "1") return;
+    window.queueMicrotask(() => setNotice("Tài khoản đã được xác thực. Hãy đăng nhập lại bằng tài khoản và mật khẩu mới."));
+  }, []);
+
+  /** Điều phối đăng nhập hoặc bước MFA, chuyển tài khoản tạm hoặc tài khoản chờ xác minh email sang màn hình xác thực. */
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     setError("");
@@ -39,6 +47,8 @@ export function AuthScreen() {
       else {
         const result = await login({ username, password, rememberMe });
         if (result.requiresMfa && result.challengeToken) { setChallengeToken(result.challengeToken); return; }
+        // Tài khoản tạm chưa xác thực chưa có phiên đăng nhập; trang xác thực dùng mã phiên xác thực lưu theo thẻ.
+        if (result.accountSetup) { saveAccountSetup(result.accountSetup); router.replace("/verify-account"); return; }
       }
       const next = new URLSearchParams(window.location.search).get("next");
       router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
@@ -68,6 +78,7 @@ export function AuthScreen() {
         <Link className="mb-10 inline-flex items-center gap-2 font-bold lg:hidden" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
         <h1 className="text-[2rem] font-bold leading-tight tracking-[-0.03em]">{challengeToken ? "Xác thực hai bước" : "Chào mừng quay lại"}</h1>
         <p className="mt-3 text-sm leading-6 text-[var(--ink-soft)]">{challengeToken ? "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập." : "Đăng nhập để tiếp tục công việc trong trung tâm."}</p>
+        {notice && !challengeToken ? <p className="mt-6 border-y border-[var(--success)]/30 bg-[var(--success-soft)]/55 px-4 py-3 text-sm font-semibold leading-6 text-[var(--success-deep)]" role="status">{notice}</p> : null}
         <form className="mt-8 space-y-5" onSubmit={(event) => void submit(event)}>
           {challengeToken ? <>
             <label className="block text-sm font-bold">{useRecoveryCode ? "Mã khôi phục" : "Mã xác thực"}<span className="relative block"><input autoComplete="one-time-code" autoFocus className={`${fieldClass} pr-12 font-mono tracking-[0.18em]`} inputMode={useRecoveryCode ? "text" : "numeric"} maxLength={useRecoveryCode ? 11 : 6} onChange={(event) => setMfaValue(event.target.value.toUpperCase())} placeholder={useRecoveryCode ? "ABCDE-12345" : "000000"} required value={mfaValue} /><KeyRound className="absolute right-4 top-[calc(50%+0.25rem)] -translate-y-1/2 text-[var(--ink-muted)]" size={18} /></span></label>
