@@ -251,9 +251,9 @@ export default function UsersPage() {
     }
   };
 
-  /** Khóa hoặc mở khóa tài khoản theo trạng thái hiện tại rồi tải lại danh sách. */
+  /** Khóa hoặc mở khóa tài khoản; tài khoản chưa từng xác thực (chưa có email) mở khóa thì về Chưa xác thực. */
   const toggleLock = (user: IdentityUser) => {
-    const nextStatus = user.status === "LOCKED" ? "ACTIVE" : "LOCKED";
+    const nextStatus = user.status === "LOCKED" ? (user.email ? "ACTIVE" : "PENDING") : "LOCKED";
     openEdit(user, nextStatus);
   };
 
@@ -361,8 +361,8 @@ export default function UsersPage() {
             }}
             value={editStatus}
           >
-            {editing?.status === "PENDING" ? (
-              <option disabled value="PENDING">Chưa xác thực</option>
+            {editing && !editing.email ? (
+              <option value="PENDING">Chưa xác thực</option>
             ) : null}
             <option value="ACTIVE">Hoạt động</option>
             <option value="INACTIVE">Ngừng hoạt động</option>

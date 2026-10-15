@@ -13,6 +13,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Vui lòng đợi một phút trước khi nhận mã OTP mới.": "Please wait one minute before requesting a new OTP code.",
   "Email không khớp với email đã xác thực của tài khoản.": "This email does not match the account's verified email.",
   "Tài khoản chưa có email đã xác thực nên chưa thể đổi mật khẩu.": "This account has no verified email, so the password cannot be changed.",
+  "Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.": "This account has a verified email, so it cannot return to the unverified status.",
   "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.": "Only system administrators can create accounts with the System Administrator role.",
   "Cloudinary trả về tệp rỗng.": "Cloudinary returned an empty file response.",
   "Cloudinary từ chối tệp tải lên.": "Cloudinary rejected the uploaded file.",
