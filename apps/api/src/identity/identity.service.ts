@@ -311,6 +311,9 @@ export class IdentityService {
           include: { roles: { include: { role: true } } },
         });
         if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
+        // Chỉ tài khoản chưa từng xác thực (chưa có email) mới về Chưa xác thực, ví dụ khi được mở khóa.
+        if (input.status === "PENDING" && current.email)
+          throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
         const currentRole = this.getRoleCode(current);
         const nextRoleCodes = input.roleCodes?.length
           ? [...new Set(input.roleCodes)]
@@ -415,6 +418,8 @@ export class IdentityService {
 
     const user = this.users.find((item) => item.id === userId);
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    if (input.status === "PENDING" && user.email)
+      throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
     const removesActiveAdmin =
       user.roleCode === "SYSTEM_ADMIN" &&
       user.status === "ACTIVE" &&

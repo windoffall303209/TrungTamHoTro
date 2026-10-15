@@ -80,7 +80,7 @@ export class UpdateUserDto {
   roleCodes?: RoleCode[];
 
   @IsOptional()
-  @IsIn(["ACTIVE", "INACTIVE", "LOCKED"])
+  @IsIn(["PENDING", "ACTIVE", "INACTIVE", "LOCKED"])
   status?: AccountStatus;
 
   @IsOptional()
@@ -110,7 +110,7 @@ export class UserChangeImpactQueryDto {
   @ArrayUnique()
   @IsIn(ROLE_CODES, { each: true })
   roleCodes?: RoleCode[];
-  @IsOptional() @IsIn(["ACTIVE", "INACTIVE", "LOCKED"]) status?: AccountStatus;
+  @IsOptional() @IsIn(["PENDING", "ACTIVE", "INACTIVE", "LOCKED"]) status?: AccountStatus;
 }
 
 /** Hợp đồng nội bộ gồm vai trò và tập quyền duy nhất đã kiểm tra theo danh mục. */
