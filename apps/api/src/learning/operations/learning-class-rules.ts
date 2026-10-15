@@ -94,7 +94,7 @@ export async function getDatabaseAttempt(
   return serviceContext.mapAttempt(row);
 }
 
-/** Bắt buộc user tồn tại, ACTIVE và có vai trò yêu cầu trước mutation thành viên. */
+/** Bắt buộc user tồn tại, đang hoạt động hoặc vừa được cấp, và có vai trò yêu cầu trước mutation thành viên. */
 export async function requireUserRole(
   database: PrismaService,
   userId: string,
@@ -104,7 +104,8 @@ export async function requireUserRole(
   const user = await database.user.findFirst({
     where: {
       id: userId,
-      status: "ACTIVE",
+      // Tài khoản vừa cấp (chưa xác thực) vẫn được xếp lớp và phân công ngay.
+      status: { in: ["ACTIVE", "PENDING"] },
       roles: { some: { role: { code: roleCode } } },
     },
     select: { id: true },

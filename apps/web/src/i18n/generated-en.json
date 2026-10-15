@@ -1,4 +1,6 @@
 {
+  "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.": "Only system administrators can create accounts with the System Administrator role.",
+  "Tài khoản chưa được xác thực nên chưa thể đăng nhập.": "This account has not been verified yet, so it cannot sign in.",
   "Tìm người nhận bàn giao": "Search for a handoff recipient",
   "Tìm theo tên hoặc email": "Search by name or email",
   "Tham số phân trang không hợp lệ.": "Invalid pagination parameters.",

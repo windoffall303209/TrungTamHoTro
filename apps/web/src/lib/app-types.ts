@@ -14,7 +14,7 @@ export interface SessionUser {
   id: string;
   username: string;
   name: string;
-  email: string;
+  email: string | null;
   roleName: string;
   avatarUrl?: string | null;
   locale?: "vi-VN" | "en-US";
@@ -33,16 +33,15 @@ export interface AccountProfile {
   id: string;
   username: string;
   displayName: string;
-  email: string;
+  email: string | null;
   phone: string;
   timezone: string;
   locale: string;
   avatarUrl: string | null;
-  status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
+  status: "PENDING" | "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   emailVerifiedAt: string | null;
   mfaEnabled: boolean;
   hasPassword: boolean;
-  googleConnected: boolean;
   createdAt: string;
 }
 
@@ -61,11 +60,10 @@ export interface IdentityUser {
   id: string;
   username: string;
   displayName: string;
-  email: string;
+  email: string | null;
   roleCode: RoleCode;
   roleCodes: RoleCode[];
-  status: "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
-  invitationSent?: boolean;
+  status: "PENDING" | "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   createdAt: string;
   updatedAt: string;
 }

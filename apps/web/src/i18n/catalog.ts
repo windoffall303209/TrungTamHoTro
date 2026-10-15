@@ -242,6 +242,13 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Giảng viên": "Instructor",
   "Quản lý trung tâm": "Center manager",
   "Quản trị hệ thống": "System administrator",
+  "Chưa cập nhật email": "No email yet",
+  "Chưa xác thực": "Unverified",
+  "Đã tạo tài khoản. Hãy gửi tên tài khoản và mật khẩu tạm thời cho người dùng.": "Account created. Send the username and temporary password to the user.",
+  "Mật khẩu tạm thời": "Temporary password",
+  "Tài khoản do quản trị hệ thống hoặc quản lý trung tâm cấp. Hãy liên hệ trung tâm nếu bạn chưa có tài khoản.": "Accounts are issued by the system administrator or center manager. Contact the center if you do not have an account yet.",
+  "Tài khoản mới được tạo ở trạng thái chưa xác thực với mật khẩu tạm thời do bạn cấp.": "The new account is created as unverified with the temporary password you set.",
+  "Tối thiểu 8 ký tự. Gửi mật khẩu này cho người dùng để đăng nhập lần đầu.": "At least 8 characters. Give this password to the user for their first sign-in.",
 };
 
 const englishCatalog: Record<string, string> = {

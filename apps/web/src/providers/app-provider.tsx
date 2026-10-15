@@ -13,17 +13,13 @@ const emptySession: SessionData = {
 
 interface ToastState { id: number; message: string; tone: "success" | "error" | "info" }
 interface LoginInput { username: string; password: string; rememberMe: boolean }
-interface RegisterInput { username: string; displayName: string; email: string; password: string }
-export interface RegistrationResult { verificationRequired: true; verificationId: string; email: string; verificationEmailSent: boolean }
 interface AppContextValue {
   session: SessionData;
   authenticated: boolean;
   authLoading: boolean;
   authError: string;
   login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string }>;
-  register: (input: RegisterInput) => Promise<RegistrationResult>;
   completeMfa: (challengeToken: string, value: string, rememberMe: boolean, recovery?: boolean) => Promise<void>;
-  completeGoogleMfa: (value: string, recovery?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
   refreshSession: () => Promise<boolean>;
@@ -75,20 +71,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     adoptSession(result);
     return { requiresMfa: false };
   }, [adoptSession]);
-  /** Tạo tài khoản rồi trả thông tin phiên xác minh email cho màn hình đăng ký. */
-  const register = useCallback(async (input: RegisterInput) => {
-    return apiRequest<RegistrationResult>("/auth/register", { method: "POST", body: JSON.stringify(input) });
-  }, []);
   /** Hoàn tất MFA bằng TOTP hoặc recovery code và lưu phiên trả về. */
   const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, recovery = false) => {
     const path = recovery ? "/auth/mfa/recovery" : "/auth/mfa/verify";
     const body = recovery ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
-    adoptSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
-  }, [adoptSession]);
-  /** Hoàn tất bước MFA của OAuth Google từ cookie thử thách HttpOnly. */
-  const completeGoogleMfa = useCallback(async (value: string, recovery = false) => {
-    const path = recovery ? "/auth/google/mfa/recovery" : "/auth/google/mfa/verify";
-    const body = recovery ? { recoveryCode: value } : { code: value };
     adoptSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
@@ -106,7 +92,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
   }, []);
 
-  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, authError, login, register, completeMfa, completeGoogleMfa, logout, setRole, refreshSession, notify }), [authError, authLoading, completeGoogleMfa, completeMfa, login, logout, notify, refreshSession, register, session, setRole]);
+  const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, authError, login, completeMfa, logout, setRole, refreshSession, notify }), [authError, authLoading, completeMfa, login, logout, notify, refreshSession, session, setRole]);
   return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-[var(--danger-fill)] text-[var(--status-on-fill)]" : toast.tone === "info" ? "bg-[var(--action)] text-[var(--action-ink)]" : "bg-[var(--success-fill)] text-[var(--status-on-fill)]"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
 }
 

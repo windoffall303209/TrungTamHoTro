@@ -69,7 +69,8 @@ export async function searchDirectory(
     : [];
   const users = await prisma.user.findMany({
     where: {
-      status: "ACTIVE",
+      // Tài khoản vừa cấp (chưa xác thực) vẫn được xếp lớp và phân công ngay.
+      status: { in: ["ACTIVE", "PENDING"] },
       id: assignedIds.length ? { notIn: assignedIds } : undefined,
       roles: { some: { role: { code: roleCode } } },
       ...(text

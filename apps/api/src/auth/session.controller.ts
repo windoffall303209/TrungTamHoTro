@@ -1,9 +1,9 @@
-import { BadRequestException, Body, Controller, Delete, Get, Header, Headers, HttpCode, HttpException, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Header, Headers, HttpCode, Param, Patch, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { ChangePasswordDto, ChangeVerificationEmailDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, GoogleMfaRecoveryDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, RegisterDto, ResendVerificationDto, ResetPasswordDto, SecurityEmailChallengeDto, StartMfaSetupDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { ChangePasswordDto, ChangeVerificationEmailDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -18,73 +18,6 @@ export class SessionController {
   async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
     const result = await this.auth.login(input.username, input.password, input.rememberMe, this.context(request));
     if ("requiresMfa" in result) return result;
-    this.setSessionCookie(response, result.token, result.maxAgeMs);
-    return { ...result.session, csrfToken: result.csrfToken };
-  }
-
-  @Post("register")
-  @ApiOperation({ summary: "Đăng ký tài khoản học viên" })
-  /** Chuyển dữ liệu đăng ký đã validate sang AuthService và bắt đầu xác minh email. */
-  register(@Body() input: RegisterDto): Promise<object> {
-    return this.auth.register(input.username, input.displayName, input.email, input.password);
-  }
-
-  @Get("google/start")
-  /** Khởi tạo Google OAuth với PKCE, lưu state ngắn hạn trong cookie rồi chuyển hướng người dùng. */
-  startGoogle(@Query("rememberMe") rememberMe: string | undefined, @Res() response: Response): void {
-    const result = this.auth.startGoogleOAuth(rememberMe === "true");
-    response.cookie(this.auth.googleStateCookieName(), result.stateCookie, this.temporaryCookieOptions(result.maxAgeMs));
-    response.redirect(result.authorizationUrl);
-  }
-
-  @Get("google/callback")
-  /** Hoàn tất callback Google, ánh xạ lỗi sang mã giao diện và tách nhánh MFA khi cần. */
-  async googleCallback(
-    @Query("code") code: string | undefined,
-    @Query("state") state: string | undefined,
-    @Query("error") oauthError: string | undefined,
-    @Headers("cookie") cookies: string | undefined,
-    @Req() request: Request,
-    @Res() response: Response,
-  ): Promise<void> {
-    const stateCookie = this.auth.readCookie(cookies, this.auth.googleStateCookieName());
-    response.clearCookie(this.auth.googleStateCookieName(), { httpOnly: true, sameSite: "lax", path: "/" });
-    if (oauthError || !code || !state) {
-      response.redirect(this.auth.webUrl(`/login?googleError=${oauthError === "access_denied" ? "cancelled" : "invalid_callback"}`));
-      return;
-    }
-    try {
-      const completed = await this.auth.completeGoogleOAuth(code, state, stateCookie, this.context(request));
-      if ("requiresMfa" in completed.result) {
-        response.cookie(this.auth.googleMfaCookieName(), this.auth.createGoogleMfaCookie(completed.result.challengeToken, completed.rememberMe), this.temporaryCookieOptions(5 * 60 * 1000));
-        response.redirect(this.auth.webUrl("/login?googleMfa=1"));
-        return;
-      }
-      this.setSessionCookie(response, completed.result.token, completed.result.maxAgeMs);
-      response.redirect(this.auth.webUrl("/dashboard"));
-    } catch (error) {
-      const status = error instanceof HttpException ? error.getStatus() : 500;
-      const reason = status === 409 ? "account_conflict" : status === 403 ? "account_blocked" : status === 401 ? "expired" : "provider_failed";
-      response.redirect(this.auth.webUrl(`/login?googleError=${reason}`));
-    }
-  }
-
-  @Post("google/mfa/verify")
-  @HttpCode(200)
-  /** Xác minh TOTP cho đăng nhập Google đang chờ rồi đổi sang cookie phiên chính thức. */
-  async verifyGoogleMfa(@Body() input: MfaCodeDto, @Headers("cookie") cookies: string | undefined, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.completeGoogleMfa(this.auth.readCookie(cookies, this.auth.googleMfaCookieName()), input.code, this.context(request));
-    response.clearCookie(this.auth.googleMfaCookieName(), { httpOnly: true, sameSite: "lax", path: "/" });
-    this.setSessionCookie(response, result.token, result.maxAgeMs);
-    return { ...result.session, csrfToken: result.csrfToken };
-  }
-
-  @Post("google/mfa/recovery")
-  @HttpCode(200)
-  /** Dùng mã khôi phục một lần để hoàn tất MFA của phiên đăng nhập Google. */
-  async recoverGoogleMfa(@Body() input: GoogleMfaRecoveryDto, @Headers("cookie") cookies: string | undefined, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.completeGoogleMfa(this.auth.readCookie(cookies, this.auth.googleMfaCookieName()), "000000", this.context(request), input.recoveryCode);
-    response.clearCookie(this.auth.googleMfaCookieName(), { httpOnly: true, sameSite: "lax", path: "/" });
     this.setSessionCookie(response, result.token, result.maxAgeMs);
     return { ...result.session, csrfToken: result.csrfToken };
   }
@@ -180,11 +113,6 @@ export class SessionController {
     });
   }
 
-  /** Chuẩn hóa thuộc tính cookie ngắn hạn dùng cho state OAuth và MFA Google. */
-  private temporaryCookieOptions(maxAge: number): { httpOnly: true; secure: boolean; sameSite: "lax"; path: "/"; maxAge: number } {
-    return { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge };
-  }
-
   /** Trích IP và user-agent để lưu dấu vết phiên/audit mà không truyền toàn bộ request vào service. */
   private context(request: Request): { ipAddress?: string; userAgent?: string } {
     return { ipAddress: request.ip, userAgent: request.header("user-agent") ?? undefined };
@@ -237,10 +165,10 @@ export class AccountController {
   }
 
   @Patch("password")
-  /** Đổi mật khẩu bằng thông tin xác thực phù hợp và giữ lại phiên hiện tại. */
+  /** Đổi mật khẩu bằng mật khẩu hiện tại và giữ lại phiên đang thao tác. */
   async changePassword(@Headers("cookie") cookies: string | undefined, @Body() input: ChangePasswordDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.changePassword(session.user.id, session.sessionId, input.currentPassword, input.newPassword, input.challengeId, input.code);
+    return this.auth.changePassword(session.user.id, session.sessionId, input.currentPassword, input.newPassword);
   }
 
   @Get("sessions")
@@ -271,18 +199,11 @@ export class AccountController {
     return this.session(cookies).then((session) => this.auth.resendVerification(session.user.id));
   }
 
-  @Post("security-email-challenges")
-  /** Phát mã email step-up trước thao tác bảo mật của tài khoản không có mật khẩu cục bộ. */
-  async securityEmailChallenge(@Headers("cookie") cookies: string | undefined, @Body() input: SecurityEmailChallengeDto): Promise<object> {
-    const session = await this.session(cookies);
-    return this.auth.requestSecurityEmailCode(session.user.id, input.purpose);
-  }
-
   @Post("mfa/setup")
-  /** Tạo bí mật và URI TOTP sau khi hoàn tất bước xác thực tăng cường nếu cần. */
-  async setupMfa(@Headers("cookie") cookies: string | undefined, @Body() input?: StartMfaSetupDto): Promise<{ secret: string; otpauthUri: string }> {
+  /** Tạo bí mật và URI TOTP để người dùng quét bằng ứng dụng xác thực. */
+  async setupMfa(@Headers("cookie") cookies?: string): Promise<{ secret: string; otpauthUri: string }> {
     const session = await this.session(cookies);
-    return this.auth.startMfaSetup(session.user.id, input?.challengeId, input?.code);
+    return this.auth.startMfaSetup(session.user.id);
   }
 
   @Post("mfa/confirm")
@@ -293,10 +214,10 @@ export class AccountController {
   }
 
   @Post("mfa/disable-challenge")
-  /** Kiểm tra mật khẩu/email step-up rồi phát token ngắn hạn cho bước tắt MFA. */
+  /** Kiểm tra mật khẩu hiện tại rồi phát token ngắn hạn cho bước tắt MFA. */
   async startDisableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaPasswordDto): Promise<{ challengeToken: string; expiresInSeconds: number }> {
     const session = await this.session(cookies);
-    return this.auth.startDisableMfa(session.user.id, input.password, input.challengeId, input.code);
+    return this.auth.startDisableMfa(session.user.id, input.password);
   }
 
   @Delete("mfa")

@@ -33,9 +33,6 @@ const environmentSchema = z.object({
   CLAMAV_TIMEOUT_MS: z.coerce.number().int().min(500).max(120_000).default(15_000),
   RESEND_API_KEY: z.string().trim().default(""),
   RESEND_FROM: z.string().trim().default(""),
-  GOOGLE_CLIENT_ID: z.string().trim().default(""),
-  GOOGLE_CLIENT_SECRET: z.string().trim().default(""),
-  GOOGLE_CALLBACK_URL: z.union([z.literal(""), z.url()]).default(""),
   AUTH_ENCRYPTION_SECRET: z.string().min(32).default("development-auth-encryption-key-change-me"),
   MFA_ISSUER: z.string().trim().min(2).max(80).default("Wind EDU"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
@@ -64,18 +61,6 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
   }
 
   const environment = result.data;
-  const googleOAuthValues = [
-    environment.GOOGLE_CLIENT_ID,
-    environment.GOOGLE_CLIENT_SECRET,
-    environment.GOOGLE_CALLBACK_URL,
-  ];
-  const configuredGoogleOAuthValues = googleOAuthValues.filter(Boolean).length;
-  if (configuredGoogleOAuthValues > 0 && configuredGoogleOAuthValues < googleOAuthValues.length) {
-    throw new Error(
-      "Cấu hình Google OAuth phải có đủ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET và GOOGLE_CALLBACK_URL.",
-    );
-  }
-
   if (environment.NODE_ENV === "production") {
     const missing: string[] = [];
     if (environment.STORAGE_PROVIDER === "cloudinary") {

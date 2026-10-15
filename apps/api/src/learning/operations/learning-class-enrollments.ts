@@ -165,7 +165,7 @@ export async function importEnrollments(
       const user = prisma
         ? await prisma.user.findFirst({
             where: {
-              status: "ACTIVE",
+              status: { in: ["ACTIVE", "PENDING"] },
               OR: [{ id: identifier }, { email: key }],
               roles: { some: { role: { code: "LEARNER" } } },
             },

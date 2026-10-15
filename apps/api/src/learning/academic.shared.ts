@@ -58,7 +58,7 @@ export interface AssignmentSubmissionView {
   assignmentId: string;
   learnerId: string;
   learnerName: string;
-  learnerEmail: string;
+  learnerEmail: string | null;
   content: string;
   attachments: AssignmentAttachmentView[];
   status: "SUBMITTED" | "GRADED";
@@ -104,7 +104,7 @@ export interface ClassAnnouncementView {
 export interface GradebookRow {
   learnerId: string;
   learnerName: string;
-  learnerEmail: string;
+  learnerEmail: string | null;
   examEarned: number;
   examPossible: number;
   assignmentEarned: number;
@@ -127,7 +127,7 @@ export interface GradingQueueGroup {
     id: string;
     learnerId: string;
     learnerName: string;
-    learnerEmail: string;
+    learnerEmail: string | null;
     status: "SUBMITTED" | "GRADED";
     submittedAt: string;
     revision?: number;

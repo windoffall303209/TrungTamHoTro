@@ -7,6 +7,7 @@ import { join, resolve, dirname } from "node:path";
 import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
+import { hashPassword } from "../src/auth/password.js";
 import { HttpExceptionFilter } from "../src/common/http-exception.filter.js";
 import { ResponseInterceptor } from "../src/common/response.interceptor.js";
 import { PrismaService } from "../src/database/prisma.service.js";
@@ -25,7 +26,7 @@ const password = "Verify-E2E-2026!";
 interface Envelope<T> { data: T }
 interface ErrorEnvelope { error: { message: string; details?: Record<string, unknown> } }
 
-describe("Đăng ký và xác minh email qua API", () => {
+describe("Xác minh email qua API", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let baseUrl: string;
@@ -71,11 +72,13 @@ describe("Đăng ký và xác minh email qua API", () => {
   }, 30_000);
 
   it("giữ tài khoản ở trạng thái chờ cho tới khi mã 6 số hợp lệ", async () => {
-    const registration = await post("/auth/register", { username, displayName: "Người dùng xác minh E2E", email, password });
-    expect(registration.status).toBe(201);
-    const registrationBody = registration.body as Envelope<{ verificationRequired: boolean; verificationId: string }>;
-    expect(registrationBody.data.verificationRequired).toBe(true);
-    expect(registrationBody.data.verificationId).toHaveLength(36);
+    await createPendingUser(username, email);
+    const firstLogin = await post("/auth/login", { username, password, rememberMe: false });
+    expect(firstLogin.status).toBe(403);
+    const firstLoginDetails = (firstLogin.body as ErrorEnvelope).error.details;
+    expect(firstLoginDetails?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
+    const verificationId = String(firstLoginDetails?.verificationId);
+    expect(verificationId).toHaveLength(36);
     expect(sentEmails).toHaveLength(1);
     expect(sentEmails[0]?.text).toContain("Hoặc mở liên kết sau để xác minh ngay:");
 
@@ -83,26 +86,22 @@ describe("Đăng ký và xác minh email qua API", () => {
     expect(pendingUser.status).toBe("PENDING_VERIFICATION");
     expect(pendingUser.emailVerifiedAt).toBeNull();
 
-    const duplicate = await post("/auth/register", { username: `${username.slice(0, 28)}-2`, displayName: "Tài khoản khác", email, password });
-    expect(duplicate.status).toBe(409);
-    expect((duplicate.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_PENDING_VERIFICATION");
-
     const rejectedChange = await post("/auth/verification-email/change", {
-      verificationId: registrationBody.data.verificationId,
+      verificationId,
       newEmail: correctedEmail,
       password: "Wrong-E2E-2026!",
     });
     expect(rejectedChange.status).toBe(401);
 
     const changedEmail = await post("/auth/verification-email/change", {
-      verificationId: registrationBody.data.verificationId,
+      verificationId,
       newEmail: correctedEmail,
       password,
     });
     expect(changedEmail.status).toBe(200);
     const changedEmailBody = changedEmail.body as Envelope<{ verificationId: string; email: string; verificationEmailSent: boolean }>;
     expect(changedEmailBody.data.email).toBe(correctedEmail);
-    expect(changedEmailBody.data.verificationId).not.toBe(registrationBody.data.verificationId);
+    expect(changedEmailBody.data.verificationId).not.toBe(verificationId);
     expect(changedEmailBody.data.verificationEmailSent).toBe(true);
     expect(sentEmails).toHaveLength(2);
 
@@ -118,7 +117,7 @@ describe("Đăng ký và xác minh email qua API", () => {
 
     const oldCode = sentEmails[0]?.text.match(/là:\s*(\d{6})/)?.[1];
     expect(oldCode).toMatch(/^\d{6}$/);
-    const obsoleteVerification = await post("/auth/verify-email/code", { verificationId: registrationBody.data.verificationId, code: oldCode });
+    const obsoleteVerification = await post("/auth/verify-email/code", { verificationId, code: oldCode });
     expect(obsoleteVerification.status).toBe(400);
 
     const code = sentEmails[1]?.text.match(/là:\s*(\d{6})/)?.[1];
@@ -173,17 +172,11 @@ describe("Đăng ký và xác minh email qua API", () => {
   }, 30_000);
 
   it("giữ username của tài khoản cũ đồng bộ với email đang chờ xác minh", async () => {
-    const initialUsername = `legacy-${suffix}`.slice(0, 32);
     const emailCountBefore = sentEmails.length;
-    const registration = await post("/auth/register", {
-      username: initialUsername,
-      displayName: "Tài khoản cũ E2E",
-      email: legacyOldEmail,
-      password,
-    });
-    expect(registration.status).toBe(201);
-    const verificationId = (registration.body as Envelope<{ verificationId: string }>).data.verificationId;
-    await prisma.user.update({ where: { email: legacyOldEmail }, data: { username: legacyOldEmail } });
+    await createPendingUser(legacyOldEmail, legacyOldEmail);
+    const pendingLogin = await post("/auth/login", { username: legacyOldEmail, password, rememberMe: false });
+    expect(pendingLogin.status).toBe(403);
+    const verificationId = String((pendingLogin.body as ErrorEnvelope).error.details?.verificationId);
 
     const changed = await post("/auth/verification-email/change", { verificationId, newEmail: legacyNewEmail, password });
     expect(changed.status).toBe(200);
@@ -195,6 +188,20 @@ describe("Đăng ký và xác minh email qua API", () => {
     expect(loginByEmail.status).toBe(403);
     expect((loginByEmail.body as ErrorEnvelope).error.details?.code).toBe("EMAIL_VERIFICATION_REQUIRED");
   }, 30_000);
+
+  /** Tạo tài khoản học viên chờ xác minh email trực tiếp trong database kiểm thử. */
+  async function createPendingUser(accountUsername: string, accountEmail: string): Promise<void> {
+    await prisma.user.create({
+      data: {
+        username: accountUsername,
+        email: accountEmail,
+        displayName: "Người dùng xác minh E2E",
+        passwordHash: await hashPassword(password),
+        status: "PENDING_VERIFICATION",
+        roles: { create: { role: { connect: { code: "LEARNER" } } } },
+      },
+    });
+  }
 
   /** Gửi JSON bằng POST tới API kiểm thử và trả trạng thái, header cùng nội dung. */
   async function post(path: string, body: object): Promise<{ status: number; headers: Headers; body: unknown }> {

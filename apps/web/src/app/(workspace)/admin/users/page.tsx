@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Eye,
+  EyeOff,
   LockKeyhole,
   Plus,
   Search,
@@ -41,7 +43,6 @@ const sameRoles = (left: RoleCode[], right: RoleCode[]): boolean =>
 interface UserForm {
   username: string;
   displayName: string;
-  email: string;
   roleCodes: RoleCode[];
   initialPassword: string;
 }
@@ -72,7 +73,6 @@ interface IdentityChangeImpact {
 const emptyForm: UserForm = {
   username: "",
   displayName: "",
-  email: "",
   roleCodes: ["LEARNER"],
   initialPassword: "",
 };
@@ -81,7 +81,13 @@ const emptyForm: UserForm = {
 export default function UsersPage() {
   const { session, notify } = useApp();
   const canView =
-    session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "user:view");
+    (session.roleCode === "SYSTEM_ADMIN" || session.roleCode === "CENTER_MANAGER") &&
+    hasPermission(session, "user:view");
+  // Quản lý trung tâm cấp được mọi vai trò trừ Quản trị hệ thống; API kiểm tra lại quy tắc này.
+  const assignableRoles =
+    session.roleCode === "SYSTEM_ADMIN"
+      ? roles
+      : roles.filter((role) => role.code !== "SYSTEM_ADMIN");
   const canCreate = hasPermission(session, "user:create");
   const canUpdate = hasPermission(session, "user:update");
   const canSuspend = hasEveryPermission(session, [
@@ -93,6 +99,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [editing, setEditing] = useState<IdentityUser | null>(null);
   const [editStatus, setEditStatus] =
     useState<IdentityUser["status"]>("ACTIVE");
@@ -150,6 +157,7 @@ export default function UsersPage() {
   /** Mở hộp thoại tạo với biểu mẫu người dùng rỗng. */
   const openCreate = () => {
     setForm(emptyForm);
+    setShowPassword(false);
     setCreateOpen(true);
   };
   /** Sao chép thông tin tài khoản đã chọn vào biểu mẫu chỉnh sửa. */
@@ -165,34 +173,27 @@ export default function UsersPage() {
     setForm({
       username: user.username,
       displayName: user.displayName,
-      email: user.email,
       roleCodes: user.roleCodes?.length ? user.roleCodes : [user.roleCode],
       initialPassword: "",
     });
   };
 
-  /** Tạo tài khoản cùng các vai trò ban đầu; bỏ trống mật khẩu để gửi lời mời kích hoạt. */
+  /** Tạo tài khoản chưa xác thực với tên đăng nhập, mật khẩu tạm và các vai trò ban đầu. */
   const createUser = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
     try {
-      const created = await apiRequest<IdentityUser>("/admin/users", {
+      await apiRequest<IdentityUser>("/admin/users", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          ...form,
+          username: form.username,
+          initialPassword: form.initialPassword,
           roleCode: form.roleCodes[0],
-          initialPassword: form.initialPassword || undefined,
+          roleCodes: form.roleCodes,
         }),
       });
-      notify(
-        form.initialPassword
-          ? "Đã tạo tài khoản và ghi audit log."
-          : created.invitationSent
-            ? "Đã tạo tài khoản và gửi lời mời kích hoạt."
-            : "Đã tạo tài khoản ở trạng thái chờ; email chưa gửi được, cần kiểm tra cấu hình Resend.",
-        created.invitationSent === false ? "info" : "success",
-      );
+      notify("Đã tạo tài khoản. Hãy gửi tên tài khoản và mật khẩu tạm thời cho người dùng.");
       setCreateOpen(false);
       await loadUsers();
     } catch (error) {
@@ -258,83 +259,83 @@ export default function UsersPage() {
 
   /** Dùng chung biểu mẫu tạo/sửa và điều chỉnh các trường theo ngữ cảnh. */
   const formContent = (
-    includeEmail: boolean,
+    creating: boolean,
   ) => (
-    <form className="space-y-5" onSubmit={(event) => void (includeEmail ? createUser(event) : updateUser(event))}>
-      {includeEmail ? (
-        <Field label="Tài khoản">
+    <form className="space-y-5" onSubmit={(event) => void (creating ? createUser(event) : updateUser(event))}>
+      {creating ? (
+        <>
+          <Field label="Tài khoản">
+            <input
+              autoCapitalize="none"
+              autoComplete="username"
+              className={inputClass}
+              maxLength={32}
+              minLength={4}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  username: event.target.value.toLowerCase(),
+                }))
+              }
+              pattern="[A-Za-z0-9][A-Za-z0-9._\-]{3,31}"
+              required
+              spellCheck={false}
+              value={form.username}
+            />
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Dùng để đăng nhập; không thể thay đổi sau khi tạo.
+            </p>
+          </Field>
+          <Field label="Mật khẩu tạm thời">
+            <span className="relative block">
+              <input
+                autoComplete="new-password"
+                className={`${inputClass} pr-12`}
+                maxLength={128}
+                minLength={8}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    initialPassword: event.target.value,
+                  }))
+                }
+                required
+                type={showPassword ? "text" : "password"}
+                value={form.initialPassword}
+              />
+              <button
+                aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                className="absolute right-1 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)]"
+                onClick={() => setShowPassword((value) => !value)}
+                type="button"
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </span>
+            <p className="mt-2 text-xs text-slate-500">
+              Tối thiểu 8 ký tự. Gửi mật khẩu này cho người dùng để đăng nhập lần đầu.
+            </p>
+          </Field>
+        </>
+      ) : (
+        <Field label="Họ và tên">
           <input
-            autoCapitalize="none"
-            autoComplete="username"
             className={inputClass}
-            maxLength={32}
-            minLength={4}
+            minLength={2}
             onChange={(event) =>
               setForm((current) => ({
                 ...current,
-                username: event.target.value.toLowerCase(),
+                displayName: event.target.value,
               }))
             }
-            pattern="[A-Za-z0-9][A-Za-z0-9._\-]{3,31}"
             required
-            spellCheck={false}
-            value={form.username}
-          />
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            Dùng để đăng nhập; không thể thay đổi sau khi tạo.
-          </p>
-        </Field>
-      ) : null}
-      <Field label="Họ và tên">
-        <input
-          className={inputClass}
-          minLength={2}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              displayName: event.target.value,
-            }))
-          }
-          required
-          value={form.displayName}
-        />
-      </Field>
-      {includeEmail ? (
-        <Field label="Email">
-          <input
-            className={inputClass}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, email: event.target.value }))
-            }
-            required
-            type="email"
-            value={form.email}
+            value={form.displayName}
           />
         </Field>
-      ) : null}
-      {includeEmail ? (
-        <Field label="Mật khẩu ban đầu (không bắt buộc)">
-          <input
-            autoComplete="new-password"
-            className={inputClass}
-            minLength={8}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                initialPassword: event.target.value,
-              }))
-            }
-            type="password"
-            value={form.initialPassword}
-          />
-          <p className="mt-2 text-xs text-slate-500">
-            Để trống để gửi liên kết kích hoạt dùng một lần trong 7 ngày. Nếu nhập, mật khẩu phải có ít nhất 8 ký tự.
-          </p>
-        </Field>
-      ) : null}
+      )}
       <Field label="Vai trò sử dụng">
         <div className="grid gap-2 sm:grid-cols-2">
-          {roles.map((role) => (
+          {(creating ? assignableRoles : roles).map((role) => (
             <label className="flex min-h-11 items-center gap-3 border border-[var(--rule)] bg-[var(--surface)] px-3 py-2 text-sm font-bold" key={role.code}>
               <input
                 checked={form.roleCodes.includes(role.code)}
@@ -356,7 +357,7 @@ export default function UsersPage() {
         </div>
         <p className="mt-2 text-xs text-[var(--ink-soft)]">Người dùng chuyển vai trò đang dùng trong header; thêm vai trò không xóa các vai trò còn lại.</p>
       </Field>
-      {!includeEmail ? (
+      {!creating ? (
         <Field label="Trạng thái">
           <select
             className={inputClass}
@@ -366,13 +367,16 @@ export default function UsersPage() {
             }}
             value={editStatus}
           >
+            {editing?.status === "PENDING" ? (
+              <option disabled value="PENDING">Chưa xác thực</option>
+            ) : null}
             <option value="ACTIVE">Hoạt động</option>
             <option value="INACTIVE">Ngừng hoạt động</option>
             <option value="LOCKED">Bị khóa</option>
           </select>
         </Field>
       ) : null}
-      {!includeEmail && impact ? (
+      {!creating && impact ? (
         <div className="border-y border-[var(--rule-strong)] bg-[var(--surface-muted)] px-4 py-4">
           <p className="text-sm font-extrabold">Ảnh hưởng trước khi áp dụng</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-[var(--ink-soft)]">
@@ -441,7 +445,7 @@ export default function UsersPage() {
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-5">
         <Button
           onClick={() =>
-            includeEmail ? setCreateOpen(false) : setEditing(null)
+            creating ? setCreateOpen(false) : setEditing(null)
           }
           type="button"
           variant="secondary"
@@ -459,7 +463,7 @@ export default function UsersPage() {
           loading={saving}
           type="submit"
         >
-          {includeEmail
+          {creating
             ? "Tạo tài khoản"
             : impact
               ? "Xác nhận áp dụng"
@@ -566,9 +570,11 @@ export default function UsersPage() {
                           <p className="mt-0.5 text-xs font-semibold text-[var(--ink-soft)]">
                             @{user.username}
                           </p>
-                          <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-                            {user.email}
-                          </p>
+                          {user.email ? (
+                            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                              {user.email}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -627,7 +633,7 @@ export default function UsersPage() {
         totalItems={totals.total}
       />
       <Modal
-        description="Tài khoản được kích hoạt ngay với vai trò và mật khẩu ban đầu do quản trị viên cấp."
+        description="Tài khoản mới được tạo ở trạng thái chưa xác thực với mật khẩu tạm thời do bạn cấp."
         onClose={() => setCreateOpen(false)}
         open={canCreate && createOpen}
         title="Tạo tài khoản"

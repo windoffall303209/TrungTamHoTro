@@ -4,10 +4,9 @@ import { AuthService } from "./auth.service.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const PUBLIC_MUTATIONS = new Set([
-  "/auth/login", "/auth/register", "/auth/mfa/verify", "/auth/mfa/recovery",
+  "/auth/login", "/auth/mfa/verify", "/auth/mfa/recovery",
   "/auth/forgot-password", "/auth/reset-password", "/auth/verify-email",
   "/auth/verify-email/code", "/auth/verification-email/resend", "/auth/verification-email/change",
-  "/auth/google/mfa/verify", "/auth/google/mfa/recovery",
 ]);
 
 @Injectable()

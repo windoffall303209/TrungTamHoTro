@@ -38,7 +38,7 @@ export type PermissionCode = (typeof PERMISSIONS)[number];
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   SYSTEM_ADMIN: [...PERMISSIONS],
   CENTER_MANAGER: [
-    "user:view", "course:view", "course:manage", "class:view", "class:manage",
+    "user:view", "user:create", "course:view", "course:manage", "class:view", "class:manage",
     "material:view", "exam:view", "forum:view", "forum:moderate", "session:view",
     "report:view", "support:manage",
   ],

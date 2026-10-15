@@ -65,7 +65,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
               roles: { select: { role: { select: { code: true } } } },
             },
           });
-          if (!recipient || recipient.status !== "ACTIVE") throw new Error("Người nhận không còn hoạt động.");
+          if (!recipient || !["ACTIVE", "PENDING"].includes(recipient.status)) throw new Error("Người nhận không còn hoạt động.");
           const isLearner = Array.isArray(recipient.roles) && recipient.roles.some((r) => r.role?.code === "LEARNER");
           if (isLearner && !learnerEmailEnabled && (candidate.event as { type?: string }).type === "NOTIFICATION_CREATED") {
             const skipped = await this.prisma.outboxDelivery.updateMany({
@@ -75,6 +75,12 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
                 lastError: "Thông báo email tới học viên đang tắt theo Cấu hình hệ thống.",
               },
             });
+            failed += skipped.count;
+            continue;
+          }
+          // Tài khoản vừa cấp chưa có email: bỏ qua thay vì thử gửi lại nhiều lần.
+          if (!recipient.email) {
+            const skipped = await this.prisma.outboxDelivery.updateMany({ where: owned, data: { status: "SKIPPED", lastError: "Người nhận chưa cập nhật email." } });
             failed += skipped.count;
             continue;
           }

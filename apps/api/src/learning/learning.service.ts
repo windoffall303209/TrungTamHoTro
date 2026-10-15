@@ -3125,7 +3125,7 @@ export class LearningService {
     );
   }
 
-  /** Bắt buộc user tồn tại, ACTIVE và có vai trò yêu cầu trước mutation thành viên. */
+  /** Bắt buộc user tồn tại, đang hoạt động hoặc vừa được cấp, và có vai trò yêu cầu trước mutation thành viên. */
   private async requireUserRole(
     database: PrismaService,
     userId: string,

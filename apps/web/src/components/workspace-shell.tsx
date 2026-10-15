@@ -159,7 +159,7 @@ const navItems: NavigationItem[] = [
     label: "Người dùng",
     icon: Users,
     permissions: ["user:view"],
-    roles: ["SYSTEM_ADMIN"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
   },
   {
     href: "/admin/roles",
