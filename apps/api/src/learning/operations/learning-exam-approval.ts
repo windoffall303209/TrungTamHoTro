@@ -6,6 +6,19 @@ import {
 import { id, now } from "../learning.shared.js";
 import type { ExamApprovalRecord, LearningExam } from "../learning.types.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { examQuestionIssues } from "./learning-question-rules.js";
+
+/** Chặn gửi duyệt khi còn câu sai cấu trúc hoặc trùng nội dung, nêu rõ số câu. */
+function assertExamQuestionsReady(
+  questions: Parameters<typeof examQuestionIssues>[0],
+): void {
+  const issues = examQuestionIssues(questions);
+  const index = issues.findIndex((items) => items.length > 0);
+  if (index >= 0)
+    throw new BadRequestException(
+      `Câu ${index + 1}: ${issues[index]![0]} Hãy sửa trước khi gửi duyệt.`,
+    );
+}
 
 /** Kiểm tra đề hoàn chỉnh rồi tự công bố hoặc đưa vào hàng đợi duyệt theo cấu hình. */
 export async function submitExamForReview(
@@ -41,6 +54,15 @@ export async function submitExamForReview(
       );
     if (exam.status !== "DRAFT")
       throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
+    assertExamQuestionsReady(
+      (
+        await prisma.examQuestion.findMany({
+          where: { examId },
+          orderBy: { position: "asc" },
+          include: { question: true },
+        })
+      ).map(({ question }) => serviceContext.mapQuestion(question)),
+    );
     if (assignment.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (
@@ -138,6 +160,11 @@ export async function submitExamForReview(
     );
   if (item.status !== "DRAFT")
     throw new ConflictException("Chỉ đề nháp mới được gửi duyệt.");
+  assertExamQuestionsReady(
+    item.questionIds.flatMap((questionId) =>
+      serviceContext.questions.filter((question) => question.id === questionId),
+    ),
+  );
   const classWindow = serviceContext.findClass(item.classId);
   if (classWindow.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");

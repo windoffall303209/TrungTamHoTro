@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
 import { decryptSecret, encryptSecret } from "../infrastructure/secret-vault.js";
-import { assertAiQuestionQuality } from "./ai-question-quality.js";
 import { resolveContextCitations, type ContextChunk, type DocumentPage } from "./ai-document-context.js";
 import { parseStudyGuide, validateStudyGuideOptions, type StudyGuide, type StudyGuideOptions } from "./ai-study-guide.js";
 import { parseGradingSuggestion, validateGradingInput, type GradingSuggestion } from "./ai-grading-suggestion.js";
@@ -782,9 +781,8 @@ export class AiProviderService {
     return [...found.values()].slice(0, 12);
   }
 
-  /** Bắt buộc AI trả đúng tổng và đúng từng loại câu theo ma trận giảng viên yêu cầu. */
+  /** Bắt buộc AI trả đúng tổng và đúng từng loại câu; câu trùng hoặc sai đáp án được lưu kèm cảnh báo để giảng viên sửa. */
   private assertGeneratedDistribution(questions: ScannedQuestionDraft[], distribution: Array<{ type: ScannedQuestionDraft["type"]; count: number }>): void {
-    assertAiQuestionQuality(questions);
     const expected = new Map(distribution.map((item) => [item.type, item.count]));
     const actual = new Map<ScannedQuestionDraft["type"], number>();
     questions.forEach((question) => actual.set(question.type, (actual.get(question.type) ?? 0) + 1));

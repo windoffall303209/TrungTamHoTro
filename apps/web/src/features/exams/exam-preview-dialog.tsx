@@ -8,7 +8,7 @@ import {
   RichText,
   StatusBadge,
 } from "@/components/ui";
-import { CheckCircle2, ListOrdered, Pencil, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ListOrdered, Pencil, Send } from "lucide-react";
 import type { useExamsModel } from "./use-exams-model";
 
 /** Xem trước đề thi và chỉnh sửa câu hỏi trước khi gửi duyệt. */
@@ -124,6 +124,13 @@ export function ExamPreviewDialog({
               Đang tải nội dung đề…
             </p>
           ) : (
+            <>
+            {previewQuestions.some((question) => question.issues?.length) ? (
+              <p className="mt-5 flex items-center gap-2 rounded-xl bg-[var(--warning)]/10 px-4 py-3 text-sm font-bold text-[var(--warning-deep)]" role="status">
+                <AlertTriangle size={16} />
+                {previewQuestions.filter((question) => question.issues?.length).length} câu cần sửa trước khi gửi duyệt.
+              </p>
+            ) : null}
             <ol className="mt-5 space-y-5">
               {previewQuestions.map((question, index) => (
                 <li
@@ -178,6 +185,11 @@ export function ExamPreviewDialog({
                       </span>
                     </div>
                   </div>
+                  {question.issues?.length ? (
+                    <ul className="mt-3 space-y-1 rounded-lg bg-[var(--warning)]/10 px-3 py-2 text-xs font-bold text-[var(--warning-deep)]">
+                      {question.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                    </ul>
+                  ) : null}
                   {editingQuestion?.id === question.id ? (
                     <div className="mt-4 space-y-3">
                       <Field label="Nội dung câu hỏi">
@@ -194,7 +206,7 @@ export function ExamPreviewDialog({
                           }
                         />
                       </Field>
-                      {question.options.length > 0 ? (
+                      {question.options.length > 0 || ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(question.type) ? (
                         <Field label="Lựa chọn, mỗi dòng một đáp án">
                           <textarea
                             className={inputClass}
@@ -294,6 +306,7 @@ export function ExamPreviewDialog({
                 </li>
               ))}
             </ol>
+            </>
           )}
           {previewExam.aiContext ? (
             <div className="mt-5 border-y border-[var(--rule-strong)] py-4">

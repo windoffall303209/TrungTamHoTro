@@ -315,6 +315,8 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Xóa hẳn học liệu \"": "Permanently delete material \"",
   "\" cùng mọi phiên bản? Không thể hoàn tác.": "\" and all its versions? This cannot be undone.",
   "Xóa hẳn học liệu \"{{0}}\" cùng mọi phiên bản? Không thể hoàn tác.": "Permanently delete material \"{{0}}\" and all its versions? This cannot be undone.",
+  "câu cần sửa trước khi gửi duyệt.": "questions need fixing before submitting for review.",
+  "Trùng nội dung với câu {{0}}.": "Duplicates the content of question {{0}}.",
 };
 
 const englishCatalog: Record<string, string> = {

@@ -90,13 +90,14 @@ export function questionContentHash(content: string): string {
     .digest("hex");
 }
 
-/** Chuẩn hóa rich text/đáp án/tag và kiểm tra quy tắc riêng cho từng loại câu hỏi. */
-export function validateQuestionInput(
-  input: Omit<LearningQuestion, "id" | "status" | "version">,
-): Omit<
+type QuestionInput = Omit<LearningQuestion, "id" | "status" | "version">;
+type NormalizedQuestion = Omit<
   LearningQuestion,
   "id" | "status" | "version" | "familyId" | "supersedesId"
-> {
+>;
+
+/** Chuẩn hóa rich text/đáp án/tag mà không từ chối câu sai cấu trúc. */
+export function normalizeQuestionInput(input: QuestionInput): NormalizedQuestion {
   const content = input.content
     .replace(/\r\n?/g, "\n")
     .split("\n")
@@ -104,49 +105,53 @@ export function validateQuestionInput(
     .join("\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim();
-  const options = [
-    ...new Set(input.options.map((item) => item.trim()).filter(Boolean)),
-  ];
-  const correctAnswers = [
-    ...new Set(input.correctAnswers.map((item) => item.trim()).filter(Boolean)),
-  ];
-  const tags = [
-    ...new Set(
-      input.tags.map((item) => item.trim().toLowerCase()).filter(Boolean),
-    ),
-  ];
-  if (content.length < 5)
-    throw new BadRequestException("Nội dung câu hỏi cần ít nhất 5 ký tự.");
+  return {
+    courseId: input.courseId.trim(),
+    type: input.type,
+    content,
+    options: [
+      ...new Set(input.options.map((item) => item.trim()).filter(Boolean)),
+    ],
+    correctAnswers: [
+      ...new Set(
+        input.correctAnswers.map((item) => item.trim()).filter(Boolean),
+      ),
+    ],
+    difficulty: input.difficulty,
+    tags: [
+      ...new Set(
+        input.tags.map((item) => item.trim().toLowerCase()).filter(Boolean),
+      ),
+    ],
+  };
+}
+
+/** Trả lỗi cấu trúc đầu tiên của câu đã chuẩn hóa, hoặc undefined nếu hợp lệ. */
+export function questionInputIssue(question: NormalizedQuestion): string | undefined {
+  const { content, options, correctAnswers } = question;
+  if (content.length < 5) return "Nội dung câu hỏi cần ít nhất 5 ký tự.";
   if (
-    !Number.isInteger(input.difficulty) ||
-    input.difficulty < 1 ||
-    input.difficulty > 3
+    !Number.isInteger(question.difficulty) ||
+    question.difficulty < 1 ||
+    question.difficulty > 3
   )
-    throw new BadRequestException("Độ khó phải từ 1 đến 3.");
+    return "Độ khó phải từ 1 đến 3.";
   const objective = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(
-    input.type,
+    question.type,
   );
   if (objective && options.length < 2)
-    throw new BadRequestException(
-      "Câu hỏi trắc nghiệm cần ít nhất hai lựa chọn khác nhau.",
-    );
+    return "Câu hỏi trắc nghiệm cần ít nhất hai lựa chọn khác nhau.";
   if (correctAnswers.some((answer) => !options.includes(answer)) && objective)
-    throw new BadRequestException(
-      "Đáp án đúng phải nằm trong danh sách lựa chọn.",
-    );
+    return "Đáp án đúng phải nằm trong danh sách lựa chọn.";
   if (
-    (input.type === "SINGLE_CHOICE" || input.type === "TRUE_FALSE") &&
+    (question.type === "SINGLE_CHOICE" || question.type === "TRUE_FALSE") &&
     correctAnswers.length !== 1
   )
-    throw new BadRequestException(
-      "Câu hỏi một đáp án cần đúng một đáp án đúng.",
-    );
-  if (input.type === "MULTIPLE_CHOICE" && correctAnswers.length < 1)
-    throw new BadRequestException(
-      "Câu hỏi nhiều đáp án cần ít nhất một đáp án đúng.",
-    );
+    return "Câu hỏi một đáp án cần đúng một đáp án đúng.";
+  if (question.type === "MULTIPLE_CHOICE" && correctAnswers.length < 1)
+    return "Câu hỏi nhiều đáp án cần ít nhất một đáp án đúng.";
   if (
-    input.type === "TRUE_FALSE" &&
+    question.type === "TRUE_FALSE" &&
     (options.length !== 2 ||
       ![
         ["Đúng", "Sai"],
@@ -154,18 +159,32 @@ export function validateQuestionInput(
         ["Đúng (True)", "Sai (False)"],
       ].some((pair) => pair.every((option) => options.includes(option))))
   )
-    throw new BadRequestException(
-      "Câu hỏi đúng/sai phải có hai lựa chọn Đúng và Sai.",
-    );
-  return {
-    courseId: input.courseId.trim(),
-    type: input.type,
-    content,
-    options,
-    correctAnswers,
-    difficulty: input.difficulty,
-    tags,
-  };
+    return "Câu hỏi đúng/sai phải có hai lựa chọn Đúng và Sai.";
+  return undefined;
+}
+
+/** Chuẩn hóa rich text/đáp án/tag và kiểm tra quy tắc riêng cho từng loại câu hỏi. */
+export function validateQuestionInput(input: QuestionInput): NormalizedQuestion {
+  const question = normalizeQuestionInput(input);
+  const issue = questionInputIssue(question);
+  if (issue) throw new BadRequestException(issue);
+  return question;
+}
+
+/** Liệt kê lỗi từng câu của đề (sai cấu trúc, trùng nội dung) để cảnh báo và chặn gửi duyệt. */
+export function examQuestionIssues(questions: QuestionInput[]): string[][] {
+  const firstByContent = new Map<string, number>();
+  return questions.map((input, index) => {
+    const question = normalizeQuestionInput(input);
+    const issues: string[] = [];
+    const issue = questionInputIssue(question);
+    if (issue) issues.push(issue);
+    const hash = questionContentHash(question.content);
+    const first = firstByContent.get(hash);
+    if (first === undefined) firstByContent.set(hash, index);
+    else issues.push(`Trùng nội dung với câu ${first + 1}.`);
+    return issues;
+  });
 }
 
 /** Chuẩn hóa đáp án nộp và chặn lựa chọn không thuộc options của câu hỏi. */

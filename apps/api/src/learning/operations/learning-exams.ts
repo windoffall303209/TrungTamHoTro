@@ -5,6 +5,15 @@ import type {
   LearningQuestion,
 } from "../learning.types.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { examQuestionIssues } from "./learning-question-rules.js";
+
+/** Gắn lỗi từng câu để giảng viên thấy câu nào cần sửa trước khi gửi duyệt. */
+function withQuestionIssues(questions: LearningQuestion[]): LearningQuestion[] {
+  const issues = examQuestionIssues(questions);
+  return questions.map((question, index) =>
+    issues[index]?.length ? { ...question, issues: issues[index] } : question,
+  );
+}
 
 /** Liệt kê đề theo vai trò và quan hệ lớp, không trả đề ngoài phạm vi giảng dạy/ghi danh. */
 export async function listExams(
@@ -251,8 +260,8 @@ export async function getInstructorExamPreview(
     });
     if (!exam)
       throw new NotFoundException("Không tìm thấy đề thi được phép xem.");
-    return exam.questions.map(({ question }) =>
-      serviceContext.mapQuestion(question),
+    return withQuestionIssues(
+      exam.questions.map(({ question }) => serviceContext.mapQuestion(question)),
     );
   }
   const exam = serviceContext.findExam(examId);
@@ -260,19 +269,21 @@ export async function getInstructorExamPreview(
     !serviceContext.findClass(exam.classId).instructorIds.includes(instructorId)
   )
     throw new NotFoundException("Không tìm thấy đề thi được phép xem.");
-  return exam.questionIds.map((questionId) => {
-    const question = serviceContext.questions.find(
-      (item) => item.id === questionId,
-    );
-    if (!question)
-      throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
-    return {
-      ...question,
-      options: [...question.options],
-      correctAnswers: [...question.correctAnswers],
-      tags: [...question.tags],
-    };
-  });
+  return withQuestionIssues(
+    exam.questionIds.map((questionId) => {
+      const question = serviceContext.questions.find(
+        (item) => item.id === questionId,
+      );
+      if (!question)
+        throw new NotFoundException("Đề chứa câu hỏi không tồn tại.");
+      return {
+        ...question,
+        options: [...question.options],
+        correctAnswers: [...question.correctAnswers],
+        tags: [...question.tags],
+      };
+    }),
+  );
 }
 
 /** Trả nội dung đề cho quản lý duyệt, chỉ khi đề đang ở hàng chờ phê duyệt. */

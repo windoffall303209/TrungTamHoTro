@@ -106,5 +106,6 @@
   "Xóa lựa chọn {{0}}": "Clear selection {{0}}",
   "Xóa ý trả lời {{0}}": "Delete reply {{0}}",
   "Ý trả lời tham khảo {{0}}": "Reference answer {{0}}",
-  "Xóa hẳn học liệu \"{{0}}\" cùng mọi phiên bản? Không thể hoàn tác.": "Permanently delete material \"{{0}}\" and all its versions? This cannot be undone."
+  "Xóa hẳn học liệu \"{{0}}\" cùng mọi phiên bản? Không thể hoàn tác.": "Permanently delete material \"{{0}}\" and all its versions? This cannot be undone.",
+  "Trùng nội dung với câu {{0}}.": "Duplicates the content of question {{0}}."
 }

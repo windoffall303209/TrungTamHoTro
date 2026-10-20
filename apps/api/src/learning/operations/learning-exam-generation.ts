@@ -13,8 +13,9 @@ import type {
 import { ExamGenerationContext, id } from "../learning.shared.js";
 import type { LearningExam } from "../learning.types.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { normalizeQuestionInput } from "./learning-question-rules.js";
 
-/** Thu thập tối đa sáu tệp đã công khai trong các lớp cùng môn mà giảng viên được phân công. */
+/** Thu thập tối đa sáu tệp đã phát hành của môn: tài liệu lớp mình dạy và học liệu dùng chung. */
 export async function getExamGenerationContext(
   serviceContext: LearningServiceContext,
   classId: string,
@@ -74,10 +75,12 @@ export async function getExamGenerationContext(
         quarantinedAt: null,
         mimeType: { in: supportedMimeTypes },
         sizeBytes: { lte: BigInt(12 * 1024 * 1024) },
-        class: {
-          courseId: classItem.courseId,
-          instructors: { some: { instructorId: actorId } },
-        },
+        courseId: classItem.courseId,
+        OR: [
+          { class: { instructors: { some: { instructorId: actorId } } } },
+          // Học liệu dùng chung đã phát hành thì mọi học viên đều xem được nên dùng được làm ngữ cảnh.
+          { scope: "SHARED" },
+        ],
       },
       orderBy: { updatedAt: "desc" },
       take: 12,
@@ -165,10 +168,12 @@ export async function getExamGenerationContext(
       (item) => item.id === material.classId,
     );
     const stored = serviceContext.materialFiles.get(material.id);
+    const inCourse =
+      (material.courseId ?? relatedClass?.courseId) === classItem.courseId;
     if (
-      !relatedClass ||
-      relatedClass.courseId !== course.id ||
-      !relatedClass.instructorIds.includes(actorId) ||
+      !inCourse ||
+      (material.scope !== "SHARED" &&
+        !relatedClass?.instructorIds.includes(actorId)) ||
       !stored
     )
       continue;
@@ -221,7 +226,7 @@ export async function getGeneratedExamByRequest(
   return row ? serviceContext.mapExam(row) : undefined;
 }
 
-/** Lưu câu hỏi AI đã chuẩn hóa và đề nháp trong một giao dịch, tái dùng câu trùng đã xuất bản. */
+/** Lưu câu hỏi AI và đề nháp trong một giao dịch; câu trùng hoặc sai cấu trúc vẫn được lưu để giảng viên sửa. */
 export async function createGeneratedExam(
   serviceContext: LearningServiceContext,
   input: Omit<LearningExam, "id" | "status" | "version" | "questionIds">,
@@ -248,7 +253,7 @@ export async function createGeneratedExam(
       ? "nguồn-tài-liệu"
       : "nguồn-web";
   const normalizedQuestions = questions.map((question) =>
-    serviceContext.validateQuestionInput({
+    normalizeQuestionInput({
       courseId,
       type: question.type,
       content: question.content,
@@ -258,14 +263,6 @@ export async function createGeneratedExam(
       tags: [...new Set([...question.tags, "ai-generated", sourceTag])],
     }),
   );
-  const generatedContentHashes = normalizedQuestions.map((question) =>
-    serviceContext.questionContentHash(question.content),
-  );
-  if (new Set(generatedContentHashes).size !== generatedContentHashes.length) {
-    throw new ConflictException(
-      "AI tạo câu hỏi trùng nhau; hãy tạo lại với trọng tâm cụ thể hơn.",
-    );
-  }
   const prisma = serviceContext.database();
   if (prisma) {
     return prisma.$transaction(async (transaction) => {
@@ -308,8 +305,11 @@ export async function createGeneratedExam(
           },
           orderBy: { version: "desc" },
         });
-        const existing = candidates.find((candidate) =>
-          serviceContext.sameGeneratedQuestion(candidate, question),
+        // Một câu ngân hàng chỉ gắn vào đề một lần; câu AI lặp lại được lưu riêng để cảnh báo trùng.
+        const existing = candidates.find(
+          (candidate) =>
+            !questionIds.includes(candidate.id) &&
+            serviceContext.sameGeneratedQuestion(candidate, question),
         );
         if (existing) {
           questionIds.push(existing.id);
@@ -388,10 +388,12 @@ export async function createGeneratedExam(
     throw new NotFoundException("Không tìm thấy lớp học được phép tạo đề.");
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  const questionIds = normalizedQuestions.map((question) => {
+  const questionIds: string[] = [];
+  for (const question of normalizedQuestions) {
     const contentHash = serviceContext.questionContentHash(question.content);
     const existing = serviceContext.questions.find(
       (item) =>
+        !questionIds.includes(item.id) &&
         item.courseId === courseId &&
         item.status === "PUBLISHED" &&
         serviceContext.questionContentHash(item.content) === contentHash &&
@@ -399,7 +401,10 @@ export async function createGeneratedExam(
         !item.imageName &&
         serviceContext.sameGeneratedQuestion(item, question),
     );
-    if (existing) return existing.id;
+    if (existing) {
+      questionIds.push(existing.id);
+      continue;
+    }
     const questionId = id("question");
     serviceContext.questions.unshift({
       ...question,
@@ -408,8 +413,8 @@ export async function createGeneratedExam(
       status: "DRAFT",
       version: 1,
     });
-    return questionId;
-  });
+    questionIds.push(questionId);
+  }
   const questionScores = serviceContext.resolveExamScoreAllocations(
     questionIds,
     input.totalScore,
