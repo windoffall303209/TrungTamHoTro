@@ -277,6 +277,12 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Đã bật gửi thông báo qua email cho học viên.": "Email notifications for learners are now on.",
   "Đã tắt gửi thông báo qua email cho học viên.": "Email notifications for learners are now off.",
   "Không đổi được cài đặt thông báo email.": "Could not change the email notification setting.",
+  "Lớp của khóa học": "Classes of this course",
+  "Chưa có lớp nào.": "No classes yet.",
+  "Lọc theo khóa học": "Filter by course",
+  "Tất cả khóa học": "All courses",
+  "Không có lớp nào thuộc khóa học này.": "This course has no classes.",
+  "khóa": "course",
 };
 
 const englishCatalog: Record<string, string> = {
