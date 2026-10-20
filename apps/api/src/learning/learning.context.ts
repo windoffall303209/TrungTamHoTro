@@ -48,6 +48,7 @@ import type {
   ExamAttempt,
   ExamAttemptReview,
   FileReviewRecord,
+  MaterialReviewDecision,
   ForumPost,
   ForumTopic,
   GradeHistoryRecord,
@@ -334,11 +335,14 @@ export interface LearningServiceContext {
   ): Promise<LearningMaterial>;
   reviewClassMaterial(
     materialId: string,
-    action: FileReviewRecord["action"],
+    action: MaterialReviewDecision,
     rawReason?: string,
     reviewerId?: string,
   ): Promise<LearningMaterial>;
-  listMaterialReviews(materialId: string): Promise<FileReviewRecord[]>;
+  listMaterialReviews(
+    materialId: string,
+    editorId?: string,
+  ): Promise<FileReviewRecord[]>;
   listQuestions(
     filters?:
       | string

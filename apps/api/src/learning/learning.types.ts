@@ -131,11 +131,14 @@ export interface LearningMaterial {
 }
 /** SHARED: mọi học viên tra cứu được khi đã phát hành; CLASS: chỉ học viên của lớp. */
 export type MaterialScope = "SHARED" | "CLASS";
+/** Quyết định kiểm duyệt hiện hành; HIDE và REQUEST_CHANGES chỉ còn trong lịch sử cũ. */
+export type MaterialReviewDecision = "APPROVE" | "REVOKE";
+
 export interface FileReviewRecord {
   id: string;
   materialId: string;
   reviewerId: string;
-  action: "APPROVE" | "HIDE" | "REQUEST_CHANGES";
+  action: MaterialReviewDecision | "HIDE" | "REQUEST_CHANGES";
   reason?: string;
   createdAt: string;
 }

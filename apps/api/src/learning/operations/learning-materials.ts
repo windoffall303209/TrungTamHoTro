@@ -400,6 +400,19 @@ export async function createMaterial(
   return { ...item, tags: [...item.tags] };
 }
 
+/** Giảng viên chỉ ẩn hoặc gửi duyệt; chỉ quản lý mới phát hành, và tệp cách ly không được gửi duyệt. */
+function assertInstructorVisibility(
+  material: { quarantinedAt?: Date | string | null },
+  visibility?: LearningMaterial["visibility"],
+): void {
+  if (visibility === "PUBLISHED")
+    throw new BadRequestException(
+      "Học liệu cần quản lý trung tâm duyệt trước khi phát hành.",
+    );
+  if (material.quarantinedAt && visibility === "DRAFT")
+    throw new BadRequestException("Tệp đang bị cách ly nên không thể gửi duyệt.");
+}
+
 /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
 export async function updateMaterial(
   serviceContext: LearningServiceContext,
@@ -424,8 +437,7 @@ export async function updateMaterial(
       throw new BadRequestException(
         "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
       );
-    if (current.quarantinedAt && input.visibility === "PUBLISHED")
-      throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
+    assertInstructorVisibility(current, input.visibility);
     return prisma.$transaction(async (transaction) => {
       const updated = await transaction.material.update({
         where: { id: materialId },
@@ -470,8 +482,7 @@ export async function updateMaterial(
     throw new BadRequestException(
       "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
     );
-  if (item.quarantinedAt && input.visibility === "PUBLISHED")
-    throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
+  assertInstructorVisibility(item, input.visibility);
   Object.assign(item, input);
   item.version += 1;
   const stored = serviceContext.materialFiles.get(materialId);
@@ -485,4 +496,73 @@ export async function updateMaterial(
     tags: [...item.tags],
   });
   return { ...item, tags: [...item.tags] };
+}
+
+/** Xóa tại chỗ các phần tử khớp vì mảng bộ nhớ của service chỉ có getter. */
+function removeWhere<T>(list: T[], match: (item: T) => boolean): void {
+  list.splice(0, list.length, ...list.filter((item) => !match(item)));
+}
+
+/** Người tải lên xóa hẳn học liệu cùng mọi phiên bản; nhật ký hệ thống vẫn giữ dấu vết. */
+export async function deleteMaterial(
+  serviceContext: LearningServiceContext,
+  materialId: string,
+  actorId: string,
+): Promise<void> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const current = await prisma.material.findUnique({
+      where: { id: materialId },
+      include: { class: true, versions: { select: { objectKey: true } } },
+    });
+    if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (current.ownerId !== actorId)
+      throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
+    if (current.class?.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    await prisma.$transaction(async (transaction) => {
+      if (await transaction.forumPostAttachment.count({ where: { materialId } }))
+        throw new ConflictException(
+          "Học liệu đang được đính kèm trong diễn đàn nên chưa thể xóa.",
+        );
+      await transaction.material.delete({ where: { id: materialId } });
+      await transaction.auditLog.create({
+        data: {
+          actorId,
+          action: "MATERIAL_DELETED",
+          entityType: "material",
+          entityId: materialId,
+          context: {
+            name: current.name,
+            courseId: current.courseId,
+            classId: current.classId,
+            versions: current.versions.length,
+          },
+        },
+      });
+    });
+    // Xóa tệp sau khi giao dịch thành công; lỗi kho không làm hỏng thao tác xóa.
+    const keys = new Set([
+      current.objectKey,
+      ...current.versions.map((item) => item.objectKey),
+    ]);
+    await Promise.all(
+      [...keys]
+        .filter((key) => key.startsWith("quarantine/") || serviceContext.isMaterialObjectKey(key))
+        .map((key) => serviceContext.removeStoredFile(key).catch(() => undefined)),
+    );
+    return;
+  }
+  const item = serviceContext.materials.find(
+    (material) => material.id === materialId,
+  );
+  if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  if (item.ownerId !== actorId)
+    throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
+  if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  removeWhere(serviceContext.materials, (material) => material.id === materialId);
+  removeWhere(serviceContext.materialVersions, (version) => version.materialId === materialId);
+  removeWhere(serviceContext.materialReviews, (review) => review.materialId === materialId);
+  serviceContext.materialFiles.delete(materialId);
 }

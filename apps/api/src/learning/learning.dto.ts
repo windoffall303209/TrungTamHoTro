@@ -189,10 +189,8 @@ export class UpdateMaterialDto {
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
-  @IsOptional() @IsIn(["DRAFT", "PUBLISHED", "HIDDEN"]) visibility?:
-    | "DRAFT"
-    | "PUBLISHED"
-    | "HIDDEN";
+  // Giảng viên chỉ ẩn hoặc gửi duyệt (DRAFT); phát hành là quyết định của quản lý.
+  @IsOptional() @IsIn(["DRAFT", "HIDDEN"]) visibility?: "DRAFT" | "HIDDEN";
 }
 
 /** Danh sách giảng viên được người tải lên cấp quyền sửa học liệu. */
@@ -201,10 +199,7 @@ export class ReplaceMaterialEditorsDto {
 }
 
 export class ReviewMaterialDto {
-  @IsIn(["APPROVE", "HIDE", "REQUEST_CHANGES"]) action!:
-    | "APPROVE"
-    | "HIDE"
-    | "REQUEST_CHANGES";
+  @IsIn(["APPROVE", "REVOKE"]) action!: "APPROVE" | "REVOKE";
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 

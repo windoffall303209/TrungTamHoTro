@@ -247,6 +247,16 @@ export interface Material {
   createdAt: string;
 }
 
+/** HIDE và REQUEST_CHANGES chỉ còn trong lịch sử kiểm duyệt cũ. */
+export interface MaterialReview {
+  id: string;
+  materialId: string;
+  reviewerId: string;
+  action: "APPROVE" | "REVOKE" | "HIDE" | "REQUEST_CHANGES";
+  reason?: string;
+  createdAt: string;
+}
+
 export interface Question {
   id: string;
   courseId: string;

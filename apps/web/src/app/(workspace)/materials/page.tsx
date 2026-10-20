@@ -2,7 +2,7 @@
 
 import { activeLocale } from "@/i18n/runtime";
 
-import { BookOpen, Download, Eye, FileText, FolderOpen, History, Layers3, Library, Plus, Search, UploadCloud, UserCog } from "lucide-react";
+import { BookOpen, Download, Eye, FileText, FolderOpen, History, Layers3, Library, Plus, Search, Trash2, UploadCloud, UserCog } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
@@ -13,12 +13,18 @@ import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/components/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
-import type { Course, LearningClass, Material, MaterialVersionSnapshot } from "@/lib/learning-types";
+import type { Course, LearningClass, Material, MaterialReview, MaterialVersionSnapshot } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
 // Mục thư viện chung ở thanh bên: học liệu dùng chung của mọi môn, không lọc theo môn hay lớp.
 const SHARED_LIBRARY = "__shared__";
+const REVIEW_LABELS: Record<MaterialReview["action"], string> = { APPROVE: "Duyệt và phát hành", REVOKE: "Thu hồi", HIDE: "Ẩn học liệu", REQUEST_CHANGES: "Yêu cầu chỉnh sửa" };
+
+/** Học liệu nháp luôn nằm trong hàng chờ quản lý duyệt nên hiển thị là chờ phê duyệt. */
+function materialStatus(visibility: Material["visibility"]): string {
+  return visibility === "DRAFT" ? "PENDING_REVIEW" : visibility;
+}
 
 /** Điều phối tạo, phiên bản hóa, duyệt, xem trước và tải xuống học liệu. */
 export default function MaterialsPage() {
@@ -49,11 +55,12 @@ export default function MaterialsPage() {
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [versionTarget, setVersionTarget] = useState<Material | null>(null);
   const [versions, setVersions] = useState<MaterialVersionSnapshot[]>([]);
+  const [reviews, setReviews] = useState<MaterialReview[]>([]);
   const [historyTarget, setHistoryTarget] = useState<Material | null>(null);
   const [reviewTarget, setReviewTarget] = useState<Material | null>(null);
   const [aiTarget, setAiTarget] = useState<Material | null>(null);
   const [studyTarget, setStudyTarget] = useState<Material | null>(null);
-  const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
+  const [reviewAction, setReviewAction] = useState<"APPROVE" | "REVOKE">("APPROVE");
   const [reviewReason, setReviewReason] = useState("");
   const [editorsTarget, setEditorsTarget] = useState<Material | null>(null);
   const [editorCandidates, setEditorCandidates] = useState<Array<{ id: string; displayName: string; username: string }>>([]);
@@ -171,18 +178,31 @@ export default function MaterialsPage() {
     }
   };
 
-  /** Gửi học liệu vào quy trình duyệt hoặc xuất bản ngay theo cấu hình hệ thống. */
-  const publish = async (item: Material) => {
+  /** Giảng viên ẩn học liệu đang phát hành hoặc gửi học liệu đang ẩn cho quản lý duyệt lại. */
+  const toggleVisibility = async (item: Material) => {
+    const hide = item.visibility === "PUBLISHED";
     try {
       await apiRequest(`/instructor/materials/${item.id}`, {
         method: "PATCH",
         roleCode: session.roleCode,
-        body: JSON.stringify({ visibility: item.visibility === "PUBLISHED" ? "HIDDEN" : "PUBLISHED" }),
+        body: JSON.stringify({ visibility: hide ? "HIDDEN" : "DRAFT" }),
       });
-      notify(item.visibility === "PUBLISHED" ? "Đã ẩn học liệu." : "Đã công khai học liệu.");
+      notify(hide ? "Đã ẩn học liệu." : "Đã gửi học liệu cho quản lý duyệt.");
       await load();
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không cập nhật được.", "error");
+    }
+  };
+
+  /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản sau khi xác nhận. */
+  const remove = async (item: Material) => {
+    if (!window.confirm(`Xóa hẳn học liệu "${item.name}" cùng mọi phiên bản? Không thể hoàn tác.`)) return;
+    try {
+      await apiRequest(`/instructor/materials/${item.id}`, { method: "DELETE", roleCode: session.roleCode });
+      notify("Đã xóa học liệu.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không xóa được học liệu.", "error");
     }
   };
 
@@ -234,9 +254,18 @@ export default function MaterialsPage() {
     }
   };
 
-  /** Nạp lịch sử phiên bản của học liệu và mở bảng chi tiết. */
+  /** Nạp lịch sử phiên bản, kèm lịch sử kiểm duyệt cho quản lý và người có quyền sửa. */
   const showHistory = async (item: Material) => {
-    try { setHistoryTarget(item); setVersions(await apiRequest<MaterialVersionSnapshot[]>(`/materials/${item.id}/versions`, { roleCode: session.roleCode })); }
+    const reviewPath = manager ? `/manager/materials/${item.id}/reviews` : canEdit(item) ? `/instructor/materials/${item.id}/reviews` : null;
+    try {
+      setHistoryTarget(item);
+      const [versionData, reviewData] = await Promise.all([
+        apiRequest<MaterialVersionSnapshot[]>(`/materials/${item.id}/versions`, { roleCode: session.roleCode }),
+        reviewPath ? apiRequest<MaterialReview[]>(reviewPath, { roleCode: session.roleCode }) : Promise.resolve([]),
+      ]);
+      setVersions(versionData);
+      setReviews(reviewData);
+    }
     catch (error) { setHistoryTarget(null); notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error"); }
   };
   /** Xin URL tải có thời hạn cho đúng phiên bản học liệu đã chọn. */
@@ -258,7 +287,7 @@ export default function MaterialsPage() {
     finally { setSaving(false); }
   };
 
-  /** Gửi quyết định duyệt/từ chối cùng ghi chú cho học liệu đang chờ. */
+  /** Gửi quyết định duyệt hoặc thu hồi cùng lý do cho học liệu. */
   const review = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reviewTarget) return;
@@ -268,7 +297,7 @@ export default function MaterialsPage() {
         roleCode: session.roleCode,
         body: JSON.stringify({ action: reviewAction, reason: reviewReason || undefined }),
       });
-      notify(reviewAction === "APPROVE" ? "Đã duyệt học liệu." : reviewAction === "HIDE" ? "Đã ẩn học liệu và thông báo người đăng." : "Đã yêu cầu giảng viên chỉnh sửa.");
+      notify(reviewAction === "APPROVE" ? "Đã duyệt học liệu." : "Đã thu hồi học liệu và thông báo người đăng.");
       setReviewTarget(null);
       setReviewReason("");
       await load();
@@ -338,7 +367,7 @@ export default function MaterialsPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-heading text-lg font-extrabold">{item.name}</h2>
-                    <StatusBadge status={item.visibility} />
+                    <StatusBadge status={materialStatus(item.visibility)} />
                     <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">{item.scope === "SHARED" ? "Dùng chung" : "Riêng lớp"}</span>
                   </div>
                   {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
@@ -357,10 +386,11 @@ export default function MaterialsPage() {
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
                   <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
                   {canEdit(item) ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
-                  {canEdit(item) ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
+                  {canEdit(item) && item.visibility !== "DRAFT" ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void toggleVisibility(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Gửi duyệt"}</Button> : null}
                   {canEdit(item) && item.classId ? <Button onClick={() => void toggleScope(item)} variant="ghost">{item.scope === "SHARED" ? "Đặt riêng lớp" : "Dùng chung"}</Button> : null}
                   {instructor && item.ownerId === session.user.id ? <Button onClick={() => void openEditors(item)} variant="ghost"><UserCog size={14} />Quyền sửa</Button> : null}
-                  {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "HIDE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
+                  {instructor && item.ownerId === session.user.id ? <Button onClick={() => void remove(item)} variant="ghost"><Trash2 size={14} />Xóa</Button> : null}
+                  {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "REVOKE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
               </div>
             </article>
           ))}
@@ -407,8 +437,7 @@ export default function MaterialsPage() {
           <Field label="Hành động">
             <select className={inputClass} value={reviewAction} onChange={(event) => setReviewAction(event.target.value as typeof reviewAction)}>
               <option value="APPROVE">Duyệt và phát hành</option>
-              <option value="HIDE">Ẩn học liệu</option>
-              <option value="REQUEST_CHANGES">Yêu cầu chỉnh sửa</option>
+              <option value="REVOKE">Thu hồi</option>
             </select>
           </Field>
           {reviewAction !== "APPROVE" ? <Field label="Lý do"><textarea className={inputClass} minLength={5} required rows={4} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} /></Field> : null}
@@ -416,11 +445,12 @@ export default function MaterialsPage() {
           <Button disabled={Boolean(reviewTarget?.quarantinedAt && reviewAction === "APPROVE")} type="submit">Xác nhận kiểm duyệt</Button>
         </form>
       </Modal>
-      <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title="Tải phiên bản mới" description="Tệp đang dùng không bị ghi đè; phiên bản mới bắt đầu ở trạng thái nháp sau khi quét.">
+      <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title="Tải phiên bản mới" description="Tệp đang dùng không bị ghi đè; phiên bản mới chờ quản lý duyệt sau khi quét.">
         <form className="space-y-4" onSubmit={(event) => void uploadVersion(event)}><Field label="Tệp thay thế"><label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[var(--accent)] bg-[var(--accent-soft)] p-4 text-sm font-bold text-[var(--accent-ink)]"><UploadCloud size={21} /><span className="min-w-0 flex-1 truncate">{versionFile?.name ?? "Chọn tệp phiên bản mới"}</span><input accept=".pdf,.doc,.docx,.mp4,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,video/mp4,image/png,image/jpeg" className="sr-only" onChange={(event) => setVersionFile(event.target.files?.[0] ?? null)} required type="file" /></label></Field><p className="text-xs text-[var(--ink-soft)]">Thư mục và thẻ được kế thừa từ phiên bản hiện tại. Hỗ trợ PDF, Word, MP4, PNG và JPEG; tệp vẫn phải qua quota, MIME, checksum và cách ly.</p><Button disabled={!versionFile} loading={saving} type="submit">Tạo phiên bản {versionTarget ? versionTarget.version + 1 : "mới"}</Button></form>
       </Modal>
       <Modal open={Boolean(historyTarget)} onClose={() => setHistoryTarget(null)} title="Lịch sử phiên bản" description={historyTarget?.name}>
-        <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{versions.map((version) => <article className="py-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={version.visibility} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString(activeLocale())}</p><Button className="px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
+        <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{versions.map((version) => <article className="py-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><StatusBadge status={materialStatus(version.visibility)} /></div><p className="mt-2 text-sm font-bold">{version.name}</p><div className="mt-1 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-500">{version.folder} · {(version.sizeBytes / 1024).toFixed(1)} KB · {new Date(version.createdAt).toLocaleString(activeLocale())}</p><Button className="px-3 text-xs" onClick={() => void downloadVersion(version)} variant="ghost"><Download size={13} />Tải bản này</Button></div></article>)}</div>
+        {historyTarget && (manager || canEdit(historyTarget)) ? <section className="mt-6"><h3 className="text-sm font-extrabold">Lịch sử kiểm duyệt</h3>{reviews.length ? <div className="mt-2 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{reviews.map((item) => <article className="py-3" key={item.id}><div className="flex items-center justify-between gap-2"><strong className="text-sm">{REVIEW_LABELS[item.action]}</strong><span className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleString(activeLocale())}</span></div>{item.reason ? <p className="mt-1 text-sm text-[var(--ink-soft)]">{item.reason}</p> : null}</article>)}</div> : <p className="mt-2 text-sm text-[var(--ink-muted)]">Chưa có quyết định kiểm duyệt.</p>}</section> : null}
       </Modal>
     </div>
   );
