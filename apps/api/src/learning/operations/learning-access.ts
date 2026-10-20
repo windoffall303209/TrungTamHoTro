@@ -37,6 +37,92 @@ export function canManageSupport(role: string): boolean {
   return role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER";
 }
 
+/** Học liệu chung đã phát hành và không bị cách ly: mọi học viên đọc được, không cần thuộc lớp. */
+export function isSharedForLearners(material: {
+  scope?: string;
+  visibility: string;
+  quarantinedAt?: Date | string | null;
+}): boolean {
+  return (
+    material.scope === "SHARED" &&
+    material.visibility === "PUBLISHED" &&
+    !material.quarantinedAt
+  );
+}
+
+/** Chỉ người tải lên và người được người đó cấp quyền mới sửa được học liệu. */
+export function canEditMaterial(
+  material: { ownerId: string; editors?: Array<{ userId: string }>; editorIds?: string[] },
+  actorId: string,
+): boolean {
+  return (
+    material.ownerId === actorId ||
+    Boolean(material.editors?.some((item) => item.userId === actorId)) ||
+    Boolean(material.editorIds?.includes(actorId))
+  );
+}
+
+/** Kiểm tra quyền đọc học liệu theo vai trò; nơi gọi tự kiểm tra học liệu đã phát hành với học viên. */
+export function assertMaterialReadAccess(
+  material: {
+    ownerId: string;
+    scope?: string;
+    visibility: string;
+    quarantinedAt?: Date | string | null;
+    editors?: Array<{ userId: string }>;
+    class: {
+      enrollments: Array<{ learnerId: string; status: string }>;
+      instructors: Array<{ instructorId: string }>;
+    } | null;
+  },
+  role: string,
+  actorId: string,
+): void {
+  if (role === "LEARNER") {
+    if (
+      isSharedForLearners(material) ||
+      material.class?.enrollments.some(
+        (item) => item.learnerId === actorId && item.status === "ACTIVE",
+      )
+    )
+      return;
+    throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+  }
+  if (
+    role === "INSTRUCTOR" &&
+    !canEditMaterial(material, actorId) &&
+    !material.class?.instructors.some((item) => item.instructorId === actorId)
+  )
+    throw new NotFoundException(
+      "Giảng viên không được phân công vào lớp chứa học liệu này.",
+    );
+}
+
+/** Bản in-memory của assertMaterialReadAccess cho chế độ dữ liệu mẫu. */
+export function assertMemoryMaterialReadAccess(
+  serviceContext: LearningServiceContext,
+  material: LearningMaterial,
+  role: string,
+  actorId: string,
+): void {
+  const classItem = material.classId
+    ? serviceContext.classes.find((item) => item.id === material.classId)
+    : undefined;
+  if (role === "LEARNER") {
+    if (isSharedForLearners(material) || classItem?.learnerIds.includes(actorId))
+      return;
+    throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
+  }
+  if (
+    role === "INSTRUCTOR" &&
+    !canEditMaterial(material, actorId) &&
+    !classItem?.instructorIds.includes(actorId)
+  )
+    throw new NotFoundException(
+      "Giảng viên không được phân công vào lớp chứa học liệu này.",
+    );
+}
+
 /** Áp dụng quyền lớp và visibility cho học liệu fallback in-memory. */
 export function canAccessMemoryMaterial(
   serviceContext: LearningServiceContext,
@@ -44,17 +130,13 @@ export function canAccessMemoryMaterial(
   role: string,
   actorId: string,
 ): boolean {
-  const classItem = serviceContext.classes.find(
-    (item) => item.id === material.classId,
-  );
-  if (!classItem) return false;
-  if (role === "LEARNER")
-    return (
-      material.visibility === "PUBLISHED" &&
-      classItem.learnerIds.includes(actorId)
-    );
-  if (role === "INSTRUCTOR") return classItem.instructorIds.includes(actorId);
-  return true;
+  if (role === "LEARNER" && material.visibility !== "PUBLISHED") return false;
+  try {
+    assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Kiểm tra thành viên lớp ở bản ghi Prisma trước khi truy cập học liệu. */

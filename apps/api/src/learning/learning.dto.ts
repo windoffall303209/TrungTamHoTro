@@ -175,21 +175,29 @@ export class CreateMaterialDto {
   @IsInt() @Min(1) sizeBytes!: number;
   @IsString() folder!: string;
   @IsArray() @IsString({ each: true }) tags!: string[];
+  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
 }
 
 /** Metadata đi kèm file upload học liệu; nội dung binary do interceptor cung cấp. */
 export class UploadMaterialDto {
   @IsString() folder!: string;
   @IsOptional() @IsString() tags = "";
+  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
 }
 
 export class UpdateMaterialDto {
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
   @IsOptional() @IsIn(["DRAFT", "PUBLISHED", "HIDDEN"]) visibility?:
     | "DRAFT"
     | "PUBLISHED"
     | "HIDDEN";
+}
+
+/** Danh sách giảng viên được người tải lên cấp quyền sửa học liệu. */
+export class ReplaceMaterialEditorsDto {
+  @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) userIds!: string[];
 }
 
 export class ReviewMaterialDto {

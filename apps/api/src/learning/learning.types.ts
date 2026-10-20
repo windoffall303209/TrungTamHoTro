@@ -111,9 +111,12 @@ export interface DirectoryUser {
 
 export interface LearningMaterial {
   id: string;
-  classId: string;
+  /** Rỗng khi là học liệu dùng chung theo môn, không thuộc lớp nào. */
+  classId: string | null;
   courseId?: string;
   ownerId: string;
+  /** Giảng viên được người tải lên cấp quyền sửa; chỉ có khi truy vấn kèm danh sách này. */
+  editorIds?: string[];
   name: string;
   mimeType: string;
   sizeBytes: number;
@@ -121,10 +124,13 @@ export interface LearningMaterial {
   tags: string[];
   version: number;
   visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
+  scope: MaterialScope;
   quarantinedAt?: string;
   quarantineReason?: string;
   createdAt: string;
 }
+/** SHARED: mọi học viên tra cứu được khi đã phát hành; CLASS: chỉ học viên của lớp. */
+export type MaterialScope = "SHARED" | "CLASS";
 export interface FileReviewRecord {
   id: string;
   materialId: string;

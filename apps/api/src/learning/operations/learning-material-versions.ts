@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
@@ -22,6 +23,10 @@ import type {
   MaterialVersionSnapshot,
 } from "../learning.types.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { assertMaterialReadAccess, assertMemoryMaterialReadAccess, canEditMaterial } from "./learning-access.js";
+
+// Mỗi học liệu chỉ giữ 3 tệp tải lên gần nhất, tính cả tệp hiện tại.
+const MAX_MATERIAL_FILE_VERSIONS = 3;
 
 /** Liệt kê lịch sử phiên bản sau khi kiểm tra quyền truy cập học liệu cha. */
 export async function listMaterialVersions(
@@ -36,10 +41,11 @@ export async function listMaterialVersions(
       where: { id: materialId },
       include: {
         class: { include: { enrollments: true, instructors: true } },
+        editors: { select: { userId: true } },
       },
     });
     if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
-    serviceContext.assertMaterialClassAccess(material.class, role, actorId);
+    assertMaterialReadAccess(material, role, actorId);
     const rows = await prisma.materialVersion.findMany({
       where: {
         materialId,
@@ -53,11 +59,7 @@ export async function listMaterialVersions(
     (item) => item.id === materialId,
   );
   if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
-  serviceContext.assertMemoryMaterialClassAccess(
-    material.classId,
-    role,
-    actorId,
-  );
+  assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
   return serviceContext.materialVersions
     .filter(
       (item) =>
@@ -97,6 +99,7 @@ export async function createMaterialVersionAccess(
         material: {
           include: {
             class: { include: { enrollments: true, instructors: true } },
+            editors: { select: { userId: true } },
           },
         },
       },
@@ -109,7 +112,7 @@ export async function createMaterialVersionAccess(
           row.material.visibility === "HIDDEN"))
     )
       throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
-    serviceContext.assertMaterialClassAccess(row.material.class, role, actorId);
+    assertMaterialReadAccess(row.material, role, actorId);
     if (!serviceContext.isMaterialObjectKey(row.objectKey))
       throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
   } else {
@@ -127,11 +130,7 @@ export async function createMaterialVersionAccess(
         (row.visibility !== "PUBLISHED" || material.visibility === "HIDDEN"))
     )
       throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
-    serviceContext.assertMemoryMaterialClassAccess(
-      material.classId,
-      role,
-      actorId,
-    );
+    assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
     if (!row.objectKey || !serviceContext.isMaterialObjectKey(row.objectKey))
       throw new NotFoundException("Phiên bản này chưa có tệp bytes để tải.");
   }
@@ -218,6 +217,7 @@ export async function resolveMaterialVersionDownload(
         material: {
           include: {
             class: { include: { enrollments: true, instructors: true } },
+            editors: { select: { userId: true } },
           },
         },
       },
@@ -230,7 +230,7 @@ export async function resolveMaterialVersionDownload(
           row.material.visibility === "HIDDEN"))
     )
       throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
-    serviceContext.assertMaterialClassAccess(row.material.class, role, actorId);
+    assertMaterialReadAccess(row.material, role, actorId);
     ({ name: fileName, mimeType, objectKey } = row);
     checksum = row.checksum ?? undefined;
   } else {
@@ -248,11 +248,7 @@ export async function resolveMaterialVersionDownload(
         (row.visibility !== "PUBLISHED" || material.visibility === "HIDDEN"))
     )
       throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
-    serviceContext.assertMemoryMaterialClassAccess(
-      material.classId,
-      role,
-      actorId,
-    );
+    assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
     fileName = row.name;
     mimeType = row.mimeType;
     objectKey = row.objectKey;
@@ -317,26 +313,25 @@ export async function replaceMaterialVersion(
       throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
     const current = await prisma.material.findUnique({
       where: { id: materialId },
-      include: { class: { include: { instructors: true } } },
+      include: { class: true, editors: { select: { userId: true } } },
     });
-    if (
-      !current ||
-      !current.class.instructors.some((item) => item.instructorId === actorId)
-    )
-      throw new NotFoundException(
-        "Không tìm thấy học liệu được phép cập nhật.",
+    if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (!canEditMaterial(current, actorId))
+      throw new ForbiddenException(
+        "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
       );
-    if (current.class.status === "CLOSED")
+    if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     const nextVersion = current.version + 1;
     const stored = await serviceContext.storeUpload(
-      current.classId,
+      current.classId ?? `course-${current.courseId}`,
       `${materialId}-v${nextVersion}-${randomUUID()}`,
       upload,
       Boolean(quarantineReason),
     );
+    let result: { material: LearningMaterial; prunedKeys: string[] };
     try {
-      return await prisma.$transaction(async (transaction) => {
+      result = await prisma.$transaction(async (transaction) => {
         const updated = await transaction.material.update({
           where: { id: materialId },
           data: {
@@ -369,22 +364,42 @@ export async function replaceMaterialVersion(
             createdBy: actorId,
           },
         });
-        return serviceContext.mapMaterial(updated);
+        // Đổi thư mục, thẻ hay xuất bản tạo phiên bản dùng lại tệp cũ, nên đếm theo tệp chứ không theo số dòng.
+        const history = await transaction.materialVersion.findMany({
+          where: { materialId },
+          select: { objectKey: true },
+          orderBy: { version: "desc" },
+        });
+        const prunedKeys = [
+          ...new Set(history.map((item) => item.objectKey)),
+        ].slice(MAX_MATERIAL_FILE_VERSIONS);
+        if (prunedKeys.length)
+          await transaction.materialVersion.deleteMany({
+            where: { materialId, objectKey: { in: prunedKeys } },
+          });
+        return { material: serviceContext.mapMaterial(updated), prunedKeys };
       });
     } catch (error) {
       await serviceContext.removeStoredFile(stored.objectKey);
       throw error;
     }
+    // Xóa tệp của phiên bản cũ sau khi giao dịch thành công; lỗi kho không làm hỏng lần tải lên.
+    await Promise.all(
+      result.prunedKeys
+        .filter((key) => serviceContext.isMaterialObjectKey(key))
+        .map((key) => serviceContext.removeStoredFile(key).catch(() => undefined)),
+    );
+    return result.material;
   }
   const current = serviceContext.materials.find(
     (item) => item.id === materialId,
   );
-  if (
-    !current ||
-    !serviceContext.findClass(current.classId).instructorIds.includes(actorId)
-  )
-    throw new NotFoundException("Không tìm thấy học liệu được phép cập nhật.");
-  if (serviceContext.findClass(current.classId).status === "CLOSED")
+  if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+  if (!canEditMaterial(current, actorId))
+    throw new ForbiddenException(
+      "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
+    );
+  if (current.classId && serviceContext.findClass(current.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   const distinctStoredBytes = [
     ...new Map(
@@ -397,7 +412,7 @@ export async function replaceMaterialVersion(
     throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
   const nextVersion = current.version + 1;
   const stored = await serviceContext.storeUpload(
-    current.classId,
+    current.classId ?? `course-${current.courseId}`,
     `${materialId}-v${nextVersion}-${randomUUID()}`,
     upload,
     Boolean(quarantineReason),
@@ -423,5 +438,20 @@ export async function replaceMaterialVersion(
     checksum: stored.checksum,
     tags: [...current.tags],
   });
+  const keptKeys = new Set(
+    [
+      ...new Set(
+        serviceContext.materialVersions
+          .filter((item) => item.materialId === materialId)
+          .sort((a, b) => b.version - a.version)
+          .map((item) => item.objectKey),
+      ),
+    ].slice(0, MAX_MATERIAL_FILE_VERSIONS),
+  );
+  for (let index = serviceContext.materialVersions.length - 1; index >= 0; index -= 1) {
+    const item = serviceContext.materialVersions[index]!;
+    if (item.materialId === materialId && !keptKeys.has(item.objectKey))
+      serviceContext.materialVersions.splice(index, 1);
+  }
   return { ...current, tags: [...current.tags] };
 }

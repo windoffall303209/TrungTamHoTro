@@ -167,7 +167,8 @@ export class AiMaterialContextService {
 
   /** Xác nhận quyền hiện tại và trạng thái cách ly trước khi đọc cache hoặc metadata bản nháp. */
   private async requireMaterial(materialId: string, actorId: string, role: string): Promise<LearningMaterial> {
-    const material = (await this.learning.listMaterials(role, undefined, actorId)).find((item) => item.id === materialId);
+    // Lọc theo mã thay vì duyệt trang đầu: học viên thấy cả học liệu chung nên danh sách có thể vượt một trang.
+    const material = (await this.learning.listMaterials(role, undefined, actorId, 1, materialId)).find((item) => item.id === materialId);
     if (!material || material.quarantinedAt) throw new NotFoundException("Không tìm thấy tài liệu được phép sử dụng cho AI.");
     return material;
   }

@@ -103,6 +103,7 @@ export function mapMaterial(
     tags: serviceContext.toStringArray(row.tags),
     version: row.version,
     visibility: row.visibility,
+    scope: row.scope,
     quarantinedAt: row.quarantinedAt?.toISOString(),
     quarantineReason: row.quarantineReason ?? undefined,
     createdAt: row.createdAt.toISOString(),

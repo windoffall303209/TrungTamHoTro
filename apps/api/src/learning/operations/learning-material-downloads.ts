@@ -9,6 +9,7 @@ import {
   now,
 } from "../learning.shared.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { assertMaterialReadAccess, assertMemoryMaterialReadAccess } from "./learning-access.js";
 
 /** Phát URL truy cập học liệu ký HMAC có thời hạn sau khi kiểm tra quyền. */
 export async function createMaterialAccess(
@@ -22,7 +23,10 @@ export async function createMaterialAccess(
   if (prisma) {
     const material = await prisma.material.findUnique({
       where: { id: materialId },
-      include: { class: { include: { enrollments: true } } },
+      include: {
+        class: { include: { enrollments: true, instructors: true } },
+        editors: { select: { userId: true } },
+      },
     });
     if (!material) throw new NotFoundException("Không tìm thấy học liệu.");
     if (material.quarantinedAt)
@@ -31,30 +35,7 @@ export async function createMaterialAccess(
       );
     if (role === "LEARNER" && material.visibility !== "PUBLISHED")
       throw new NotFoundException("Không tìm thấy học liệu đã phát hành.");
-    if (
-      role === "LEARNER" &&
-      !material.class.enrollments.some(
-        (item) => item.learnerId === actorId && item.status === "ACTIVE",
-      )
-    ) {
-      throw new NotFoundException(
-        "Học viên không thuộc lớp chứa học liệu này.",
-      );
-    }
-    if (role === "INSTRUCTOR") {
-      const assigned = await prisma.classInstructor.findUnique({
-        where: {
-          classId_instructorId: {
-            classId: material.classId,
-            instructorId: actorId,
-          },
-        },
-      });
-      if (!assigned)
-        throw new NotFoundException(
-          "Giảng viên không được phân công vào lớp chứa học liệu này.",
-        );
-    }
+    assertMaterialReadAccess(material, role, actorId);
     if (!serviceContext.isMaterialObjectKey(material.objectKey))
       throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
   } else {
@@ -70,15 +51,7 @@ export async function createMaterialAccess(
       (role === "LEARNER" && material.visibility !== "PUBLISHED")
     )
       throw new NotFoundException("Không tìm thấy học liệu.");
-    const classItem = serviceContext.findClass(material.classId);
-    if (role === "LEARNER" && !classItem.learnerIds.includes(actorId))
-      throw new NotFoundException(
-        "Học viên không thuộc lớp chứa học liệu này.",
-      );
-    if (role === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId))
-      throw new NotFoundException(
-        "Giảng viên không được phân công vào lớp chứa học liệu này.",
-      );
+    assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
     if (!serviceContext.materialFiles.has(materialId))
       throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
   }
@@ -158,6 +131,7 @@ export async function resolveMaterialDownload(
       where: { id: materialId },
       include: {
         class: { include: { enrollments: true, instructors: true } },
+        editors: { select: { userId: true } },
       },
     });
     if (
@@ -169,24 +143,7 @@ export async function resolveMaterialDownload(
       throw new BadRequestException(
         "Tệp đang bị cách ly và không thể truy cập.",
       );
-    if (
-      role === "LEARNER" &&
-      !material.class.enrollments.some(
-        (item) => item.learnerId === actorId && item.status === "ACTIVE",
-      )
-    ) {
-      throw new NotFoundException(
-        "Học viên không thuộc lớp chứa học liệu này.",
-      );
-    }
-    if (
-      role === "INSTRUCTOR" &&
-      !material.class.instructors.some((item) => item.instructorId === actorId)
-    ) {
-      throw new NotFoundException(
-        "Giảng viên không được phân công vào lớp chứa học liệu này.",
-      );
-    }
+    assertMaterialReadAccess(material, role, actorId);
     fileName = material.name;
     mimeType = material.mimeType;
     objectKey = material.objectKey;
@@ -206,15 +163,7 @@ export async function resolveMaterialDownload(
       throw new BadRequestException(
         "Tệp đang bị cách ly và không thể truy cập.",
       );
-    const classItem = serviceContext.findClass(material.classId);
-    if (role === "LEARNER" && !classItem.learnerIds.includes(actorId))
-      throw new NotFoundException(
-        "Học viên không thuộc lớp chứa học liệu này.",
-      );
-    if (role === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId))
-      throw new NotFoundException(
-        "Giảng viên không được phân công vào lớp chứa học liệu này.",
-      );
+    assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
     fileName = material.name;
     mimeType = material.mimeType;
     objectKey = stored.objectKey;

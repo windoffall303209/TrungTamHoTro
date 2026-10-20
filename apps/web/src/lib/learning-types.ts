@@ -229,8 +229,11 @@ export interface GradingQueueGroup {
 
 export interface Material {
   id: string;
-  classId: string;
+  /** Rỗng khi là học liệu dùng chung theo môn, không thuộc lớp nào. */
+  classId: string | null;
   courseId?: string;
+  ownerId: string;
+  editorIds?: string[];
   name: string;
   mimeType: string;
   sizeBytes: number;
@@ -238,6 +241,7 @@ export interface Material {
   tags: string[];
   version: number;
   visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
+  scope: "SHARED" | "CLASS";
   quarantinedAt?: string;
   quarantineReason?: string;
   createdAt: string;

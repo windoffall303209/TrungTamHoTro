@@ -112,6 +112,7 @@ import * as material_downloads_ops from "./operations/learning-material-download
 import * as material_reviews_ops from "./operations/learning-material-reviews.js";
 import * as material_versions_ops from "./operations/learning-material-versions.js";
 import * as materials_ops from "./operations/learning-materials.js";
+import * as material_editors_ops from "./operations/learning-material-editors.js";
 import * as moderation_ops from "./operations/learning-moderation.js";
 import * as progress_ops from "./operations/learning-progress.js";
 import * as providers_ops from "./operations/learning-providers.js";
@@ -207,6 +208,7 @@ export class LearningService {
       tags: ["kiến trúc", "bắt đầu"],
       version: 1,
       visibility: "PUBLISHED",
+      scope: "CLASS",
       createdAt: now(),
     },
     {
@@ -220,6 +222,7 @@ export class LearningService {
       tags: ["api", "backend"],
       version: 2,
       visibility: "PUBLISHED",
+      scope: "CLASS",
       createdAt: now(),
     },
   ];
@@ -1065,6 +1068,7 @@ export class LearningService {
     query?: string,
     actorId = this.userIdForRole(role),
     page = 1,
+    materialId?: string,
   ): Promise<LearningMaterial[]> {
     return await materials_ops.listMaterials(
       this.operationContext,
@@ -1072,6 +1076,43 @@ export class LearningService {
       query,
       actorId,
       page,
+      materialId,
+    );
+  }
+
+  /** Liệt kê giảng viên được người tải lên cấp quyền sửa học liệu. */
+  async listMaterialEditors(
+    materialId: string,
+    actorId: string,
+  ): ReturnType<typeof material_editors_ops.listMaterialEditors> {
+    return await material_editors_ops.listMaterialEditors(
+      this.operationContext,
+      materialId,
+      actorId,
+    );
+  }
+
+  /** Người tải lên cấp hoặc thu hồi quyền sửa học liệu cho giảng viên khác. */
+  async replaceMaterialEditors(
+    materialId: string,
+    userIds: string[],
+    actorId: string,
+  ): ReturnType<typeof material_editors_ops.replaceMaterialEditors> {
+    return await material_editors_ops.replaceMaterialEditors(
+      this.operationContext,
+      materialId,
+      userIds,
+      actorId,
+    );
+  }
+
+  /** Giảng viên đang hoạt động có thể được cấp quyền sửa học liệu. */
+  async listMaterialEditorCandidates(
+    actorId: string,
+  ): ReturnType<typeof material_editors_ops.listMaterialEditorCandidates> {
+    return await material_editors_ops.listMaterialEditorCandidates(
+      this.operationContext,
+      actorId,
     );
   }
 
@@ -1079,8 +1120,10 @@ export class LearningService {
   async searchAccessibleMaterials(
     input: {
       query?: string;
+      materialId?: string;
       classId?: string;
       courseId?: string;
+      scope?: string;
       visibility?: string;
       aiOnly?: boolean;
       folder?: string;
@@ -1102,11 +1145,11 @@ export class LearningService {
 
   /** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên. */
   async createMaterial(
-    classId: string,
+    classId: string | null,
     input: Pick<
       LearningMaterial,
       "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
-    >,
+    > & { scope?: LearningMaterial["scope"]; courseId?: string },
     upload?: UploadedMaterialFile,
     actorId = "usr-instructor",
   ): Promise<LearningMaterial> {
@@ -1190,7 +1233,7 @@ export class LearningService {
   /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
   async updateMaterial(
     materialId: string,
-    input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>,
+    input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility" | "scope">>,
     actorId = "usr-instructor",
   ): Promise<LearningMaterial> {
     return await materials_ops.updateMaterial(

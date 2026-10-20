@@ -1,4 +1,11 @@
 {
+  "Cần chọn môn học cho học liệu dùng chung.": "Choose a course for the shared material.",
+  "Cần kết nối PostgreSQL để phân quyền sửa học liệu.": "Managing material edit permissions requires a PostgreSQL connection.",
+  "Chỉ cấp quyền sửa cho giảng viên đang hoạt động.": "Edit permission can only be granted to active instructors.",
+  "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.": "Only the uploader or people they granted access can edit this material.",
+  "Chỉ người tải lên mới cấp hoặc thu hồi quyền sửa học liệu.": "Only the uploader can grant or revoke edit permission for this material.",
+  "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.": "This course-wide shared material does not belong to a class, so it cannot be made class-only.",
+  "Khóa học đã ngừng sử dụng nên không nhận học liệu mới.": "This course has been archived and no longer accepts new materials.",
   "Bạn đã nhập sai mã OTP quá nhiều lần. Hãy nhận mã OTP mới.": "Too many incorrect OTP attempts. Request a new code.",
   "Bạn đã yêu cầu mã OTP quá nhiều lần. Hãy thử lại sau một giờ.": "You have requested too many OTP codes. Try again in one hour.",
   "Không gửi được mã OTP tới email này. Hãy kiểm tra lại email hoặc thử lại sau.": "The OTP code could not be sent to this email. Check the address or try again later.",

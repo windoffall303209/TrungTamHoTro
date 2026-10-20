@@ -37,7 +37,7 @@ export async function reviewClassMaterial(
         include: { class: true },
       });
       if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
-      if (current.class.status === "CLOSED")
+      if (current.class?.status === "CLOSED")
         throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
       if (current.quarantinedAt && action === "APPROVE")
         throw new BadRequestException("Không thể duyệt tệp đang bị cách ly.");
@@ -96,7 +96,7 @@ export async function reviewClassMaterial(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
-  if (serviceContext.findClass(item.classId).status === "CLOSED")
+  if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   if (item.quarantinedAt && action === "APPROVE")
     throw new BadRequestException("Không thể duyệt tệp đang bị cách ly.");

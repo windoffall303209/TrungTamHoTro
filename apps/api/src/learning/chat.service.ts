@@ -1163,7 +1163,9 @@ export class ChatService {
           type,
           id: contextId,
           title: row.name,
-          href: `/materials?classId=${encodeURIComponent(row.classId)}&materialId=${encodeURIComponent(contextId)}`,
+          href: row.classId
+            ? `/materials?classId=${encodeURIComponent(row.classId)}&materialId=${encodeURIComponent(contextId)}`
+            : `/materials?materialId=${encodeURIComponent(contextId)}`,
         }
       : undefined;
   }

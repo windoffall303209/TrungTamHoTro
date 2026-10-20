@@ -238,12 +238,21 @@ export async function getStorageOverview(
     _count: { id: true },
   });
   const classes = await prisma.learningClass.findMany({
-    where: { id: { in: groups.map((item) => item.classId) } },
+    where: { id: { in: groups.flatMap((item) => (item.classId ? [item.classId] : [])) } },
     select: { id: true, code: true, name: true },
   });
   const classMap = new Map(classes.map((item) => [item.id, item]));
   const byClass = groups
     .map((group) => {
+      // Học liệu dùng chung theo môn không thuộc lớp nào nên được gộp thành một dòng riêng.
+      if (!group.classId)
+        return {
+          classId: "",
+          classCode: "—",
+          className: "Học liệu dùng chung theo môn",
+          fileCount: group._count.id,
+          usedBytes: Number(group._sum.sizeBytes ?? 0n),
+        };
       const classItem = classMap.get(group.classId);
       return {
         classId: group.classId,
