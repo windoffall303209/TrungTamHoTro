@@ -216,8 +216,10 @@ export interface LearningServiceContext {
   searchAccessibleMaterials(
     input: {
       query?: string;
+      materialId?: string;
       classId?: string;
       courseId?: string;
+      scope?: string;
       visibility?: string;
       aiOnly?: boolean;
       folder?: string;

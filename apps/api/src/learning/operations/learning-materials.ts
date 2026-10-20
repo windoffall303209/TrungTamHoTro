@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "../../generated/prisma/client.js";
@@ -13,6 +14,7 @@ import {
 } from "../learning.shared.js";
 import type { LearningMaterial } from "../learning.types.js";
 import type { LearningServiceContext } from "../learning.context.js";
+import { canEditMaterial } from "./learning-access.js";
 
 /** Trả một trang có giới hạn cho client dùng mảng cũ; API tìm kiếm cung cấp thêm tổng số kết quả. */
 export async function listMaterials(
@@ -21,10 +23,11 @@ export async function listMaterials(
   query?: string,
   actorId = serviceContext.userIdForRole(role),
   page = 1,
+  materialId?: string,
 ): Promise<LearningMaterial[]> {
   return (
     await serviceContext.searchAccessibleMaterials(
-      { query, page, pageSize: 50 },
+      { query, materialId, page, pageSize: 50 },
       actorId,
       role,
     )
@@ -36,8 +39,10 @@ export async function searchAccessibleMaterials(
   serviceContext: LearningServiceContext,
   input: {
     query?: string;
+    materialId?: string;
     classId?: string;
     courseId?: string;
+    scope?: string;
     visibility?: string;
     aiOnly?: boolean;
     folder?: string;
@@ -65,6 +70,7 @@ export async function searchAccessibleMaterials(
       query,
       input.tag,
       input.folder,
+      input.materialId,
       input.classId,
       input.courseId,
       input.mimeType,
@@ -76,20 +82,26 @@ export async function searchAccessibleMaterials(
   const prisma = serviceContext.database();
   if (prisma) {
     const conditions: Prisma.Sql[] = [];
+    // Học viên xem học liệu chung của mọi lớp và học liệu riêng của lớp mình đang học.
     if (role === "LEARNER")
       conditions.push(
-        Prisma.sql`m.visibility = 'PUBLISHED' AND m.quarantined_at IS NULL AND EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = m.class_id AND e.learner_id = ${learnerId} AND e.status = 'ACTIVE')`,
+        Prisma.sql`m.visibility = 'PUBLISHED' AND m.quarantined_at IS NULL AND (m.scope = 'SHARED' OR EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = m.class_id AND e.learner_id = ${learnerId} AND e.status = 'ACTIVE'))`,
       );
+    // Giảng viên xem học liệu của lớp mình dạy, học liệu mình tải lên và học liệu được cấp quyền sửa.
     else if (role === "INSTRUCTOR")
       conditions.push(
-        Prisma.sql`EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = m.class_id AND i.instructor_id = ${learnerId})`,
+        Prisma.sql`(EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = m.class_id AND i.instructor_id = ${learnerId}) OR m.owner_id = ${learnerId} OR EXISTS (SELECT 1 FROM material_editors me WHERE me.material_id = m.id AND me.user_id = ${learnerId}))`,
       );
     else if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(role))
       conditions.push(Prisma.sql`FALSE`);
+    if (input.materialId)
+      conditions.push(Prisma.sql`m.id = ${input.materialId}`);
     if (input.classId)
       conditions.push(Prisma.sql`m.class_id = ${input.classId}`);
     if (input.courseId)
       conditions.push(Prisma.sql`m.course_id = ${input.courseId}`);
+    if (input.scope)
+      conditions.push(Prisma.sql`m.scope::text = ${input.scope}`);
     if (input.mimeType)
       conditions.push(Prisma.sql`m.mime_type = ${input.mimeType}`);
     if (input.visibility)
@@ -125,13 +137,17 @@ export async function searchAccessibleMaterials(
         );
         const rows = await transaction.material.findMany({
           where: { id: { in: ids.map((item) => item.id) } },
+          include: { editors: { select: { userId: true } } },
           orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         });
         return { rows, total: Number(counts[0]?.count ?? 0n) };
       },
       { isolationLevel: "RepeatableRead" },
     );
-    const items = rows.map((row) => serviceContext.mapMaterial(row));
+    const items = rows.map((row) => ({
+      ...serviceContext.mapMaterial(row),
+      editorIds: row.editors.map((item) => item.userId),
+    }));
     return {
       items,
       total,
@@ -146,8 +162,10 @@ export async function searchAccessibleMaterials(
     .filter((item) =>
       serviceContext.canAccessMemoryMaterial(item, role, learnerId),
     )
+    .filter((item) => !input.materialId || item.id === input.materialId)
     .filter((item) => !input.classId || item.classId === input.classId)
     .filter((item) => !input.courseId || item.courseId === input.courseId)
+    .filter((item) => !input.scope || item.scope === input.scope)
     .filter((item) => !input.visibility || item.visibility === input.visibility)
     .filter(
       (item) =>
@@ -188,14 +206,14 @@ export async function searchAccessibleMaterials(
   };
 }
 
-/** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên. */
+/** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên; classId rỗng là học liệu dùng chung theo môn. */
 export async function createMaterial(
   serviceContext: LearningServiceContext,
-  classId: string,
+  classId: string | null,
   input: Pick<
     LearningMaterial,
     "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
-  >,
+  > & { scope?: LearningMaterial["scope"]; courseId?: string },
   upload?: UploadedMaterialFile,
   actorId = "usr-instructor",
 ): Promise<LearningMaterial> {
@@ -218,18 +236,37 @@ export async function createMaterial(
   const quarantineReason = upload
     ? await serviceContext.scanUpload(upload)
     : undefined;
+  // Học liệu theo môn luôn dùng chung; học liệu trong lớp do giảng viên của lớp chọn phạm vi.
+  const scope = classId ? input.scope ?? "SHARED" : "SHARED";
+  if (!classId && !input.courseId)
+    throw new BadRequestException("Cần chọn môn học cho học liệu dùng chung.");
   if (prisma) {
-    const classItem = await prisma.learningClass.findUnique({
-      where: { id: classId },
-      include: { instructors: true },
-    });
-    if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
-    if (!classItem.instructors.some((item) => item.instructorId === actorId))
-      throw new NotFoundException(
-        "Giảng viên không được phân công vào lớp học này.",
-      );
-    if (classItem.status === "CLOSED")
-      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    let courseId: string;
+    if (classId) {
+      const classItem = await prisma.learningClass.findUnique({
+        where: { id: classId },
+        include: { instructors: true },
+      });
+      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+      if (!classItem.instructors.some((item) => item.instructorId === actorId))
+        throw new NotFoundException(
+          "Giảng viên không được phân công vào lớp học này.",
+        );
+      if (classItem.status === "CLOSED")
+        throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+      courseId = classItem.courseId;
+    } else {
+      const course = await prisma.course.findUnique({
+        where: { id: input.courseId },
+        select: { id: true, status: true },
+      });
+      if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
+      if (course.status === "ARCHIVED")
+        throw new ConflictException(
+          "Khóa học đã ngừng sử dụng nên không nhận học liệu mới.",
+        );
+      courseId = course.id;
+    }
     const usage = await prisma.material.aggregate({
       _sum: { sizeBytes: true },
     });
@@ -239,15 +276,16 @@ export async function createMaterial(
     )
       throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
     const materialId = id("material");
+    const storageFolder = classId ?? `course-${courseId}`;
     const stored = upload
       ? await serviceContext.storeUpload(
-          classId,
+          storageFolder,
           materialId,
           upload,
           Boolean(quarantineReason),
         )
       : {
-          objectKey: `metadata/${classId}/${materialId}`,
+          objectKey: `metadata/${storageFolder}/${materialId}`,
           checksum: undefined,
         };
     try {
@@ -256,7 +294,7 @@ export async function createMaterial(
           data: {
             id: materialId,
             classId,
-            courseId: classItem.courseId,
+            courseId,
             ownerId: actorId,
             name: input.name.trim(),
             objectKey: stored.objectKey,
@@ -266,6 +304,7 @@ export async function createMaterial(
             folder: input.folder.trim(),
             tags: input.tags,
             visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+            scope,
             quarantinedAt: quarantineReason ? new Date() : null,
             quarantineReason,
           },
@@ -306,28 +345,29 @@ export async function createMaterial(
       throw error;
     }
   }
-  const classItem = serviceContext.findClass(classId);
-  if (!classItem.instructorIds.includes(actorId))
+  const classItem = classId ? serviceContext.findClass(classId) : undefined;
+  if (classItem && !classItem.instructorIds.includes(actorId))
     throw new NotFoundException(
       "Giảng viên không được phân công vào lớp học này.",
     );
-  if (classItem.status === "CLOSED")
+  if (classItem?.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   const item: LearningMaterial = {
     ...input,
     id: id("material"),
     classId,
-    courseId: classItem.courseId,
+    courseId: classItem?.courseId ?? input.courseId,
     ownerId: actorId,
     version: 1,
     visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+    scope,
     quarantinedAt: quarantineReason ? now() : undefined,
     quarantineReason,
     createdAt: now(),
   };
   if (upload) {
     const stored = await serviceContext.storeUpload(
-      classId,
+      classId ?? `course-${item.courseId}`,
       item.id,
       upload,
       Boolean(quarantineReason),
@@ -364,24 +404,26 @@ export async function createMaterial(
 export async function updateMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
-  input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility">>,
+  input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility" | "scope">>,
   actorId = "usr-instructor",
 ): Promise<LearningMaterial> {
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.material.findUnique({
       where: { id: materialId },
-      include: { class: { include: { instructors: true } } },
+      include: { class: true, editors: { select: { userId: true } } },
     });
-    if (
-      !current ||
-      !current.class.instructors.some((item) => item.instructorId === actorId)
-    )
-      throw new NotFoundException(
-        "Không tìm thấy học liệu được phép cập nhật.",
+    if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (!canEditMaterial(current, actorId))
+      throw new ForbiddenException(
+        "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
       );
-    if (current.class.status === "CLOSED")
+    if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (input.scope === "CLASS" && !current.classId)
+      throw new BadRequestException(
+        "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
+      );
     if (current.quarantinedAt && input.visibility === "PUBLISHED")
       throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
     return prisma.$transaction(async (transaction) => {
@@ -391,6 +433,7 @@ export async function updateMaterial(
           folder: input.folder?.trim(),
           tags: input.tags,
           visibility: input.visibility,
+          scope: input.scope,
           version: { increment: 1 },
         },
       });
@@ -416,13 +459,17 @@ export async function updateMaterial(
   const item = serviceContext.materials.find(
     (material) => material.id === materialId,
   );
-  if (
-    !item ||
-    !serviceContext.findClass(item.classId).instructorIds.includes(actorId)
-  )
-    throw new NotFoundException("Không tìm thấy học liệu được phép cập nhật.");
-  if (serviceContext.findClass(item.classId).status === "CLOSED")
+  if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  if (!canEditMaterial(item, actorId))
+    throw new ForbiddenException(
+      "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
+    );
+  if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (input.scope === "CLASS" && !item.classId)
+    throw new BadRequestException(
+      "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
+    );
   if (item.quarantinedAt && input.visibility === "PUBLISHED")
     throw new BadRequestException("Không thể phát hành tệp đang bị cách ly.");
   Object.assign(item, input);

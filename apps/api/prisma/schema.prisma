@@ -39,6 +39,11 @@ enum InstructorAssignmentRole {
   CO_INSTRUCTOR
 }
 
+enum MaterialScope {
+  SHARED
+  CLASS
+}
+
 enum MaterialVisibility {
   DRAFT
   PUBLISHED
@@ -202,6 +207,7 @@ model User {
   instructedClasses        ClassInstructor[]
   enrollments              ClassEnrollment[]
   materials                Material[]          @relation("MaterialOwner")
+  materialEditorships      MaterialEditor[]    @relation("MaterialEditorUser")
   materialAccessLogs       MaterialAccessLog[]
   regradeRequests          RegradeRequest[]
   questions                Question[]          @relation("QuestionAuthor")
@@ -625,7 +631,7 @@ model ClassEnrollmentHistory {
 
 model Material {
   id               String                @id @default(cuid())
-  classId          String                @map("class_id")
+  classId          String?               @map("class_id")
   courseId         String                @map("course_id")
   ownerId          String                @map("owner_id")
   name             String                @db.VarChar(255)
@@ -639,9 +645,11 @@ model Material {
   tags             Json
   version          Int                   @default(1)
   visibility       MaterialVisibility    @default(DRAFT)
-  class            LearningClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  scope            MaterialScope         @default(SHARED)
+  class            LearningClass?        @relation(fields: [classId], references: [id], onDelete: Cascade)
   course           Course                @relation(fields: [courseId], references: [id], onDelete: Restrict)
   owner            User                  @relation("MaterialOwner", fields: [ownerId], references: [id])
+  editors          MaterialEditor[]
   accessLogs       MaterialAccessLog[]
   forumAttachments ForumPostAttachment[]
   reviews          FileReview[]
@@ -656,6 +664,19 @@ model Material {
   @@index([classId, createdAt(sort: Desc), id])
   @@index([courseId, createdAt(sort: Desc), id])
   @@map("materials")
+}
+
+model MaterialEditor {
+  materialId String   @map("material_id")
+  userId     String   @map("user_id")
+  grantedBy  String   @map("granted_by") @db.VarChar(191)
+  createdAt  DateTime @default(now()) @map("created_at")
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User     @relation("MaterialEditorUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([materialId, userId])
+  @@index([userId])
+  @@map("material_editors")
 }
 
 model MaterialVersion {

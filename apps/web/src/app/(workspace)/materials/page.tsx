@@ -2,7 +2,7 @@
 
 import { activeLocale } from "@/i18n/runtime";
 
-import { BookOpen, Download, Eye, FileText, FolderOpen, History, Layers3, Plus, Search, UploadCloud } from "lucide-react";
+import { BookOpen, Download, Eye, FileText, FolderOpen, History, Layers3, Library, Plus, Search, UploadCloud, UserCog } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
@@ -17,6 +17,9 @@ import type { Course, LearningClass, Material, MaterialVersionSnapshot } from "@
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+// Mục thư viện chung ở thanh bên: học liệu dùng chung của mọi môn, không lọc theo môn hay lớp.
+const SHARED_LIBRARY = "__shared__";
+
 /** Điều phối tạo, phiên bản hóa, duyệt, xem trước và tải xuống học liệu. */
 export default function MaterialsPage() {
   const { session, notify } = useApp();
@@ -24,6 +27,7 @@ export default function MaterialsPage() {
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "class:manage");
   const instructor = session.roleCode === "INSTRUCTOR" && hasPermission(session, "material:manage");
+  const learner = session.roleCode === "LEARNER";
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Material[]>([]);
   const [page, setPage] = useState(1);
@@ -51,17 +55,26 @@ export default function MaterialsPage() {
   const [studyTarget, setStudyTarget] = useState<Material | null>(null);
   const [reviewAction, setReviewAction] = useState<"APPROVE" | "HIDE" | "REQUEST_CHANGES">("APPROVE");
   const [reviewReason, setReviewReason] = useState("");
-  const [form, setForm] = useState({ classId: "", folder: "Tài liệu chung", tags: "" });
+  const [editorsTarget, setEditorsTarget] = useState<Material | null>(null);
+  const [editorCandidates, setEditorCandidates] = useState<Array<{ id: string; displayName: string; username: string }>>([]);
+  const [editorIds, setEditorIds] = useState<string[]>([]);
+  const [editorFilter, setEditorFilter] = useState("");
+  const [form, setForm] = useState<{ classId: string; folder: string; tags: string; scope: Material["scope"] }>({ classId: "", folder: "Tài liệu chung", tags: "", scope: "SHARED" });
+  const sharedLibrary = selectedCourseId === SHARED_LIBRARY;
 
   /** Tổng hợp môn học từ danh mục chính, có fallback từ lớp khi vai trò không được đọc toàn bộ catalog. */
   const courseOptions = useMemo(() => {
     const byId = new Map(courses.map((course) => [course.id, course]));
-    return [...new Set(classes.map((item) => item.courseId))].map((courseId) => {
+    // Giảng viên được tải học liệu dùng chung cho mọi môn, kể cả môn mình không dạy lớp nào.
+    const courseIds = instructor
+      ? [...courses.filter((course) => course.status !== "ARCHIVED").map((course) => course.id), ...classes.map((item) => item.courseId)]
+      : classes.map((item) => item.courseId);
+    return [...new Set(courseIds)].map((courseId) => {
       const course = byId.get(courseId);
       const firstClass = classes.find((item) => item.courseId === courseId);
       return course ?? { id: courseId, code: firstClass?.code.split("-")[0] ?? courseId, name: firstClass?.name ?? "Môn học", description: "Tài liệu của các lớp thuộc cùng môn học.", outcomes: [], status: "PUBLISHED" as const, version: firstClass?.courseVersion ?? 1, createdAt: "", updatedAt: "" };
     });
-  }, [classes, courses]);
+  }, [classes, courses, instructor]);
   const selectedCourse = courseOptions.find((course) => course.id === selectedCourseId);
   const selectedClasses = useMemo(() => classes.filter((item) => item.courseId === selectedCourseId), [classes, selectedCourseId]);
   const visibleItems = items;
@@ -74,7 +87,9 @@ export default function MaterialsPage() {
     const timer = window.setTimeout(async () => {
       setMaterialsLoading(true);
       try {
-        const params = new URLSearchParams({ courseId: selectedCourseId, classId: classFilter, query, mimeType: mimeFilter, tag: tagFilter, page: String(page), pageSize: String(pageSize) });
+        const params = new URLSearchParams(selectedCourseId === SHARED_LIBRARY
+          ? { scope: "SHARED", query, mimeType: mimeFilter, tag: tagFilter, page: String(page), pageSize: String(pageSize) }
+          : { courseId: selectedCourseId, classId: classFilter, query, mimeType: mimeFilter, tag: tagFilter, page: String(page), pageSize: String(pageSize) });
         const result = await apiRequest<{ items: Material[]; total: number; totalPages: number }>(`/materials/search?${params}`, { roleCode: session.roleCode, signal: controller.signal });
         if (controller.signal.aborted) return;
         if (page > result.totalPages) { setPage(result.totalPages); return; }
@@ -105,7 +120,7 @@ export default function MaterialsPage() {
       setCourses(courseData);
       const requestedClass = classData.find((item) => item.id === searchParams.get("classId"));
       setClassFilter(requestedClass?.id ?? "");
-      setSelectedCourseId((current) => requestedClass?.courseId ?? (current && classData.some((item) => item.courseId === current) ? current : classData[0]?.courseId ?? ""));
+      setSelectedCourseId((current) => requestedClass?.courseId ?? (current && (current === SHARED_LIBRARY || classData.some((item) => item.courseId === current)) ? current : classData[0]?.courseId ?? (session.roleCode === "LEARNER" ? SHARED_LIBRARY : "")));
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tải được học liệu.", "error");
     } finally {
@@ -120,7 +135,7 @@ export default function MaterialsPage() {
 
   /** Mở upload trong đúng môn đang xem và chọn sẵn lớp đầu tiên của môn đó. */
   const openUpload = () => {
-    setForm((current) => ({ ...current, classId: selectedClasses.some((item) => item.id === current.classId) ? current.classId : selectedClasses[0]?.id ?? "" }));
+    setForm((current) => ({ ...current, scope: selectedClasses.length ? current.scope : "SHARED", classId: selectedClasses.some((item) => item.id === current.classId) ? current.classId : selectedClasses[0]?.id ?? "" }));
     setOpen(true);
   };
 
@@ -137,7 +152,10 @@ export default function MaterialsPage() {
       body.append("file", file);
       body.append("folder", form.folder);
       body.append("tags", form.tags);
-      await apiRequest(`/instructor/classes/${form.classId}/material-uploads`, {
+      body.append("scope", form.scope);
+      // Học liệu dùng chung gắn theo môn; học liệu riêng lớp gắn vào lớp giảng viên đang dạy.
+      const uploadPath = form.scope === "SHARED" ? `/instructor/courses/${selectedCourseId}/material-uploads` : `/instructor/classes/${form.classId}/material-uploads`;
+      await apiRequest(uploadPath, {
         method: "POST",
         roleCode: session.roleCode,
         body,
@@ -168,6 +186,54 @@ export default function MaterialsPage() {
     }
   };
 
+  /** Chỉ người tải lên và người được cấp quyền mới sửa được học liệu. */
+  const canEdit = (item: Material) => instructor && (item.ownerId === session.user.id || Boolean(item.editorIds?.includes(session.user.id)));
+
+  /** Nạp danh sách giảng viên và người đang có quyền sửa rồi mở hộp thoại phân quyền. */
+  const openEditors = async (item: Material) => {
+    try {
+      const [candidates, current] = await Promise.all([
+        apiRequest<Array<{ id: string; displayName: string; username: string }>>("/instructor/material-editor-candidates", { roleCode: session.roleCode }),
+        apiRequest<{ editors: Array<{ userId: string }> }>(`/instructor/materials/${item.id}/editors`, { roleCode: session.roleCode }),
+      ]);
+      setEditorCandidates(candidates);
+      setEditorIds(current.editors.map((editor) => editor.userId));
+      setEditorFilter("");
+      setEditorsTarget(item);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tải được quyền sửa học liệu.", "error");
+    }
+  };
+
+  /** Lưu danh sách giảng viên được cấp quyền sửa học liệu. */
+  const saveEditors = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editorsTarget) return;
+    setSaving(true);
+    try {
+      await apiRequest(`/instructor/materials/${editorsTarget.id}/editors`, { method: "PUT", roleCode: session.roleCode, body: JSON.stringify({ userIds: editorIds }) });
+      notify("Đã cập nhật quyền sửa học liệu.");
+      setEditorsTarget(null);
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không cập nhật được quyền sửa học liệu.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Chuyển học liệu giữa dùng chung cho mọi học viên và riêng cho học viên của lớp. */
+  const toggleScope = async (item: Material) => {
+    const scope = item.scope === "SHARED" ? "CLASS" : "SHARED";
+    try {
+      await apiRequest(`/instructor/materials/${item.id}`, { method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ scope }) });
+      notify(scope === "SHARED" ? "Học liệu đã chuyển sang dùng chung cho mọi học viên." : "Học liệu đã chuyển sang riêng cho học viên của lớp.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không cập nhật được.", "error");
+    }
+  };
+
   /** Nạp lịch sử phiên bản của học liệu và mở bảng chi tiết. */
   const showHistory = async (item: Material) => {
     try { setHistoryTarget(item); setVersions(await apiRequest<MaterialVersionSnapshot[]>(`/materials/${item.id}/versions`, { roleCode: session.roleCode })); }
@@ -187,7 +253,7 @@ export default function MaterialsPage() {
     try {
       const body = new FormData(); body.append("file", versionFile); body.append("folder", versionTarget.folder); body.append("tags", versionTarget.tags.join(","));
       await apiRequest(`/instructor/materials/${versionTarget.id}/versions`, { method: "POST", roleCode: session.roleCode, body });
-      notify("Đã tạo phiên bản học liệu mới; bản cũ vẫn được giữ nguyên."); setVersionTarget(null); setVersionFile(null); await load();
+      notify("Đã tạo phiên bản học liệu mới; hệ thống giữ 3 tệp gần nhất."); setVersionTarget(null); setVersionFile(null); await load();
     } catch (error) { notify(error instanceof Error ? error.message : "Không tải được phiên bản mới.", "error"); }
     finally { setSaving(false); }
   };
@@ -239,26 +305,28 @@ export default function MaterialsPage() {
         eyebrow="Content Repository"
         title="Kho học liệu"
         description="Tài liệu được quản lý theo môn học, sau đó theo từng lớp triển khai — không còn một danh sách trộn lẫn."
-        actions={instructor ? <Button disabled={!selectedClasses.length} onClick={openUpload}><Plus size={17} />Thêm vào môn này</Button> : undefined}
+        actions={instructor ? <Button disabled={!selectedCourse || sharedLibrary} onClick={openUpload}><Plus size={17} />Thêm vào môn này</Button> : undefined}
       />
-      <SectionState loading={loading} empty={courseOptions.length === 0}>
+      <SectionState loading={loading} empty={courseOptions.length === 0 && !learner}>
         <div className="grid gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
           <aside aria-label="Danh sách môn học" className="self-start border-y border-[var(--rule-strong)] lg:sticky lg:top-6">
+            {learner ? <button aria-current={sharedLibrary ? "page" : undefined} className={`flex w-full items-center gap-2 border-b border-[var(--rule)] px-4 py-4 text-left text-sm font-extrabold ${sharedLibrary ? "bg-[var(--ink)] text-white" : "bg-[var(--surface)]/65 hover:bg-[var(--surface-muted)]"}`} onClick={() => { setSelectedCourseId(SHARED_LIBRARY); setClassFilter(""); pagination.setPage(1); }} type="button"><Library size={17} />Thư viện chung</button> : null}
             <div className="flex items-center gap-2 border-b border-[var(--rule)] px-4 py-3 text-sm font-extrabold text-[var(--ink)]"><BookOpen size={17} />Môn học của bạn</div>
             {courseOptions.map((course) => {
               const active = selectedCourseId === course.id;
               return <button aria-current={active ? "page" : undefined} className={`group flex w-full items-start justify-between gap-3 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 ${active ? "bg-[var(--ink)] text-white" : "bg-[var(--surface)]/65 hover:bg-[var(--surface-muted)]"}`} key={course.id} onClick={() => { setSelectedCourseId(course.id); setClassFilter(""); pagination.setPage(1); }} type="button">
-                <span className="min-w-0"><span className={`block text-xs font-extrabold ${active ? "text-white/65" : "text-[var(--accent-ink)]"}`}>{course.code}</span><span className="mt-1 block font-heading text-base font-extrabold leading-snug">{course.name}</span></span>              </button>;
+                <span className="min-w-0"><span className={`block text-xs font-extrabold ${active ? "text-white/65" : "text-[var(--accent-ink)]"}`}>{course.code}</span><span className="mt-1 block font-heading text-base font-extrabold leading-snug">{course.name}</span></span>
+              </button>;
             })}
           </aside>
           <section aria-busy={materialsLoading} aria-labelledby="selected-course-title" className="min-w-0">
             <div className="flex flex-col gap-4 border-b border-[var(--rule-strong)] pb-5 sm:flex-row sm:items-end sm:justify-between">
-              <div className="max-w-2xl"><div className="flex items-center gap-2 text-xs font-extrabold text-[var(--accent-ink)]"><Layers3 size={15} />{selectedClasses.length} lớp triển khai</div><h2 className="mt-2 font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">{selectedCourse?.name ?? "Chọn môn học"}</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{selectedCourse?.description}</p></div>
+              {sharedLibrary ? <div className="max-w-2xl"><h2 className="font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">Thư viện chung</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">Học liệu dùng chung cho mọi học viên, thuộc mọi môn học.</p></div> : <div className="max-w-2xl"><div className="flex items-center gap-2 text-xs font-extrabold text-[var(--accent-ink)]"><Layers3 size={15} />{selectedClasses.length} lớp triển khai</div><h2 className="mt-2 font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">{selectedCourse?.name ?? "Chọn môn học"}</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{selectedCourse?.description}</p></div>}
               <p className="text-sm font-bold tabular-nums text-[var(--ink-muted)]">{totalItems} tài liệu</p>
             </div>
             <div className="my-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="relative md:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input aria-label="Tìm học liệu" maxLength={255} className={`${inputClass} pl-10`} placeholder="Tìm trong môn này…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }} /></div>
-              <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả lớp của môn</option>{selectedClasses.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select>
+              {sharedLibrary ? null : <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả lớp của môn</option>{selectedClasses.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select>}
               <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="application/msword">Word DOC</option><option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select>
               <input maxLength={255} aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }} />
             </div>
@@ -271,10 +339,11 @@ export default function MaterialsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-heading text-lg font-extrabold">{item.name}</h2>
                     <StatusBadge status={item.visibility} />
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">{item.scope === "SHARED" ? "Dùng chung" : "Riêng lớp"}</span>
                   </div>
                   {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
-                    <span>{classes.find((classItem) => classItem.id === item.classId)?.code ?? item.classId}</span>
+                    {classes.some((classItem) => classItem.id === item.classId) ? <span>{classes.find((classItem) => classItem.id === item.classId)?.code}</span> : null}
                     <span className="flex items-center gap-1.5"><FolderOpen size={14} />{item.folder}</span>
                     <span>Phiên bản {item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
                     {item.tags.map((tag) => <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600" key={tag}>#{tag}</span>)}
@@ -287,13 +356,15 @@ export default function MaterialsPage() {
                   {session.roleCode === "LEARNER" && item.visibility === "PUBLISHED" ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setStudyTarget(item)} variant="ghost">Bộ ôn tập</Button> : null}
                   <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
                   <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
-                  {instructor ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
-                  {instructor ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
+                  {canEdit(item) ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
+                  {canEdit(item) ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void publish(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Công khai"}</Button> : null}
+                  {canEdit(item) && item.classId ? <Button onClick={() => void toggleScope(item)} variant="ghost">{item.scope === "SHARED" ? "Đặt riêng lớp" : "Dùng chung"}</Button> : null}
+                  {instructor && item.ownerId === session.user.id ? <Button onClick={() => void openEditors(item)} variant="ghost"><UserCog size={14} />Quyền sửa</Button> : null}
                   {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "HIDE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
               </div>
             </article>
           ))}
-            </div> : <div className="border-y border-[var(--rule-strong)] py-12 text-center"><FileText className="mx-auto text-[var(--ink-muted)]" size={28} /><p className="mt-3 font-bold text-[var(--ink)]">Chưa có tài liệu phù hợp trong môn này</p><p className="mt-1 text-sm text-[var(--ink-soft)]">Đổi bộ lọc hoặc tải tài liệu vào một lớp thuộc môn học.</p>{instructor && selectedClasses.length ? <Button className="mt-4" onClick={openUpload} variant="secondary"><Plus size={16} />Thêm học liệu</Button> : null}</div>}
+            </div> : <div className="border-y border-[var(--rule-strong)] py-12 text-center"><FileText className="mx-auto text-[var(--ink-muted)]" size={28} /><p className="mt-3 font-bold text-[var(--ink)]">Chưa có tài liệu phù hợp trong môn này</p><p className="mt-1 text-sm text-[var(--ink-soft)]">Đổi bộ lọc hoặc tải tài liệu vào một lớp thuộc môn học.</p>{instructor && selectedCourse ? <Button className="mt-4" onClick={openUpload} variant="secondary"><Plus size={16} />Thêm học liệu</Button> : null}</div>}
             <Pagination itemLabel="học liệu" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
           </section>
         </div>
@@ -303,9 +374,10 @@ export default function MaterialsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title="Tải học liệu từ máy" description="Backend kiểm tra MIME, quota, kích thước và checksum trước khi lưu.">
         <form className="space-y-4" onSubmit={(event) => void create(event)}>
           <Field label="Môn học"><div className="rounded-xl bg-[var(--surface-muted)] px-4 py-3 text-sm font-bold text-[var(--ink)]">{selectedCourse ? `${selectedCourse.code} — ${selectedCourse.name}` : "Chưa chọn môn học"}</div></Field>
-          <Field label="Lớp học">
+          <Field label="Phạm vi"><select className={inputClass} value={form.scope} onChange={(event) => setForm({ ...form, scope: event.target.value === "CLASS" ? "CLASS" : "SHARED" })}><option value="SHARED">Dùng chung — mọi học viên xem được</option><option disabled={!selectedClasses.length} value="CLASS">Riêng lớp — chỉ học viên của lớp</option></select></Field>
+          {form.scope === "CLASS" ? <Field label="Lớp học">
             <SearchableSelect aria-label="Tìm và chọn lớp học" onChange={(value) => setForm({ ...form, classId: value })} options={selectedClasses.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: item.term, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp trong môn…" value={form.classId} />
-          </Field>
+          </Field> : null}
           <Field label="Tệp học liệu">
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-sm font-bold text-sky-800">
               <UploadCloud size={21} />
@@ -317,7 +389,17 @@ export default function MaterialsPage() {
           <Field label="Thư mục"><input className={inputClass} required value={form.folder} onChange={(event) => setForm({ ...form, folder: event.target.value })} /></Field>
           <Field label="Thẻ — ngăn cách bằng dấu phẩy"><input className={inputClass} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field>
           {file ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{file.type || "MIME không xác định"} · {(file.size / 1_000_000).toFixed(2)} MB</p> : null}
-          <Button disabled={!file || !form.classId} loading={saving} type="submit">Tải lên và kiểm tra</Button>
+          <Button disabled={!file || (form.scope === "CLASS" && !form.classId)} loading={saving} type="submit">Tải lên và kiểm tra</Button>
+        </form>
+      </Modal>
+      <Modal open={Boolean(editorsTarget)} onClose={() => setEditorsTarget(null)} title="Quyền sửa học liệu" description={editorsTarget?.name}>
+        <form className="space-y-4" onSubmit={(event) => void saveEditors(event)}>
+          <input aria-label="Tìm giảng viên" className={inputClass} placeholder="Tìm theo tên hoặc tài khoản…" value={editorFilter} onChange={(event) => setEditorFilter(event.target.value)} />
+          <div className="max-h-72 divide-y divide-[var(--rule)] overflow-y-auto border-y border-[var(--rule)]">
+            {editorCandidates.filter((candidate) => `${candidate.displayName} ${candidate.username}`.toLowerCase().includes(editorFilter.trim().toLowerCase())).map((candidate) => <label className="flex min-h-11 cursor-pointer items-center gap-3 px-1 text-sm" key={candidate.id}><input checked={editorIds.includes(candidate.id)} className="size-4 accent-[var(--accent)]" onChange={(event) => setEditorIds((current) => event.target.checked ? [...current, candidate.id] : current.filter((value) => value !== candidate.id))} type="checkbox" /><span className="font-semibold">{candidate.displayName}</span><span className="text-xs text-[var(--ink-muted)]">@{candidate.username}</span></label>)}
+            {!editorCandidates.length ? <p className="py-4 text-sm text-[var(--ink-muted)]">Chưa có giảng viên nào khác.</p> : null}
+          </div>
+          <Button loading={saving} type="submit">Lưu quyền sửa</Button>
         </form>
       </Modal>
       <Modal open={Boolean(reviewTarget)} onClose={() => setReviewTarget(null)} title="Kiểm duyệt học liệu" description={reviewTarget?.name}>
