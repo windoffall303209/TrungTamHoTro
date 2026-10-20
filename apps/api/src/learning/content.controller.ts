@@ -194,6 +194,14 @@ export class ContentController {
   /** Cập nhật metadata/khả năng hiển thị của học liệu. */
   updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input, session.user.id); }
 
+  @Delete("instructor/materials/:materialId") @RequirePermissions("material:manage") @HttpCode(204)
+  /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
+  deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> { return this.learning.deleteMaterial(materialId, session.user.id); }
+
+  @Get("instructor/materials/:materialId/reviews") @RequirePermissions("material:manage")
+  /** Người tải lên và người được cấp quyền sửa xem quyết định kiểm duyệt kèm lý do. */
+  listOwnMaterialReviews(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId, session.user.id); }
+
   @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
   /** Quản lý duyệt, ẩn hoặc cách ly học liệu và lưu lý do. */
   reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }

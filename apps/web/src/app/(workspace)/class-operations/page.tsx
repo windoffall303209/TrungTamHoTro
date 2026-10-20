@@ -1,13 +1,13 @@
 "use client";
 
-import { CheckCheck, History, RotateCcw, Trash2, Upload, UserPlus, UsersRound } from "lucide-react";
+import { CheckCheck, Eye, History, RotateCcw, Trash2, Undo2, Upload, UserPlus, UsersRound } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Tabs } from "@/components/ui";
 import { UserPicker } from "@/components/user-picker";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, previewApiFile } from "@/lib/api-client";
 import { MaterialSearchControls, useMaterialSearch } from "@/components/material-search";
 import { hasPermission } from "@/lib/access-control";
 import type { ClassRoster, EnrollmentImportResult, Exam, InstructorRole, LearningClass, Material } from "@/lib/learning-types";
@@ -101,18 +101,30 @@ export default function ClassOperationsPage() {
     catch (error) { notify(error instanceof Error ? error.message : "Không gỡ được thành viên.", "error"); }
   };
 
-  /** Duyệt hoặc từ chối học liệu đang chờ theo quyết định nhập từ giao diện. */
-  const reviewMaterial = async (item: Material) => {
+  /** Duyệt học liệu đang chờ, hoặc thu hồi kèm lý do để giảng viên sửa hay xóa. */
+  const reviewMaterial = async (item: Material, action: "APPROVE" | "REVOKE") => {
+    const reason = action === "REVOKE" ? window.prompt("Lý do thu hồi học liệu") : undefined;
+    if (action === "REVOKE" && !reason) return;
     try {
       await apiRequest(`/manager/materials/${item.id}/review`, {
         method: "PATCH",
         roleCode: session.roleCode,
-        body: JSON.stringify({ action: "APPROVE" }),
+        body: JSON.stringify({ action, reason }),
       });
-      notify("Đã duyệt học liệu.");
+      notify(action === "APPROVE" ? "Đã duyệt học liệu." : "Đã thu hồi học liệu và thông báo người đăng.");
       await load();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không duyệt được học liệu.", "error");
+      notify(error instanceof Error ? error.message : "Không kiểm duyệt được học liệu.", "error");
+    }
+  };
+
+  /** Mở bản xem trước để quản lý đọc nội dung trước khi quyết định. */
+  const previewMaterial = async (item: Material) => {
+    try {
+      const access = await apiRequest<{ url: string }>(`/materials/${item.id}/access?action=PREVIEW`, { roleCode: session.roleCode });
+      await previewApiFile(access.url, session.roleCode, item.name);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không mở được bản xem trước.", "error");
     }
   };
 
@@ -183,7 +195,7 @@ export default function ClassOperationsPage() {
             {materials.some((item) => item.visibility === "DRAFT") ? materials.filter((item) => item.visibility === "DRAFT").map((item) => (
               <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4" key={item.id}>
                 <div><p className="text-sm font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.folder} · v{item.version}</p></div>
-                <Button onClick={() => void reviewMaterial(item)} variant="secondary"><CheckCheck size={15} />Duyệt</Button>
+                <div className="flex flex-wrap gap-1"><Button onClick={() => void previewMaterial(item)} type="button" variant="ghost"><Eye size={15} />Xem</Button><Button onClick={() => void reviewMaterial(item, "APPROVE")} type="button" variant="secondary"><CheckCheck size={15} />Duyệt</Button><Button onClick={() => void reviewMaterial(item, "REVOKE")} type="button" variant="ghost"><Undo2 size={15} />Thu hồi</Button></div>
               </div>
             )) : <p className="py-8 text-center text-sm text-slate-400">Không có học liệu chờ duyệt.</p>}
           </div>

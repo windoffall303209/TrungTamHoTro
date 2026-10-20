@@ -993,7 +993,7 @@ describe("LearningService", () => {
           buffer: bytes,
         },
       );
-      await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+      await service.reviewClassMaterial(material.id, "APPROVE");
 
       const access = await service.createMaterialAccess(material.id, "LEARNER");
       const signedUrl = new URL(access.url, "http://localhost");
@@ -1075,7 +1075,7 @@ describe("LearningService", () => {
           "LEARNER",
         ),
       ).rejects.toThrow(NotFoundException);
-      await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+      await service.reviewClassMaterial(material.id, "APPROVE");
       const currentAccess = await service.createMaterialAccess(
         material.id,
         "LEARNER",
@@ -1178,7 +1178,7 @@ describe("LearningService", () => {
         service.createMaterialAccess(material.id, "INSTRUCTOR"),
       ).rejects.toThrow("cách ly");
       await expect(
-        service.updateMaterial(material.id, { visibility: "PUBLISHED" }),
+        service.updateMaterial(material.id, { visibility: "DRAFT" }),
       ).rejects.toThrow("cách ly");
       expect(
         (await service.listNotifications("usr-instructor")).some(
@@ -1200,7 +1200,7 @@ describe("LearningService", () => {
       tags: ["review"],
     });
     await expect(
-      service.reviewClassMaterial(material.id, "HIDE", ""),
+      service.reviewClassMaterial(material.id, "REVOKE", ""),
     ).rejects.toThrow("lý do");
     expect(
       (await service.reviewClassMaterial(material.id, "APPROVE")).visibility,
@@ -1209,14 +1209,14 @@ describe("LearningService", () => {
       (
         await service.reviewClassMaterial(
           material.id,
-          "REQUEST_CHANGES",
+          "REVOKE",
           "Cần bổ sung nguồn trích dẫn",
         )
       ).visibility,
-    ).toBe("DRAFT");
+    ).toBe("HIDDEN");
     const reviews = await service.listMaterialReviews(material.id);
     expect(reviews.map((item) => item.action)).toEqual([
-      "REQUEST_CHANGES",
+      "REVOKE",
       "APPROVE",
     ]);
     expect(
@@ -1359,7 +1359,7 @@ describe("LearningService", () => {
       folder: "Tuần 1",
       tags: ["ngoai-lop"],
     });
-    await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+    await service.reviewClassMaterial(material.id, "APPROVE");
 
     await expect(
       service.createMaterialAccess(material.id, "LEARNER"),

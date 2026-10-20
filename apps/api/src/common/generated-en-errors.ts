@@ -726,5 +726,11 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Không tìm thấy tác vụ trích xuất tài liệu AI cần đối soát.": "The AI document-extraction task to reconcile was not found.",
   "Mã tác vụ hỏi đáp tài liệu AI không hợp lệ.": "The AI document-answer task ID is invalid.",
   "Mã tác vụ trích xuất tài liệu AI không hợp lệ.": "The AI document-extraction task ID is invalid.",
-  "Tác vụ OCR không còn chủ sở hữu hợp lệ. Không thể mở lại tự động.": "The OCR task no longer has a valid owner and cannot be reopened automatically."
+  "Tác vụ OCR không còn chủ sở hữu hợp lệ. Không thể mở lại tự động.": "The OCR task no longer has a valid owner and cannot be reopened automatically.",
+  "Cần lý do ít nhất 5 ký tự khi thu hồi học liệu.": "A reason of at least 5 characters is required to revoke a material.",
+  "Chỉ người tải lên hoặc người được cấp quyền mới xem được lịch sử kiểm duyệt.": "Only the uploader or granted editors can view the review history.",
+  "Chỉ người tải lên mới xóa được học liệu này.": "Only the uploader can delete this material.",
+  "Học liệu cần quản lý trung tâm duyệt trước khi phát hành.": "The material must be approved by a center manager before it is published.",
+  "Học liệu đang được đính kèm trong diễn đàn nên chưa thể xóa.": "The material is attached to a forum post and cannot be deleted yet.",
+  "Tệp đang bị cách ly nên không thể gửi duyệt.": "The file is quarantined and cannot be submitted for review."
 });

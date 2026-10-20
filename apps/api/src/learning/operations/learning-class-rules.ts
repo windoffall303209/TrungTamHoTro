@@ -44,7 +44,7 @@ export function buildClassClosureReadiness(
 
 /** Thu hẹp action lưu trong DB về tập hành động kiểm duyệt tệp hỗ trợ. */
 export function fileReviewAction(value: string): FileReviewRecord["action"] {
-  if (value === "APPROVE" || value === "HIDE" || value === "REQUEST_CHANGES")
+  if (value === "APPROVE" || value === "REVOKE" || value === "HIDE" || value === "REQUEST_CHANGES")
     return value;
   throw new BadRequestException("Hành động kiểm duyệt học liệu không hợp lệ.");
 }

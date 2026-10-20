@@ -303,6 +303,18 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Quyền sửa học liệu": "Material edit access",
   "Tìm giảng viên": "Search instructors",
   "Tìm theo tên hoặc tài khoản…": "Search by name or username…",
+  "Gửi duyệt": "Submit for review",
+  "Đã gửi học liệu cho quản lý duyệt.": "Sent the material to a manager for review.",
+  "Đã thu hồi học liệu và thông báo người đăng.": "Revoked the material and notified the uploader.",
+  "Đã xóa học liệu.": "Deleted the material.",
+  "Không xóa được học liệu.": "Could not delete the material.",
+  "Lịch sử kiểm duyệt": "Review history",
+  "Chưa có quyết định kiểm duyệt.": "No review decisions yet.",
+  "Lý do thu hồi học liệu": "Reason for revoking the material",
+  "Tệp đang dùng không bị ghi đè; phiên bản mới chờ quản lý duyệt sau khi quét.": "The current file is not overwritten; the new version awaits manager review after scanning.",
+  "Xóa hẳn học liệu \"": "Permanently delete material \"",
+  "\" cùng mọi phiên bản? Không thể hoàn tác.": "\" and all its versions? This cannot be undone.",
+  "Xóa hẳn học liệu \"{{0}}\" cùng mọi phiên bản? Không thể hoàn tác.": "Permanently delete material \"{{0}}\" and all its versions? This cannot be undone.",
 };
 
 const englishCatalog: Record<string, string> = {

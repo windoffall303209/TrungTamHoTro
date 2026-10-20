@@ -53,6 +53,7 @@ import type {
   ExamAttempt,
   ExamAttemptReview,
   FileReviewRecord,
+  MaterialReviewDecision,
   ForumPost,
   ForumTopic,
   GradeHistoryRecord,
@@ -1244,6 +1245,15 @@ export class LearningService {
     );
   }
 
+  /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
+  async deleteMaterial(materialId: string, actorId: string): Promise<void> {
+    return await materials_ops.deleteMaterial(
+      this.operationContext,
+      materialId,
+      actorId,
+    );
+  }
+
   /** Xác minh giảng viên phụ trách rồi trả học viên đang ghi danh trong lớp. */
   async listInstructorClassLearners(
     classId: string,
@@ -1373,7 +1383,7 @@ export class LearningService {
   /** Áp dụng quyết định kiểm duyệt học liệu, cập nhật cách ly/visibility và ghi lịch sử. */
   async reviewClassMaterial(
     materialId: string,
-    action: FileReviewRecord["action"],
+    action: MaterialReviewDecision,
     rawReason?: string,
     reviewerId = "usr-manager",
   ): Promise<LearningMaterial> {
@@ -1386,11 +1396,15 @@ export class LearningService {
     );
   }
 
-  /** Liệt kê các quyết định kiểm duyệt học liệu mới nhất trước. */
-  async listMaterialReviews(materialId: string): Promise<FileReviewRecord[]> {
+  /** Liệt kê các quyết định kiểm duyệt; editorId giới hạn cho người tải lên hoặc được cấp quyền sửa. */
+  async listMaterialReviews(
+    materialId: string,
+    editorId?: string,
+  ): Promise<FileReviewRecord[]> {
     return await material_reviews_ops.listMaterialReviews(
       this.operationContext,
       materialId,
+      editorId,
     );
   }
 
