@@ -165,6 +165,8 @@ export interface LearningQuestion {
   imageName?: string;
   imageMimeType?: string;
   imageSizeBytes?: number;
+  /** Chỉ có ở bản xem đề của giảng viên: lỗi cần sửa trước khi gửi duyệt. */
+  issues?: string[];
 }
 export interface MaterialVersionSnapshot {
   id: string;
