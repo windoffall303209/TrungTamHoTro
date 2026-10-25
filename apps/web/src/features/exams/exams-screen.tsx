@@ -282,134 +282,108 @@ export default function ExamsScreen() {
                   : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
             }
           >
-            <div className="space-y-3">
-              {pagination.pageItems.map((item) => (
-                <article
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
-                  id={`exam-${item.id}`}
-                  key={item.id}
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs font-semibold text-sky-700 dark:text-sky-300">
-                          {classes.find((c) => c.id === item.classId)?.code ??
-                            item.classId}
-                        </span>
-                        <h2 className="mt-1.5 text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                          {item.title}
-                        </h2>
-                      </div>
-                      <StatusBadge
-                        status={
-                          learner
-                            ? (item.availabilityStatus ?? item.status)
-                            : item.status
-                        }
-                      />
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-4 sm:gap-6 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 px-3.5 py-2 text-xs text-slate-600 dark:text-slate-400">
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500">Số câu: </span>
-                        <strong className="font-semibold text-slate-800 dark:text-slate-200">
-                          {item.questionCount ?? item.questionIds.length}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500">Thời lượng: </span>
-                        <strong className="font-semibold text-slate-800 dark:text-slate-200">
-                          {item.durationMinutes} phút
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 dark:text-slate-500">
-                          {learner ? "Lượt còn lại: " : "Thang điểm: "}
-                        </span>
-                        <strong className="font-semibold text-sky-600 dark:text-sky-400">
-                          {learner
-                            ? (item.remainingAttempts ?? 0)
-                            : item.totalScore}
-                        </strong>
-                      </div>
-                    </div>
-                    <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                      <Clock3 size={13} className="text-slate-400 shrink-0" />
-                      <span>Thời gian mở: </span>
-                      <span>
-                        {new Date(item.openAt).toLocaleString(activeLocale())} — {new Date(item.closeAt).toLocaleString(activeLocale())}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
-                    {instructor ? (
-                      <Button
-                        onClick={() => void preview(item)}
-                        variant="ghost"
-                      >
-                        <Eye size={15} />
-                        Xem đề
-                      </Button>
-                    ) : null}
-                    {canReview && item.status === "PENDING_REVIEW" ? (
-                      <Button
-                        onClick={() => void preview(item)}
-                        variant="ghost"
-                      >
-                        <Eye size={15} />
-                        Xem đề
-                      </Button>
-                    ) : null}
-                    {instructor && item.status === "DRAFT" ? (
-                      <Button onClick={() => openEdit(item)} variant="ghost">
-                        <Pencil size={15} />
-                        Sửa đề
-                      </Button>
-                    ) : null}
-                    {instructor && item.status === "DRAFT" ? (
-                      <Button
-                        onClick={() => setConfirmExam(item)}
-                        variant="secondary"
-                      >
-                        <Send size={15} />
-                        Gửi phê duyệt
-                      </Button>
-                    ) : null}
-                    {canReview && item.status === "PENDING_REVIEW" ? (
-                      <>
-                        <Button
-                          loading={reviewingId === item.id}
-                          onClick={() => void review(item, "APPROVE")}
+            <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] text-left text-sm">
+                  <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-2.5">Đề thi</th>
+                      <th className="px-3.5 py-2.5">Lớp học</th>
+                      <th className="px-3 py-2.5 text-center">Số câu</th>
+                      <th className="px-3 py-2.5 text-center">Thời lượng</th>
+                      <th className="px-3 py-2.5 text-center">{learner ? "Lượt còn lại" : "Thang điểm"}</th>
+                      <th className="px-3.5 py-2.5">Thời gian mở</th>
+                      <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
+                      <th className="px-4 py-2.5 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {pagination.pageItems.map((item) => {
+                      const classItem = classes.find((c) => c.id === item.classId);
+                      return (
+                        <tr
+                          key={item.id}
+                          id={`exam-${item.id}`}
+                          className="hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition-colors"
                         >
-                          <CheckCircle2 size={15} />
-                          Phê duyệt
-                        </Button>
-                        <Button
-                          disabled={reviewingId === item.id}
-                          onClick={() => {
-                            setReturnTarget(item);
-                            setReturnNote("");
-                          }}
-                          variant="secondary"
-                        >
-                          <RotateCcw size={15} />
-                          Trả lại
-                        </Button>
-                      </>
-                    ) : null}
-                    {learner &&
-                    ["AVAILABLE", "IN_PROGRESS"].includes(
-                      item.availabilityStatus ?? "",
-                    ) ? (
-                      <Button onClick={() => void start(item)}>
-                        <Play size={15} />
-                        {item.availabilityStatus === "IN_PROGRESS"
-                          ? "Tiếp tục làm bài"
-                          : "Bắt đầu làm bài"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
+                          <td className="px-4 py-2.5">
+                            <strong className="font-semibold text-slate-900 dark:text-slate-100 truncate block max-w-xs" title={item.title}>
+                              {item.title}
+                            </strong>
+                          </td>
+                          <td className="px-3.5 py-2.5 whitespace-nowrap">
+                            <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300">
+                              {classItem?.code ?? item.classId}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums font-semibold text-slate-800 dark:text-slate-200">
+                            {item.questionCount ?? item.questionIds.length}
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums text-slate-700 dark:text-slate-300">
+                            {item.durationMinutes} phút
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums font-bold text-sky-600 dark:text-sky-400">
+                            {learner ? (item.remainingAttempts ?? 0) : item.totalScore}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            <p>{new Date(item.openAt).toLocaleDateString(activeLocale())} {new Date(item.openAt).toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}</p>
+                            <p className="text-[10px] text-slate-400">đến {new Date(item.closeAt).toLocaleDateString(activeLocale())} {new Date(item.closeAt).toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}</p>
+                          </td>
+                          <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                            <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.status} />
+                          </td>
+                          <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {instructor ? (
+                                <Button onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                  <Eye size={14} />
+                                  <span className="hidden sm:inline">Xem đề</span>
+                                </Button>
+                              ) : null}
+                              {canReview && item.status === "PENDING_REVIEW" ? (
+                                <Button onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                  <Eye size={14} />
+                                  <span className="hidden sm:inline">Xem đề</span>
+                                </Button>
+                              ) : null}
+                              {instructor && item.status === "DRAFT" ? (
+                                <Button onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                  <Pencil size={14} />
+                                  <span className="hidden sm:inline">Sửa đề</span>
+                                </Button>
+                              ) : null}
+                              {instructor && item.status === "DRAFT" ? (
+                                <Button onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2.5 text-xs font-semibold">
+                                  <Send size={13} />
+                                  Gửi phê duyệt
+                                </Button>
+                              ) : null}
+                              {canReview && item.status === "PENDING_REVIEW" ? (
+                                <>
+                                  <Button loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2.5 text-xs font-semibold">
+                                    <CheckCircle2 size={13} />
+                                    Phê duyệt
+                                  </Button>
+                                  <Button disabled={reviewingId === item.id} onClick={() => { setReturnTarget(item); setReturnNote(""); }} variant="secondary" className="h-8 px-2.5 text-xs">
+                                    <RotateCcw size={13} />
+                                    Trả lại
+                                  </Button>
+                                </>
+                              ) : null}
+                              {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
+                                <Button onClick={() => void start(item)} className="h-8 px-2.5 text-xs font-semibold">
+                                  <Play size={13} />
+                                  {item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"}
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </SectionState>
           <Pagination
@@ -423,73 +397,83 @@ export default function ExamsScreen() {
         </>
       ) : null}
       {learner && learnerView === "results" ? (
-        <section className="mt-6">
-          <div className="mb-5 flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                Kết quả đã công bố
-              </h2>
-              <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Xem điểm từng câu, phản hồi của giảng viên và gửi yêu cầu phúc khảo.
-              </p>
-            </div>
+        <section className="mt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Kết quả đã công bố ({results.length})
+            </h2>
           </div>
           {results.length ? (
-            <div className="space-y-3.5">
-              {results.map((result) => (
-                <article
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid scroll-mt-24 gap-5 lg:grid-cols-[1fr_auto] lg:items-center"
-                  id={`exam-${result.attempt.id}`}
-                  key={result.attempt.id}
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-                        {result.exam.title}
-                      </h3>
-                      <StatusBadge
-                        status={result.regradeRequest?.status ?? "PUBLISHED"}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
-                      {result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                      {result.answerBreakdown.map((answer, index) => (
-                        <span
-                          key={answer.questionId}
-                          className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 px-2.5 py-1 font-semibold text-slate-600 dark:text-slate-400"
-                        >
-                          Câu {index + 1}: <strong className="text-sky-600 dark:text-sky-400">{answer.awardedScore}</strong>/{answer.maxScore}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 lg:text-right border-t lg:border-t-0 border-slate-100 dark:border-slate-800/60 pt-3 lg:pt-0">
-                    <div className="rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/50 px-4 py-2 text-center">
-                      <p className="text-2xl sm:text-3xl font-extrabold text-sky-700 dark:text-sky-300">
-                        {result.attempt.score ?? 0}
-                      </p>
-                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                        thang {result.exam.totalScore}
-                      </p>
-                    </div>
-                    {!result.regradeRequest ? (
-                      <Button
-                        onClick={() => {
-                          setSelectedResult(result);
-                          setRegradeOpen(true);
-                        }}
-                        variant="secondary"
-                        className="h-9 text-xs"
+            <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-2.5">Đề thi</th>
+                      <th className="px-3.5 py-2.5 text-center">Điểm số</th>
+                      <th className="px-4 py-2.5">Điểm từng câu</th>
+                      <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
+                      <th className="px-4 py-2.5 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {results.map((result) => (
+                      <tr
+                        key={result.attempt.id}
+                        id={`exam-${result.attempt.id}`}
+                        className="hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition-colors"
                       >
-                        <RotateCcw size={14} />
-                        Phúc khảo
-                      </Button>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
+                        <td className="px-4 py-2.5">
+                          <strong className="font-semibold text-slate-900 dark:text-slate-100 block truncate max-w-xs" title={result.exam.title}>
+                            {result.exam.title}
+                          </strong>
+                          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 line-clamp-1">
+                            {result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}
+                          </p>
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <span className="text-sm font-extrabold text-sky-600 dark:text-sky-400 tabular-nums">
+                            {result.attempt.score ?? 0}
+                          </span>
+                          <span className="text-xs text-slate-400">/{result.exam.totalScore}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex flex-wrap gap-1 text-[11px]">
+                            {result.answerBreakdown.map((answer, index) => (
+                              <span
+                                key={answer.questionId}
+                                className="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300"
+                              >
+                                C{index + 1}: <strong className="ml-0.5 text-sky-600 dark:text-sky-400">{answer.awardedScore}</strong>/{answer.maxScore}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <StatusBadge status={result.regradeRequest?.status ?? "PUBLISHED"} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          {!result.regradeRequest ? (
+                            <Button
+                              onClick={() => {
+                                setSelectedResult(result);
+                                setRegradeOpen(true);
+                              }}
+                              variant="secondary"
+                              className="h-8 px-2.5 text-xs font-semibold"
+                            >
+                              <RotateCcw size={13} />
+                              Phúc khảo
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-slate-400">Đã gửi phúc khảo</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 py-14 text-center">
