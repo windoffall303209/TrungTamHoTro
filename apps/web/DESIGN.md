@@ -1,61 +1,42 @@
-# Wind EDU — Clean Slate Minimalist Design System
+# Wind EDU — Sky Blue Minimalist & Modern Command Bar Architecture
 
-## 1. Triết lý thiết kế (Design Philosophy)
+## 1. Triết lý thiết kế & Bố cục mới (New Layout Architecture)
 
-Hệ thống giao diện mới của Wind EDU được xây dựng dựa trên 5 nguyên tắc nền tảng:
+Hệ thống giao diện mới của Wind EDU đập bỏ hoàn toàn thanh sidebar dọc 256px truyền thống gây chật chội không gian, chuyển sang **Kiến trúc Top Command Center & Contextual Sub-Nav Strip** hiện đại:
 
-- **Minimalism (Tối giản chuẩn mực):** Loại bỏ mọi thành phần trang trí thừa thãi, hoa văn rườm rà. Tập trung tối đa vào nội dung và tác vụ học tập/giảng dạy.
-- **Clean UI (Giao diện sạch sẽ):** Bố cục thoáng đãng, tỷ lệ khoảng cách (spacing) đồng nhất dựa trên bội số của 4px (padding 8px, 12px, 16px, 20px, 24px). Đường viền hairline tinh tế (`1px solid`).
-- **Modern UX (Trải nghiệm hiện đại):** Thao tác nhanh gọn, giảm thiểu số bước tương tác, phản hồi trạng thái tức thời (Hover, Focus, Active, Disabled, Loading).
-- **Responsive (Đa nền tảng):** Tương thích hoàn hảo trên Desktop (1280px+), Tablet (768px-1024px) và Mobile (<768px) với Mobile Drawer mượt mà.
-- **Independent Themes (Hai hệ thống Theme độc lập):** Light Theme và Dark Theme được thiết kế và tính toán quang học riêng biệt, không phải là phép đảo màu máy móc.
-
----
-
-## 2. Hệ màu & Design Tokens
-
-### A. Light Theme (Giao diện sáng)
-- **Canvas (Nền chính):** `#f8fafc` (Slate 50) — Nền dịu mắt, sạch sẽ.
-- **Surface (Thẻ, Bảng, Hộp thoại):** `#ffffff` (Pure White) — Nổi bật nhẹ trên nền canvas.
-- **Hairline Borders:** `#e2e8f0` (Slate 200) — Viền 1px thanh lịch.
-- **Typography:**
-  - Tiêu đề & Văn bản chính: `#0f172a` (Slate 900) — Tương phản cao, dễ đọc.
-  - Văn bản phụ / Mô tả: `#475569` (Slate 600).
-  - Nhãn mờ / Placeholder: `#94a3b8` (Slate 400).
-- **Brand Primary Accent:** `#059669` (Emerald 600) — Sắc xanh ngọc lục bảo tươi mát, tượng trưng cho tri thức và tăng trưởng.
-- **Đổ bóng (Shadows):** Cực kỳ nhẹ nhàng (`0 1px 3px rgba(15, 23, 42, 0.04)`), không tạo bóng đổ tối đậm.
-
-### B. Dark Theme (Giao diện tối chuyên sâu)
-- **Canvas (Không gian sâu):** `#080c14` (Deep Space Obsidian) — Không bị ám xám đục.
-- **Surface Level 1 (Thẻ, Sidebar):** `#101927` — Phân lớp chiều sâu quang học.
-- **Surface Level 2 (Modal, Popover):** `#162438` — Nổi bật trên Level 1.
-- **Hairline Borders:** `#1e293b` (Slate 800) — Đường viền mảnh định hình khối rõ nét.
-- **Typography:**
-  - Tiêu đề & Văn bản chính: `#f8fafc` (Slate 50) — Rõ nét, không gây chói mắt.
-  - Văn bản phụ / Mô tả: `#94a3b8` (Slate 400).
-  - Nhãn mờ / Placeholder: `#64748b` (Slate 500).
-- **Brand Primary Accent:** `#10b981` (Emerald 500) — Phát sáng nhẹ nhàng trên nền tối.
-- **Đổ bóng (Shadows):** Kết hợp glow viền tinh tế và shadow mờ sâu.
+- **Bố cục Không gian Mở (Full-Width Canvas):** Giải phóng toàn bộ 100% chiều ngang màn hình cho bảng dữ liệu, học liệu, phòng học online và đề thi.
+- **Top Command Center (Tầng 1):** Thanh điều hướng chính dạng kính mờ (glassmorphism) cố định trên đỉnh, phân tách rõ 4 cụm chuyên mục:
+  - 🎓 **Học tập & Giảng dạy** (`/dashboard`, `/courses`, `/academic`, `/live-classes`)
+  - 📝 **Khảo thí & Học liệu** (`/exams`, `/questions`, `/materials`)
+  - 💬 **Cộng đồng & Hỗ trợ** (`/forum`, `/messages`, `/support`, `/learning-history`)
+  - ⚙️ **Quản trị & Vận hành** (`/reports`, `/class-operations`, `/attendance`, `/admin/users`, v.v.)
+- **Contextual Sub-Nav Strip (Tầng 2):** Dải danh mục phụ trực quan tự động hiển thị các trang nghiệp vụ thuộc chuyên mục đang chọn, hỗ trợ chuyển trang tức thời bằng 1 chạm.
+- **Mobile Adaptive Drawer:** Trên màn hình di động (<1024px), thanh điều hướng thu gọn vào menu trượt tiện lợi.
 
 ---
 
-## 3. Kiến trúc Component cốt lõi
+## 2. Hệ màu Sky Blue (Xanh da trời hiện đại)
 
-1. **Button (`<Button />`):**
-   - Các biến thể: `primary` (Emerald), `secondary` (viền mảnh tinh gọn), `danger` (Rose), `ghost`.
-   - Trạng thái: Hover nâng nhẹ/đổi sắc thái, Active scale `0.98`, Loading với spinner xoay đều, Disabled mờ 45% không click được.
+### A. Light Theme (Giao diện sáng tinh khôi)
+- **Primary Accent:** `#0284c7` (Sky 600) — Màu xanh da trời biển sâu, biểu tượng của sự rộng mở, tin cậy và sáng tạo.
+- **Primary Hover & Focus:** `#0369a1` (Sky 700), `rgba(2, 132, 199, 0.18)` focus ring.
+- **Canvas (Nền chính):** `#f8fafc` (Slate 50) — Dịu mắt, tối giản.
+- **Surface (Bề mặt thẻ/hộp thoại):** `#ffffff` (Pure White) — Nổi bật tự nhiên với viền hairline `#e2e8f0`.
+- **Text:** `#0f172a` (Slate 900) cho tiêu đề và nội dung chính, `#475569` (Slate 600) cho văn bản phụ.
 
-2. **Form Controls (`inputClass`, `<Field />`):**
-   - Viền `border-slate-200 dark:border-slate-800`.
-   - Bo góc vừa phải (`rounded-lg` / `8px`).
-   - Focus ring mảnh: `ring-2 ring-emerald-500/15` sạch sẽ, không che khuất nhãn.
+### B. Dark Theme (Cosmic Azure Obsidian)
+- **Primary Accent:** `#38bdf8` (Sky 400) — Xanh da trời dạ quang phát sáng nhẹ trên nền tối.
+- **Canvas (Không gian sâu):** `#070b14` (Deep Space Obsidian).
+- **Surface Level 1:** `#0f1a2e` (Thẻ và bảng biểu).
+- **Surface Level 2:** `#162847` (Hộp thoại, Menu popover).
+- **Borders:** `#1a2942` — Đường viền mảnh định hình khối sắc nét.
+- **Text:** `#f8fafc` (Slate 50) sắc nét, không lóa mắt.
 
-3. **Status Badges (`<StatusBadge />`):**
-   - Dạng pill mềm mại bo tròn hoàn toàn (`rounded-full`).
-   - Chấm tròn chỉ thị màu phát tín hiệu trực quan (`size-1.5 rounded-full`).
-   - Phối màu ngữ nghĩa: Hoạt động (Emerald), Cảnh báo/Chờ duyệt (Amber), Từ chối/Lỗi (Rose), Trung tính (Slate).
+---
 
-4. **Sidebar & Header:**
-   - Sidebar thích ứng hoàn toàn: Nền trắng trong Light mode, Nền obsidian trong Dark mode.
-   - Header dạng kính mờ (glassmorphism) với `backdrop-blur-md` tinh tế.
-   - Nút `ThemeToggle` lưu song song cả `localStorage` và `cookie` để loại bỏ 100% tình trạng nhấp nháy giao diện khi tải lại trang.
+## 3. Thành phần Giao diện Chuẩn mực (UI Primitives)
+
+- **Button:** Bấm nảy nhẹ, bo góc vừa phải (`rounded-lg`), biến thể `primary` màu Sky 600, `secondary` viền mảnh, `danger` đỏ hồng, `ghost`.
+- **Field & Input:** Nền trắng/tối với viền mảnh và focus ring `ring-2 ring-sky-500/15`.
+- **Status Badges:** Dạng pill mềm mại bo tròn hoàn toàn với chấm phát tín hiệu (`size-1.5 rounded-full`).
+- **Dashboard:** Bố cục Command Center với banner chào mừng gradient Sky Blue, 3 chỉ số KPI tối giản và lưới mô-đun chức năng.

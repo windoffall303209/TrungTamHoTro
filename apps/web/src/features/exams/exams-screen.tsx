@@ -292,7 +292,7 @@ export default function ExamsScreen() {
                   <div>
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 text-xs font-semibold text-sky-700 dark:text-sky-300">
                           {classes.find((c) => c.id === item.classId)?.code ??
                             item.classId}
                         </span>
@@ -325,7 +325,7 @@ export default function ExamsScreen() {
                         <span className="text-slate-400 dark:text-slate-500">
                           {learner ? "Lượt còn lại: " : "Thang điểm: "}
                         </span>
-                        <strong className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        <strong className="font-semibold text-sky-600 dark:text-sky-400">
                           {learner
                             ? (item.remainingAttempts ?? 0)
                             : item.totalScore}
