@@ -179,10 +179,10 @@ export default function ReportsPage() {
     finally { setSubmitting(false); }
   };
 
-  return <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+  return <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
     <PageHeader eyebrow="Operational Intelligence" title="Báo cáo vận hành" description="Đối soát chỉ số theo kỳ, nhận diện rủi ro có giải thích và quản lý lịch sử xuất dữ liệu." />
 
-    <section className="mb-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs">
+    <section className="mb-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-full sm:w-44">
           <Field label="Từ ngày"><input className={inputClass} max={filters.to} type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></Field>

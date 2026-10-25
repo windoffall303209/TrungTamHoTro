@@ -37,12 +37,12 @@ export function SectionState({
 
   if (empty) {
     return (
-      <div className="grid min-h-48 place-items-center border-y border-dashed border-[var(--rule-strong)] bg-[var(--surface)]/65 px-5 py-8 text-center">
+      <div className="grid min-h-36 place-items-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 px-4 py-6 text-center">
         <div>
-          <Inbox aria-hidden="true" className="mx-auto text-[var(--rule-strong)]" size={36} />
-          <p className="mt-3 text-sm font-bold text-[var(--ink)]">{t(emptyTitle)}</p>
-          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[var(--ink-soft)]">{t(emptyDescription)}</p>
-          {emptyAction ? <div className="mt-4">{emptyAction}</div> : null}
+          <Inbox aria-hidden="true" className="mx-auto text-slate-300 dark:text-slate-600" size={30} />
+          <p className="mt-2 text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{t(emptyTitle)}</p>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-slate-500 dark:text-slate-400">{t(emptyDescription)}</p>
+          {emptyAction ? <div className="mt-3">{emptyAction}</div> : null}
         </div>
       </div>
     );

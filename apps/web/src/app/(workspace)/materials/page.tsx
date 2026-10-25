@@ -329,7 +329,7 @@ export default function MaterialsPage() {
 
   if (!allowed) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
         eyebrow="Content Repository"
         title="Kho học liệu"
@@ -337,7 +337,7 @@ export default function MaterialsPage() {
         actions={instructor ? <Button disabled={!selectedCourse || sharedLibrary} onClick={openUpload}><Plus size={17} />Thêm vào môn này</Button> : undefined}
       />
       <SectionState loading={loading} empty={courseOptions.length === 0 && !learner}>
-        <div className="grid gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <div className="grid gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
           <aside aria-label="Danh sách môn học" className="self-start rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs space-y-1.5 lg:sticky lg:top-6">
             <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               <BookOpen size={15} className="text-sky-600 dark:text-sky-400" />

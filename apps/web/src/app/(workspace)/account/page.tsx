@@ -235,11 +235,11 @@ export default function AccountPage() {
 
   const otherSessions = useMemo(() => sessions.filter((item) => !item.current), [sessions]);
 
-  return <div className="workspace-enter mx-auto max-w-6xl px-4 py-8 md:px-7 md:py-10">
+  return <div className="workspace-enter mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
     <PageHeader eyebrow="Tài khoản" title="Hồ sơ & bảo mật" description="Quản lý thông tin hiển thị, mật khẩu và các thiết bị đang đăng nhập vào Wind EDU." actions={<Button loading={loading} onClick={() => void load()} variant="secondary"><RefreshCw size={16} />Làm mới</Button>} />
 
-    <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-      <form className="content-panel p-5 md:p-7" onSubmit={saveProfile}>
+    <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+      <form className="content-panel p-4 sm:p-5" onSubmit={saveProfile}>
         <div className="flex items-start gap-3"><UserRound className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Thông tin cá nhân</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Thông tin dùng để nhận diện bạn trong lớp học, diễn đàn và báo cáo.</p></div></div>
         <div className="mt-6 flex flex-col gap-5 border-y border-[var(--rule)] py-5 sm:flex-row sm:items-center">
           <UserAvatar avatarUrl={avatarPreview || profile.avatarUrl} className="size-24 text-2xl" name={profile.displayName || "Người dùng"} priority />
