@@ -7,19 +7,19 @@
 :root {
   color-scheme: light;
 
-  /* Brand Accents - Modern Crisp Emerald */
-  --primary: #059669;
-  --primary-hover: #047857;
-  --primary-focus: rgba(5, 150, 105, 0.15);
+  /* Brand Accents - Vibrant Sky Blue (Xanh da trời hiện đại) */
+  --primary: #0284c7;
+  --primary-hover: #0369a1;
+  --primary-focus: rgba(2, 132, 199, 0.18);
   --primary-fg: #ffffff;
   
-  --secondary: #0284c7;
-  --secondary-hover: #0369a1;
+  --secondary: #0ea5e9;
+  --secondary-hover: #38bdf8;
   --secondary-fg: #ffffff;
 
-  /* Surfaces & Canvas - Light Theme (Minimalism, Pure White & Subtle Slate) */
+  /* Surfaces & Canvas - Light Theme (Ultra Clean White & Pure Sky Canvas) */
   --canvas: #f8fafc;
-  --canvas-subtle: #f1f5f9;
+  --canvas-subtle: #f0f9ff;
   --surface: #ffffff;
   --surface-hover: #f8fafc;
   --surface-raised: #ffffff;
@@ -34,24 +34,23 @@
   /* Hairline Borders */
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
-  --border-focus: #059669;
+  --border-focus: #0284c7;
 
-  /* Sidebar Navigation */
-  --sidebar-bg: #ffffff;
-  --sidebar-border: #e2e8f0;
-  --sidebar-text: #475569;
-  --sidebar-text-hover: #0f172a;
-  --sidebar-text-active: #065f46;
-  --sidebar-active-bg: #ecfdf5;
-  --sidebar-hover-bg: #f8fafc;
+  /* Top Navigation Bar */
+  --nav-bg: rgba(255, 255, 255, 0.9);
+  --nav-border: #e2e8f0;
+  --nav-text: #475569;
+  --nav-text-hover: #0284c7;
+  --nav-text-active: #0284c7;
+  --nav-active-bg: #f0f9ff;
 
-  /* Header */
-  --header-bg: rgba(255, 255, 255, 0.85);
-  --header-border: #e2e8f0;
+  /* Sub Header Strip */
+  --subnav-bg: #ffffff;
+  --subnav-border: #f1f5f9;
 
   /* Shadows (Minimal, ultra-soft, diffused) */
   --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
-  --shadow-card-hover: 0 4px 12px 0 rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 6px 16px -2px rgba(2, 132, 199, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
   --shadow-popover: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
   --shadow-dialog: 0 20px 40px -12px rgba(15, 23, 42, 0.16);
 
@@ -71,12 +70,12 @@
   --danger-text: #991b1b;
   --danger-border: #fecaca;
 
-  --info: #0ea5e9;
+  --info: #0284c7;
   --info-bg: #f0f9ff;
-  --info-text: #075985;
+  --info-text: #0369a1;
   --info-border: #bae6fd;
 
-  /* Legacy Design Token Aliases (Giữ tương thích ngược hoàn hảo cho toàn bộ trang nghiệp vụ) */
+  /* Legacy Design Token Aliases */
   --paper: var(--canvas);
   --paper-deep: var(--canvas-subtle);
   --ink: var(--text-main);
@@ -87,16 +86,16 @@
   --rule-strong: var(--border-strong);
   --accent: var(--primary);
   --accent-deep: var(--primary-hover);
-  --accent-ink: #065f46;
-  --accent-soft: #ecfdf5;
-  --accent-soft-strong: #d1fae5;
+  --accent-ink: #0369a1;
+  --accent-soft: #f0f9ff;
+  --accent-soft-strong: #e0f2fe;
   --action: var(--primary);
   --action-hover: var(--primary-hover);
   --action-ink: #ffffff;
-  --nav: var(--sidebar-bg);
-  --nav-text: var(--sidebar-text);
-  --nav-hover: var(--sidebar-hover-bg);
-  --nav-rule: var(--sidebar-border);
+  --nav: var(--surface);
+  --nav-text: var(--text-main);
+  --nav-hover: var(--canvas-subtle);
+  --nav-rule: var(--border);
   --background: var(--canvas);
   --foreground: var(--text-main);
   --overlay: var(--surface-overlay);
@@ -107,23 +106,23 @@
 html[data-theme="dark"], html.dark {
   color-scheme: dark;
 
-  /* Brand Accents - Vibrant Emerald for Dark Mode */
-  --primary: #10b981;
-  --primary-hover: #34d399;
-  --primary-focus: rgba(16, 185, 129, 0.25);
-  --primary-fg: #022c22;
+  /* Brand Accents - Vibrant Sky Blue for Dark Theme */
+  --primary: #38bdf8;
+  --primary-hover: #7dd3fc;
+  --primary-focus: rgba(56, 189, 248, 0.25);
+  --primary-fg: #082f49;
 
-  --secondary: #38bdf8;
-  --secondary-hover: #7dd3fc;
-  --secondary-fg: #082f49;
+  --secondary: #0ea5e9;
+  --secondary-hover: #38bdf8;
+  --secondary-fg: #ffffff;
 
-  /* Surfaces & Canvas - Dark Theme (Deep Obsidian & Level Hierarchy) */
-  --canvas: #080c14;
-  --canvas-subtle: #0f1726;
-  --surface: #101927;
-  --surface-hover: #152234;
-  --surface-raised: #162438;
-  --surface-overlay: rgba(3, 7, 18, 0.8);
+  /* Surfaces & Canvas - Dark Theme (Deep Obsidian Cosmic Azure) */
+  --canvas: #070b14;
+  --canvas-subtle: #0d1527;
+  --surface: #0f1a2e;
+  --surface-hover: #15243f;
+  --surface-raised: #162847;
+  --surface-overlay: rgba(3, 7, 18, 0.82);
 
   /* Typography / Text Colors */
   --text-main: #f8fafc;
@@ -132,26 +131,25 @@ html[data-theme="dark"], html.dark {
   --text-subtle: #334155;
 
   /* Hairline Borders */
-  --border: #1e293b;
-  --border-strong: #334155;
-  --border-focus: #10b981;
+  --border: #1a2942;
+  --border-strong: #253b5c;
+  --border-focus: #38bdf8;
 
-  /* Sidebar Navigation */
-  --sidebar-bg: #0b111c;
-  --sidebar-border: #1a2538;
-  --sidebar-text: #94a3b8;
-  --sidebar-text-hover: #f8fafc;
-  --sidebar-text-active: #34d399;
-  --sidebar-active-bg: rgba(16, 185, 129, 0.12);
-  --sidebar-hover-bg: #131c2d;
+  /* Top Navigation Bar */
+  --nav-bg: rgba(11, 19, 36, 0.88);
+  --nav-border: #1a2942;
+  --nav-text: #94a3b8;
+  --nav-text-hover: #38bdf8;
+  --nav-text-active: #38bdf8;
+  --nav-active-bg: rgba(56, 189, 248, 0.12);
 
-  /* Header */
-  --header-bg: rgba(11, 17, 28, 0.85);
-  --header-border: #1a2538;
+  /* Sub Header Strip */
+  --subnav-bg: #0b1324;
+  --subnav-border: #16243b;
 
-  /* Shadows (Dark mode glows and deep blurs) */
+  /* Shadows (Dark mode azure glows) */
   --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-card-hover: 0 4px 16px 0 rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(16, 185, 129, 0.2);
+  --shadow-card-hover: 0 6px 20px -2px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.25);
   --shadow-popover: 0 12px 30px -5px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --shadow-dialog: 0 25px 50px -10px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.1);
 
@@ -171,10 +169,10 @@ html[data-theme="dark"], html.dark {
   --danger-text: #fca5a5;
   --danger-border: rgba(239, 68, 68, 0.28);
 
-  --info: #0ea5e9;
-  --info-bg: rgba(14, 165, 233, 0.12);
+  --info: #38bdf8;
+  --info-bg: rgba(56, 189, 248, 0.12);
   --info-text: #7dd3fc;
-  --info-border: rgba(14, 165, 233, 0.28);
+  --info-border: rgba(56, 189, 248, 0.28);
 
   /* Legacy Design Token Aliases */
   --paper: var(--canvas);
@@ -187,16 +185,16 @@ html[data-theme="dark"], html.dark {
   --rule-strong: var(--border-strong);
   --accent: var(--primary);
   --accent-deep: var(--primary-hover);
-  --accent-ink: #a7f3d0;
-  --accent-soft: rgba(16, 185, 129, 0.12);
-  --accent-soft-strong: rgba(16, 185, 129, 0.22);
+  --accent-ink: #7dd3fc;
+  --accent-soft: rgba(56, 189, 248, 0.12);
+  --accent-soft-strong: rgba(56, 189, 248, 0.22);
   --action: var(--primary);
   --action-hover: var(--primary-hover);
-  --action-ink: #022c22;
-  --nav: var(--sidebar-bg);
-  --nav-text: var(--sidebar-text);
-  --nav-hover: var(--sidebar-hover-bg);
-  --nav-rule: var(--sidebar-border);
+  --action-ink: #082f49;
+  --nav: var(--surface);
+  --nav-text: var(--text-main);
+  --nav-hover: var(--canvas-subtle);
+  --nav-rule: var(--border);
   --background: var(--canvas);
   --foreground: var(--text-main);
   --overlay: var(--surface-overlay);

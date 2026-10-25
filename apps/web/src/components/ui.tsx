@@ -7,7 +7,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
-/** Nút tương tác chính với các biến thể màu tinh gọn, trạng thái loading và disabled. */
+/** Nút tương tác chính với các biến thể màu tinh gọn Sky Blue, trạng thái loading và disabled. */
 export function Button({
   children,
   variant = "primary",
@@ -20,19 +20,19 @@ export function Button({
 }) {
   const styles = {
     primary:
-      "bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-xs focus-visible:ring-2 focus-visible:ring-emerald-500/40",
+      "bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white shadow-xs focus-visible:ring-2 focus-visible:ring-sky-500/40",
     secondary:
-      "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs focus-visible:ring-2 focus-visible:ring-slate-400/20",
+      "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-slate-800 hover:border-sky-300 dark:hover:border-slate-700 hover:text-sky-700 dark:hover:text-sky-300 shadow-2xs focus-visible:ring-2 focus-visible:ring-sky-400/20",
     danger:
       "bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white shadow-xs focus-visible:ring-2 focus-visible:ring-rose-500/40",
     ghost:
-      "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60",
+      "text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300 hover:bg-sky-50/70 dark:hover:bg-slate-800/60",
   };
 
   return (
     <button
       aria-busy={loading || undefined}
-      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:pointer-events-none focus:outline-none ${styles[variant]} ${className}`}
+      className={`inline-flex min-h-9.5 items-center justify-center gap-2 rounded-lg px-3.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:pointer-events-none focus:outline-none ${styles[variant]} ${className}`}
       disabled={loading || props.disabled}
       {...props}
     >
@@ -53,7 +53,7 @@ export function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block text-sm font-semibold text-slate-800 dark:text-slate-200">
+    <label className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
       <span>{label}</span>
       <div className="mt-1.5">{children}</div>
       {error ? (
@@ -64,7 +64,7 @@ export function Field({
 }
 
 export const inputClass =
-  "min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 shadow-2xs";
+  "min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 shadow-2xs";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
@@ -104,9 +104,9 @@ export function Tabs<T extends string>({
         return (
           <button
             aria-selected={selected}
-            className={`relative inline-flex min-h-11 shrink-0 items-center gap-2 px-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
+            className={`relative inline-flex min-h-10 shrink-0 items-center gap-2 px-3.5 text-xs sm:text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 ${
               selected
-                ? "text-emerald-600 dark:text-emerald-400 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-emerald-600 dark:after:bg-emerald-400 font-bold"
+                ? "text-sky-600 dark:text-sky-400 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-sky-600 dark:after:bg-sky-400 font-bold"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
             }`}
             id={`${baseId}-${item.value}`}
@@ -129,9 +129,9 @@ export function Tabs<T extends string>({
             {item.label}
             {typeof item.count === "number" ? (
               <span
-                className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold tabular-nums ${
+                className={`min-w-5 rounded-full px-1.5 py-0.2 text-center text-[10px] font-bold tabular-nums ${
                   selected
-                    ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300"
+                    ? "bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-300"
                     : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                 }`}
               >
@@ -220,7 +220,7 @@ export function Pagination({
           Số dòng
           <select
             aria-label={`Số ${itemLabel} mỗi trang`}
-            className="min-h-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            className="min-h-8.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 text-xs sm:text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
             onChange={(event) => onPageSizeChange(Number(event.target.value))}
             value={pageSize}
           >
@@ -235,21 +235,21 @@ export function Pagination({
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn trang">
         <button
           aria-label="Trang trước"
-          className="grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
+          className="grid size-8.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(currentPage - 1)}
           type="button"
         >
-          <ChevronLeft aria-hidden="true" size={16} />
+          <ChevronLeft aria-hidden="true" size={15} />
         </button>
         {visiblePages(currentPage, totalPages).map((item) =>
           typeof item === "number" ? (
             <button
               aria-current={item === currentPage ? "page" : undefined}
               aria-label={`Trang ${item}`}
-              className={`min-h-9 min-w-9 rounded-lg px-2 text-xs sm:text-sm font-semibold transition-colors ${
+              className={`min-h-8.5 min-w-8.5 rounded-lg px-2 text-xs sm:text-sm font-semibold transition-colors ${
                 item === currentPage
-                  ? "bg-emerald-600 text-white font-bold shadow-xs"
+                  ? "bg-sky-600 text-white font-bold shadow-xs"
                   : "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-2xs"
               }`}
               key={item}
@@ -261,7 +261,7 @@ export function Pagination({
           ) : (
             <span
               aria-hidden="true"
-              className="grid min-h-9 min-w-6 place-items-center text-xs text-slate-400 dark:text-slate-600"
+              className="grid min-h-8.5 min-w-5 place-items-center text-xs text-slate-400 dark:text-slate-600"
               key={item}
             >
               …
@@ -270,12 +270,12 @@ export function Pagination({
         )}
         <button
           aria-label="Trang sau"
-          className="grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
+          className="grid size-8.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(currentPage + 1)}
           type="button"
         >
-          <ChevronRight aria-hidden="true" size={16} />
+          <ChevronRight aria-hidden="true" size={15} />
         </button>
       </div>
     </nav>
@@ -331,7 +331,7 @@ function isolateModal(wrapper: HTMLElement) {
   };
 }
 
-/** Hộp thoại chuẩn tối giản, khóa cuộn, giữ focus và hỗ trợ phím Escape. */
+/** Hộp thoại chuẩn tối giản Sky Blue, khóa cuộn, giữ focus và hỗ trợ phím Escape. */
 export function Modal({
   open,
   title,
@@ -366,13 +366,11 @@ export function Modal({
     const releaseIsolation = dialog?.parentElement ? isolateModal(dialog.parentElement) : () => {};
     const frame = window.requestAnimationFrame(() => focusable?.focus());
 
-    /** Đưa focus bị chuyển ra nền về hộp thoại đang hoạt động. */
     const containFocus = (event: FocusEvent) => {
       if (!dialog || dialog.closest("[inert]") || dialog.contains(event.target as Node)) return;
       modalControls(dialog)[0]?.focus();
     };
 
-    /** Đóng modal bằng Escape trong khi vẫn để trình duyệt xử lý các phím khác. */
     const handleKeyDown = (event: KeyboardEvent) => {
       if (dialog?.closest("[inert]")) return;
       if (event.key === "Escape") {
@@ -436,7 +434,7 @@ export function Modal({
         >
           <X size={18} />
         </button>
-        <h2 className="pr-10 text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100" id={titleId}>
+        <h2 className="pr-10 text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100" id={titleId}>
           {title}
         </h2>
         {description ? (
@@ -490,7 +488,6 @@ export function FormattedTextarea({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const errorId = useId();
 
-  /** Bao vùng chọn bằng cú pháp định dạng rồi khôi phục focus/selection sau render. */
   const applyFormat = (action: FormatAction) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -524,14 +521,14 @@ export function FormattedTextarea({
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <label className="text-sm font-semibold text-slate-800 dark:text-slate-200" htmlFor={errorId}>
+        <label className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200" htmlFor={errorId}>
           {label}
         </label>
         <div aria-label={`Định dạng ${label.toLowerCase()}`} className="flex flex-wrap gap-1" role="toolbar">
           {controls.map((control) => (
             <button
               aria-label={control.label}
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
               disabled={disabled}
               key={control.action}
               onClick={() => applyFormat(control.action)}
@@ -593,7 +590,7 @@ export function StatusBadge({ status }: { status: string }) {
     : isNegative
       ? "border-rose-200/80 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
       : isPending
-        ? "border-amber-200/80 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
+        ? "border-sky-200/80 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400"
         : "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300";
 
   const dot = isPositive
@@ -601,7 +598,7 @@ export function StatusBadge({ status }: { status: string }) {
     : isNegative
       ? "bg-rose-500"
       : isPending
-        ? "bg-amber-500"
+        ? "bg-sky-500"
         : "bg-slate-400";
 
   const labels: Record<string, string> = {

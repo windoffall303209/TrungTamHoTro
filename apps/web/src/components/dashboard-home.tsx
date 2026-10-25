@@ -17,6 +17,7 @@ import {
   Sparkles,
   UserCheck,
   Users,
+  Compass,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -37,7 +38,7 @@ import { hasAnyPermission } from "@/lib/access-control";
 interface DashboardMetric {
   value: string;
   label: string;
-  color?: "emerald" | "sky" | "amber" | "indigo";
+  color?: "sky" | "cyan" | "amber" | "indigo";
 }
 
 interface HealthOverview {
@@ -47,151 +48,95 @@ interface HealthOverview {
 
 const roleContent: Record<RoleCode, { title: string; description: string }> = {
   SYSTEM_ADMIN: {
-    title: "Tình trạng vận hành",
-    description: "Theo dõi người dùng, cấu hình, tích hợp và sức khỏe toàn hệ thống.",
+    title: "Trung tâm Điều hành & Vận hành",
+    description: "Theo dõi tài khoản, phân quyền, cấu hình hệ thống và tình trạng hạ tầng.",
   },
   CENTER_MANAGER: {
-    title: "Vận hành trung tâm",
-    description: "Điều phối khóa học, lớp, giảng viên và tiến độ học tập.",
+    title: "Trung tâm Quản trị Đào tạo",
+    description: "Điều phối khóa học, quản lý lớp, phân công giảng viên và kiểm soát tiến độ.",
   },
   INSTRUCTOR: {
-    title: "Không gian giảng dạy",
-    description: "Quản lý học liệu, đánh giá, diễn đàn và các buổi học sắp tới.",
+    title: "Không gian Giảng dạy & Khảo thí",
+    description: "Tổ chức học liệu, soạn đề thi thông minh, chấm điểm và theo dõi lớp học.",
   },
   LEARNER: {
-    title: "Hôm nay của bạn",
-    description: "Theo dõi lịch học, học liệu mới và các bài cần hoàn thành.",
+    title: "Không gian Học tập Cá nhân",
+    description: "Theo dõi tiến độ học tập, làm bài thi, tham gia lớp học trực tuyến và trao đổi.",
   },
 };
 
 const modules = [
   {
+    href: "/courses",
+    name: "Khóa học & Lớp",
+    detail: "Quản lý chương trình đào tạo, lịch học và danh sách lớp học",
+    icon: GraduationCap,
+    permissions: ["course:view", "class:view"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+  },
+  {
+    href: "/exams",
+    name: "Đề thi & Khảo thí",
+    detail: "Soạn đề bằng AI, ngân hàng câu hỏi, tổ chức thi và chấm điểm",
+    icon: BookOpenCheck,
+    permissions: ["exam:view"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+  },
+  {
+    href: "/materials",
+    name: "Kho Học liệu Số",
+    detail: "Tài liệu giảng dạy, bài giảng đa phương tiện và tài nguyên môn học",
+    icon: Database,
+    permissions: ["material:view"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+  },
+  {
+    href: "/live-classes",
+    name: "Lớp học Online",
+    detail: "Phòng học trực tuyến, điểm danh tự động và video bản ghi",
+    icon: CalendarDays,
+    permissions: ["session:view"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+  },
+  {
+    href: "/forum",
+    name: "Diễn đàn Trao đổi",
+    detail: "Kênh thảo luận học tập, giải đáp thắc mắc và chia sẻ tri thức",
+    icon: MessageSquareText,
+    permissions: ["forum:view"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+  },
+  {
+    href: "/academic",
+    name: "Lịch & Bài tập",
+    detail: "Theo dõi thời khóa biểu, hạn nộp bài tập và lịch thi sắp tới",
+    icon: ListChecks,
+    permissions: ["class:view", "exam:view"],
+    roles: ["INSTRUCTOR", "LEARNER"],
+  },
+  {
     href: "/admin/users",
-    name: "Người dùng",
-    detail: "Tài khoản, trạng thái và phạm vi truy cập",
+    name: "Quản trị Người dùng",
+    detail: "Cấp phát tài khoản, phân quyền quản trị và quản lý học viên",
     icon: Users,
     permissions: ["user:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
   },
   {
-    href: "/admin/roles",
-    name: "Vai trò & quyền",
-    detail: "Ma trận quyền và lịch sử thay đổi",
-    icon: ShieldCheck,
-    permissions: ["role:view"],
-    roles: ["SYSTEM_ADMIN"],
-  },
-  {
     href: "/admin/settings",
-    name: "Cấu hình hệ thống",
-    detail: "Tích hợp, email và thiết lập dùng chung",
+    name: "Cấu hình Hệ thống",
+    detail: "Thiết lập nhà cung cấp AI, tích hợp lưu trữ và chính sách bảo mật",
     icon: Settings,
     permissions: ["system:configure"],
     roles: ["SYSTEM_ADMIN"],
   },
   {
-    href: "/admin/operations",
-    name: "Vận hành & tuân thủ",
-    detail: "Sao lưu, nhật ký và sức khỏe dịch vụ",
-    icon: ShieldEllipsis,
-    permissions: ["system:configure"],
-    roles: ["SYSTEM_ADMIN"],
-  },
-  {
-    href: "/courses",
-    name: "Khóa học & lớp",
-    detail: "Danh mục đào tạo và các lớp đang vận hành",
-    icon: GraduationCap,
-    permissions: ["course:view", "class:view"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
-    href: "/class-operations",
-    name: "Điều hành lớp",
-    detail: "Phân công giảng viên và ghi danh học viên",
-    icon: ListChecks,
-    permissions: ["class:manage"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
-    href: "/attendance",
-    name: "Giám sát điểm danh",
-    detail: "Đối soát buổi học và xử lý khiếu nại",
-    icon: UserCheck,
-    permissions: ["class:manage"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
     href: "/reports",
-    name: "Báo cáo vận hành",
-    detail: "Tiến độ lớp và học viên cần hỗ trợ",
-    icon: Database,
+    name: "Báo cáo Vận hành",
+    detail: "Phân tích số liệu học tập, tỷ lệ chuyên cần và đánh giá chất lượng",
+    icon: ShieldEllipsis,
     permissions: ["report:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
-    href: "/materials",
-    name: "Kho học liệu",
-    detail: "Tệp, phiên bản và quyền truy cập",
-    icon: Database,
-    permissions: ["material:view"],
-    roles: ["INSTRUCTOR", "LEARNER"],
-  },
-  {
-    href: "/questions",
-    name: "Ngân hàng câu hỏi",
-    detail: "Câu hỏi, ma trận đề thi và duyệt chất lượng",
-    icon: FileQuestion,
-    permissions: ["question:view"],
-    roles: ["INSTRUCTOR"],
-  },
-  {
-    href: "/exams",
-    name: "Đề thi & Khảo thí",
-    detail: "Tạo đề AI, tổ chức thi và chấm điểm",
-    icon: BookOpenCheck,
-    permissions: ["exam:view"],
-    roles: ["INSTRUCTOR"],
-  },
-  {
-    href: "/teaching-operations",
-    name: "Nghiệp vụ giảng dạy",
-    detail: "Chấm bài, điểm danh và bản ghi buổi học",
-    icon: Presentation,
-    permissions: ["question:manage", "exam:manage", "session:manage"],
-    roles: ["INSTRUCTOR"],
-  },
-  {
-    href: "/courses",
-    name: "Lớp của tôi",
-    detail: "Các lớp đang học và trạng thái ghi danh",
-    icon: GraduationCap,
-    permissions: ["class:view"],
-    roles: ["LEARNER"],
-  },
-  {
-    href: "/exams",
-    name: "Đề & kết quả",
-    detail: "Bài thi cần làm và kết quả đã công bố",
-    icon: BookOpenCheck,
-    permissions: ["exam:view"],
-    roles: ["LEARNER"],
-  },
-  {
-    href: "/forum",
-    name: "Diễn đàn",
-    detail: "Chủ đề thảo luận và giải đáp thắc mắc",
-    icon: MessageSquareText,
-    permissions: ["forum:view"],
-    roles: ["LEARNER", "INSTRUCTOR"],
-  },
-  {
-    href: "/live-classes",
-    name: "Lớp học online",
-    detail: "Lịch học trực tuyến, phòng học và bản ghi",
-    icon: CalendarDays,
-    permissions: ["session:view"],
-    roles: ["LEARNER", "INSTRUCTOR"],
   },
 ] satisfies Array<{
   href: string;
@@ -202,7 +147,7 @@ const modules = [
   roles: RoleCode[];
 }>;
 
-/** Tải song song bộ KPI phù hợp với từng vai trò. */
+/** Tải song song bộ KPI phù hợp với từng vai trò người dùng. */
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
@@ -212,14 +157,14 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     ]);
     const healthLabel =
       health.status === "healthy"
-        ? "Sẵn sàng"
+        ? "Ổn định"
         : health.status === "warning"
-          ? "Cần theo dõi"
+          ? "Cần chú ý"
           : "Suy giảm";
     return [
-      { value: String(users.active), label: "Tài khoản đang hoạt động", color: "emerald" },
-      { value: String(roles.length), label: "Vai trò được cấu hình", color: "sky" },
-      { value: healthLabel, label: `Dịch vụ hệ thống · DB ${health.database}`, color: "indigo" },
+      { value: String(users.active), label: "Tài khoản đang hoạt động", color: "sky" },
+      { value: String(roles.length), label: "Vai trò trong hệ thống", color: "cyan" },
+      { value: healthLabel, label: `Trạng thái máy chủ · DB ${health.database}`, color: "indigo" },
     ];
   }
 
@@ -231,13 +176,13 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     return [
       {
         value: String(classes.filter((item) => item.status === "ACTIVE").length),
-        label: "Lớp đang hoạt động",
-        color: "emerald",
+        label: "Lớp học đang mở",
+        color: "sky",
       },
-      { value: String(report.learners), label: "Học viên trong phạm vi", color: "sky" },
+      { value: String(report.learners), label: "Tổng số học viên", color: "cyan" },
       {
         value: String(report.openTickets + report.openReports),
-        label: "Yêu cầu vận hành đang mở",
+        label: "Yêu cầu cần xử lý",
         color: "amber",
       },
     ];
@@ -251,7 +196,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     ]);
     const now = Date.now();
     return [
-      { value: String(classes.length), label: "Lớp được phân công", color: "emerald" },
+      { value: String(classes.length), label: "Lớp phụ trách giảng dạy", color: "sky" },
       {
         value: String(
           gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0),
@@ -267,8 +212,8 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
               new Date(item.startsAt).getTime() > now,
           ).length,
         ),
-        label: "Buổi học online sắp tới",
-        color: "sky",
+        label: "Buổi dạy online sắp diễn ra",
+        color: "cyan",
       },
     ];
   }
@@ -293,12 +238,12 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   return [
     {
       value: String(classes.filter((item) => item.status === "ACTIVE").length),
-      label: "Lớp đang theo học",
-      color: "emerald",
+      label: "Lớp học tham gia",
+      color: "sky",
     },
     {
       value: String(actionableAssignments + actionableExams),
-      label: "Bài tập & đề thi cần làm",
+      label: "Nhiệm vụ & đề thi cần làm",
       color: "amber",
     },
     {
@@ -308,12 +253,12 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
             .length,
       ),
       label: "Kết quả đã công bố",
-      color: "sky",
+      color: "cyan",
     },
   ];
 }
 
-/** Dashboard tối giản, tinh gọn và phân cấp trực quan cho từng vai trò người dùng. */
+/** Dashboard tối giản hiện đại với giao diện Sky Blue dạng Command Center. */
 export function DashboardHome() {
   const { session } = useApp();
   const content = roleContent[session.roleCode];
@@ -354,38 +299,43 @@ export function DashboardHome() {
   }, [refresh]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8 space-y-8">
-      {/* Welcome Banner */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-            <Sparkles size={13} className="text-emerald-600 dark:text-emerald-400" />
-            <span>{session.user.roleName}</span>
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-8">
+      {/* Hero Welcome Banner Sky Blue */}
+      <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 dark:border-sky-800/60 bg-gradient-to-r from-sky-500/10 via-cyan-500/5 to-blue-500/10 dark:from-sky-950/40 dark:via-cyan-950/20 dark:to-blue-950/30 p-6 md:p-8 backdrop-blur-sm shadow-xs">
+        <div className="absolute right-0 top-0 -mr-10 -mt-10 size-60 rounded-full bg-sky-400/15 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-100/80 dark:bg-sky-900/40 border border-sky-200 dark:border-sky-800 px-3 py-0.5 text-xs font-bold text-sky-800 dark:text-sky-300">
+              <Sparkles size={13} className="text-sky-600 dark:text-sky-400" />
+              <span>{session.user.roleName}</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+              Xin chào, {session.user.name} 👋
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
+              {content.description}
+            </p>
           </div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            Xin chào, {session.user.name} 👋
-          </h1>
-          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
-            {content.description}
-          </p>
-        </div>
 
-        <button
-          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition-all hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-40"
-          disabled={loading}
-          onClick={() => void refresh()}
-          type="button"
-        >
-          <RefreshCw className={loading ? "animate-spin" : ""} size={14} />
-          Đồng bộ số liệu
-        </button>
+          <button
+            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition-all hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300 active:scale-95 disabled:opacity-40"
+            disabled={loading}
+            onClick={() => void refresh()}
+            type="button"
+          >
+            <RefreshCw className={loading ? "animate-spin" : ""} size={14} />
+            Làm mới số liệu
+          </button>
+        </div>
       </div>
 
-      {/* KPI Stats */}
+      {/* KPI Stats Grid */}
       <section aria-label="Chỉ số hoạt động" className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Chỉ số hoạt động trọng tâm
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            Chỉ số hoạt động trọng tâm
+          </h2>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           {loading ? (
             [0, 1, 2].map((item) => (
@@ -401,7 +351,7 @@ export function DashboardHome() {
             <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
               <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>
               <button
-                className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
+                className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
                 onClick={() => void refresh()}
                 type="button"
               >
@@ -413,18 +363,18 @@ export function DashboardHome() {
               const textAccent =
                 color === "amber"
                   ? "text-amber-600 dark:text-amber-400"
-                  : color === "sky"
-                    ? "text-sky-600 dark:text-sky-400"
+                  : color === "cyan"
+                    ? "text-cyan-600 dark:text-cyan-400"
                     : color === "indigo"
                       ? "text-indigo-600 dark:text-indigo-400"
-                      : "text-emerald-600 dark:text-emerald-400";
+                      : "text-sky-600 dark:text-sky-400";
 
               return (
                 <div
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-700"
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700/60"
                   key={label}
                 >
-                  <p className={`text-2xl md:text-3xl font-bold tracking-tight tabular-nums ${textAccent}`}>
+                  <p className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums ${textAccent}`}>
                     {value}
                   </p>
                   <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -441,38 +391,38 @@ export function DashboardHome() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               Phân hệ chức năng
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Truy cập nhanh vào các công cụ nghiệp vụ thường dùng.
+              Truy cập nhanh vào các công cụ học tập và quản trị.
             </p>
           </div>
-          <span className="hidden sm:inline-flex rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+          <span className="hidden sm:inline-flex rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
             {visibleModules.length} phân hệ khả dụng
           </span>
         </div>
 
-        <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visibleModules.map(({ href, name, detail, icon: Icon }) => (
             <Link
-              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4.5 shadow-xs transition-all duration-150 hover:border-emerald-500/60 dark:hover:border-emerald-500/40 hover:shadow-sm"
+              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
               href={href}
               key={href}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="grid size-9.5 place-items-center rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 group-hover:bg-emerald-600 group-hover:text-white transition-colors duration-150">
-                  <Icon size={18} />
+                <div className="grid size-10 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
+                  <Icon size={19} />
                 </div>
-                <div className="rounded-md p-1 text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-                  <ArrowUpRight size={16} />
+                <div className="rounded-md p-1 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                  <ArrowUpRight size={17} />
                 </div>
               </div>
-              <div className="mt-3.5">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+              <div className="mt-4">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
                   {name}
                 </h3>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
                   {detail}
                 </p>
               </div>
