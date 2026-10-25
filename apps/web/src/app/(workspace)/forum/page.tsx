@@ -1,8 +1,8 @@
 "use client";
 
-import { activeLocale } from "@/i18n/runtime";
 import {
   AlertCircle,
+  ArrowLeft,
   AtSign,
   Check,
   CheckCircle2,
@@ -13,16 +13,19 @@ import {
   FileText,
   Filter,
   Flag,
+  Heart,
   Lock,
   MessageCircle,
   MessageSquare,
   MessageSquareText,
+  MoreVertical,
   Paperclip,
   Pencil,
   Pin,
   Plus,
   Search,
   Send,
+  Share2,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -55,6 +58,7 @@ import type {
   ModerationContext,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { hasPermission } from "@/lib/access-control";
 
 const AVATAR_PALETTES = [
@@ -89,14 +93,50 @@ function getInitials(nameOrId: string): string {
   return cleaned.slice(0, 2).toUpperCase();
 }
 
-// Điều phối toàn bộ thảo luận lớp học, phản hồi theo luồng và kiểm duyệt nội dung an toàn.
+// Định dạng thời gian tương đối dễ đọc giống mạng xã hội.
+function formatRelativeTime(dateString: string, isEn: boolean): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHours = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSec < 60) return isEn ? "Just now" : "Vừa xong";
+  if (diffMin < 60) return isEn ? `${diffMin}m ago` : `${diffMin} phút trước`;
+  if (diffHours < 24) return isEn ? `${diffHours}h ago` : `${diffHours} giờ trước`;
+  if (diffDays < 7) return isEn ? `${diffDays}d ago` : `${diffDays} ngày trước`;
+  return date.toLocaleDateString(isEn ? "en-US" : "vi-VN", {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+// Định dạng tên tác giả hiển thị thân thiện từ mã định danh.
+function formatAuthorName(authorId: string, currentUserId: string, currentUserName: string): string {
+  if (authorId === currentUserId) return `${currentUserName} (Bạn)`;
+  if (authorId.startsWith("usr-")) {
+    const raw = authorId.replace("usr-", "").replace(/[-_]/g, " ");
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+  return authorId;
+}
+
+// Diễn đàn trao đổi dạng Feed mạng xã hội: danh sách tổng quan, bấm vào để xem chi tiết các bình luận.
 export default function ForumPage() {
   const { session, notify } = useApp();
+  const { t, locale } = useI18n();
+  const isEn = locale === "en-US";
   const searchParams = useSearchParams();
+
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const instructor = session.roleCode === "INSTRUCTOR";
   const learner = session.roleCode === "LEARNER";
-  const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "forum:moderate");
+  const manager =
+    ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
+    hasPermission(session, "forum:moderate");
 
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
@@ -104,11 +144,25 @@ export default function ForumPage() {
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
 
-  // Bộ lọc danh sách chủ đề
+  // Bộ lọc và tìm kiếm Feed
   const [classFilter, setClassFilter] = useState<string>("");
   const [topicSearch, setTopicSearch] = useState<string>("");
   const [topicTab, setTopicTab] = useState<"all" | "pinned" | "mine">("all");
   const [showReportsPanel, setShowReportsPanel] = useState(false);
+
+  // Trạng thái mở rộng bài viết dài ngoài Feed (Show more / Show less)
+  const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(new Set());
+
+  // Lưu trạng thái lượt thích bài viết cục bộ
+  const [likedTopicIds, setLikedTopicIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem("wind_edu_forum_likes");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   // Học liệu và phản hồi
   const materialSearch = useMaterialSearch(
@@ -118,15 +172,16 @@ export default function ForumPage() {
     session.user.id,
   );
   const materials = materialSearch.items;
+
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [post, setPost] = useState("");
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [showAttachDrawer, setShowAttachDrawer] = useState(false);
   const [showMentionDrawer, setShowMentionDrawer] = useState(false);
 
-  // Phản hồi và điều phối
+  // Phản hồi và kiểm duyệt
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
   const [editingPost, setEditingPost] = useState<ForumPost | null>(null);
   const [editBody, setEditBody] = useState("");
@@ -142,8 +197,9 @@ export default function ForumPage() {
   const [appealTarget, setAppealTarget] = useState<ContentReport | null>(null);
   const [appealReason, setAppealReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [activeMenuTopicId, setActiveMenuTopicId] = useState<string | null>(null);
 
-  // Form tạo chủ đề
+  // Form tạo bài viết / chủ đề mới
   const [form, setForm] = useState({
     classId: "",
     title: "",
@@ -152,7 +208,42 @@ export default function ForumPage() {
     isPinned: false,
   });
 
-  // Lọc chủ đề theo lớp, tìm kiếm từ khóa và tab
+  // Bật/tắt mở rộng nội dung bài dài trên Feed.
+  const toggleExpand = (topicId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    setExpandedPostIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(topicId)) next.delete(topicId);
+      else next.add(topicId);
+      return next;
+    });
+  };
+
+  // Thả tim/thích bài viết và lưu trạng thái vào storage.
+  const toggleLike = (topicId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    setLikedTopicIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(topicId)) next.delete(topicId);
+      else next.add(topicId);
+      try {
+        localStorage.setItem("wind_edu_forum_likes", JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Sao chép liên kết bài viết vào bộ nhớ tạm.
+  const copyShareLink = (topicId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    if (typeof window !== "undefined") {
+      const url = `${window.location.origin}/forum?topicId=${encodeURIComponent(topicId)}`;
+      void navigator.clipboard.writeText(url);
+      notify(t("Đã sao chép liên kết"));
+    }
+  };
+
+  // Lọc bài viết theo lớp, từ khóa tìm kiếm và tab chuyên mục.
   const filteredTopics = useMemo(() => {
     return topics.filter((topic) => {
       if (classFilter && topic.classId !== classFilter) return false;
@@ -169,26 +260,18 @@ export default function ForumPage() {
     });
   }, [topics, classFilter, topicTab, topicSearch, session.user.id]);
 
-  const topicPagination = usePagination(filteredTopics, 8);
-  const postPagination = usePagination(posts, 15);
+  const topicPagination = usePagination(filteredTopics, 10);
 
-  // Nạp các lớp học, danh sách chủ đề và báo cáo kiểm duyệt từ API.
+  // Nạp toàn bộ dữ liệu diễn đàn từ máy chủ.
   const load = useCallback(async () => {
     if (!allowed) return;
     setLoading(true);
-    setTopics([]);
-    setSelected(null);
-    setPosts([]);
     try {
       const [topicData, classData, reportData] = await Promise.all([
-        apiRequest<ForumTopic[]>("/forum/topics", {
-          roleCode: session.roleCode,
-        }),
+        apiRequest<ForumTopic[]>("/forum/topics", { roleCode: session.roleCode }),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
         manager
-          ? apiRequest<ContentReport[]>("/manager/forum/reports", {
-              roleCode: session.roleCode,
-            })
+          ? apiRequest<ContentReport[]>("/manager/forum/reports", { roleCode: session.roleCode })
           : learner
             ? apiRequest<ContentReport[]>("/learner/content-reports", { roleCode: session.roleCode })
             : Promise.resolve([]),
@@ -196,16 +279,20 @@ export default function ForumPage() {
       setTopics(topicData);
       setClasses(classData);
       setReports(reportData);
+
       const requestedClassId = searchParams.get("classId");
       if (requestedClassId && classData.some((item) => item.id === requestedClassId)) {
         setForm((current) => ({ ...current, classId: requestedClassId }));
         setClassFilter(requestedClassId);
       }
+
+      const requestedTopicId = searchParams.get("topicId");
+      if (requestedTopicId) {
+        const found = topicData.find((t) => t.id === requestedTopicId);
+        if (found) void choose(found);
+      }
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được diễn đàn.",
-        "error",
-      );
+      notify(error instanceof Error ? error.message : "Không tải được diễn đàn.", "error");
     } finally {
       setLoading(false);
     }
@@ -216,40 +303,47 @@ export default function ForumPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  // Chọn một chủ đề và nạp toàn bộ danh sách phản hồi theo luồng.
-  const choose = useCallback(async (topic: ForumTopic) => {
-    setSelected(topic);
-    setAttachmentIds([]);
-    setMentionedUserIds([]);
+  // Mở chi tiết một bài viết để đọc và bình luận.
+  const choose = useCallback(
+    async (topic: ForumTopic) => {
+      setSelected(topic);
+      setAttachmentIds([]);
+      setMentionedUserIds([]);
+      setReplyTo(null);
+      setShowAttachDrawer(false);
+      setShowMentionDrawer(false);
+      try {
+        setPosts(
+          await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
+            roleCode: session.roleCode,
+          }),
+        );
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Không tải được thảo luận.", "error");
+      }
+    },
+    [notify, session.roleCode],
+  );
+
+  // Quay lại màn hình Feed tổng quan.
+  const backToFeed = () => {
+    setSelected(null);
+    setPosts([]);
     setReplyTo(null);
-    setShowAttachDrawer(false);
-    setShowMentionDrawer(false);
-    try {
-      setPosts(
-        await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
-          roleCode: session.roleCode,
-        }),
-      );
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được thảo luận.",
-        "error",
-      );
-    }
-  }, [notify, session.roleCode]);
+    setPost("");
+  };
 
-  useEffect(() => {
-    const requestedClassId = searchParams.get("classId");
-    const firstTopic = topics.find((topic) => topic.classId === requestedClassId) ?? topics[0];
-    if (!selected && firstTopic) {
-      const timer = window.setTimeout(() => void choose(firstTopic), 0);
-      return () => window.clearTimeout(timer);
-    }
-  }, [choose, searchParams, selected, topics]);
-
-  // Tạo chủ đề thảo luận mới và đồng bộ lại danh sách.
+  // Tạo và xuất bản bài viết mới.
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!form.classId) {
+      notify("Vui lòng chọn lớp học để đăng bài.", "error");
+      return;
+    }
+    if (!form.title.trim() || !form.body.trim()) {
+      notify("Vui lòng nhập đầy đủ tiêu đề và nội dung.", "error");
+      return;
+    }
     try {
       const actorPath = learner ? "learner" : "instructor";
       await apiRequest(`/${actorPath}/classes/${form.classId}/forum/topics`, {
@@ -264,19 +358,16 @@ export default function ForumPage() {
             .filter(Boolean),
         }),
       });
-      notify("Đã mở chủ đề thảo luận.");
-      setOpen(false);
+      notify("Đã đăng bài viết thành công.");
+      setComposerOpen(false);
       setForm({ classId: "", title: "", body: "", tags: "", isPinned: false });
       await load();
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tạo được chủ đề.",
-        "error",
-      );
+      notify(error instanceof Error ? error.message : "Không tạo được bài viết.", "error");
     }
   };
 
-  // Đăng bài viết hoặc phản hồi lồng nhau vào chủ đề đang chọn.
+  // Gửi bình luận hoặc phản hồi vào bài viết chi tiết.
   const createPost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !post.trim()) return;
@@ -297,17 +388,14 @@ export default function ForumPage() {
       setReplyTo(null);
       setShowAttachDrawer(false);
       setShowMentionDrawer(false);
-      notify(replyTo ? "Đã gửi phản hồi theo luồng." : "Đã gửi bình luận.");
+      notify(replyTo ? "Đã gửi phản hồi." : "Đã gửi bình luận.");
       await choose(selected);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không gửi được bình luận.",
-        "error",
-      );
+      notify(error instanceof Error ? error.message : "Không gửi được bình luận.", "error");
     }
   };
 
-  // Lưu nội dung chỉnh sửa phản hồi của chính tác giả.
+  // Cập nhật nội dung bình luận đang chỉnh sửa.
   const updatePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingPost || !selected) return;
@@ -319,14 +407,14 @@ export default function ForumPage() {
       });
       setEditingPost(null);
       setEditBody("");
-      notify("Đã sửa phản hồi và lưu lịch sử phiên bản.");
+      notify("Đã cập nhật bình luận.");
       await choose(selected);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không sửa được phản hồi.", "error");
+      notify(error instanceof Error ? error.message : "Không sửa được bình luận.", "error");
     }
   };
 
-  // Xóa mềm phản hồi khỏi luồng thảo luận.
+  // Xóa bình luận khỏi bài viết.
   const deletePost = async (item: ForumPost) => {
     if (!selected) return;
     try {
@@ -334,14 +422,14 @@ export default function ForumPage() {
         method: "POST",
         roleCode: session.roleCode,
       });
-      notify("Đã xóa mềm phản hồi; cấu trúc hội thoại vẫn được giữ.");
+      notify("Đã xóa bình luận.");
       await choose(selected);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không xóa được phản hồi.", "error");
+      notify(error instanceof Error ? error.message : "Không xóa được bình luận.", "error");
     }
   };
 
-  // Thực hiện hành động ghim hoặc khóa chủ đề có ghi nhận lý do kiểm duyệt.
+  // Ghim hoặc khóa chủ đề có ghi nhận audit log.
   const moderateTopic = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !topicAction) return;
@@ -355,13 +443,13 @@ export default function ForumPage() {
       setTopics((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setTopicAction(null);
       setTopicReason("");
-      notify("Đã cập nhật trạng thái chủ đề và lưu audit log.");
+      notify("Đã cập nhật trạng thái bài viết.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không điều phối được chủ đề.", "error");
+      notify(error instanceof Error ? error.message : "Không điều phối được bài viết.", "error");
     }
   };
 
-  // Ẩn phản hồi vi phạm nguyên tắc cộng đồng kèm lý do giải trình.
+  // Ẩn bình luận vi phạm nguyên tắc cộng đồng.
   const hidePost = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!hideTarget || !selected) return;
@@ -373,14 +461,14 @@ export default function ForumPage() {
       });
       setHideTarget(null);
       setHideReason("");
-      notify("Đã ẩn phản hồi và ghi nhận lý do kiểm duyệt.");
+      notify("Đã ẩn bình luận vi phạm.");
       await choose(selected);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không ẩn được phản hồi.", "error");
+      notify(error instanceof Error ? error.message : "Không ẩn được bình luận.", "error");
     }
   };
 
-  // Báo cáo nội dung không phù hợp lên ban quản trị.
+  // Báo cáo nội dung bài viết vi phạm lên ban quản lý.
   const report = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reportTarget) return;
@@ -395,18 +483,15 @@ export default function ForumPage() {
           details: reportForm.details,
         }),
       });
-      notify("Đã gửi báo cáo tới ban quản trị.");
+      notify("Đã gửi báo cáo vi phạm.");
       setReportTarget(null);
       setReportForm({ reason: "Nội dung không phù hợp", details: "" });
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không gửi được báo cáo.",
-        "error",
-      );
+      notify(error instanceof Error ? error.message : "Không gửi được báo cáo.", "error");
     }
   };
 
-  // Mở chi tiết hồ sơ kiểm duyệt nội dung của người quản lý.
+  // Mở hồ sơ xử lý báo cáo kiểm duyệt của quản lý.
   const openModeration = async (item: ContentReport) => {
     try {
       setSubmitting(true);
@@ -431,7 +516,7 @@ export default function ForumPage() {
     }
   };
 
-  // Ban hành quyết định xử lý báo cáo kiểm duyệt.
+  // Lưu quyết định xử lý báo cáo kiểm duyệt.
   const resolve = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!moderationTarget) return;
@@ -445,7 +530,7 @@ export default function ForumPage() {
       notify(
         moderationForm.action === "ESCALATE_ADMIN"
           ? "Đã chuyển cấp quản trị hệ thống."
-          : "Đã lưu kết quả kiểm duyệt và gửi thông báo.",
+          : "Đã ban hành quyết định kiểm duyệt.",
       );
       setModerationTarget(null);
       setModerationContext(null);
@@ -457,7 +542,7 @@ export default function ForumPage() {
     }
   };
 
-  // Gửi đơn kháng nghị về quyết định xử phạt nội dung.
+  // Gửi đơn kháng nghị về quyết định xử lý kiểm duyệt.
   const appeal = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!appealTarget) return;
@@ -468,7 +553,7 @@ export default function ForumPage() {
         roleCode: session.roleCode,
         body: JSON.stringify({ reason: appealReason }),
       });
-      notify("Đã gửi kháng nghị để ban quản lý rà soát lại.");
+      notify("Đã gửi kháng nghị để ban quản lý xem xét lại.");
       setAppealTarget(null);
       setAppealReason("");
       await load();
@@ -479,15 +564,21 @@ export default function ForumPage() {
     }
   };
 
-  // Bật tắt đính kèm một học liệu vào danh sách tệp đính kèm.
-  const toggleAttachment = (id: string) => {
-    setAttachmentIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
-  };
-
-  // Bật tắt nhắc tên một người dùng trong danh sách nhắc.
-  const toggleMention = (userId: string) => {
-    setMentionedUserIds((prev) => (prev.includes(userId) ? prev.filter((item) => item !== userId) : [...prev, userId]));
-  };
+  // Phân chia bình luận gốc và các phản hồi lồng nhau.
+  const { rootPosts, repliesByParent } = useMemo(() => {
+    const roots: ForumPost[] = [];
+    const replies = new Map<string, ForumPost[]>();
+    for (const p of posts) {
+      if (p.parentId) {
+        const list = replies.get(p.parentId) ?? [];
+        list.push(p);
+        replies.set(p.parentId, list);
+      } else {
+        roots.push(p);
+      }
+    }
+    return { rootPosts: roots, repliesByParent: replies };
+  }, [posts]);
 
   const selectedClass = classes.find((c) => c.id === selected?.classId);
   const classMembers = useMemo(() => {
@@ -503,7 +594,7 @@ export default function ForumPage() {
   if (!allowed) return <AccessDenied />;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 md:py-8 space-y-6">
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 md:py-8 space-y-6">
       {/* Tiêu đề trang chính */}
       <PageHeader
         eyebrow="Community Learning"
@@ -515,16 +606,16 @@ export default function ForumPage() {
               <Button
                 onClick={() => setShowReportsPanel(!showReportsPanel)}
                 variant={showReportsPanel ? "primary" : "secondary"}
-                className="h-10 text-xs sm:text-sm"
+                className="h-9.5 text-xs sm:text-sm"
               >
                 <ShieldAlert size={15} />
-                Báo cáo ({pendingReportsCount})
+                {t("Báo cáo")} ({pendingReportsCount})
               </Button>
             ) : null}
-            {instructor || learner ? (
-              <Button onClick={() => setOpen(true)} className="h-10 text-xs sm:text-sm">
+            {!selected && (instructor || learner) ? (
+              <Button onClick={() => setComposerOpen(true)} className="h-9.5 text-xs sm:text-sm">
                 <Plus size={16} />
-                Mở chủ đề mới
+                {t("Đăng bài")}
               </Button>
             ) : null}
           </div>
@@ -543,10 +634,10 @@ export default function ForumPage() {
             </div>
             <button
               onClick={() => setShowReportsPanel(false)}
-              className="text-xs text-rose-700 dark:text-rose-300 hover:underline"
+              className="text-xs text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
               type="button"
             >
-              Thu gọn
+              {t("Thu gọn")}
             </button>
           </div>
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -582,106 +673,629 @@ export default function ForumPage() {
         </section>
       ) : null}
 
-      {/* Thông báo báo cáo dành cho Học viên */}
-      {learner && reports.length > 0 ? (
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Flag size={14} className="text-rose-500" />
-              Bạn có {reports.length} báo cáo nội dung đã gửi
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {reports.slice(0, 3).map((item) => (
+      {/* CHẾ ĐỘ 1: XEM CHI TIẾT BÀI VIẾT & CÁC BÌNH LUẬN (THREAD VIEW GIỐNG X / FACEBOOK) */}
+      {selected ? (
+        <div className="space-y-6">
+          {/* Nút quay lại dòng tin tổng quan */}
+          <button
+            onClick={backToFeed}
+            className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-sky-600 hover:text-sky-700 dark:text-sky-400 transition-colors cursor-pointer group"
+            type="button"
+          >
+            <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-1" />
+            <span>{t("Quay lại danh sách bài viết")}</span>
+          </button>
+
+          {/* Thẻ bài viết chính (Focus Card) */}
+          <article className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs space-y-4">
+            {/* Header bài viết */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <div
-                  key={item.id}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 text-xs border border-slate-200 dark:border-slate-800"
+                  className={`grid size-11 place-items-center rounded-full text-sm font-bold shadow-2xs ${getAvatarPalette(
+                    selected.authorId,
+                  )}`}
                 >
-                  <span className="truncate max-w-[120px]">{item.reason}</span>
-                  <StatusBadge status={item.status} />
-                  {["RESOLVED", "REJECTED"].includes(item.status) && !item.appealedAt ? (
+                  {getInitials(formatAuthorName(selected.authorId, session.user.id, session.user.name))}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">
+                      {formatAuthorName(selected.authorId, session.user.id, session.user.name)}
+                    </span>
+                    <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300">
+                      {selectedClass ? `${selectedClass.code} · ${selectedClass.name}` : "Lớp học"}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    {formatRelativeTime(selected.createdAt, isEn)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Badges & Actions */}
+              <div className="flex items-center gap-1.5">
+                {selected.isPinned ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">
+                    <Pin size={11} /> {t("Bài ghim")}
+                  </span>
+                ) : null}
+                {selected.isLocked ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-600 dark:text-slate-400">
+                    <Lock size={11} /> {t("Chủ đề đã bị khóa bình luận")}
+                  </span>
+                ) : null}
+
+                {/* Quản lý chủ đề */}
+                {instructor || manager ? (
+                  <div className="flex items-center gap-1 ml-1">
                     <button
-                      className="text-xs font-semibold text-sky-600 hover:underline"
-                      onClick={() => setAppealTarget(item)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      onClick={() =>
+                        setTopicAction({
+                          isPinned: !selected.isPinned,
+                          label: selected.isPinned ? "Bỏ ghim" : "Ghim bài",
+                        })
+                      }
+                      title={selected.isPinned ? "Bỏ ghim bài" : "Ghim lên đầu diễn đàn"}
                       type="button"
                     >
-                      Kháng nghị
+                      <Pin size={15} className={selected.isPinned ? "text-amber-500 fill-amber-500" : ""} />
                     </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
+                    <button
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      onClick={() =>
+                        setTopicAction({
+                          isLocked: !selected.isLocked,
+                          label: selected.isLocked ? "Mở khóa bình luận" : "Khóa bình luận",
+                        })
+                      }
+                      title={selected.isLocked ? "Mở khóa thảo luận" : "Khóa thảo luận"}
+                      type="button"
+                    >
+                      {selected.isLocked ? <Unlock size={15} /> : <Lock size={15} />}
+                    </button>
+                  </div>
+                ) : null}
 
-      {/* Bố cục chính 2 cột: Danh sách chủ đề bên trái, Luồng thảo luận bên phải */}
-      <SectionState loading={loading} empty={topics.length === 0} emptyTitle="Chưa có chủ đề thảo luận" emptyDescription="Hãy mở chủ đề mới để bắt đầu trao đổi với giảng viên và các bạn học trong lớp.">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* CỘT TRÁI: Bộ lọc và danh sách chủ đề */}
-          <aside className="lg:col-span-5 xl:col-span-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-4">
-            {/* Lọc theo lớp học */}
+                {selected.authorId !== session.user.id ? (
+                  <button
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    onClick={() => setReportTarget(selected)}
+                    title="Báo cáo vi phạm"
+                    type="button"
+                  >
+                    <Flag size={15} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Tiêu đề & Nội dung đầy đủ */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                Chọn lớp học
-              </label>
-              <select
-                className={`${inputClass} text-xs sm:text-sm`}
-                onChange={(e) => {
-                  setClassFilter(e.target.value);
-                  topicPagination.resetPage();
-                }}
-                value={classFilter}
-              >
-                <option value="">Tất cả các lớp ({topics.length} chủ đề)</option>
-                {classes.map((cls) => {
-                  const count = topics.filter((t) => t.classId === cls.id).length;
-                  return (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.code} — {cls.name} ({count})
-                    </option>
-                  );
-                })}
-              </select>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                {selected.title}
+              </h1>
+              <div className="mt-3 text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-line">
+                {selected.body}
+              </div>
             </div>
 
-            {/* Ô tìm kiếm chủ đề */}
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-              <input
-                className={`${inputClass} pl-9 text-xs sm:text-sm`}
-                placeholder="Tìm chủ đề, #tag, nội dung…"
-                value={topicSearch}
-                onChange={(e) => {
-                  setTopicSearch(e.target.value);
-                  topicPagination.resetPage();
-                }}
-              />
-              {topicSearch ? (
+            {/* Tags bài viết */}
+            {selected.tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                {selected.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Thanh tương tác dưới bài viết chi tiết */}
+            <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
+              <div className="flex items-center gap-4">
                 <button
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setTopicSearch("")}
                   type="button"
+                  onClick={(e) => toggleLike(selected.id, e)}
+                  className={`inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
+                    likedTopicIds.has(selected.id)
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-slate-500 hover:text-rose-600 dark:text-slate-400"
+                  }`}
+                >
+                  <Heart
+                    size={16}
+                    className={likedTopicIds.has(selected.id) ? "fill-rose-500 text-rose-500" : ""}
+                  />
+                  <span>
+                    {likedTopicIds.has(selected.id) ? t("Đã thích") : t("Thích")} (
+                    {(selected.tags.length * 3 + selected.title.length % 7) +
+                      (likedTopicIds.has(selected.id) ? 1 : 0)}
+                    )
+                  </span>
+                </button>
+
+                <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-sky-600 dark:text-sky-400">
+                  <MessageCircle size={16} />
+                  <span>
+                    {posts.length} {t("bình luận")}
+                  </span>
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => copyShareLink(selected.id, e)}
+                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 hover:text-sky-600 dark:text-slate-400 transition-colors cursor-pointer"
+              >
+                <Share2 size={15} />
+                <span>{t("Chia sẻ")}</span>
+              </button>
+            </div>
+          </article>
+
+          {/* KHUNG SOẠN BÌNH LUẬN (COMMENT COMPOSER) */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs space-y-3">
+            {replyTo ? (
+              <div className="flex items-center justify-between rounded-lg bg-sky-50 dark:bg-sky-950/50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300 border border-sky-100 dark:border-sky-900/40">
+                <span className="flex items-center gap-1.5">
+                  <CornerDownRight size={13} />
+                  {t("Đang trả lời")} @{formatAuthorName(replyTo.authorId, session.user.id, session.user.name)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setReplyTo(null)}
+                  className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   <X size={14} />
                 </button>
-              ) : null}
+              </div>
+            ) : null}
+
+            {selected.isLocked ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-xs sm:text-sm font-semibold text-slate-500">
+                <Lock size={15} />
+                <span>{t("Chủ đề đã bị khóa bình luận")}</span>
+              </div>
+            ) : (
+              <form onSubmit={createPost} className="space-y-3">
+                <div className="flex gap-3">
+                  <div
+                    className={`grid size-9 shrink-0 place-items-center rounded-full text-xs font-bold ${getAvatarPalette(
+                      session.user.id,
+                    )}`}
+                  >
+                    {getInitials(session.user.name)}
+                  </div>
+                  <div className="flex-1">
+                    <textarea
+                      rows={replyTo ? 2 : 3}
+                      className={`${inputClass} resize-y text-xs sm:text-sm`}
+                      placeholder={
+                        replyTo
+                          ? `Viết phản hồi cho @${formatAuthorName(replyTo.authorId, session.user.id, session.user.name)}…`
+                          : t("Viết bình luận của bạn...")
+                      }
+                      value={post}
+                      onChange={(e) => setPost(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Toolbar đính kèm & submit */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    {materials.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAttachDrawer(!showAttachDrawer)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                          attachmentIds.length
+                            ? "bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300"
+                            : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <Paperclip size={13} />
+                        <span>Học liệu ({attachmentIds.length})</span>
+                      </button>
+                    ) : null}
+
+                    {classMembers.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowMentionDrawer(!showMentionDrawer)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                          mentionedUserIds.length
+                            ? "bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300"
+                            : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <AtSign size={13} />
+                        <span>Nhắc tên ({mentionedUserIds.length})</span>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <Button type="submit" disabled={!post.trim()} className="h-8.5 text-xs font-semibold">
+                    <Send size={13} />
+                    {replyTo ? "Trả lời" : t("Gửi bình luận")}
+                  </Button>
+                </div>
+
+                {/* Danh sách đính kèm học liệu nhanh */}
+                {showAttachDrawer && materials.length > 0 ? (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 max-h-40 overflow-y-auto space-y-1.5">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase">Chọn tài liệu đính kèm:</p>
+                    {materials.map((mat) => (
+                      <label key={mat.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={attachmentIds.includes(mat.id)}
+                          onChange={() => {
+                            setAttachmentIds((prev) =>
+                              prev.includes(mat.id) ? prev.filter((id) => id !== mat.id) : [...prev, mat.id],
+                            );
+                          }}
+                          className="rounded text-sky-600"
+                        />
+                        <span className="truncate">{mat.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </form>
+            )}
+          </div>
+
+          {/* DÒNG THẢO LUẬN / BÌNH LUẬN (THREAD TIMELINE) */}
+          <section aria-label="Bình luận thảo luận" className="space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                {t("Bình luận")} ({posts.length})
+              </h2>
             </div>
 
-            {/* Các tab lọc nhanh */}
-            <div className="flex gap-1.5 border-b border-slate-100 dark:border-slate-800 pb-2">
+            {rootPosts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center space-y-2">
+                <MessageSquare className="mx-auto text-slate-300 dark:text-slate-700" size={32} />
+                <p className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400">
+                  {t("Chưa có bình luận nào. Hãy là người đầu tiên tham gia thảo luận!")}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {rootPosts.map((root) => {
+                  const replies = repliesByParent.get(root.id) ?? [];
+                  const isAuthor = root.authorId === session.user.id;
+                  const isEditing = editingPost?.id === root.id;
+
+                  return (
+                    <div
+                      key={root.id}
+                      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-2xs space-y-3"
+                    >
+                      {/* Comment Header */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`grid size-8 place-items-center rounded-full text-xs font-bold ${getAvatarPalette(
+                              root.authorId,
+                            )}`}
+                          >
+                            {getInitials(formatAuthorName(root.authorId, session.user.id, session.user.name))}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
+                                {formatAuthorName(root.authorId, session.user.id, session.user.name)}
+                              </span>
+                              {root.authorId === selected.authorId ? (
+                                <span className="inline-flex rounded bg-sky-50 dark:bg-sky-950 px-1.5 py-0.2 text-[9px] font-bold text-sky-700 dark:text-sky-300">
+                                  Tác giả bài viết
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {formatRelativeTime(root.createdAt, isEn)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Mod/Author Actions */}
+                        <div className="flex items-center gap-1">
+                          {!selected.isLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyTo(root);
+                                window.scrollTo({ top: 400, behavior: "smooth" });
+                              }}
+                              className="px-2 py-1 text-xs font-semibold text-slate-500 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+                            >
+                              Trả lời
+                            </button>
+                          ) : null}
+
+                          {isAuthor ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPost(root);
+                                  setEditBody(root.body);
+                                }}
+                                className="p-1 text-slate-400 hover:text-sky-600 rounded"
+                                title="Sửa bình luận"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deletePost(root)}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                title="Xóa bình luận"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          ) : null}
+
+                          {(instructor || manager) && !isAuthor ? (
+                            <button
+                              type="button"
+                              onClick={() => setHideTarget(root)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                              title="Ẩn bình luận vi phạm"
+                            >
+                              <EyeOff size={13} />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {/* Comment Body or Edit form */}
+                      {isEditing ? (
+                        <form onSubmit={updatePost} className="space-y-2 pt-1">
+                          <textarea
+                            rows={3}
+                            className={`${inputClass} text-xs sm:text-sm`}
+                            value={editBody}
+                            onChange={(e) => setEditBody(e.target.value)}
+                          />
+                          <div className="flex gap-2 justify-end">
+                            <Button
+                              variant="ghost"
+                              onClick={() => setEditingPost(null)}
+                              className="h-8 text-xs"
+                            >
+                              Hủy
+                            </Button>
+                            <Button type="submit" className="h-8 text-xs font-semibold">
+                              Lưu thay đổi
+                            </Button>
+                          </div>
+                        </form>
+                      ) : (
+                        <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line pl-10">
+                          {root.body}
+                        </p>
+                      )}
+
+                      {/* Phản hồi lồng nhau (Replies thread) */}
+                      {replies.length > 0 ? (
+                        <div className="ml-6 pl-4 border-l-2 border-sky-100 dark:border-slate-800 space-y-3 pt-2">
+                          {replies.map((reply) => {
+                            const isReplyAuthor = reply.authorId === session.user.id;
+                            return (
+                              <div key={reply.id} className="space-y-1.5 bg-slate-50/50 dark:bg-slate-800/30 p-2.5 rounded-xl">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`grid size-6 place-items-center rounded-full text-[10px] font-bold ${getAvatarPalette(
+                                        reply.authorId,
+                                      )}`}
+                                    >
+                                      {getInitials(formatAuthorName(reply.authorId, session.user.id, session.user.name))}
+                                    </div>
+                                    <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                                      {formatAuthorName(reply.authorId, session.user.id, session.user.name)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {formatRelativeTime(reply.createdAt, isEn)}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    {isReplyAuthor ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void deletePost(reply)}
+                                        className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                        title="Xóa phản hồi"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    ) : null}
+                                    {(instructor || manager) && !isReplyAuthor ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setHideTarget(reply)}
+                                        className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                        title="Ẩn phản hồi vi phạm"
+                                      >
+                                        <EyeOff size={12} />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line pl-8">
+                                  {reply.body}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        /* CHẾ ĐỘ 2: BẢNG TIN TỔNG QUAN DẠNG FEED (X / FACEBOOK TIMELINE) */
+        <div className="space-y-5">
+          {/* HỘP SOẠN BÀI NHANH (QUICK POST COMPOSER) */}
+          {instructor || learner ? (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs transition-all">
+              {!composerOpen ? (
+                <div
+                  onClick={() => setComposerOpen(true)}
+                  className="flex items-center gap-3 cursor-pointer group"
+                >
+                  <div
+                    className={`grid size-10 place-items-center rounded-full text-xs font-bold shrink-0 ${getAvatarPalette(
+                      session.user.id,
+                    )}`}
+                  >
+                    {getInitials(session.user.name)}
+                  </div>
+                  <div className="flex-1 rounded-full border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 px-4 py-2.5 text-xs sm:text-sm text-slate-400 group-hover:border-sky-300 dark:group-hover:border-slate-700 transition-colors">
+                    {t("Bạn muốn chia sẻ điều gì?")}
+                  </div>
+                  <Button className="h-9.5 text-xs sm:text-sm font-semibold rounded-full px-4">
+                    <Plus size={15} />
+                    {t("Đăng bài")}
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={createTopic} className="space-y-3.5">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <MessageSquareText size={16} className="text-sky-600" />
+                      Tạo bài viết thảo luận mới
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setComposerOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Chọn lớp học *
+                      </label>
+                      <select
+                        className={`${inputClass} text-xs`}
+                        value={form.classId}
+                        onChange={(e) => setForm({ ...form, classId: e.target.value })}
+                        required
+                      >
+                        <option value="">-- Chọn lớp thảo luận --</option>
+                        {classes.map((cls) => (
+                          <option key={cls.id} value={cls.id}>
+                            {cls.code} — {cls.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Hashtag (cách nhau bởi dấu phẩy)
+                      </label>
+                      <input
+                        className={`${inputClass} text-xs`}
+                        placeholder="baitap, thacmac, thi..."
+                        value={form.tags}
+                        onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Tiêu đề bài viết *
+                    </label>
+                    <input
+                      className={`${inputClass} text-xs sm:text-sm font-semibold`}
+                      placeholder="Tiêu đề thảo luận ngắn gọn, trọng tâm..."
+                      value={form.title}
+                      onChange={(e) => setForm({ ...form, title: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Nội dung chi tiết *
+                    </label>
+                    <textarea
+                      rows={4}
+                      className={`${inputClass} text-xs sm:text-sm resize-y`}
+                      placeholder={t("Viết nội dung bài viết...")}
+                      value={form.body}
+                      onChange={(e) => setForm({ ...form, body: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                    {instructor || manager ? (
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.isPinned}
+                          onChange={(e) => setForm({ ...form, isPinned: e.target.checked })}
+                          className="rounded text-sky-600"
+                        />
+                        <span>Ghim bài lên đầu diễn đàn</span>
+                      </label>
+                    ) : (
+                      <span />
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button variant="ghost" onClick={() => setComposerOpen(false)} className="h-9 text-xs">
+                        Hủy
+                      </Button>
+                      <Button type="submit" className="h-9 text-xs font-semibold">
+                        <Send size={14} />
+                        {t("Đăng bài")}
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : null}
+
+          {/* THANH ĐIỀU HƯỚNG VÀ LỌC BẢNG TIN */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Tabs lọc nhanh */}
+            <div className="flex gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 w-fit">
               <button
                 type="button"
                 onClick={() => {
                   setTopicTab("all");
                   topicPagination.resetPage();
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   topicTab === "all"
-                    ? "bg-sky-600 text-white shadow-2xs font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    ? "bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                Tất cả ({topics.length})
+                {t("Tất cả bài viết")} ({topics.length})
               </button>
               <button
                 type="button"
@@ -689,14 +1303,14 @@ export default function ForumPage() {
                   setTopicTab("pinned");
                   topicPagination.resetPage();
                 }}
-                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   topicTab === "pinned"
-                    ? "bg-sky-600 text-white shadow-2xs font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    ? "bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
                 <Pin size={12} />
-                Ghim ({pinnedTopicsCount})
+                {t("Bài ghim")} ({pinnedTopicsCount})
               </button>
               <button
                 type="button"
@@ -704,913 +1318,440 @@ export default function ForumPage() {
                   setTopicTab("mine");
                   topicPagination.resetPage();
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   topicTab === "mine"
-                    ? "bg-sky-600 text-white shadow-2xs font-bold"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    ? "bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                Của tôi ({myTopicsCount})
+                {t("Bài của tôi")} ({myTopicsCount})
               </button>
             </div>
 
-            {/* Danh sách thẻ chủ đề */}
-            <div className="space-y-2">
-              {topicPagination.pageItems.length ? (
-                topicPagination.pageItems.map((topic) => {
-                  const isCurrent = selected?.id === topic.id;
-                  const topicClass = classes.find((c) => c.id === topic.classId);
-                  return (
-                    <article
-                      key={topic.id}
-                      className={`relative rounded-xl border transition-all text-left overflow-hidden ${
-                        isCurrent
-                          ? "bg-sky-50/70 dark:bg-sky-950/40 border-sky-300 dark:border-sky-800 shadow-xs"
-                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-sky-200 dark:hover:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
-                      }`}
-                    >
-                      <button
-                        aria-pressed={isCurrent}
-                        className="w-full p-3.5 text-left block"
-                        onClick={() => void choose(topic)}
-                        type="button"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
+            {/* Bộ lọc theo lớp & Ô tìm kiếm */}
+            <div className="flex items-center gap-2">
+              <select
+                className={`${inputClass} text-xs py-1.5 min-h-8.5 w-auto max-w-[180px] sm:max-w-[220px]`}
+                value={classFilter}
+                onChange={(e) => {
+                  setClassFilter(e.target.value);
+                  topicPagination.resetPage();
+                }}
+              >
+                <option value="">{t("Tất cả các lớp")}</option>
+                {classes.map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    {cls.code} — {cls.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="relative flex-1 sm:w-56">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  className={`${inputClass} pl-8 pr-7 text-xs py-1.5 min-h-8.5`}
+                  placeholder="Tìm kiếm bài viết..."
+                  value={topicSearch}
+                  onChange={(e) => {
+                    setTopicSearch(e.target.value);
+                    topicPagination.resetPage();
+                  }}
+                />
+                {topicSearch ? (
+                  <button
+                    onClick={() => setTopicSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    type="button"
+                  >
+                    <X size={13} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {/* DANH SÁCH BÀI VIẾT (TIMELINE FEED) */}
+          <SectionState
+            loading={loading}
+            empty={filteredTopics.length === 0}
+            emptyTitle="Chưa có bài viết nào phù hợp"
+            emptyDescription="Hãy đăng bài viết đầu tiên hoặc thay đổi bộ lọc tìm kiếm."
+          >
+            <div className="space-y-4">
+              {topicPagination.pageItems.map((topic) => {
+                const topicClass = classes.find((c) => c.id === topic.classId);
+                const isExpanded = expandedPostIds.has(topic.id);
+                const isLong = topic.body.length > 220 || topic.body.split("\n").length > 3;
+                const isLiked = likedTopicIds.has(topic.id);
+                const likeCount = (topic.tags.length * 3 + topic.title.length % 7) + (isLiked ? 1 : 0);
+
+                return (
+                  <article
+                    key={topic.id}
+                    onClick={() => void choose(topic)}
+                    className="group relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all duration-150 hover:border-sky-300 dark:hover:border-slate-700 hover:shadow-sm cursor-pointer"
+                  >
+                    {/* Header bài viết */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`grid size-10 place-items-center rounded-full text-xs font-bold shrink-0 shadow-2xs ${getAvatarPalette(
+                            topic.authorId,
+                          )}`}
+                        >
+                          {getInitials(formatAuthorName(topic.authorId, session.user.id, session.user.name))}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 truncate">
+                              {formatAuthorName(topic.authorId, session.user.id, session.user.name)}
+                            </span>
                             <span className="inline-flex shrink-0 items-center rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-[10px] font-bold text-sky-700 dark:text-sky-300">
                               {topicClass?.code ?? "Lớp"}
                             </span>
-                            {topic.isPinned ? (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                                <Pin size={10} /> Ghim
-                              </span>
-                            ) : null}
-                            {topic.isLocked ? (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-400">
-                                <Lock size={10} /> Khóa
-                              </span>
-                            ) : null}
                           </div>
-                          <span className="shrink-0 text-[11px] text-slate-400 tabular-nums">
-                            {new Date(topic.createdAt).toLocaleDateString(activeLocale())}
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                            {formatRelativeTime(topic.createdAt, isEn)}
                           </span>
                         </div>
-
-                        <h3 className="mt-2 text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1 leading-snug">
-                          {topic.title}
-                        </h3>
-
-                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                          {topic.body}
-                        </p>
-
-                        <div className="mt-3 flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span
-                              className={`grid size-5.5 place-items-center rounded-full text-[10px] font-bold shrink-0 ${getAvatarPalette(
-                                topic.authorId,
-                              )}`}
-                            >
-                              {getInitials(topic.authorId)}
-                            </span>
-                            <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              {topic.authorId === session.user.id ? "Tôi" : topic.authorId}
-                            </span>
-                          </div>
-
-                          {topic.tags.length ? (
-                            <div className="flex items-center gap-1 overflow-hidden shrink-0">
-                              {topic.tags.slice(0, 2).map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="text-[10px] text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-1.5 py-0.2 rounded"
-                                >
-                                  #{tag}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </button>
-
-                      {learner ? (
-                        <button
-                          className="absolute bottom-2.5 right-2 text-slate-300 hover:text-rose-500 p-1 rounded transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setReportTarget(topic);
-                          }}
-                          title="Báo cáo chủ đề này"
-                          type="button"
-                        >
-                          <Flag size={12} />
-                        </button>
-                      ) : null}
-                    </article>
-                  );
-                })
-              ) : (
-                <div className="py-8 text-center text-xs text-slate-400">
-                  Không tìm thấy chủ đề nào phù hợp với bộ lọc.
-                </div>
-              )}
-            </div>
-
-            <Pagination
-              className="pt-2"
-              itemLabel="chủ đề"
-              onPageChange={topicPagination.setPage}
-              onPageSizeChange={topicPagination.setPageSize}
-              page={topicPagination.page}
-              pageSize={topicPagination.pageSize}
-              totalItems={topicPagination.totalItems}
-            />
-          </aside>
-
-          {/* CỘT PHẢI: Khối chi tiết chủ đề & luồng thảo luận */}
-          <section className="lg:col-span-7 xl:col-span-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs min-h-[500px] flex flex-col justify-between">
-            {selected ? (
-              <div className="space-y-6">
-                {/* Header chủ đề đang chọn */}
-                <div className="border-b border-slate-200 dark:border-slate-800 pb-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-2 max-w-2xl">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300">
-                          {selectedClass?.code ?? "Lớp học"} — {selectedClass?.name}
-                        </span>
-                        <StatusBadge status={selected.isLocked ? "LOCKED" : "ACTIVE"} />
-                        {selected.isPinned ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 px-2 py-0.5 text-xs font-bold text-amber-700 dark:text-amber-400">
-                            <Pin size={11} /> Đã ghim
-                          </span>
-                        ) : null}
                       </div>
 
-                      <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                        {selected.title}
-                      </h2>
+                      {/* Badges & Options */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {topic.isPinned ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                            <Pin size={10} /> {t("Bài ghim")}
+                          </span>
+                        ) : null}
+                        {topic.isLocked ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                            <Lock size={10} />
+                          </span>
+                        ) : null}
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 pt-1">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`grid size-6 place-items-center rounded-full text-xs font-bold ${getAvatarPalette(
-                              selected.authorId,
-                            )}`}
+                        {/* Nút hành động */}
+                        {topic.authorId !== session.user.id ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReportTarget(topic);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            title="Báo cáo bài viết"
                           >
-                            {getInitials(selected.authorId)}
-                          </span>
-                          <span className="font-semibold text-slate-800 dark:text-slate-200">
-                            {selected.authorId === session.user.id ? "Tôi (Tác giả)" : selected.authorId}
-                          </span>
-                        </div>
-                        <span>·</span>
-                        <span>Đăng lúc {new Date(selected.createdAt).toLocaleString(activeLocale())}</span>
+                            <Flag size={14} />
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
-                    {/* Công cụ điều phối của Giảng viên */}
-                    {instructor ? (
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          className="h-8 px-2.5 text-xs font-semibold"
-                          onClick={() =>
-                            setTopicAction({
-                              isLocked: !selected.isLocked,
-                              label: selected.isLocked ? "Mở khóa chủ đề" : "Khóa chủ đề",
-                            })
-                          }
-                          variant="secondary"
-                        >
-                          {selected.isLocked ? <Unlock size={13} /> : <Lock size={13} />}
-                          {selected.isLocked ? "Mở khóa" : "Khóa"}
-                        </Button>
-                        <Button
-                          className="h-8 px-2.5 text-xs font-semibold"
-                          onClick={() =>
-                            setTopicAction({
-                              isPinned: !selected.isPinned,
-                              label: selected.isPinned ? "Bỏ ghim chủ đề" : "Ghim chủ đề",
-                            })
-                          }
-                          variant="ghost"
-                        >
-                          <Pin size={13} />
-                          {selected.isPinned ? "Bỏ ghim" : "Ghim"}
-                        </Button>
+                    {/* Tiêu đề & Nội dung bài viết */}
+                    <div className="mt-3.5 space-y-1.5">
+                      <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                        {topic.title}
+                      </h2>
+                      <div className="text-xs sm:text-sm leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
+                        {isLong && !isExpanded ? (
+                          <>
+                            {topic.body.slice(0, 220)}…{" "}
+                            <button
+                              type="button"
+                              onClick={(e) => toggleExpand(topic.id, e)}
+                              className="font-bold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer inline-block ml-1"
+                            >
+                              {t("Xem thêm")}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {topic.body}
+                            {isLong ? (
+                              <button
+                                type="button"
+                                onClick={(e) => toggleExpand(topic.id, e)}
+                                className="font-bold text-sky-600 dark:text-sky-400 hover:underline cursor-pointer block mt-1"
+                              >
+                                {t("Thu gọn")}
+                              </button>
+                            ) : null}
+                          </>
+                        )}
                       </div>
-                    ) : null}
-                  </div>
+                    </div>
 
-                  {/* Nội dung bài viết mở đầu (OP) */}
-                  <div className="mt-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 p-4">
-                    <p className="text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                      {selected.body}
-                    </p>
-                    {selected.tags.length ? (
-                      <div className="mt-3 flex flex-wrap gap-1.5 pt-2 border-t border-slate-200/50 dark:border-slate-700/50">
-                        {selected.tags.map((tag) => (
+                    {/* Hashtags */}
+                    {topic.tags.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {topic.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="inline-flex items-center rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300 shadow-2xs"
+                            className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
                           >
                             #{tag}
                           </span>
                         ))}
                       </div>
                     ) : null}
-                  </div>
-                </div>
 
-                {/* Danh sách phản hồi & bình luận */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                      <MessageSquare size={15} className="text-sky-600 dark:text-sky-400" />
-                      Phản hồi ({posts.length})
-                    </h3>
-                  </div>
+                    {/* Social Action Footer (Like, Comment, Share) */}
+                    <div className="mt-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
+                      <div className="flex items-center gap-5">
+                        {/* Nút Like */}
+                        <button
+                          type="button"
+                          onClick={(e) => toggleLike(topic.id, e)}
+                          className={`inline-flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                            isLiked
+                              ? "text-rose-600 dark:text-rose-400"
+                              : "text-slate-500 hover:text-rose-600 dark:text-slate-400"
+                          }`}
+                        >
+                          <Heart size={15} className={isLiked ? "fill-rose-500 text-rose-500" : ""} />
+                          <span>{likeCount}</span>
+                        </button>
 
-                  {posts.length ? (
-                    <div className="space-y-3">
-                      {postPagination.pageItems.map((item) => {
-                        const isOwn = item.authorId === session.user.id;
-                        const isParent = Boolean(item.parentId);
-                        const parentPost = isParent ? posts.find((p) => p.id === item.parentId) : null;
-
-                        return (
-                          <article
-                            className={`rounded-xl border p-4 space-y-2.5 transition-colors ${
-                              isParent
-                                ? "ml-4 sm:ml-7 border-l-3 border-l-sky-500 bg-sky-50/30 dark:bg-sky-950/20 border-slate-200 dark:border-slate-800"
-                                : "bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 shadow-2xs"
-                            }`}
-                            key={item.id}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className={`grid size-6 place-items-center rounded-full text-xs font-bold shrink-0 ${getAvatarPalette(
-                                    item.authorId,
-                                  )}`}
-                                >
-                                  {getInitials(item.authorId)}
-                                </span>
-                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                                  {isOwn ? "Tôi" : item.authorId}
-                                </span>
-                                {item.authorId === selected.authorId ? (
-                                  <span className="rounded bg-sky-100 dark:bg-sky-900/60 px-1.5 py-0.2 text-[10px] font-bold text-sky-800 dark:text-sky-300">
-                                    Tác giả
-                                  </span>
-                                ) : null}
-                                <span className="text-[11px] text-slate-400">·</span>
-                                <span className="text-[11px] text-slate-400 whitespace-nowrap">
-                                  {new Date(item.createdAt).toLocaleString(activeLocale())}
-                                </span>
-                                {item.editedAt ? (
-                                  <span className="text-[10px] text-slate-400 italic">
-                                    (đã sửa {item.editCount ?? 1} lần)
-                                  </span>
-                                ) : null}
-                              </div>
-
-                              {item.deletedAt ? (
-                                <span className="text-[11px] text-rose-500 font-semibold italic">
-                                  Đã xóa mềm
-                                </span>
-                              ) : null}
-                            </div>
-
-                            {/* Trích dẫn phản hồi cha nếu có */}
-                            {parentPost ? (
-                              <div className="flex items-center gap-1.5 text-xs text-sky-700 dark:text-sky-400 bg-sky-100/50 dark:bg-sky-950/60 px-2.5 py-1 rounded-md">
-                                <CornerDownRight size={12} className="shrink-0" />
-                                <span className="truncate">
-                                  Đang trả lời @{parentPost.authorId}: &quot;{parentPost.body}&quot;
-                                </span>
-                              </div>
-                            ) : null}
-
-                            {/* Nội dung phản hồi */}
-                            <p className="text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                              {item.body}
-                            </p>
-
-                            {/* Nhắc tên thành viên */}
-                            {item.mentionedUserIds.length ? (
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {item.mentionedUserIds.map((userId) => (
-                                  <span
-                                    key={userId}
-                                    className="inline-flex items-center gap-1 rounded bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300 border border-sky-200/60 dark:border-sky-800/40"
-                                  >
-                                    <AtSign size={11} />
-                                    {userId}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            {/* Tệp học liệu đính kèm */}
-                            {item.attachmentIds.length ? (
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {item.attachmentIds.map((materialId) => (
-                                  <span
-                                    className="inline-flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs"
-                                    key={materialId}
-                                  >
-                                    <Paperclip size={12} className="text-sky-600" />
-                                    {materials.find((m) => m.id === materialId)?.name ?? materialId}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            {/* Thao tác trên phản hồi */}
-                            {!item.deletedAt && item.status === "VISIBLE" ? (
-                              <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                                {learner && !selected.isLocked ? (
-                                  <>
-                                    <button
-                                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 hover:underline"
-                                      onClick={() => setReplyTo(item)}
-                                      type="button"
-                                    >
-                                      <CornerDownRight size={12} />
-                                      Trả lời
-                                    </button>
-                                    {isOwn ? (
-                                      <>
-                                        <button
-                                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-sky-600"
-                                          onClick={() => {
-                                            setEditingPost(item);
-                                            setEditBody(item.body);
-                                          }}
-                                          type="button"
-                                        >
-                                          <Pencil size={11} />
-                                          Sửa
-                                        </button>
-                                        <button
-                                          className="inline-flex items-center gap-1 text-xs font-semibold text-rose-500 hover:text-rose-700"
-                                          onClick={() => void deletePost(item)}
-                                          type="button"
-                                        >
-                                          <Trash2 size={11} />
-                                          Xóa
-                                        </button>
-                                      </>
-                                    ) : null}
-                                  </>
-                                ) : null}
-
-                                {instructor ? (
-                                  <button
-                                    className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"
-                                    onClick={() => setHideTarget(item)}
-                                    type="button"
-                                  >
-                                    <EyeOff size={11} />
-                                    Ẩn có lý do
-                                  </button>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 text-xs text-slate-400">
-                      Chưa có phản hồi nào trong chủ đề này. Hãy là người đầu tiên trao đổi!
-                    </div>
-                  )}
-
-                  <Pagination
-                    itemLabel="phản hồi"
-                    onPageChange={postPagination.setPage}
-                    onPageSizeChange={postPagination.setPageSize}
-                    page={postPagination.page}
-                    pageSize={postPagination.pageSize}
-                    totalItems={postPagination.totalItems}
-                  />
-                </div>
-
-                {/* Khung soạn thảo phản hồi (Composer) */}
-                <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-                  {selected.isLocked ? (
-                    <div className="flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 p-3.5 text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400">
-                      <Lock size={15} />
-                      Chủ đề này đã được khóa. Người dùng không thể gửi thêm phản hồi mới.
-                    </div>
-                  ) : learner ? (
-                    <form className="space-y-3" onSubmit={(e) => void createPost(e)}>
-                      {/* Chỉ báo đang trả lời theo luồng */}
-                      {replyTo ? (
-                        <div className="flex items-center justify-between rounded-lg bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-3 py-1.5 text-xs text-sky-800 dark:text-sky-300">
-                          <span className="flex items-center gap-1.5 truncate">
-                            <CornerDownRight size={13} className="shrink-0 text-sky-600" />
-                            Đang trả lời <strong>@{replyTo.authorId}</strong>: &quot;{replyTo.body.slice(0, 50)}...&quot;
-                          </span>
-                          <button
-                            className="text-xs font-semibold text-sky-700 hover:text-sky-900 dark:hover:text-sky-200 underline shrink-0 ml-2"
-                            onClick={() => setReplyTo(null)}
-                            type="button"
-                          >
-                            Hủy
-                          </button>
-                        </div>
-                      ) : null}
-
-                      {/* Khối textarea chính */}
-                      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/15 transition-all shadow-2xs overflow-hidden">
-                        <textarea
-                          className="w-full resize-y p-3.5 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none bg-transparent min-h-[75px]"
-                          minLength={2}
-                          placeholder={replyTo ? "Viết câu trả lời của bạn…" : "Chia sẻ ý kiến hoặc đặt câu hỏi thảo luận…"}
-                          required
-                          rows={3}
-                          value={post}
-                          onChange={(e) => setPost(e.target.value)}
-                        />
-
-                        {/* Các chip đính kèm và nhắc tên đã chọn */}
-                        {(attachmentIds.length > 0 || mentionedUserIds.length > 0) ? (
-                          <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 dark:border-slate-800/80 pt-2">
-                            {attachmentIds.map((id) => (
-                              <span
-                                key={id}
-                                className="inline-flex items-center gap-1 rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300"
-                              >
-                                <Paperclip size={11} />
-                                {materials.find((m) => m.id === id)?.name ?? id}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleAttachment(id)}
-                                  className="text-sky-600 hover:text-rose-500"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </span>
-                            ))}
-
-                            {mentionedUserIds.map((userId) => (
-                              <span
-                                key={userId}
-                                className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-300"
-                              >
-                                <AtSign size={11} />
-                                {userId}
-                                <button
-                                  type="button"
-                                  onClick={() => toggleMention(userId)}
-                                  className="text-slate-500 hover:text-rose-500"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* Thanh công cụ đính kèm và gửi */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50/70 dark:bg-slate-800/40 px-3 py-2 border-t border-slate-100 dark:border-slate-800">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowAttachDrawer(!showAttachDrawer);
-                                setShowMentionDrawer(false);
-                              }}
-                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-                                showAttachDrawer || attachmentIds.length > 0
-                                  ? "bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300"
-                                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60"
-                              }`}
-                            >
-                              <Paperclip size={13} />
-                              Học liệu {attachmentIds.length ? `(${attachmentIds.length})` : ""}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowMentionDrawer(!showMentionDrawer);
-                                setShowAttachDrawer(false);
-                              }}
-                              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-                                showMentionDrawer || mentionedUserIds.length > 0
-                                  ? "bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300"
-                                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60"
-                              }`}
-                            >
-                              <AtSign size={13} />
-                              Nhắc bạn học {mentionedUserIds.length ? `(${mentionedUserIds.length})` : ""}
-                            </button>
-                          </div>
-
-                          <Button type="submit" className="h-8.5 px-3.5 text-xs font-semibold">
-                            <Send size={13} />
-                            Gửi phản hồi
-                          </Button>
-                        </div>
+                        {/* Nút Comment -> Xem cmt */}
+                        <button
+                          type="button"
+                          onClick={() => void choose(topic)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-sky-600 dark:text-slate-400 transition-colors cursor-pointer"
+                        >
+                          <MessageCircle size={15} />
+                          <span>{t("Bình luận")}</span>
+                        </button>
                       </div>
 
-                      {/* Khối chọn học liệu đính kèm (Drawer) */}
-                      {showAttachDrawer ? (
-                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-2">
-                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                              <Paperclip size={13} className="text-sky-600" />
-                              Chọn học liệu đính kèm từ lớp
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowAttachDrawer(false)}
-                              className="text-xs text-slate-400 hover:text-slate-600"
-                            >
-                              Đóng
-                            </button>
-                          </div>
-                          <MaterialSearchControls search={materialSearch} />
-                          <div className="max-h-40 overflow-y-auto space-y-1">
-                            {materials.filter((m) => m.classId === selected.classId).length ? (
-                              materials
-                                .filter((m) => m.classId === selected.classId)
-                                .map((m) => {
-                                  const isChecked = attachmentIds.includes(m.id);
-                                  return (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      onClick={() => toggleAttachment(m.id)}
-                                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors ${
-                                        isChecked
-                                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300"
-                                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                      }`}
-                                    >
-                                      <span className="truncate">{m.name}</span>
-                                      {isChecked ? <Check size={14} className="text-sky-600 shrink-0" /> : null}
-                                    </button>
-                                  );
-                                })
-                            ) : (
-                              <p className="text-xs text-slate-400 py-2 text-center">
-                                Chưa có học liệu nào được phát hành trong lớp này.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {/* Khối chọn thành viên cần nhắc tên (Drawer) */}
-                      {showMentionDrawer ? (
-                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-sm space-y-2">
-                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                              <AtSign size={13} className="text-sky-600" />
-                              Nhắc thành viên trong lớp
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowMentionDrawer(false)}
-                              className="text-xs text-slate-400 hover:text-slate-600"
-                            >
-                              Đóng
-                            </button>
-                          </div>
-                          <div className="max-h-40 overflow-y-auto space-y-1">
-                            {classMembers.length ? (
-                              classMembers.map((userId) => {
-                                const isChecked = mentionedUserIds.includes(userId);
-                                return (
-                                  <button
-                                    key={userId}
-                                    type="button"
-                                    onClick={() => toggleMention(userId)}
-                                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors ${
-                                      isChecked
-                                        ? "bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300"
-                                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${getAvatarPalette(
-                                          userId,
-                                        )}`}
-                                      >
-                                        {getInitials(userId)}
-                                      </span>
-                                      <span>{userId}</span>
-                                    </div>
-                                    {isChecked ? <Check size={14} className="text-sky-600 shrink-0" /> : null}
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <p className="text-xs text-slate-400 py-2 text-center">
-                                Không tìm thấy thành viên khác trong lớp này.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ) : null}
-                    </form>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <div className="grid h-full min-h-[350px] place-items-center text-center p-8">
-                <div className="max-w-sm space-y-3">
-                  <div className="grid size-14 place-items-center rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 mx-auto border border-sky-100 dark:border-sky-900/50 shadow-xs">
-                    <MessageSquareText size={26} />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                    Chọn một chủ đề để đọc thảo luận
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Chọn chủ đề từ danh sách bên trái hoặc nhấn &quot;Mở chủ đề mới&quot; để trao đổi cùng giảng viên và các bạn học.
-                  </p>
-                  {(instructor || learner) && (
-                    <Button onClick={() => setOpen(true)} className="h-9 px-4 text-xs font-semibold mx-auto">
-                      <Plus size={15} />
-                      Mở chủ đề mới
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-      </SectionState>
-
-      {/* Modal: Mở chủ đề mới */}
-      <Modal open={open} onClose={() => setOpen(false)} title="Mở chủ đề thảo luận">
-        <form className="space-y-4" onSubmit={(e) => void createTopic(e)}>
-          <Field label="Lớp học thảo luận">
-            <SearchableSelect
-              aria-label="Tìm và chọn lớp mở chủ đề"
-              onChange={(value) => setForm({ ...form, classId: value })}
-              options={classes.map((item) => ({
-                value: item.id,
-                label: `${item.code} — ${item.name}`,
-                description: item.term,
-                keywords: item.id,
-              }))}
-              placeholder="Gõ mã hoặc tên lớp để lọc…"
-              value={form.classId}
-            />
-          </Field>
-          <Field label="Tiêu đề chủ đề">
-            <input
-              className={inputClass}
-              placeholder="Ví dụ: Thắc mắc bài tập tuần 3..."
-              required
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </Field>
-          <Field label="Nội dung thảo luận">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              placeholder="Nêu rõ câu hỏi, thắc mắc hoặc chủ đề muốn trao đổi cùng lớp..."
-              required
-              rows={4}
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-            />
-          </Field>
-          <Field label="Thẻ phân loại (ngăn cách bằng dấu phẩy)">
-            <input
-              className={inputClass}
-              placeholder="DevOps, Docker, HỏiĐáp..."
-              value={form.tags}
-              onChange={(e) => setForm({ ...form, tags: e.target.value })}
-            />
-          </Field>
-          {instructor ? (
-            <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">
-              <input
-                className="size-4 accent-sky-600"
-                type="checkbox"
-                checked={form.isPinned}
-                onChange={(e) => setForm({ ...form, isPinned: e.target.checked })}
-              />
-              Ghim chủ đề này lên đầu danh sách lớp
-            </label>
-          ) : null}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setOpen(false)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button disabled={!form.classId || !form.title.trim()} type="submit">
-              Tạo chủ đề
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Báo cáo nội dung */}
-      <Modal open={Boolean(reportTarget)} onClose={() => setReportTarget(null)} title="Báo cáo nội dung vi phạm" description="Ban quản lý sẽ nhận đúng chủ đề, lý do và mô tả để đối soát và xử lý an toàn.">
-        <form className="space-y-4" onSubmit={(event) => void report(event)}>
-          <Field label="Lý do báo cáo">
-            <select
-              className={inputClass}
-              value={reportForm.reason}
-              onChange={(event) => setReportForm({ ...reportForm, reason: event.target.value })}
-            >
-              <option>Nội dung không phù hợp</option>
-              <option>Spam</option>
-              <option>Quấy rối hoặc ngôn từ thù địch</option>
-              <option>Thông tin sai lệch hoặc vi phạm bản quyền</option>
-            </select>
-          </Field>
-          <Field label="Mô tả chi tiết / Bằng chứng">
-            <textarea
-              className={inputClass}
-              minLength={3}
-              placeholder="Mô tả cụ thể nội dung vi phạm..."
-              required
-              rows={4}
-              value={reportForm.details}
-              onChange={(event) => setReportForm({ ...reportForm, details: event.target.value })}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setReportTarget(null)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button type="submit">
-              <Flag size={14} /> Gửi báo cáo
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Hồ sơ kiểm duyệt nội dung của Quản trị viên */}
-      <Modal open={Boolean(moderationTarget)} onClose={() => { setModerationTarget(null); setModerationContext(null); }} title="Hồ sơ kiểm duyệt nội dung" description="Đọc kỹ nội dung trong ngữ cảnh hội thoại trước khi ban hành biện pháp xử lý.">
-        {moderationContext ? (
-          <form className="space-y-4" onSubmit={(event) => void resolve(event)}>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4 text-xs sm:text-sm leading-relaxed space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="font-bold text-slate-900 dark:text-slate-100">{moderationContext.topicTitle}</strong>
-                <StatusBadge status={moderationTarget?.status ?? "IN_REVIEW"} />
-              </div>
-              <p className="text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800">
-                {moderationContext.targetBody}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                Người đăng: {moderationContext.targetAuthorId} · Lớp: {moderationContext.classId} · {moderationContext.surroundingPosts.length} phản hồi ngữ cảnh
-              </p>
+                      {/* Nút Share */}
+                      <button
+                        type="button"
+                        onClick={(e) => copyShareLink(topic.id, e)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-sky-600 dark:text-slate-400 transition-colors cursor-pointer"
+                        title="Chia sẻ liên kết bài viết"
+                      >
+                        <Share2 size={14} />
+                        <span className="hidden sm:inline">{t("Chia sẻ")}</span>
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
 
-            {moderationTarget?.appealReason ? (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 p-3.5 text-xs sm:text-sm text-amber-900 dark:text-amber-200">
-                <strong>Kháng nghị từ người dùng:</strong> {moderationTarget.appealReason}
+            {/* Phân trang danh sách bài viết */}
+            <Pagination
+              className="mt-6"
+              itemLabel="bài viết"
+              onPageChange={topicPagination.setPage}
+              onPageSizeChange={topicPagination.setPageSize}
+              page={topicPagination.page}
+              pageSize={topicPagination.pageSize}
+              totalItems={topicPagination.totalItems}
+            />
+          </SectionState>
+        </div>
+      )}
+
+      {/* MODAL 1: BÁO CÁO VI PHẠM NỘI DUNG */}
+      {reportTarget ? (
+        <Modal
+          open={Boolean(reportTarget)}
+          onClose={() => setReportTarget(null)}
+          title="Báo cáo vi phạm nội dung"
+          description="Nội dung báo cáo sẽ được chuyển tới ban quản trị kiểm duyệt và xử lý theo quy tắc cộng đồng."
+        >
+          <form onSubmit={report} className="space-y-4">
+            <Field label="Lý do báo cáo">
+              <select
+                className={inputClass}
+                value={reportForm.reason}
+                onChange={(e) => setReportForm({ ...reportForm, reason: e.target.value })}
+              >
+                <option value="Nội dung không phù hợp">Nội dung không phù hợp</option>
+                <option value="Spam / Quảng cáo">Spam / Quảng cáo</option>
+                <option value="Ngôn từ đả kích / Xúc phạm">Ngôn từ đả kích / Xúc phạm</option>
+                <option value="Tiết lộ đề thi / Đáp án gian lận">Tiết lộ đề thi / Đáp án gian lận</option>
+                <option value="Khác">Lý do khác</option>
+              </select>
+            </Field>
+
+            <Field label="Mô tả chi tiết">
+              <textarea
+                rows={3}
+                className={inputClass}
+                placeholder="Cung cấp thêm ngữ cảnh vi phạm để ban quản trị xử lý nhanh hơn..."
+                value={reportForm.details}
+                onChange={(e) => setReportForm({ ...reportForm, details: e.target.value })}
+              />
+            </Field>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="ghost" onClick={() => setReportTarget(null)}>
+                Hủy
+              </Button>
+              <Button type="submit" variant="danger">
+                Gửi báo cáo
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {/* MODAL 2: ĐIỀU PHỐI CHỦ ĐỀ (GHIM / KHÓA) */}
+      {topicAction ? (
+        <Modal
+          open={Boolean(topicAction)}
+          onClose={() => setTopicAction(null)}
+          title={`Xác nhận ${topicAction.label.toLowerCase()}`}
+          description="Hành động này sẽ được ghi nhận vào nhật ký kiểm duyệt hệ thống."
+        >
+          <form onSubmit={moderateTopic} className="space-y-4">
+            <Field label="Lý do giải trình *">
+              <input
+                className={inputClass}
+                placeholder="Nhập lý do thực hiện thao tác kiểm duyệt này..."
+                value={topicReason}
+                onChange={(e) => setTopicReason(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="ghost" onClick={() => setTopicAction(null)}>
+                Hủy
+              </Button>
+              <Button type="submit" variant="primary">
+                Xác nhận
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {/* MODAL 3: ẨN PHẢN HỒI VI PHẠM */}
+      {hideTarget ? (
+        <Modal
+          open={Boolean(hideTarget)}
+          onClose={() => setHideTarget(null)}
+          title="Ẩn phản hồi vi phạm"
+          description="Phản hồi này sẽ bị ẩn khỏi học viên và chỉ hiển thị đối với ban quản lý."
+        >
+          <form onSubmit={hidePost} className="space-y-4">
+            <Field label="Lý do ẩn bình luận *">
+              <input
+                className={inputClass}
+                placeholder="Nhập lý do kiểm duyệt..."
+                value={hideReason}
+                onChange={(e) => setHideReason(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="ghost" onClick={() => setHideTarget(null)}>
+                Hủy
+              </Button>
+              <Button type="submit" variant="danger">
+                Ẩn bình luận
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {/* MODAL 4: HỒ SƠ KIỂM DUYỆT BÁO CÁO (MANAGER) */}
+      {moderationTarget ? (
+        <Modal
+          open={Boolean(moderationTarget)}
+          onClose={() => setModerationTarget(null)}
+          title="Xử lý hồ sơ báo cáo kiểm duyệt"
+          description="Xem xét ngữ cảnh vi phạm và ban hành quyết định kỷ luật hoặc bác bỏ báo cáo."
+          size="xl"
+        >
+          <form onSubmit={resolve} className="space-y-4">
+            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-4 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm space-y-2">
+              <div className="flex justify-between">
+                <span className="font-bold text-rose-600">Lý do: {moderationTarget.reason}</span>
+                <StatusBadge status={moderationTarget.status} />
               </div>
-            ) : null}
+              <p className="text-slate-600 dark:text-slate-300">
+                Chi tiết: {moderationTarget.details || "Không có mô tả chi tiết."}
+              </p>
+              {moderationContext ? (
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1">
+                  <p className="font-semibold text-slate-800 dark:text-slate-200">
+                    Ngữ cảnh: Đối tượng {moderationContext.report.targetType} (Mã: {moderationContext.report.targetId})
+                  </p>
+                  <p className="text-slate-500">Người báo cáo: {moderationContext.report.reporterId}</p>
+                </div>
+              ) : null}
+            </div>
 
             <Field label="Quyết định kiểm duyệt">
               <select
                 className={inputClass}
                 value={moderationForm.action}
-                onChange={(event) => setModerationForm({ ...moderationForm, action: event.target.value })}
+                onChange={(e) => setModerationForm({ ...moderationForm, action: e.target.value })}
               >
                 <option value="HIDE_CONTENT">Ẩn nội dung vi phạm</option>
-                <option value="KEEP_CONTENT">Giữ nội dung / Bác bỏ báo cáo</option>
+                <option value="LOCK_THREAD">Khóa luồng thảo luận</option>
+                <option value="WARNING_USER">Cảnh cáo người dùng</option>
                 <option value="ESCALATE_ADMIN">Chuyển cấp quản trị hệ thống</option>
+                <option value="DISMISS">Bác bỏ báo cáo (Nội dung hợp lệ)</option>
               </select>
             </Field>
 
-            <Field label="Kết luận và căn cứ xử lý">
+            <Field label="Kết luận xử lý và ghi chú">
               <textarea
-                className={inputClass}
-                minLength={3}
-                placeholder="Ghi rõ lý do quyết định kiểm duyệt..."
-                required
                 rows={3}
+                className={inputClass}
+                placeholder="Ghi rõ căn cứ xử lý để phản hồi cho người báo cáo và lưu vết audit log..."
                 value={moderationForm.resolution}
-                onChange={(event) => setModerationForm({ ...moderationForm, resolution: event.target.value })}
+                onChange={(e) => setModerationForm({ ...moderationForm, resolution: e.target.value })}
+                required
               />
             </Field>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button onClick={() => { setModerationTarget(null); setModerationContext(null); }} type="button" variant="secondary">
-                Đóng
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="ghost" onClick={() => setModerationTarget(null)}>
+                Hủy
               </Button>
-              <Button loading={submitting} type="submit">
-                <ShieldCheck size={15} /> Lưu kết quả
+              <Button type="submit" disabled={submitting}>
+                Ban hành quyết định
               </Button>
             </div>
           </form>
-        ) : (
-          <p className="text-xs sm:text-sm text-slate-400 py-6 text-center">Đang tải ngữ cảnh báo cáo…</p>
-        )}
-      </Modal>
+        </Modal>
+      ) : null}
 
-      {/* Modal: Kháng nghị kết quả */}
-      <Modal open={Boolean(appealTarget)} onClose={() => setAppealTarget(null)} title="Kháng nghị quyết định kiểm duyệt" description="Mỗi báo cáo chỉ được kháng nghị một lần; ban quản lý sẽ xem xét lại hồ sơ khách quan.">
-        <form className="space-y-4" onSubmit={(event) => void appeal(event)}>
-          <Field label="Lý do kháng nghị">
-            <textarea
-              className={inputClass}
-              minLength={10}
-              placeholder="Trình bày căn cứ hoặc giải thích lý do nội dung của bạn không vi phạm..."
-              required
-              rows={4}
-              value={appealReason}
-              onChange={(event) => setAppealReason(event.target.value)}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setAppealTarget(null)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button loading={submitting} type="submit">
-              Gửi kháng nghị
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Chỉnh sửa phản hồi */}
-      <Modal open={Boolean(editingPost)} onClose={() => setEditingPost(null)} title="Chỉnh sửa phản hồi">
-        <form className="space-y-4" onSubmit={(event) => void updatePost(event)}>
-          <Field label="Nội dung phản hồi">
-            <textarea
-              className={inputClass}
-              minLength={2}
-              required
-              rows={4}
-              value={editBody}
-              onChange={(event) => setEditBody(event.target.value)}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setEditingPost(null)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button type="submit">
-              <Pencil size={14} /> Lưu chỉnh sửa
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Điều phối chủ đề (Khóa / Ghim) */}
-      <Modal open={Boolean(topicAction)} onClose={() => setTopicAction(null)} title={topicAction?.label ?? "Điều phối chủ đề"} description="Hành động này được lưu trữ trong nhật ký kiểm soát của hệ thống.">
-        <form className="space-y-4" onSubmit={(event) => void moderateTopic(event)}>
-          <Field label="Lý do điều phối">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              placeholder="Ghi rõ lý do thực hiện thao tác này..."
-              required
-              rows={3}
-              value={topicReason}
-              onChange={(event) => setTopicReason(event.target.value)}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setTopicAction(null)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button type="submit">
-              <ShieldCheck size={14} /> Xác nhận
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Ẩn phản hồi vi phạm */}
-      <Modal open={Boolean(hideTarget)} onClose={() => setHideTarget(null)} title="Ẩn phản hồi vi phạm" description="Nội dung sẽ bị ẩn khỏi các thành viên khác nhưng cấu trúc thảo luận vẫn được bảo toàn.">
-        <form className="space-y-4" onSubmit={(event) => void hidePost(event)}>
-          <Field label="Lý do kiểm duyệt">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              placeholder="Ghi nhận lý do ẩn phản hồi..."
-              required
-              rows={3}
-              value={hideReason}
-              onChange={(event) => setHideReason(event.target.value)}
-            />
-          </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setHideTarget(null)} type="button" variant="secondary">
-              Hủy
-            </Button>
-            <Button variant="danger" type="submit">
-              <EyeOff size={14} /> Ẩn phản hồi
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {/* MODAL 5: KHÁNG NGHỊ KIỂM DUYỆT (LEARNER) */}
+      {appealTarget ? (
+        <Modal
+          open={Boolean(appealTarget)}
+          onClose={() => setAppealTarget(null)}
+          title="Kháng nghị quyết định xử phạt"
+          description="Đơn kháng nghị sẽ được gửi lại ban quản lý trung tâm để rà soát khách quan."
+        >
+          <form onSubmit={appeal} className="space-y-4">
+            <Field label="Lý do giải trình và bằng chứng bổ sung *">
+              <textarea
+                rows={4}
+                className={inputClass}
+                placeholder="Trình bày lý do bạn cho rằng nội dung không vi phạm nguyên tắc cộng đồng..."
+                value={appealReason}
+                onChange={(e) => setAppealReason(e.target.value)}
+                required
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button variant="ghost" onClick={() => setAppealTarget(null)}>
+                Hủy
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                Gửi kháng nghị
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
     </div>
   );
 }

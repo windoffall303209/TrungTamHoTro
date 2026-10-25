@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { useI18n } from "@/providers/i18n-provider";
 
 /** Nút tương tác chính với các biến thể màu tinh gọn Sky Blue, trạng thái loading và disabled. */
 export function Button({
@@ -201,6 +202,8 @@ export function Pagination({
   itemLabel?: string;
   className?: string;
 }) {
+  const { t, locale } = useI18n();
+  const isEn = locale === "en-US";
   if (totalItems === 0) return null;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -209,17 +212,25 @@ export function Pagination({
 
   return (
     <nav
-      aria-label={`Phân trang ${itemLabel}`}
+      aria-label={isEn ? `Pagination for ${t(itemLabel)}` : `Phân trang ${itemLabel}`}
       className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
         <span aria-live="polite">
-          Hiển thị <strong className="font-semibold text-slate-900 dark:text-slate-100">{start}–{end}</strong> trong {totalItems} {itemLabel}
+          {isEn ? (
+            <>
+              Showing <strong className="font-semibold text-slate-900 dark:text-slate-100">{start}–{end}</strong> of {totalItems} {t(itemLabel)}
+            </>
+          ) : (
+            <>
+              Hiển thị <strong className="font-semibold text-slate-900 dark:text-slate-100">{start}–{end}</strong> trong {totalItems} {itemLabel}
+            </>
+          )}
         </span>
         <label className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300">
-          Số dòng
+          {isEn ? "Rows per page" : "Số dòng"}
           <select
-            aria-label={`Số ${itemLabel} mỗi trang`}
+            aria-label={isEn ? `Number of ${t(itemLabel)} per page` : `Số ${itemLabel} mỗi trang`}
             className="min-h-8.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 text-xs sm:text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15"
             onChange={(event) => onPageSizeChange(Number(event.target.value))}
             value={pageSize}
@@ -232,9 +243,9 @@ export function Pagination({
           </select>
         </label>
       </div>
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn trang">
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t("Chọn trang")}>
         <button
-          aria-label="Trang trước"
+          aria-label={t("Trang trước")}
           className="grid size-8.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
           disabled={currentPage <= 1}
           onClick={() => onPageChange(currentPage - 1)}
@@ -246,7 +257,7 @@ export function Pagination({
           typeof item === "number" ? (
             <button
               aria-current={item === currentPage ? "page" : undefined}
-              aria-label={`Trang ${item}`}
+              aria-label={`${t("Trang")} ${item}`}
               className={`min-h-8.5 min-w-8.5 rounded-lg px-2 text-xs sm:text-sm font-semibold transition-colors ${
                 item === currentPage
                   ? "bg-sky-600 text-white font-bold shadow-xs"
@@ -269,7 +280,7 @@ export function Pagination({
           ),
         )}
         <button
-          aria-label="Trang sau"
+          aria-label={t("Trang sau")}
           className="grid size-8.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
           disabled={currentPage >= totalPages}
           onClick={() => onPageChange(currentPage + 1)}
@@ -568,8 +579,9 @@ export function FormattedTextarea({
   );
 }
 
-/** Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt và màu sắc rõ ràng. */
+// Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt/tiếng Anh và màu sắc trực quan.
 export function StatusBadge({ status }: { status: string }) {
+  const { t } = useI18n();
   const isPositive = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED", "GRADED"].includes(status);
   const isNegative = ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status);
   const isPending = [
@@ -637,13 +649,16 @@ export function StatusBadge({ status }: { status: string }) {
     LOW: "Rủi ro thấp",
   };
 
+  const label = labels[status] ? t(labels[status]) : status;
+
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold shadow-2xs ${style}`}
-      title={labels[status] ? `Mã trạng thái: ${status}` : undefined}
+      title={labels[status] ? `${t("Mã trạng thái")}: ${status}` : undefined}
     >
       <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
-      {labels[status] ?? status}
+      {label}
     </span>
   );
 }
+
