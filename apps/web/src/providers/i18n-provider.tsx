@@ -113,9 +113,20 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
-/** Truy cập i18n context và báo lỗi cấu hình rõ ràng khi provider bị thiếu. */
+const defaultI18nValue: I18nContextValue = {
+  locale: "vi-VN",
+  setLocale: () => {},
+  t: (text: string) => text,
+  formatDateTime: (input) =>
+    new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(
+      new Date(input),
+    ),
+  formatNumber: (input) => new Intl.NumberFormat("vi-VN").format(input),
+};
+
+// Truy cập i18n context và trả fallback an toàn khi render ngoài provider.
 export function useI18n(): I18nContextValue {
   const value = useContext(I18nContext);
-  if (!value) throw new Error("useI18n must be used inside I18nProvider");
-  return value;
+  return value ?? defaultI18nValue;
 }
+

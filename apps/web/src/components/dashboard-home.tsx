@@ -5,19 +5,15 @@ import {
   BookOpenCheck,
   CalendarDays,
   Database,
-  FileQuestion,
   GraduationCap,
   ListChecks,
   MessageSquareText,
-  Presentation,
   RefreshCw,
   Settings,
   ShieldCheck,
   ShieldEllipsis,
   Sparkles,
-  UserCheck,
   Users,
-  Compass,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,11 +29,13 @@ import type {
   OperationalReport,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { hasAnyPermission } from "@/lib/access-control";
 
 interface DashboardMetric {
   value: string;
   label: string;
+  labelEn?: string;
   color?: "sky" | "cyan" | "amber" | "indigo";
 }
 
@@ -46,94 +44,162 @@ interface HealthOverview {
   database: string;
 }
 
-const roleContent: Record<RoleCode, { title: string; description: string }> = {
+const roleContent: Record<
+  RoleCode,
+  {
+    title: { "vi-VN": string; "en-US": string };
+    description: { "vi-VN": string; "en-US": string };
+  }
+> = {
   SYSTEM_ADMIN: {
-    title: "Trung tâm Điều hành & Vận hành",
-    description: "Theo dõi tài khoản, phân quyền, cấu hình hệ thống và tình trạng hạ tầng.",
+    title: {
+      "vi-VN": "Trung tâm Điều hành & Vận hành",
+      "en-US": "System Operations & Control Center",
+    },
+    description: {
+      "vi-VN": "Theo dõi tài khoản, phân quyền, cấu hình hệ thống và tình trạng hạ tầng.",
+      "en-US": "Monitor accounts, permissions, system configurations, and infrastructure status.",
+    },
   },
   CENTER_MANAGER: {
-    title: "Trung tâm Quản trị Đào tạo",
-    description: "Điều phối khóa học, quản lý lớp, phân công giảng viên và kiểm soát tiến độ.",
+    title: {
+      "vi-VN": "Trung tâm Quản trị Đào tạo",
+      "en-US": "Training Management Center",
+    },
+    description: {
+      "vi-VN": "Điều phối khóa học, quản lý lớp, phân công giảng viên và kiểm soát tiến độ.",
+      "en-US": "Coordinate courses, manage classes, assign instructors, and control academic progress.",
+    },
   },
   INSTRUCTOR: {
-    title: "Không gian Giảng dạy & Khảo thí",
-    description: "Tổ chức học liệu, soạn đề thi thông minh, chấm điểm và theo dõi lớp học.",
+    title: {
+      "vi-VN": "Không gian Giảng dạy & Khảo thí",
+      "en-US": "Teaching & Assessment Workspace",
+    },
+    description: {
+      "vi-VN": "Tổ chức học liệu, soạn đề thi thông minh, chấm điểm và theo dõi lớp học.",
+      "en-US": "Organize learning materials, author smart exams, grade submissions, and track classes.",
+    },
   },
   LEARNER: {
-    title: "Không gian Học tập Cá nhân",
-    description: "Theo dõi tiến độ học tập, làm bài thi, tham gia lớp học trực tuyến và trao đổi.",
+    title: {
+      "vi-VN": "Không gian Học tập Cá nhân",
+      "en-US": "Personal Learning Workspace",
+    },
+    description: {
+      "vi-VN": "Theo dõi tiến độ học tập, làm bài thi, tham gia lớp học trực tuyến và trao đổi.",
+      "en-US": "Track study progress, take exams, join live classes, and engage in discussions.",
+    },
   },
 };
 
 const modules = [
   {
     href: "/courses",
-    name: "Khóa học & Lớp",
+    name: "Khóa học & lớp",
+    nameEn: "Courses & Classes",
     detail: "Quản lý chương trình đào tạo, lịch học và danh sách lớp học",
+    detailEn: "Manage training curriculum, schedules, and class rosters",
     icon: GraduationCap,
     permissions: ["course:view", "class:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/exams",
-    name: "Đề thi & Khảo thí",
+    name: "Đề thi & khảo thí",
+    nameEn: "Exams & Assessments",
     detail: "Soạn đề bằng AI, ngân hàng câu hỏi, tổ chức thi và chấm điểm",
+    detailEn: "AI exam authoring, question bank, exam delivery, and grading",
     icon: BookOpenCheck,
     permissions: ["exam:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/materials",
-    name: "Kho Học liệu Số",
+    name: "Kho học liệu",
+    nameEn: "Digital Learning Materials",
     detail: "Tài liệu giảng dạy, bài giảng đa phương tiện và tài nguyên môn học",
+    detailEn: "Teaching materials, multimedia lectures, and course resources",
     icon: Database,
     permissions: ["material:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/live-classes",
-    name: "Lớp học Online",
+    name: "Lớp học online",
+    nameEn: "Online Live Classes",
     detail: "Phòng học trực tuyến, điểm danh tự động và video bản ghi",
+    detailEn: "Virtual classrooms, automatic attendance, and session recordings",
     icon: CalendarDays,
     permissions: ["session:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/forum",
-    name: "Diễn đàn Trao đổi",
+    name: "Diễn đàn trao đổi",
+    nameEn: "Discussion Forum",
     detail: "Kênh thảo luận học tập, giải đáp thắc mắc và chia sẻ tri thức",
+    detailEn: "Community discussions, Q&A support, and knowledge sharing",
     icon: MessageSquareText,
     permissions: ["forum:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/academic",
-    name: "Lịch & Bài tập",
+    name: "Lịch & bài tập",
+    nameEn: "Schedule & Assignments",
     detail: "Theo dõi thời khóa biểu, hạn nộp bài tập và lịch thi sắp tới",
+    detailEn: "Track timetable, assignment due dates, and upcoming exams",
     icon: ListChecks,
     permissions: ["class:view", "exam:view"],
     roles: ["INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/admin/users",
-    name: "Quản trị Người dùng",
+    name: "Người dùng",
+    nameEn: "User Management",
     detail: "Cấp phát tài khoản, phân quyền quản trị và quản lý học viên",
+    detailEn: "Account provisioning, role assignment, and learner management",
     icon: Users,
     permissions: ["user:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
   },
   {
+    href: "/admin/roles",
+    name: "Vai trò & quyền",
+    nameEn: "Roles & Permissions",
+    detail: "Cấu hình vai trò và ma trận quyền hạn quản trị",
+    detailEn: "Configure roles and permission matrices",
+    icon: ShieldCheck,
+    permissions: ["role:view"],
+    roles: ["SYSTEM_ADMIN"],
+  },
+  {
+    href: "/class-operations",
+    name: "Điều hành lớp",
+    nameEn: "Class Operations",
+    detail: "Quản lý tiến độ giảng dạy, sĩ số và trạng thái vận hành",
+    detailEn: "Manage teaching progress, rosters, and operational states",
+    icon: ListChecks,
+    permissions: ["class:manage"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
+  },
+  {
     href: "/admin/settings",
-    name: "Cấu hình Hệ thống",
+    name: "Cấu hình",
+    nameEn: "System Settings",
     detail: "Thiết lập nhà cung cấp AI, tích hợp lưu trữ và chính sách bảo mật",
+    detailEn: "Configure AI providers, storage integrations, and security policies",
     icon: Settings,
     permissions: ["system:configure"],
     roles: ["SYSTEM_ADMIN"],
   },
   {
     href: "/reports",
-    name: "Báo cáo Vận hành",
+    name: "Báo cáo vận hành",
+    nameEn: "Operational Reports",
     detail: "Phân tích số liệu học tập, tỷ lệ chuyên cần và đánh giá chất lượng",
+    detailEn: "Analyze learning metrics, attendance rates, and quality evaluation",
     icon: ShieldEllipsis,
     permissions: ["report:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
@@ -141,14 +207,16 @@ const modules = [
 ] satisfies Array<{
   href: string;
   name: string;
+  nameEn: string;
   detail: string;
+  detailEn: string;
   icon: typeof Database;
   permissions: PermissionCode[];
   roles: RoleCode[];
 }>;
 
-/** Tải song song bộ KPI phù hợp với từng vai trò người dùng. */
-async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
+// Tải song song bộ KPI phù hợp với từng vai trò người dùng kèm nhãn song ngữ.
+async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
       apiRequest<{ active: number }>("/admin/users?pageSize=1", { roleCode }),
@@ -157,14 +225,29 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     ]);
     const healthLabel =
       health.status === "healthy"
-        ? "Ổn định"
+        ? isEn ? "Healthy" : "Ổn định"
         : health.status === "warning"
-          ? "Cần chú ý"
-          : "Suy giảm";
+          ? isEn ? "Attention" : "Cần chú ý"
+          : isEn ? "Degraded" : "Suy giảm";
     return [
-      { value: String(users.active), label: "Tài khoản đang hoạt động", color: "sky" },
-      { value: String(roles.length), label: "Vai trò trong hệ thống", color: "cyan" },
-      { value: healthLabel, label: `Trạng thái máy chủ · DB ${health.database}`, color: "indigo" },
+      {
+        value: String(users.active),
+        label: "Tài khoản đang hoạt động",
+        labelEn: "Active accounts",
+        color: "sky",
+      },
+      {
+        value: String(roles.length),
+        label: "Vai trò trong hệ thống",
+        labelEn: "System roles",
+        color: "cyan",
+      },
+      {
+        value: healthLabel,
+        label: `dịch vụ · CSDL ${health.database}`,
+        labelEn: `Services · DB ${health.database}`,
+        color: "indigo",
+      },
     ];
   }
 
@@ -177,12 +260,19 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
       {
         value: String(classes.filter((item) => item.status === "ACTIVE").length),
         label: "Lớp học đang mở",
+        labelEn: "Active classes",
         color: "sky",
       },
-      { value: String(report.learners), label: "Tổng số học viên", color: "cyan" },
+      {
+        value: String(report.learners),
+        label: "Tổng số học viên",
+        labelEn: "Total learners",
+        color: "cyan",
+      },
       {
         value: String(report.openTickets + report.openReports),
         label: "Yêu cầu cần xử lý",
+        labelEn: "Pending requests",
         color: "amber",
       },
     ];
@@ -196,12 +286,18 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     ]);
     const now = Date.now();
     return [
-      { value: String(classes.length), label: "Lớp phụ trách giảng dạy", color: "sky" },
+      {
+        value: String(classes.length),
+        label: "Lớp phụ trách giảng dạy",
+        labelEn: "Assigned teaching classes",
+        color: "sky",
+      },
       {
         value: String(
           gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0),
         ),
         label: "Bài thi & bài tập chờ chấm",
+        labelEn: "Exams & assignments awaiting grading",
         color: "amber",
       },
       {
@@ -213,6 +309,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
           ).length,
         ),
         label: "Buổi dạy online sắp diễn ra",
+        labelEn: "Upcoming online classes",
         color: "cyan",
       },
     ];
@@ -239,11 +336,13 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
     {
       value: String(classes.filter((item) => item.status === "ACTIVE").length),
       label: "Lớp học tham gia",
+      labelEn: "Enrolled classes",
       color: "sky",
     },
     {
       value: String(actionableAssignments + actionableExams),
-      label: "Nhiệm vụ & đề thi cần làm",
+      label: "bài tập và bài thi cần làm",
+      labelEn: "Pending tasks & exams",
       color: "amber",
     },
     {
@@ -253,14 +352,17 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
             .length,
       ),
       label: "Kết quả đã công bố",
+      labelEn: "Published results",
       color: "cyan",
     },
   ];
 }
 
-/** Dashboard tối giản hiện đại với giao diện Sky Blue dạng Command Center. */
+// Render Dashboard dạng Command Center hiện đại, tối giản và đồng bộ song ngữ hoàn hảo.
 export function DashboardHome() {
   const { session } = useApp();
+  const { t, locale } = useI18n();
+  const isEn = locale === "en-US";
   const content = roleContent[session.roleCode];
   const visibleModules = useMemo(
     () =>
@@ -279,18 +381,20 @@ export function DashboardHome() {
     setLoading(true);
     setError("");
     try {
-      setMetrics(await loadMetrics(session.roleCode));
+      setMetrics(await loadMetrics(session.roleCode, isEn));
     } catch (requestError) {
       setMetrics([]);
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Không thể tải số liệu tổng quan.",
+          : isEn
+            ? "Unable to load dashboard metrics."
+            : "Không thể tải số liệu tổng quan.",
       );
     } finally {
       setLoading(false);
     }
-  }, [session.roleCode]);
+  }, [session.roleCode, isEn]);
 
   useEffect(() => {
     window.queueMicrotask(() => {
@@ -307,13 +411,13 @@ export function DashboardHome() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-100/80 dark:bg-sky-900/40 border border-sky-200 dark:border-sky-800 px-3 py-0.5 text-xs font-bold text-sky-800 dark:text-sky-300">
               <Sparkles size={13} className="text-sky-600 dark:text-sky-400" />
-              <span>{session.user.roleName}</span>
+              <span>{t(session.user.roleName)}</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Xin chào, {session.user.name} 👋
+              {isEn ? `Welcome, ${session.user.name} 👋` : `Xin chào, ${session.user.name} 👋`}
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
-              {content.description}
+              {content.description[locale] ?? content.description["vi-VN"]}
             </p>
           </div>
 
@@ -324,16 +428,16 @@ export function DashboardHome() {
             type="button"
           >
             <RefreshCw className={loading ? "animate-spin" : ""} size={14} />
-            Làm mới số liệu
+            {isEn ? "Refresh metrics" : "Làm mới số liệu"}
           </button>
         </div>
       </div>
 
       {/* KPI Stats Grid */}
-      <section aria-label="Chỉ số hoạt động" className="space-y-3">
+      <section aria-label={isEn ? "Operational metrics" : "Chỉ số hoạt động"} className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            Chỉ số hoạt động trọng tâm
+            {isEn ? "Key Operational Metrics" : "Chỉ số hoạt động trọng tâm"}
           </h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -355,11 +459,11 @@ export function DashboardHome() {
                 onClick={() => void refresh()}
                 type="button"
               >
-                Thử tải lại
+                {isEn ? "Try again" : "Thử tải lại"}
               </button>
             </div>
           ) : (
-            metrics.map(({ value, label, color }) => {
+            metrics.map(({ value, label, labelEn, color }) => {
               const textAccent =
                 color === "amber"
                   ? "text-amber-600 dark:text-amber-400"
@@ -378,7 +482,7 @@ export function DashboardHome() {
                     {value}
                   </p>
                   <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
-                    {label}
+                    {isEn && labelEn ? labelEn : label}
                   </p>
                 </div>
               );
@@ -392,19 +496,26 @@ export function DashboardHome() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Phân hệ chức năng
+              {isEn ? "Functional Modules" : "Phân hệ chức năng"}
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Truy cập nhanh vào các công cụ học tập và quản trị.
+              {isEn
+                ? "Quick access to learning and administration tools."
+                : "Truy cập nhanh vào các công cụ học tập và quản trị."}
             </p>
           </div>
           <span className="hidden sm:inline-flex rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
-            {visibleModules.length} phân hệ khả dụng
+            {visibleModules.length}{" "}
+            {isEn
+              ? visibleModules.length === 1
+                ? "module available"
+                : "modules available"
+              : "phân hệ khả dụng"}
           </span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleModules.map(({ href, name, detail, icon: Icon }) => (
+          {visibleModules.map(({ href, name, nameEn, detail, detailEn, icon: Icon }) => (
             <Link
               className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
               href={href}
@@ -420,10 +531,10 @@ export function DashboardHome() {
               </div>
               <div className="mt-4">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                  {name}
+                  {isEn ? nameEn : name}
                 </h3>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
-                  {detail}
+                  {isEn ? detailEn : detail}
                 </p>
               </div>
             </Link>

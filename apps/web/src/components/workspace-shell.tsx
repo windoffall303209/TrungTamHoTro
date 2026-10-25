@@ -192,12 +192,12 @@ const allNavItems: NavigationItem[] = [
   },
 ];
 
-/** Bố cục ứng dụng hoàn toàn mới: Thanh điều hướng Top-Nav đa tầng tối ưu không gian chiều ngang. */
+// Bố cục ứng dụng hoàn toàn mới: Thanh điều hướng Top-Nav đa tầng tối ưu không gian chiều ngang và đồng bộ song ngữ.
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { session, setRole, logout, notify } = useApp();
-  const { t, formatDateTime } = useI18n();
+  const { t, formatDateTime, locale } = useI18n();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -464,7 +464,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       }`}
                       size={15}
                     />
-                    <span>{section.title}</span>
+                    <span>{t(section.title)}</span>
                   </Link>
                 );
               })}
@@ -476,19 +476,19 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {/* Role indicator pill */}
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-2xs">
               <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
-              {session.user.roleName}
+              {t(session.user.roleName)}
             </div>
 
             {session.availableRoles.length > 1 ? (
               <select
-                aria-label="Chọn vai trò sử dụng"
+                aria-label={t("Chọn vai trò sử dụng")}
                 className="min-h-8.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
                 onChange={(event) => void setRole(event.target.value as RoleCode)}
                 value={session.roleCode}
               >
                 {session.availableRoles.map((role) => (
                   <option key={role.code} value={role.code}>
-                    {role.name}
+                    {t(role.name)}
                   </option>
                 ))}
               </select>
@@ -500,7 +500,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {/* Notification Bell */}
             <div className="relative" ref={notificationRef}>
               <button
-                aria-label={unreadCount ? `Thông báo, ${unreadCount} chưa đọc` : "Thông báo"}
+                aria-label={
+                  unreadCount
+                    ? locale === "en-US"
+                      ? `Notifications, ${unreadCount} unread`
+                      : `Thông báo, ${unreadCount} chưa đọc`
+                    : t("Thông báo")
+                }
                 className="relative grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
                 onClick={() => {
                   setNotificationOpen((open) => !open);
@@ -518,16 +524,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
               {notificationOpen ? (
                 <section
-                  aria-label="Trung tâm thông báo"
+                  aria-label={t("Trung tâm thông báo")}
                   className="absolute right-0 top-11 z-50 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
                 >
                   <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30">
                     <div>
                       <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        Thông báo
+                        {t("Thông báo")}
                       </h2>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {unreadCount ? `${unreadCount} mục chưa đọc` : "Đã đọc tất cả"}
+                        {unreadCount
+                          ? locale === "en-US"
+                            ? `${unreadCount} unread items`
+                            : `${unreadCount} mục chưa đọc`
+                          : t("Đã đọc tất cả")}
                       </p>
                     </div>
                     <button
@@ -537,14 +547,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       type="button"
                     >
                       <CheckCheck size={14} />
-                      Đọc tất cả
+                      {t("Đọc tất cả")}
                     </button>
                   </div>
                   <div className="max-h-[min(28rem,65dvh)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
                     {notificationLoading ? (
                       <div className="flex min-h-36 items-center justify-center gap-2 text-xs font-semibold text-slate-500">
                         <LoaderCircle className="animate-spin text-sky-600" size={18} />
-                        Đang tải…
+                        {t("Đang tải…")}
                       </div>
                     ) : notificationError ? (
                       <div className="grid min-h-36 place-items-center px-4 text-center">
@@ -557,7 +567,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             onClick={() => void loadNotifications()}
                             type="button"
                           >
-                            Thử lại
+                            {t("Thử lại")}
                           </button>
                         </div>
                       </div>
@@ -598,7 +608,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         <div>
                           <Bell className="mx-auto text-slate-300 dark:text-slate-700" size={24} />
                           <p className="mt-2 text-xs font-semibold text-slate-500">
-                            Chưa có thông báo
+                            {t("Chưa có thông báo")}
                           </p>
                         </div>
                       </div>
@@ -621,18 +631,22 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             >
               <button
                 aria-expanded={profileOpen}
-                aria-label="Mở menu tài khoản"
+                aria-label={t("Mở menu tài khoản")}
                 className="flex min-h-9 items-center gap-2 rounded-lg px-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2"
                 onClick={() => setProfileOpen((open) => !open)}
                 type="button"
               >
                 <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
+                <span className="hidden sm:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
+                  {session.user.name}
+                </span>
                 <ChevronDown
                   className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
                     profileOpen ? "rotate-180" : ""
                   }`}
                   size={13}
                 />
+
               </button>
 
               {profileOpen ? (
@@ -646,7 +660,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         {session.user.name}
                       </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {session.user.roleName}
+                        {t(session.user.roleName)}
                       </p>
                     </div>
                     <Link
@@ -656,7 +670,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       role="menuitem"
                     >
                       <UserRoundCog size={14} />
-                      Thông tin cá nhân
+                      {t("Thông tin")}
                     </Link>
                     <button
                       className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
@@ -665,7 +679,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       type="button"
                     >
                       <LogOut size={14} />
-                      Đăng xuất
+                      {t("Đăng xuất")}
                     </button>
                   </section>
                 </div>
@@ -674,7 +688,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
             {/* Mobile Menu Trigger */}
             <button
-              aria-label="Mở menu điều hướng"
+              aria-label={t("Mở menu điều hướng")}
               className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
               onClick={() => setMenuOpen((open) => !open)}
               type="button"
@@ -690,7 +704,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             <div className="mx-auto flex h-11 max-w-7xl items-center px-4 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
                 <Compass size={13} className="text-sky-500" />
-                {currentSection.title}:
+                {t(currentSection.title)}:
               </span>
               {currentSection.items.map(({ href, label, icon: Icon }) => {
                 const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -722,7 +736,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ) : null}
+
+        {/* Điều hướng đầy đủ phục vụ trợ năng (Screen Readers & Quick Links) */}
+        <nav aria-label={t("Điều hướng chức năng")} className="sr-only">
+          {availableItems.map((item) => (
+            <Link href={item.href} key={item.href}>
+              {t(item.label)}
+            </Link>
+          ))}
+        </nav>
       </header>
+
 
       {/* MOBILE DRAWER: Menu trượt trên màn hình di động */}
       {menuOpen ? (
@@ -740,7 +764,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <span className="font-bold text-base text-slate-900 dark:text-white">Wind EDU</span>
               </div>
               <button
-                aria-label="Đóng menu"
+                aria-label={t("Đóng menu")}
                 className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => setMenuOpen(false)}
                 type="button"
@@ -753,7 +777,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               {sections.map((section) => (
                 <div key={section.id} className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    {section.title}
+                    {t(section.title)}
                   </p>
                   {section.items.map(({ href, label, icon: Icon }) => {
                     const active = pathname === href || pathname.startsWith(`${href}/`);
