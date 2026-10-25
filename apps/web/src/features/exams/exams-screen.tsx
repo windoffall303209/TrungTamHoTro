@@ -426,51 +426,52 @@ export default function ExamsScreen() {
         <section className="mt-6">
           <div className="mb-5 flex items-end justify-between gap-4">
             <div>
-              <h2 className="font-heading text-2xl font-extrabold tracking-tight">
+              <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                 Kết quả đã công bố
               </h2>
-              <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                Xem điểm từng câu, phản hồi của giảng viên và gửi yêu cầu phúc
-                khảo.
+              <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                Xem điểm từng câu, phản hồi của giảng viên và gửi yêu cầu phúc khảo.
               </p>
             </div>
           </div>
           {results.length ? (
-            <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
+            <div className="space-y-3.5">
               {results.map((result) => (
                 <article
-                  className="grid scroll-mt-24 gap-5 py-5 lg:grid-cols-[1fr_auto] lg:items-center"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid scroll-mt-24 gap-5 lg:grid-cols-[1fr_auto] lg:items-center"
                   id={`exam-${result.attempt.id}`}
                   key={result.attempt.id}
                 >
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="font-heading text-lg font-extrabold">
+                      <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
                         {result.exam.title}
                       </h3>
                       <StatusBadge
                         status={result.regradeRequest?.status ?? "PUBLISHED"}
                       />
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
                       {result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
                       {result.answerBreakdown.map((answer, index) => (
-                        <span key={answer.questionId}>
-                          Câu {index + 1}: {answer.awardedScore}/
-                          {answer.maxScore}
+                        <span
+                          key={answer.questionId}
+                          className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 px-2.5 py-1 font-semibold text-slate-600 dark:text-slate-400"
+                        >
+                          Câu {index + 1}: <strong className="text-sky-600 dark:text-sky-400">{answer.awardedScore}</strong>/{answer.maxScore}
                         </span>
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 lg:text-right">
-                    <div>
-                      <p className="text-3xl font-extrabold text-sky-800">
+                  <div className="flex items-center gap-4 lg:text-right border-t lg:border-t-0 border-slate-100 dark:border-slate-800/60 pt-3 lg:pt-0">
+                    <div className="rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/50 px-4 py-2 text-center">
+                      <p className="text-2xl sm:text-3xl font-extrabold text-sky-700 dark:text-sky-300">
                         {result.attempt.score ?? 0}
                       </p>
-                      <p className="text-xs text-slate-500">
-                        trên {result.exam.totalScore}
+                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        thang {result.exam.totalScore}
                       </p>
                     </div>
                     {!result.regradeRequest ? (
@@ -480,8 +481,9 @@ export default function ExamsScreen() {
                           setRegradeOpen(true);
                         }}
                         variant="secondary"
+                        className="h-9 text-xs"
                       >
-                        <RotateCcw size={15} />
+                        <RotateCcw size={14} />
                         Phúc khảo
                       </Button>
                     ) : null}
@@ -490,13 +492,12 @@ export default function ExamsScreen() {
               ))}
             </div>
           ) : (
-            <div className="border-y border-[var(--rule-strong)] py-12 text-center">
-              <p className="font-bold text-[var(--ink)]">
+            <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 py-14 text-center">
+              <p className="font-bold text-slate-800 dark:text-slate-200">
                 Chưa có kết quả được công bố
               </p>
-              <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                Bài tự luận sẽ xuất hiện tại đây sau khi giảng viên chấm và công
-                bố điểm.
+              <p className="mt-1 text-xs text-slate-400">
+                Bài tự luận sẽ xuất hiện tại đây sau khi giảng viên chấm và công bố điểm.
               </p>
               <Button
                 className="mt-4"

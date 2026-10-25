@@ -56,36 +56,166 @@ export default function CoursesPage() {
     {manager ? <Tabs className="mt-6" items={[{ value: "courses", label: "Khóa học", count: courses.length }, { value: "classes", label: "Lớp học", count: classes.length }]} label="Chọn nội dung quản lý" onChange={setActiveTab} value={activeTab} /> : null}
     <SectionState loading={loading} empty={manager ? activeTab === "courses" ? courses.length === 0 : classes.length === 0 : classes.length === 0}>
       <div className="mt-7">
-        {manager && activeTab === "courses" ? <section className="min-w-0">
-          <div className="flex items-end justify-between gap-5 border-b-2 border-[var(--rule-strong)] pb-4">
-            <div><h2 className="font-heading text-2xl font-extrabold">Danh mục khóa học</h2><p className="mt-1 text-sm text-slate-500">Nội dung đào tạo và phiên bản đang được sử dụng.</p></div>
-            <span className="shrink-0 text-sm font-bold text-slate-500">{courses.length} khóa học</span>
-          </div>
-          <div className="border-b border-[var(--rule-strong)] bg-[var(--surface)]/65">
-            {coursePagination.pageItems.map((course) => <article className="border-b border-[var(--rule)] px-6 py-6 last:border-b-0" key={course.id}>
-              <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-extrabold text-sky-700">{course.code} · phiên bản {course.version}</p><h3 className="mt-1 font-heading text-xl font-extrabold">{course.name}</h3><p className="mt-2 max-w-[60ch] text-sm leading-6 text-slate-500">{course.description}</p></div><StatusBadge status={course.status} /></div>
-              <div className="mt-4"><p className="text-xs font-bold text-slate-500">Lớp của khóa học<span className="ml-1 tabular">({classes.filter((item) => item.courseId === course.id).length})</span></p>{classes.some((item) => item.courseId === course.id) ? <ul className="mt-2 flex flex-wrap gap-2">{classes.filter((item) => item.courseId === course.id).map((item) => <li key={item.id}><button className="inline-flex items-center gap-2 rounded-lg border border-[var(--rule)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--action)]" onClick={() => router.push(`/courses/classes/${item.id}`)} type="button">{item.code} · {item.term}<StatusBadge status={item.status} /></button></li>)}</ul> : <p className="mt-1 text-xs text-slate-500">Chưa có lớp nào.</p>}</div>
-              <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[var(--rule)] pt-3">{course.status === "DRAFT" ? <Button onClick={() => void publish(course)} variant="secondary"><Rocket size={15} />Xuất bản</Button> : null}{course.status !== "ARCHIVED" ? <Button onClick={() => editCourse(course)} variant="ghost"><Pencil size={15} />Sửa bản nháp</Button> : null}<Button onClick={() => void openVersions(course)} variant="ghost"><History size={15} />Lịch sử</Button>{course.status !== "ARCHIVED" ? <Button onClick={() => setArchiveTarget(course)} variant="ghost"><Archive size={15} />Ngừng dùng</Button> : null}</div>
-            </article>)}
-          </div>
-          <Pagination itemLabel="khóa học" onPageChange={coursePagination.setPage} onPageSizeChange={coursePagination.setPageSize} page={coursePagination.page} pageSize={coursePagination.pageSize} totalItems={coursePagination.totalItems} />
-        </section> : null}
-        {!manager || activeTab === "classes" ? <section className="min-w-0">
-          <div className="flex items-end justify-between gap-5 border-b-2 border-[var(--rule-strong)] pb-4">
-            <div><h2 className="font-heading text-2xl font-extrabold">{manager ? "Lớp đang quản lý" : session.roleCode === "INSTRUCTOR" ? "Lớp được phân công" : "Lớp đã ghi danh"}</h2><p className="mt-1 text-sm text-slate-500">Theo dõi nhân sự, quy mô lớp và mốc vận hành tại một chỗ.</p></div>
-            <span className="shrink-0 text-sm font-bold text-slate-500">{filteredClasses.length} lớp</span>
-          </div>
-          {manager ? <div className="mt-4 max-w-sm"><Field label="Lọc theo khóa học"><select className={inputClass} onChange={(event) => { setCourseFilter(event.target.value); classPagination.resetPage(); }} value={courseFilter}><option value="">Tất cả khóa học</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.name}</option>)}</select></Field></div> : null}
-          {manager && !filteredClasses.length && classes.length ? <p className="mt-4 text-sm text-slate-500">Không có lớp nào thuộc khóa học này.</p> : null}
-          <div className="border-b border-[var(--rule-strong)] bg-[var(--surface)]/65">
-            {classPagination.pageItems.map((item) => <article className="border-b border-[var(--rule)] px-6 py-6 last:border-b-0" key={item.id}>
-              <div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-extrabold text-sky-700">{item.code} · {item.term} · {courses.find((course) => course.id === item.courseId)?.code ?? "khóa"} v{item.courseVersion}</p><h3 className="mt-1 font-heading text-xl font-extrabold">{item.name}</h3><p className="mt-1 text-xs text-slate-500">{item.timezone} · {item.allowLateEnrollment ? "Cho ghi danh muộn" : "Khóa ghi danh muộn"}</p></div><StatusBadge status={item.status} /></div>
-              <div className="mt-5 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center"><div><p className="tabular font-extrabold">{item.instructorIds.length}</p><p className="mt-1 text-[11px] text-slate-500">Giảng viên</p></div><div><p className="tabular font-extrabold">{item.learnerIds.length}/{item.capacity}</p><p className="mt-1 text-[11px] text-slate-500">Học viên</p></div><div><p className="tabular font-extrabold">{new Date(item.startAt).toLocaleDateString(activeLocale())}</p><p className="mt-1 text-[11px] text-slate-500">Khai giảng</p></div></div>
-              <div className="mt-3 flex flex-wrap gap-2"><Button onClick={() => router.push(`/courses/classes/${item.id}`)} variant="secondary">Xem chi tiết lớp<ArrowRight size={15} /></Button>{manager && item.status === "DRAFT" ? <Button onClick={() => void activate(item)} variant="ghost">Kích hoạt lớp</Button> : null}</div>
-            </article>)}
-          </div>
-          <Pagination itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} />
-        </section> : null}
+        {manager && activeTab === "courses" ? (
+          <section className="min-w-0">
+            <div className="flex items-end justify-between gap-5 border-b border-slate-200 dark:border-slate-800 pb-4 mb-5">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Danh mục khóa học</h2>
+                <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">Nội dung đào tạo và phiên bản đang được sử dụng.</p>
+              </div>
+              <span className="shrink-0 text-xs sm:text-sm font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-3 py-1 rounded-full border border-sky-200/80 dark:border-sky-800/60 tabular-nums">
+                {courses.length} khóa học
+              </span>
+            </div>
+            <div className="space-y-4">
+              {coursePagination.pageItems.map((course) => (
+                <article className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all space-y-4" key={course.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wide">
+                        {course.code} · v{course.version}
+                      </span>
+                      <h3 className="mt-2 text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">{course.name}</h3>
+                      <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400 max-w-3xl">{course.description}</p>
+                    </div>
+                    <StatusBadge status={course.status} />
+                  </div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-4">
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                      Lớp trực thuộc ({classes.filter((item) => item.courseId === course.id).length})
+                    </p>
+                    {classes.some((item) => item.courseId === course.id) ? (
+                      <ul className="mt-2.5 flex flex-wrap gap-2">
+                        {classes.filter((item) => item.courseId === course.id).map((item) => (
+                          <li key={item.id}>
+                            <button
+                              className="inline-flex items-center gap-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-semibold hover:border-sky-400 transition-colors shadow-2xs"
+                              onClick={() => router.push(`/courses/classes/${item.id}`)}
+                              type="button"
+                            >
+                              <span>{item.code} · {item.term}</span>
+                              <StatusBadge status={item.status} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-400">Chưa có lớp nào mở cho khóa này.</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                    {course.status === "DRAFT" ? (
+                      <Button onClick={() => void publish(course)} variant="secondary" className="h-8 text-xs">
+                        <Rocket size={14} />
+                        Xuất bản
+                      </Button>
+                    ) : null}
+                    {course.status !== "ARCHIVED" ? (
+                      <Button onClick={() => editCourse(course)} variant="ghost" className="h-8 text-xs">
+                        <Pencil size={14} />
+                        Sửa bản nháp
+                      </Button>
+                    ) : null}
+                    <Button onClick={() => void openVersions(course)} variant="ghost" className="h-8 text-xs">
+                      <History size={14} />
+                      Lịch sử
+                    </Button>
+                    {course.status !== "ARCHIVED" ? (
+                      <Button onClick={() => setArchiveTarget(course)} variant="ghost" className="h-8 text-xs text-rose-600 dark:text-rose-400">
+                        <Archive size={14} />
+                        Ngừng dùng
+                      </Button>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <Pagination itemLabel="khóa học" onPageChange={coursePagination.setPage} onPageSizeChange={coursePagination.setPageSize} page={coursePagination.page} pageSize={coursePagination.pageSize} totalItems={coursePagination.totalItems} />
+          </section>
+        ) : null}
+        {!manager || activeTab === "classes" ? (
+          <section className="min-w-0">
+            <div className="flex items-end justify-between gap-5 border-b border-slate-200 dark:border-slate-800 pb-4 mb-5">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  {manager ? "Lớp đang quản lý" : session.roleCode === "INSTRUCTOR" ? "Lớp được phân công" : "Lớp đã ghi danh"}
+                </h2>
+                <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">Theo dõi nhân sự, quy mô lớp và mốc vận hành tại một chỗ.</p>
+              </div>
+              <span className="shrink-0 text-xs sm:text-sm font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-3 py-1 rounded-full border border-sky-200/80 dark:border-sky-800/60 tabular-nums">
+                {filteredClasses.length} lớp
+              </span>
+            </div>
+            {manager ? (
+              <div className="mb-5 max-w-sm">
+                <Field label="Lọc theo khóa học">
+                  <select
+                    className={`${inputClass} h-10 text-sm`}
+                    onChange={(event) => { setCourseFilter(event.target.value); classPagination.resetPage(); }}
+                    value={courseFilter}
+                  >
+                    <option value="">Tất cả khóa học</option>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.code} — {course.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            ) : null}
+            {manager && !filteredClasses.length && classes.length ? (
+              <p className="my-6 text-sm text-slate-500">Không có lớp nào thuộc khóa học này.</p>
+            ) : null}
+            <div className="space-y-4">
+              {classPagination.pageItems.map((item) => (
+                <article className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all space-y-4" key={item.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wide">
+                          {item.code}
+                        </span>
+                        <span className="text-xs text-slate-400">· {item.term} · {courses.find((course) => course.id === item.courseId)?.code ?? "Khóa"} v{item.courseVersion}</span>
+                      </div>
+                      <h3 className="mt-2 text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">{item.name}</h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.timezone} · {item.allowLateEnrollment ? "Cho ghi danh muộn" : "Khóa ghi danh muộn"}</p>
+                    </div>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3.5 text-center">
+                    <div>
+                      <p className="tabular text-lg font-bold text-slate-900 dark:text-slate-100">{item.instructorIds.length}</p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-400">Giảng viên</p>
+                    </div>
+                    <div>
+                      <p className="tabular text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {item.learnerIds.length}<span className="text-xs text-slate-400 font-normal">/{item.capacity}</span>
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-400">Học viên</p>
+                    </div>
+                    <div>
+                      <p className="tabular text-lg font-bold text-slate-900 dark:text-slate-100">{new Date(item.startAt).toLocaleDateString(activeLocale())}</p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-400">Khai giảng</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                    <Button onClick={() => router.push(`/courses/classes/${item.id}`)} variant="secondary" className="h-8 text-xs">
+                      Xem chi tiết lớp
+                      <ArrowRight size={14} />
+                    </Button>
+                    {manager && item.status === "DRAFT" ? (
+                      <Button onClick={() => void activate(item)} variant="ghost" className="h-8 text-xs text-emerald-600 dark:text-emerald-400">
+                        Kích hoạt lớp
+                      </Button>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <Pagination itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} />
+          </section>
+        ) : null}
       </div>
     </SectionState>
     <Modal open={mode === "course"} onClose={() => { setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); }} title={editingCourseId ? "Sửa khóa học" : "Tạo khóa học"} description={editingCourseId ? "Thay đổi được lưu thành bản nháp mới; các lớp đang chạy vẫn giữ snapshot cũ." : "Khóa học được lưu ở trạng thái nháp để rà soát trước khi xuất bản."}><form className="space-y-4" onSubmit={(e) => void createCourse(e)}><Field label="Mã khóa học"><input className={inputClass} disabled={Boolean(editingCourseId)} required value={courseForm.code} onChange={(e) => setCourseForm({ ...courseForm, code: e.target.value })} /></Field><Field label="Tên khóa học"><input className={inputClass} required minLength={3} value={courseForm.name} onChange={(e) => setCourseForm({ ...courseForm, name: e.target.value })} /></Field><Field label="Mô tả"><textarea className={inputClass} required minLength={10} rows={3} value={courseForm.description} onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })} /></Field><Field label="Chuẩn đầu ra — mỗi dòng một mục"><textarea className={inputClass} required rows={3} value={courseForm.outcomes} onChange={(e) => setCourseForm({ ...courseForm, outcomes: e.target.value })} /></Field><Button loading={saving} type="submit">{editingCourseId ? "Lưu bản nháp" : "Tạo khóa học"}</Button></form></Modal>
