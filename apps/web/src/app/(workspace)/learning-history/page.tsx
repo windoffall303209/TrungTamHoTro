@@ -120,19 +120,19 @@ export default function LearningHistoryPage() {
         title="Lịch sử học tập"
         description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
       />
-      <div className="section-ledger mt-7">
+      <div className="space-y-4 mt-6">
         {items.length ? pagination.pageItems.map((item) => {
           const summary = summaries[item.id];
           return (
             <article
-              className="bg-[var(--surface)]/65 p-5"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all"
               key={item.id}
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <History className="text-sky-700" size={18} />
-                    <h2 className="font-heading text-lg font-extrabold">
+                    <History className="text-sky-600 dark:text-sky-400" size={18} />
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                       {item.title}
                     </h2>
                     <StatusBadge status={item.status} />
@@ -147,20 +147,20 @@ export default function LearningHistoryPage() {
                 </Button>
               </div>
               {summary ? (
-                <div className="mt-5 grid border-t border-slate-100 pt-5 sm:grid-cols-3 sm:divide-x sm:divide-[var(--rule)]">
-                  <div className="px-4 py-3 sm:first:pl-0">
-                    <p className="text-2xl font-extrabold">
+                <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
+                    <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
                       {summary.attendance.attendedMinutes}&apos;
                     </p>
                     <p className="text-xs text-slate-500">Thời lượng tham dự</p>
                   </div>
-                  <div className="px-4 py-3">
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
                     <StatusBadge status={summary.attendance.status} />
                     <p className="mt-2 text-xs text-slate-500">
                       Trạng thái điểm danh
                     </p>
                   </div>
-                  <div className="px-4 py-3">
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
                     {summary.recordingAvailable ? (
                       <button
                         className="action-link px-0 text-sm"

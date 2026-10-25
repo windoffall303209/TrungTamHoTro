@@ -108,7 +108,7 @@ export default function OperationsScreen() {
       <div className="grid gap-7">
         <section
           hidden={view !== "monitoring"}
-          className="order-2 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="order-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -131,11 +131,11 @@ export default function OperationsScreen() {
               />
             </div>
           </div>
-          <details className="mt-4 border-y border-[var(--rule)] py-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-sm font-bold text-[var(--ink)]">
+          <details className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-4">
+            <summary className="cursor-pointer py-1 text-sm font-bold text-slate-800 dark:text-slate-200">
               Bộ lọc chi tiết
             </summary>
-            <div className="grid gap-3 pb-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Người thực hiện">
                 <input
                   aria-label="Lọc người thực hiện"
@@ -259,7 +259,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "data"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
@@ -362,9 +362,9 @@ export default function OperationsScreen() {
                 )}
               </div>
             ))}
-            <div className="rounded-xl border border-[var(--rule)] p-3">
-              <p className="text-sm font-bold">Hàng đợi email</p>
-              <p className="mt-1 text-xs text-[var(--ink-soft)]">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Hàng đợi email</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Chờ {outboxStats.PENDING ?? 0} · lỗi chờ retry{" "}
                 {outboxStats.FAILED ?? 0} · đã gửi {outboxStats.DELIVERED ?? 0}
               </p>
@@ -394,7 +394,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "content"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -449,7 +449,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "content"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-sky-700" />
@@ -522,7 +522,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "data"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
@@ -595,28 +595,28 @@ export default function OperationsScreen() {
             </p>
           ) : null}
           {retentionPreview ? (
-            <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center">
-              <div>
-                <strong>{retentionPreview.estimatedRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Đủ điều kiện</p>
+            <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs">
+                <strong className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">{retentionPreview.estimatedRows}</strong>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Đủ điều kiện</p>
               </div>
-              <div>
-                <strong>{retentionPreview.legalHoldRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Legal hold</p>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs">
+                <strong className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400">{retentionPreview.legalHoldRows}</strong>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Legal hold</p>
               </div>
-              <div>
-                <strong>{retentionPreview.deletableRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Sẽ xử lý</p>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs">
+                <strong className="text-base sm:text-lg font-bold text-sky-600 dark:text-sky-400">{retentionPreview.deletableRows}</strong>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Sẽ xử lý</p>
               </div>
             </div>
           ) : null}
-          <div className="mt-6 border-t border-[var(--rule)] pt-5">
+          <div className="mt-6 border-t border-slate-200 dark:border-slate-800 pt-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-heading text-base font-extrabold">
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
                   Legal hold đang theo dõi
                 </h3>
-                <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                   Mỗi hold bảo vệ độc lập; giải tỏa một hold không tự xóa dữ
                   liệu hoặc chạy retention.
                 </p>
@@ -629,31 +629,31 @@ export default function OperationsScreen() {
                 Tạo legal hold
               </Button>
             </div>
-            <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+            <div className="mt-4 space-y-3">
               {legalHolds.length ? (
                 legalHolds.map((item) => (
                   <article
-                    className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between"
+                    className="flex flex-col gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs sm:flex-row sm:items-start sm:justify-between"
                     key={item.id}
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <strong className="text-sm">{item.category}</strong>
+                        <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.category}</strong>
                         <StatusBadge
                           status={item.active ? "ACTIVE" : "RELEASED"}
                         />
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-400">
                         {item.reason}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                      <p className="mt-1 text-xs text-slate-400">
                         Tạo bởi {item.createdBy} ·{" "}
                         {new Date(item.createdAt).toLocaleString(
                           activeLocale(),
                         )}
                       </p>
                       {!item.active && item.releaseReason ? (
-                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                        <p className="mt-1 text-xs text-slate-400">
                           Giải tỏa bởi {item.releasedBy}: {item.releaseReason}
                         </p>
                       ) : null}
@@ -672,23 +672,23 @@ export default function OperationsScreen() {
                   </article>
                 ))
               ) : (
-                <p className="py-4 text-sm text-[var(--ink-soft)]">
+                <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-800 py-6 text-center text-sm text-slate-500">
                   Chưa có legal hold.
                 </p>
               )}
             </div>
           </div>
-          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+          <div className="mt-4 space-y-3">
             {retentionPolicies.slice(0, 4).map((item) => (
               <div
-                className="flex items-center justify-between gap-3 py-4"
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs"
                 key={item.id}
               >
                 <div>
-                  <p className="text-sm font-bold">
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
                     {item.category} · v{item.version} · {item.action}
                   </p>
-                  <p className="text-xs text-[var(--ink-soft)]">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {item.retentionDays} ngày · duyệt bởi {item.approvedBy}
                   </p>
                 </div>
@@ -704,15 +704,15 @@ export default function OperationsScreen() {
             ))}
             {retentionJobs.map((item) => (
               <div
-                className="flex flex-col items-start justify-between gap-3 border-b border-[var(--rule)] py-3 text-sm text-[var(--ink)] sm:flex-row sm:flex-wrap sm:items-center"
+                className="flex flex-col items-start justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs sm:flex-row sm:flex-wrap sm:items-center"
                 key={item.id}
               >
                 <div className="min-w-0 flex-1 break-words">
-                  <p className="font-bold">
+                  <p className="font-bold text-slate-900 dark:text-slate-100">
                     {String(item.evidence.category ?? item.policyId)} ·{" "}
                     {String(item.evidence.action ?? "")}
                   </p>
-                  <p className="text-xs text-[var(--ink-soft)]">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {item.requestedBy} ·{" "}
                     {typeof item.evidence.cutoffAt === "string"
                       ? new Date(item.evidence.cutoffAt).toLocaleDateString(
@@ -720,11 +720,11 @@ export default function OperationsScreen() {
                         )
                       : ""}
                   </p>
-                  <p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                     {item.status === "PENDING" && !item.approvedAt
                       ? "Chờ quản trị viên khác phê duyệt"
                       : operationalStatusText(item)}{" "}
-                    · xử lý {item.affectedRows}, giữ {item.skippedRows}
+                    · Xử lý {item.affectedRows}, giữ {item.skippedRows}
                   </p>
                 </div>
                 {item.status === "PENDING" && !item.approvedAt ? (
@@ -754,7 +754,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "monitoring"}
-          className="order-first border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="order-first rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
             <ShieldAlert className="text-rose-600" />

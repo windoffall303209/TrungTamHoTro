@@ -82,37 +82,37 @@ export function ExamPreviewDialog({
               </Button>
             </div>
           ) : null}
-          <div className="grid gap-3 border-y border-[var(--rule)] py-4 sm:grid-cols-4">
-            <div>
-              <p className="text-xs font-bold text-[var(--ink-muted)]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-5">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Lớp học
               </p>
-              <p className="mt-1 text-sm font-extrabold">
+              <p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">
                 {classes.find((item) => item.id === previewExam.classId)
                   ?.code ?? previewExam.classId}
               </p>
             </div>
-            <div>
-              <p className="text-xs font-bold text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Thời gian
               </p>
-              <p className="mt-1 text-sm font-extrabold">
+              <p className="mt-1 text-sm font-bold text-sky-600 dark:text-sky-400">
                 {previewExam.durationMinutes} phút
               </p>
             </div>
-            <div>
-              <p className="text-xs font-bold text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Tổng điểm
               </p>
-              <p className="mt-1 text-sm font-extrabold">
+              <p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">
                 {previewExam.totalScore}
               </p>
             </div>
-            <div>
-              <p className="text-xs font-bold text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Thứ tự học viên
               </p>
-              <p className="mt-1 text-sm font-extrabold">
+              <p className="mt-1 text-sm font-bold text-slate-900 dark:text-slate-100">
                 {previewExam.shuffleQuestions
                   ? "Có xáo trộn"
                   : "Theo thứ tự gốc"}
@@ -120,21 +120,21 @@ export function ExamPreviewDialog({
             </div>
           </div>
           {previewLoading ? (
-            <p className="py-16 text-center text-sm font-semibold text-[var(--ink-muted)]">
+            <p className="py-16 text-center text-sm font-semibold text-slate-500">
               Đang tải nội dung đề…
             </p>
           ) : (
             <>
             {previewQuestions.some((question) => question.issues?.length) ? (
-              <p className="mt-5 flex items-center gap-2 rounded-xl bg-[var(--warning)]/10 px-4 py-3 text-sm font-bold text-[var(--warning-deep)]" role="status">
+              <p className="mt-5 flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-4 py-3 text-sm font-bold text-amber-800 dark:text-amber-200" role="status">
                 <AlertTriangle size={16} />
                 {previewQuestions.filter((question) => question.issues?.length).length} câu cần sửa trước khi gửi duyệt.
               </p>
             ) : null}
-            <ol className="mt-5 space-y-5">
+            <ol className="mt-5 space-y-4">
               {previewQuestions.map((question, index) => (
                 <li
-                  className="rounded-xl border border-[var(--rule-strong)] bg-[var(--canvas)] p-4 md:p-5"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
                   key={question.id}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -271,17 +271,17 @@ export function ExamPreviewDialog({
                           question.correctAnswers.includes(option);
                         return (
                           <div
-                            className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${correct ? "border-[var(--success)] bg-[var(--success-soft)]" : "border-[var(--rule)] bg-[var(--surface)]"}`}
+                            className={`flex items-start gap-3 rounded-xl border p-3 text-sm transition-all ${correct ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200 font-medium" : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300"}`}
                             key={`${optionIndex}-${option}`}
                           >
-                            <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-current text-xs font-extrabold">
+                            <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-current text-xs font-bold">
                               {String.fromCharCode(65 + optionIndex)}
                             </span>
                             <RichText className="min-w-0">{option}</RichText>
                             {correct ? (
                               <CheckCircle2
                                 aria-label="Đáp án đúng"
-                                className="ml-auto shrink-0 text-[var(--success-deep)]"
+                                className="ml-auto shrink-0 text-emerald-600 dark:text-emerald-400"
                                 size={17}
                               />
                             ) : null}
@@ -292,12 +292,12 @@ export function ExamPreviewDialog({
                   ) : null}
                   {question.correctAnswers.length &&
                   !question.options.length ? (
-                    <div className="mt-4 rounded-lg bg-[var(--success-soft)] p-3">
-                      <p className="text-xs font-bold text-[var(--success-deep)]">
+                    <div className="mt-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 p-3.5">
+                      <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
                         Đáp án / ý tham khảo
                       </p>
                       {question.correctAnswers.map((answer) => (
-                        <RichText className="mt-1 text-sm" key={answer}>
+                        <RichText className="mt-1 text-sm text-emerald-900 dark:text-emerald-200" key={answer}>
                           {answer}
                         </RichText>
                       ))}
@@ -309,9 +309,9 @@ export function ExamPreviewDialog({
             </>
           )}
           {previewExam.aiContext ? (
-            <div className="mt-5 border-y border-[var(--rule-strong)] py-4">
-              <p className="text-sm font-extrabold">Nguồn tạo đề AI</p>
-              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            <div className="mt-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Nguồn tạo đề AI</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 {previewExam.aiContext.mode === "COURSE_MATERIALS"
                   ? `${previewExam.aiContext.materialIds.length} tài liệu trong môn học`
                   : `${previewExam.aiContext.sources.length} nguồn Internet`}
@@ -321,7 +321,7 @@ export function ExamPreviewDialog({
                   {previewExam.aiContext.sources.map((source) => (
                     <li className="truncate text-xs" key={source.url}>
                       <a
-                        className="text-[var(--accent-ink)] underline"
+                        className="text-sky-600 dark:text-sky-400 hover:underline"
                         href={source.url}
                         rel="noreferrer"
                         target="_blank"

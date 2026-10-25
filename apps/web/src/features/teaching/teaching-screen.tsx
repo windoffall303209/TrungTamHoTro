@@ -65,29 +65,28 @@ export default function TeachingScreen() {
         title="Chấm bài & buổi học"
         description="Một hàng đợi theo lớp cho cả bài tập và bài thi; mở bài làm cùng rubric hoặc đáp án trước khi cho điểm."
       />
-      <section className="mb-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+      <section className="mb-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-heading text-xl font-extrabold">
-              Hàng đợi chấm chung
+            <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
+              Hàng đợi chấm bài chung
             </h2>
-            <p className="mt-1 text-sm text-[var(--ink-soft)]">
+            <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
               Lớp → bài → bài nộp; số chờ chấm được tính cho cả hai loại.
             </p>
           </div>
-          <span className="text-sm font-extrabold tabular-nums text-[var(--accent-ink)]">
-            {gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0)} chờ
-            chấm
+          <span className="text-xs font-bold tabular-nums text-sky-700 dark:text-sky-300 rounded-full bg-sky-50 dark:bg-sky-950/50 px-3 py-1 border border-sky-100 dark:border-sky-800">
+            {gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0)} chờ chấm
           </span>
         </div>
         {Object.keys(queueByClass).length ? (
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {Object.entries(queueByClass).map(([classCode, groups]) => (
-              <div className="border-y border-[var(--rule)]" key={classCode}>
-                <h3 className="py-3 text-xs font-extrabold uppercase tracking-[.12em] text-[var(--ink-muted)]">
+              <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={classCode}>
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-2">
                   {classCode}
                 </h3>
-                <div className="divide-y divide-[var(--rule)]">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {groups.map((group) =>
                     group.type === "ASSIGNMENT" ? (
                       <Link
@@ -150,7 +149,7 @@ export default function TeachingScreen() {
       </section>
       <div className="grid gap-7 xl:grid-cols-[1.1fr_.9fr]">
         <section
-          className="scroll-mt-24 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6"
+          className="scroll-mt-24 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
           id="exam-grading-detail"
         >
           <div className="flex items-start gap-3">
@@ -168,7 +167,7 @@ export default function TeachingScreen() {
             <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(12rem,.72fr)_minmax(0,1.28fr)]">
               <nav
                 aria-label="Chọn đề thi để chấm"
-                className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]"
+                className="space-y-2"
               >
                 {gradingExams.map((exam) => {
                   const examAttempts = attempts.filter(
@@ -177,10 +176,15 @@ export default function TeachingScreen() {
                   const pending = examAttempts.filter(
                     (item) => item.status === "SUBMITTED",
                   ).length;
+                  const selected = selectedExamId === exam.id;
                   return (
                     <button
-                      aria-pressed={selectedExamId === exam.id}
-                      className={`flex w-full items-center justify-between gap-3 px-3 py-4 text-left ${selectedExamId === exam.id ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]" : "hover:bg-[var(--surface-muted)]"}`}
+                      aria-pressed={selected}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3.5 text-left transition-all ${
+                        selected
+                          ? "border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-900 dark:text-sky-200 ring-1 ring-sky-500"
+                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-200 hover:border-slate-300"
+                      }`}
                       key={exam.id}
                       onClick={() => {
                         setSelectedExamId(exam.id);
@@ -189,31 +193,31 @@ export default function TeachingScreen() {
                       type="button"
                     >
                       <span>
-                        <strong className="block text-sm">{exam.title}</strong>
-                        <small className="mt-1 block text-[var(--ink-soft)]">
+                        <strong className="block text-sm font-bold">{exam.title}</strong>
+                        <small className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
                           {examAttempts.length} bài nộp · {pending} chờ chấm
                         </small>
                       </span>
-                      <ChevronRight size={16} />
+                      <ChevronRight size={16} className={selected ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
                     </button>
                   );
                 })}
               </nav>
               <div>
-                <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+                <div className="space-y-2.5">
                   {attemptPagination.pageItems.map((item) => (
                     <article
-                      className="flex flex-wrap items-center justify-between gap-4 py-4"
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs"
                       key={item.id}
                     >
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-extrabold">
+                          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
                             {item.learnerId}
                           </p>
                           <StatusBadge status={item.status} />
                         </div>
-                        <p className="mt-1 text-xs text-[var(--ink-soft)]">
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           Nộp{" "}
                           {item.submittedAt
                             ? new Date(item.submittedAt).toLocaleString(
@@ -230,7 +234,7 @@ export default function TeachingScreen() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          className="inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-bold text-[var(--accent-deep)] hover:bg-[var(--accent-soft)]"
+                          className="inline-flex min-h-10 items-center rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors"
                           href={`/messages?userId=${encodeURIComponent(item.learnerId)}&contextType=EXAM&contextId=${encodeURIComponent(item.examId)}&contextTitle=${encodeURIComponent(exams.find((exam) => exam.id === item.examId)?.title ?? "Đề thi")}`}
                         >
                           <MessageCircle className="mr-1.5" size={15} />
@@ -251,7 +255,7 @@ export default function TeachingScreen() {
                     </article>
                   ))}
                   {!selectedAttempts.length ? (
-                    <p className="py-10 text-center text-sm text-[var(--ink-muted)]">
+                    <p className="rounded-xl border border-dashed border-slate-300 dark:border-slate-800 py-10 text-center text-sm text-slate-500">
                       Đề thi này chưa có bài nộp.
                     </p>
                   ) : null}
@@ -267,25 +271,25 @@ export default function TeachingScreen() {
               </div>
             </div>
           ) : (
-            <p className="py-12 text-center text-sm text-[var(--ink-muted)]">
+            <p className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 py-12 text-center text-sm text-slate-500">
               Chưa có bài thi nào được học viên nộp.
             </p>
           )}
-          <div className="mt-8 border-t border-[var(--rule-strong)] pt-6">
+          <div className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-6">
             <div className="flex items-start gap-3">
-              <Scale className="mt-0.5 text-[var(--accent)]" />
+              <Scale className="mt-0.5 text-sky-600 dark:text-sky-400" />
               <div>
-                <h2 className="font-heading text-xl font-extrabold">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
                   Phúc khảo cần xử lý
                 </h2>
-                <p className="mt-1 text-sm text-[var(--ink-soft)]">
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                   Nhận yêu cầu, mở lại đúng bài làm và trả kết quả cho học viên
                   trong cùng luồng chấm.
                 </p>
               </div>
             </div>
             {regrades.length ? (
-              <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+              <div className="mt-4 space-y-3">
                 {regrades.map((request) => {
                   const item = attempts.find(
                     (attempt) => attempt.id === request.attemptId,
@@ -295,20 +299,20 @@ export default function TeachingScreen() {
                   );
                   return (
                     <article
-                      className="flex flex-wrap items-center justify-between gap-4 py-4"
+                      className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs"
                       key={request.id}
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <strong className="truncate text-sm">
+                          <strong className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
                             {exam?.title ?? request.attemptId}
                           </strong>
                           <StatusBadge status={request.status} />
                         </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--ink-soft)]">
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
                           {request.reason}
                         </p>
-                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                        <p className="mt-1 text-xs text-slate-400">
                           Học viên {request.learnerId} ·{" "}
                           {new Date(request.createdAt).toLocaleString(
                             activeLocale(),
@@ -335,14 +339,14 @@ export default function TeachingScreen() {
                 })}
               </div>
             ) : (
-              <p className="mt-4 border-y border-[var(--rule)] py-8 text-center text-sm text-[var(--ink-muted)]">
+              <p className="mt-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 py-8 text-center text-sm text-slate-500">
                 Không có yêu cầu phúc khảo đang mở.
               </p>
             )}
           </div>
         </section>
-        <div className="space-y-7">
-          <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
             <div className="flex items-center gap-3">
               <UserCheck className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">
@@ -443,7 +447,7 @@ export default function TeachingScreen() {
               </Button>
             </form>
           </section>
-          <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
             <div className="flex items-center gap-3">
               <Link2 className="text-sky-700" />
               <h2 className="font-heading text-xl font-extrabold">

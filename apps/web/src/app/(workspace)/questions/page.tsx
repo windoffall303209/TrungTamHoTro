@@ -212,22 +212,59 @@ export default function QuestionsPage() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader eyebrow="Assessment Design" title="Ngân hàng câu hỏi" description="Soạn câu hỏi đa môn, định dạng chữ và công thức, kiểm tra trước khi đưa vào đề." actions={canManage ? <><Link className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] hover:border-[var(--accent)]" href="/questions/scan"><ImagePlus size={17} />Quét ảnh đề</Link><Button onClick={() => setImportOpen(true)} variant="secondary"><Upload size={17} />Nhập JSONL</Button><Button onClick={openCreate}><Plus size={17} />Soạn câu hỏi</Button></> : undefined} />
-      <section className="my-6 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4">
+      <section className="my-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="relative md:col-span-2"><Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input aria-label="Tìm câu hỏi" className={`${inputClass} pl-10`} placeholder="Tìm nội dung hoặc thẻ…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.resetPage(); }} /></div>
+          <div className="relative md:col-span-2"><Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Tìm câu hỏi" className={`${inputClass} pl-10`} placeholder="Tìm nội dung hoặc thẻ…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.resetPage(); }} /></div>
           <SearchableSelect aria-label="Tìm và lọc khóa học" onChange={(value) => { setFilters({ ...filters, courseId: value }); pagination.resetPage(); }} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Mọi khóa học" value={filters.courseId} />
           <select aria-label="Lọc dạng câu hỏi" className={inputClass} value={filters.type} onChange={(event) => { setFilters({ ...filters, type: event.target.value }); pagination.resetPage(); }}><option value="">Mọi dạng</option>{Object.entries(typeMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
           <select aria-label="Lọc độ khó" className={inputClass} value={filters.difficulty} onChange={(event) => { setFilters({ ...filters, difficulty: event.target.value }); pagination.resetPage(); }}><option value="">Mọi độ khó</option><option value="1">Dễ</option><option value="2">Trung bình</option><option value="3">Khó</option></select>
           <input aria-label="Lọc chính xác theo thẻ" className={inputClass} placeholder="Lọc chính xác theo thẻ…" value={filters.tag} onChange={(event) => { setFilters({ ...filters, tag: event.target.value }); pagination.resetPage(); }} />
         </div>
       </section>
-      <SectionState loading={loading} empty={items.length === 0}><div><div className="flex items-center justify-between border-t border-[var(--rule-strong)] px-1 py-3 text-xs font-bold text-[var(--ink-soft)]"><span>{items.length} câu hỏi phù hợp</span><span>Trang {pagination.page}/{pagination.totalPages}</span></div><div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">{pagination.pageItems.map((item, index) => <article className="grid gap-4 border-b border-[var(--rule)] p-5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto]" key={item.id}>
-        <div className="grid size-10 place-items-center rounded-xl border border-[var(--rule)] bg-[var(--canvas)] text-sm font-bold text-[var(--ink-soft)]">{index + 1}</div>
-        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><StatusBadge status={item.status} /><span className="text-xs font-bold text-[var(--ink-soft)]">{typeMeta[item.type].label} · {item.difficulty === 1 ? "Dễ" : item.difficulty === 2 ? "Trung bình" : "Khó"} · Phiên bản {item.version}</span></div><RichText className="mt-2 font-semibold">{item.content}</RichText><QuestionImage className="mt-4 max-h-64" imageUrl={item.imageUrl} />
-          {item.correctAnswers.length ? <div className="mt-3 flex items-start gap-2 text-xs text-[var(--ink-soft)]"><Check aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--success)]" size={14} /><div><span className="font-bold">{item.type === "ESSAY" ? "Hướng dẫn chấm:" : item.type === "SHORT_ANSWER" ? "Ý trả lời tham khảo:" : "Đáp án:"}</span>{item.correctAnswers.map((answer, answerIndex) => <RichText className="ml-1 inline-block" key={`${answerIndex}-${answer}`}>{answer}</RichText>)}</div></div> : <p className="mt-3 text-xs text-[var(--ink-soft)]">Chấm thủ công</p>}
-          <p className="mt-2 text-xs text-[var(--ink-muted)]">{item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" · ") : "Chưa gắn thẻ"}</p></div>
-        {canManage ? <div className="flex flex-wrap items-start justify-end gap-2"><Button aria-label="Sửa thành phiên bản mới" onClick={() => openEdit(item)} variant="secondary"><Pencil size={15} />Sửa</Button>{item.status === "DRAFT" ? <Button aria-label="Gửi xuất bản câu hỏi" onClick={() => void publish(item)}><CheckCircle2 size={15} />Xuất bản</Button> : item.status === "PENDING_REVIEW" && canReview ? <><Button aria-label="Trả lại câu hỏi" onClick={() => { setReviewTarget(item); setReviewNote(""); }} variant="secondary"><Undo2 size={15} />Trả lại</Button><Button aria-label="Phê duyệt câu hỏi" onClick={() => void review(item, "APPROVE")}><CheckCircle2 size={15} />Phê duyệt</Button></> : item.status === "PENDING_REVIEW" ? <span className="px-2 py-2 text-xs font-bold text-[var(--ink-soft)]">Đang chờ quản trị viên</span> : <FileQuestion aria-label="Đã xuất bản" className="ml-2 mt-2 text-[var(--success)]" size={24} />}</div> : null}
-      </article>)}</div><Pagination itemLabel="câu hỏi" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} /></div></SectionState>
+      <SectionState loading={loading} empty={items.length === 0}>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+            <span>{items.length} câu hỏi phù hợp</span>
+            <span>Trang {pagination.page}/{pagination.totalPages}</span>
+          </div>
+          <div className="space-y-3">
+            {pagination.pageItems.map((item, index) => (
+              <article className="grid gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 md:grid-cols-[auto_minmax(0,1fr)_auto]" key={item.id}>
+                <div className="grid size-10 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 font-extrabold text-sm border border-sky-100 dark:border-sky-800">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={item.status} />
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      {typeMeta[item.type].label} · {item.difficulty === 1 ? "Dễ" : item.difficulty === 2 ? "Trung bình" : "Khó"} · Phiên bản {item.version}
+                    </span>
+                  </div>
+                  <RichText className="mt-2 font-semibold text-slate-900 dark:text-slate-100">{item.content}</RichText>
+                  <QuestionImage className="mt-4 max-h-64" imageUrl={item.imageUrl} />
+                  {item.correctAnswers.length ? (
+                    <div className="mt-3 flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <Check aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600" size={14} />
+                      <div>
+                        <span className="font-bold">{item.type === "ESSAY" ? "Hướng dẫn chấm:" : item.type === "SHORT_ANSWER" ? "Ý trả lời tham khảo:" : "Đáp án:"}</span>
+                        {item.correctAnswers.map((answer, answerIndex) => <RichText className="ml-1 inline-block" key={`${answerIndex}-${answer}`}>{answer}</RichText>)}
+                      </div>
+                    </div>
+                  ) : <p className="mt-3 text-xs text-slate-400">Chấm thủ công</p>}
+                  <p className="mt-2 text-xs text-slate-400">{item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" · ") : "Chưa gắn thẻ"}</p>
+                </div>
+                {canManage ? (
+                  <div className="flex flex-wrap items-start justify-end gap-2">
+                    <Button aria-label="Sửa thành phiên bản mới" onClick={() => openEdit(item)} variant="secondary" className="h-8 text-xs"><Pencil size={13} />Sửa</Button>
+                    {item.status === "DRAFT" ? <Button aria-label="Gửi xuất bản câu hỏi" onClick={() => void publish(item)} className="h-8 text-xs"><CheckCircle2 size={13} />Xuất bản</Button> : item.status === "PENDING_REVIEW" && canReview ? <><Button aria-label="Trả lại câu hỏi" onClick={() => { setReviewTarget(item); setReviewNote(""); }} variant="secondary" className="h-8 text-xs"><Undo2 size={13} />Trả lại</Button><Button aria-label="Phê duyệt câu hỏi" onClick={() => void review(item, "APPROVE")} className="h-8 text-xs"><CheckCircle2 size={13} />Phê duyệt</Button></> : item.status === "PENDING_REVIEW" ? <span className="px-2 py-1 text-xs font-bold text-amber-600">Đang chờ duyệt</span> : <FileQuestion aria-label="Đã xuất bản" className="ml-2 mt-1 text-emerald-600" size={22} />}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+          <Pagination itemLabel="câu hỏi" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
+        </div>
+      </SectionState>
 
       <Modal description={editingId ? "Bản hiện tại không thay đổi; lần lưu này tạo một phiên bản nháp mới." : "Chọn dạng câu hỏi, nhập nội dung rồi kiểm tra bản xem trước trước khi lưu."} onClose={closeEditor} open={editorOpen} size="xl" title={editingId ? "Tạo phiên bản câu hỏi" : "Soạn câu hỏi"}>
         <form className="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]" onSubmit={(event) => void saveQuestion(event)}>

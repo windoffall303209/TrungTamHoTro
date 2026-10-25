@@ -113,27 +113,98 @@ export default function ClassLifecyclePage() {
   ] : [];
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8 md:px-8 md:py-10">
-      <PageHeader eyebrow="Class Governance" title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được audit." />
+    <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <PageHeader eyebrow="Quản lý vòng đời" title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được kiểm toán minh bạch." />
 
-      <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
         <Field label="Lớp cần quản lý">
           <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); void loadReadiness(value); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
         </Field>
-        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--rule)] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString(activeLocale())} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
+        {selected ? (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-5">
+            <div>
+              <p className="font-extrabold text-slate-900 dark:text-slate-100">{selected.name}</p>
+              <p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString(activeLocale())} · {selected.learnerIds.length} học viên</p>
+            </div>
+            <StatusBadge status={selected.status} />
+          </div>
+        ) : null}
       </section>
 
-      {readiness ? <div className="metric-ledger mt-6 [--metric-columns:3] lg:[--metric-columns:5]">{metrics.map((metric) => <a className="group min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" href={metric.href} key={metric.label}><span className="flex items-center justify-between gap-2"><span className={`tabular text-2xl font-extrabold ${metric.value ? "text-rose-700" : "text-emerald-700"}`}>{metric.value}</span><ArrowUpRight className="text-[var(--ink-muted)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" size={15} /></span><span className="mt-1 block text-xs font-bold text-slate-500">{metric.label}</span></a>)}</div> : null}
+      {readiness ? (
+        <section aria-label="Chỉ số điều kiện đóng lớp" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {metrics.map((metric) => (
+            <a key={metric.label} className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 hover:shadow-sm" href={metric.href}>
+              <div className="flex items-center justify-between">
+                <span className={`tabular text-2xl font-extrabold ${metric.value ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{metric.value}</span>
+                <ArrowUpRight className="text-slate-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" size={16} />
+              </div>
+              <span className="mt-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">{metric.label}</span>
+            </a>
+          ))}
+        </section>
+      ) : null}
 
-      <div className="mt-7 grid gap-7 lg:grid-cols-[1fr_.9fr]">
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <div className="flex items-center gap-3">{readiness?.eligible ? <CheckCircle2 className="text-emerald-700" /> : <ShieldAlert className="text-amber-600" />}<h2 className="font-heading text-xl font-extrabold">Kiểm tra trước khi đóng</h2></div>
-          {readiness?.eligible ? <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">Lớp đã đủ điều kiện đóng và lưu trữ.</p> : <div className="mt-5 rounded-xl bg-amber-50 p-4"><p className="text-sm font-extrabold text-amber-900">Cần xử lý trước:</p><ul className="mt-3 space-y-2 text-sm text-amber-900">{readiness?.blockers.map((item) => <li key={item}>• {item}</li>)}</ul></div>}
-          <p className="mt-5 text-sm leading-6 text-slate-500">Lưu trữ chỉ thay đổi trạng thái và quyền ghi. Học liệu, điểm, điểm danh, bài thi và diễn đàn vẫn được giữ nguyên để tra cứu.</p>
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              {readiness?.eligible ? <CheckCircle2 className="text-emerald-600 dark:text-emerald-400" /> : <ShieldAlert className="text-amber-500" />}
+              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Kiểm tra điều kiện lưu trữ</h2>
+            </div>
+            {readiness?.eligible ? (
+              <div className="mt-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/80 dark:bg-emerald-950/40 p-4 text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                Lớp đã đủ điều kiện an toàn để đóng và chuyển sang trạng thái lưu trữ.
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/40 p-4">
+                <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">Cần xử lý dứt điểm trước khi đóng:</p>
+                <ul className="mt-2 space-y-1.5 text-xs text-amber-800 dark:text-amber-300">
+                  {readiness?.blockers.map((item) => <li key={item}>• {item}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+          <p className="mt-5 text-xs leading-5 text-slate-400">
+            * Lưu trữ chỉ khóa quyền ghi và chỉnh sửa. Học liệu, điểm số, bài nộp, dữ liệu điểm danh và thảo luận diễn đàn luôn được giữ nguyên vẹn để tra cứu lâu dài.
+          </p>
         </section>
 
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          {selected?.status === "CLOSED" ? <><div className="flex items-center gap-3"><RotateCcw className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Mở lại lớp</h2></div><p className="mt-2 text-xs text-slate-500">Lý do được ghi vào audit log. Dữ liệu lưu trữ không bị tạo lại hoặc ghi đè.</p><form className="mt-5 space-y-4" onSubmit={(event) => void reopenClass(event)}><Field label="Lý do mở lại"><textarea className={inputClass} minLength={5} required rows={4} value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} /></Field><Button loading={saving} type="submit"><RotateCcw size={16} />Mở lại lớp</Button></form></> : <><div className="flex items-center gap-3"><Archive className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Đóng và lưu trữ</h2></div><form className="mt-5 space-y-4" onSubmit={(event) => void closeClass(event)}><Field label="Lý do đóng lớp"><textarea className={inputClass} minLength={5} required rows={4} value={closeForm.closeReason} onChange={(event) => setCloseForm({ ...closeForm, closeReason: event.target.value })} /></Field><Field label="Chính sách lưu trữ"><select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ ...closeForm, archivePolicy: event.target.value })}><option value="STANDARD_RETENTION">Tiêu chuẩn theo quy định chung</option><option value="LONG_TERM_RETENTION">Lưu trữ dài hạn</option></select></Field><Button disabled={!readiness?.eligible} loading={saving} type="submit" variant="danger"><Archive size={16} />Đóng và lưu trữ</Button></form></>}
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+          {selected?.status === "CLOSED" ? (
+            <>
+              <div className="flex items-center gap-3">
+                <RotateCcw className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Mở lại lớp học</h2>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Lý do mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.</p>
+              <form className="mt-4 space-y-4" onSubmit={(event) => void reopenClass(event)}>
+                <Field label="Lý do mở lại">
+                  <textarea className={inputClass} minLength={5} required rows={4} value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} placeholder="Nhập lý do chi tiết để kiểm toán…" />
+                </Field>
+                <Button loading={saving} type="submit"><RotateCcw size={16} />Mở lại lớp học</Button>
+              </form>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <Archive className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Đóng và lưu trữ lớp</h2>
+              </div>
+              <form className="mt-4 space-y-4" onSubmit={(event) => void closeClass(event)}>
+                <Field label="Lý do đóng lớp">
+                  <textarea className={inputClass} minLength={5} required rows={3} value={closeForm.closeReason} onChange={(event) => setCloseForm({ ...closeForm, closeReason: event.target.value })} placeholder="Ghi chú lý do đóng khóa học…" />
+                </Field>
+                <Field label="Chính sách lưu trữ">
+                  <select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ ...closeForm, archivePolicy: event.target.value })}>
+                    <option value="STANDARD_RETENTION">Tiêu chuẩn theo quy chế (1 năm)</option>
+                    <option value="LONG_TERM_RETENTION">Lưu trữ dài hạn (Vĩnh viễn)</option>
+                  </select>
+                </Field>
+                <Button disabled={!readiness?.eligible} loading={saving} type="submit" variant="danger"><Archive size={16} />Đóng và lưu trữ</Button>
+              </form>
+            </>
+          )}
         </section>
       </div>
     </div>

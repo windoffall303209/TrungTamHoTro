@@ -330,7 +330,7 @@ export default function UsersPage() {
       <Field label="Vai trò sử dụng">
         <div className="grid gap-2 sm:grid-cols-2">
           {(creating ? assignableRoles : roles).map((role) => (
-            <label className="flex min-h-11 items-center gap-3 border border-[var(--rule)] bg-[var(--surface)] px-3 py-2 text-sm font-bold" key={role.code}>
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-2 text-sm font-bold" key={role.code}>
               <input
                 checked={form.roleCodes.includes(role.code)}
                 className="size-5 accent-[var(--accent-deep)]"
@@ -371,8 +371,8 @@ export default function UsersPage() {
         </Field>
       ) : null}
       {!creating && impact ? (
-        <div className="border-y border-[var(--rule-strong)] bg-[var(--surface-muted)] px-4 py-4">
-          <p className="text-sm font-extrabold">Ảnh hưởng trước khi áp dụng</p>
+        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/40 p-4">
+          <p className="text-sm font-extrabold text-amber-950 dark:text-amber-200">Ảnh hưởng trước khi áp dụng</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-[var(--ink-soft)]">
             <li>{impact.classes.length} lớp đang phụ trách</li>
             <li>
@@ -487,17 +487,17 @@ export default function UsersPage() {
         eyebrow="Identity & Access · FUNC-ADM-001"
         title="Quản lý người dùng"
       />
-      <section className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 md:max-w-md">
-        <div className="py-5 pr-6">
-          <p className="text-2xl font-extrabold">{totals.active}</p>
-          <p className="text-xs font-semibold text-slate-500">Đang hoạt động</p>
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">{totals.active}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đang hoạt động</p>
         </div>
-        <div className="py-5 pl-6">
-          <p className="text-2xl font-extrabold">{totals.locked}</p>
-          <p className="text-xs font-semibold text-slate-500">Đã khóa</p>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-rose-600 dark:text-rose-400">{totals.locked}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đã khóa</p>
         </div>
       </section>
-      <div className="mt-7 flex items-center gap-3">
+      <div className="mt-6 flex items-center gap-3">
         <div className="relative max-w-md flex-1">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -515,7 +515,7 @@ export default function UsersPage() {
           />
         </div>
       </div>
-      <div className="mt-5 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+      <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left">
             <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wider text-[var(--ink-soft)]">
