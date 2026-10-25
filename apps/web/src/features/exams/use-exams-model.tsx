@@ -466,9 +466,14 @@ export function useExamsModel() {
       notify("Tổng số câu AI phải từ 1 đến 50.", "error");
       return;
     }
-    if (!aiConfig.providerId) {
+    const effectiveProviderId =
+      aiConfig.providerId ||
+      examAiProviders.find((p) => p.isDefault)?.id ||
+      examAiProviders[0]?.id ||
+      "";
+    if (!effectiveProviderId && examAiProviders.length === 0) {
       notify(
-        "Quản trị viên cần cấu hình AI sinh đề trong Cấu hình hệ thống.",
+        "Chưa có AI Provider nào hoạt động. Quản trị viên cần kích hoạt AI Provider trong Cài đặt hệ thống.",
         "error",
       );
       return;

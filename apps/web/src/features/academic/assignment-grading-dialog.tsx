@@ -133,9 +133,27 @@ export function AssignmentGradingDialog({
         </Field>
         {grading?.status === "GRADED" ? (
           <Field label="Lý do sửa điểm đã công bố">
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {[
+                "Sửa lỗi nhập điểm",
+                "Chấm lại theo phản hồi học viên",
+                "Cộng điểm khuyến khích / bổ sung",
+                "Hiệu chỉnh thang đo tiêu chí",
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  type="button"
+                  onClick={() => setCorrectionReason(reason)}
+                  className="rounded-full border border-[var(--rule)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
             <textarea
               className={inputClass}
               minLength={3}
+              placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
               required
               rows={3}
               value={correctionReason}

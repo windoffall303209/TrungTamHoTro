@@ -440,7 +440,36 @@ export default function MaterialsPage() {
               <option value="REVOKE">Thu hồi</option>
             </select>
           </Field>
-          {reviewAction !== "APPROVE" ? <Field label="Lý do"><textarea className={inputClass} minLength={5} required rows={4} value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} /></Field> : null}
+          {reviewAction !== "APPROVE" ? (
+            <Field label="Lý do thu hồi">
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {[
+                  "Nội dung cần cập nhật phiên bản mới",
+                  "Học liệu chứa thông tin không chính xác",
+                  "Vi phạm chính sách học liệu trung tâm",
+                  "Tạm thời thu hồi theo yêu cầu bộ môn",
+                ].map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => setReviewReason(reason)}
+                    className="rounded-full border border-[var(--rule)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                className={inputClass}
+                minLength={5}
+                placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do thu hồi..."
+                required
+                rows={4}
+                value={reviewReason}
+                onChange={(event) => setReviewReason(event.target.value)}
+              />
+            </Field>
+          ) : null}
           {reviewTarget?.quarantinedAt ? <p className="rounded-lg bg-rose-50 p-3 text-xs font-bold text-rose-700">Tệp đang cách ly và không thể được duyệt: {reviewTarget.quarantineReason}</p> : null}
           <Button disabled={Boolean(reviewTarget?.quarantinedAt && reviewAction === "APPROVE")} type="submit">Xác nhận kiểm duyệt</Button>
         </form>
