@@ -1,4 +1,4 @@
-/** Tiêu đề trang dùng chung, giữ phần mô tả và thao tác căn chỉnh nhất quán. */
+/** Tiêu đề trang dùng chung tối giản, phân cấp typography rõ ràng và canh chỉnh nút hành động. */
 export function PageHeader({
   eyebrow,
   title,
@@ -11,17 +11,17 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-slate-200/90 dark:border-slate-800 pb-5 md:flex-row md:items-end md:justify-between">
+    <div className="flex flex-col gap-3 border-b border-slate-200 dark:border-slate-800/80 pb-5 mb-6 md:flex-row md:items-end md:justify-between">
       <div className="max-w-3xl">
         {eyebrow ? (
-          <span className="mb-1.5 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+          <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs">
             {eyebrow}
           </span>
         ) : null}
-        <h1 className="font-heading text-xl sm:text-2xl font-black leading-tight tracking-tight text-[var(--ink)]">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           {title}
         </h1>
-        <p className="mt-1 max-w-2xl text-xs sm:text-sm leading-relaxed text-[var(--ink-soft)]">
+        <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400">
           {description}
         </p>
       </div>

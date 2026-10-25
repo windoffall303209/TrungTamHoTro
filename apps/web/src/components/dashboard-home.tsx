@@ -32,7 +32,6 @@ import type {
   OperationalReport,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
-import { PageHeader } from "./page-header";
 import { hasAnyPermission } from "@/lib/access-control";
 
 interface DashboardMetric {
@@ -40,6 +39,7 @@ interface DashboardMetric {
   label: string;
   color?: "emerald" | "sky" | "amber" | "indigo";
 }
+
 interface HealthOverview {
   status: "healthy" | "warning" | "degraded";
   database: string;
@@ -202,7 +202,7 @@ const modules = [
   roles: RoleCode[];
 }>;
 
-/** Tải song song bộ KPI phù hợp với từng vai trò và chuẩn hóa thành ba chỉ số tổng quan. */
+/** Tải song song bộ KPI phù hợp với từng vai trò. */
 async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
@@ -313,7 +313,7 @@ async function loadMetrics(roleCode: RoleCode): Promise<DashboardMetric[]> {
   ];
 }
 
-/** Hiển thị dashboard theo role, lọc phân hệ theo RBAC và cho phép tải lại KPI. */
+/** Dashboard tối giản, tinh gọn và phân cấp trực quan cho từng vai trò người dùng. */
 export function DashboardHome() {
   const { session } = useApp();
   const content = roleContent[session.roleCode];
@@ -330,7 +330,6 @@ export function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  /** Đồng bộ KPI khi đổi vai trò hoặc người dùng yêu cầu tải lại. */
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -355,58 +354,54 @@ export function DashboardHome() {
   }, [refresh]);
 
   return (
-    <div className="workspace-enter mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8 space-y-8">
-      {/* Top Banner with Fresh Gradient */}
-      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-sky-500/10 p-6 md:p-8 backdrop-blur-sm shadow-xs">
-        <div className="absolute right-0 top-0 -mt-6 -mr-6 size-48 rounded-full bg-emerald-400/10 blur-3xl pointer-events-none" />
-        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-              <Sparkles size={14} className="text-emerald-500" />
-              <span>{session.user.roleName}</span>
-            </div>
-            <h1 className="font-heading text-2xl md:text-3xl font-black tracking-tight text-[var(--ink)]">
-              Xin chào, {session.user.name} 👋
-            </h1>
-            <p className="max-w-2xl text-xs md:text-sm text-[var(--ink-soft)] leading-relaxed">
-              {content.description}
-            </p>
+    <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8 space-y-8">
+      {/* Welcome Banner */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+            <Sparkles size={13} className="text-emerald-600 dark:text-emerald-400" />
+            <span>{session.user.roleName}</span>
           </div>
-          <button
-            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-[var(--surface)] px-4 text-xs md:text-sm font-bold text-[var(--ink)] shadow-2xs transition-all hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:shadow-xs active:scale-[0.98] disabled:opacity-50"
-            disabled={loading}
-            onClick={() => void refresh()}
-            type="button"
-          >
-            <RefreshCw className={loading ? "animate-spin" : ""} size={15} />
-            Đồng bộ số liệu
-          </button>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            Xin chào, {session.user.name} 👋
+          </h1>
+          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl">
+            {content.description}
+          </p>
         </div>
+
+        <button
+          className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition-all hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-40"
+          disabled={loading}
+          onClick={() => void refresh()}
+          type="button"
+        >
+          <RefreshCw className={loading ? "animate-spin" : ""} size={14} />
+          Đồng bộ số liệu
+        </button>
       </div>
 
-      {/* KPI Stat Cards Grid */}
-      <section aria-label="Chỉ số tổng quan" className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Chỉ số hoạt động trọng tâm
-          </h2>
-        </div>
+      {/* KPI Stats */}
+      <section aria-label="Chỉ số hoạt động" className="space-y-3">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          Chỉ số hoạt động trọng tâm
+        </h2>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           {loading ? (
             [0, 1, 2].map((item) => (
               <div
-                className="animate-pulse rounded-2xl border border-slate-200 dark:border-slate-800 bg-[var(--surface)] p-6 shadow-xs"
+                className="animate-pulse rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
                 key={item}
               >
-                <div className="h-9 w-24 rounded-lg bg-slate-200 dark:bg-slate-800" />
-                <div className="mt-3 h-4 w-44 rounded bg-slate-100 dark:bg-slate-800/60" />
+                <div className="h-8 w-20 rounded bg-slate-100 dark:bg-slate-800" />
+                <div className="mt-3 h-3.5 w-36 rounded bg-slate-100 dark:bg-slate-800/60" />
               </div>
             ))
           ) : error ? (
-            <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-rose-300 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
-              <p className="text-sm font-bold text-[var(--danger)]">{error}</p>
+            <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
+              <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>
               <button
-                className="text-link text-xs font-bold"
+                className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline"
                 onClick={() => void refresh()}
                 type="button"
               >
@@ -415,15 +410,6 @@ export function DashboardHome() {
             </div>
           ) : (
             metrics.map(({ value, label, color }) => {
-              const borderAccent =
-                color === "amber"
-                  ? "hover:border-amber-400/60"
-                  : color === "sky"
-                    ? "hover:border-sky-400/60"
-                    : color === "indigo"
-                      ? "hover:border-indigo-400/60"
-                      : "hover:border-emerald-400/60";
-
               const textAccent =
                 color === "amber"
                   ? "text-amber-600 dark:text-amber-400"
@@ -435,15 +421,13 @@ export function DashboardHome() {
 
               return (
                 <div
-                  className={`group relative overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-[var(--surface)] p-6 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${borderAccent}`}
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-700"
                   key={label}
                 >
-                  <p
-                    className={`tabular font-heading text-3xl md:text-4xl font-black tracking-tight ${textAccent}`}
-                  >
+                  <p className={`text-2xl md:text-3xl font-bold tracking-tight tabular-nums ${textAccent}`}>
                     {value}
                   </p>
-                  <p className="mt-2 text-xs md:text-sm font-semibold text-[var(--ink-soft)]">
+                  <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
                     {label}
                   </p>
                 </div>
@@ -453,42 +437,42 @@ export function DashboardHome() {
         </div>
       </section>
 
-      {/* Actionable Modules Grid */}
+      {/* Feature Modules Grid */}
       <section className="space-y-4">
-        <div className="flex items-end justify-between gap-4">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="font-heading text-xl md:text-2xl font-black tracking-tight text-[var(--ink)]">
+            <h2 className="text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               Phân hệ chức năng
             </h2>
-            <p className="mt-1 text-xs md:text-sm text-[var(--ink-soft)]">
-              Truy cập nhanh vào các công cụ và nghiệp vụ thường dùng.
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Truy cập nhanh vào các công cụ nghiệp vụ thường dùng.
             </p>
           </div>
-          <span className="hidden sm:inline-flex rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 px-3 py-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+          <span className="hidden sm:inline-flex rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:text-slate-400">
             {visibleModules.length} phân hệ khả dụng
           </span>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {visibleModules.map(({ href, name, detail, icon: Icon }) => (
             <Link
-              className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-[var(--surface)] p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-500/50 hover:shadow-md hover:bg-emerald-50/20 dark:hover:bg-emerald-950/20"
+              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4.5 shadow-xs transition-all duration-150 hover:border-emerald-500/60 dark:hover:border-emerald-500/40 hover:shadow-sm"
               href={href}
               key={href}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="grid size-11 place-items-center rounded-xl bg-gradient-to-tr from-emerald-500/15 to-teal-500/10 text-emerald-600 dark:text-emerald-400 group-hover:from-emerald-500 group-hover:to-teal-500 group-hover:text-white transition-all duration-200">
-                  <Icon size={20} />
+                <div className="grid size-9.5 place-items-center rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 group-hover:bg-emerald-600 group-hover:text-white transition-colors duration-150">
+                  <Icon size={18} />
                 </div>
-                <div className="rounded-full bg-slate-100 dark:bg-slate-800 p-1.5 text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 group-hover:bg-emerald-50 dark:group-hover:bg-emerald-950 transition-colors">
+                <div className="rounded-md p-1 text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                   <ArrowUpRight size={16} />
                 </div>
               </div>
-              <div className="mt-4">
-                <h3 className="font-heading text-base font-bold text-[var(--ink)] group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+              <div className="mt-3.5">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                   {name}
                 </h3>
-                <p className="mt-1 text-xs text-[var(--ink-soft)] leading-relaxed">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
                   {detail}
                 </p>
               </div>
