@@ -1039,10 +1039,10 @@ export default function SettingsScreen() {
             />
           </Field>
           <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
+            <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.enabled}
-                className="size-5 accent-sky-600"
+                className="size-4 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, enabled: event.target.checked })
                 }
@@ -1050,10 +1050,10 @@ export default function SettingsScreen() {
               />
               Bật cấu hình này
             </label>
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
+            <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.isDefault}
-                className="size-5 accent-sky-600"
+                className="size-4 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, isDefault: event.target.checked })
                 }
