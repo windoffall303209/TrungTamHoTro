@@ -90,7 +90,8 @@ export function resolveExamScoreAllocations(
   );
   if (diff !== 0 && questionIds.length > 0) {
     const lastId = questionIds[questionIds.length - 1]!;
-    result[lastId] = Math.round((result[lastId] + diff) * 100) / 100;
+    const currentScore = result[lastId] ?? 0;
+    result[lastId] = Math.round((currentScore + diff) * 100) / 100;
   }
   return result;
 }
