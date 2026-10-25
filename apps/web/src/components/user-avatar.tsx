@@ -14,7 +14,7 @@ export function UserAvatar({ avatarUrl, name, className = "size-11", priority = 
   const source = avatarUrl ? /^(?:blob:|data:|https?:\/\/)/.test(avatarUrl) ? avatarUrl : publicApiUrl(avatarUrl) : "";
 
   return (
-    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--avatar)] font-extrabold text-[var(--ink)] ring-1 ring-[var(--rule-strong)] ${className}`}>
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-tr from-emerald-100 to-teal-50 dark:from-emerald-950 dark:to-slate-800 font-extrabold text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-200/80 dark:ring-emerald-800/80 shadow-2xs ${className}`}>
       {source ? <AvatarImage key={source} name={name} priority={priority} source={source} /> : <span aria-hidden="true">{initials(name)}</span>}
     </span>
   );

@@ -81,7 +81,7 @@ export default function ExamsScreen() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
-        eyebrow="Assessment Workflow"
+        eyebrow="Khảo thí & Đánh giá năng lực"
         title="Đề thi & kết quả"
         description={
           learner
@@ -282,21 +282,21 @@ export default function ExamsScreen() {
                   : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
             }
           >
-            <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+            <div className="space-y-4">
               {pagination.pageItems.map((item) => (
                 <article
-                  className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                  className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-[var(--surface)] p-6 shadow-xs hover:shadow-md hover:border-emerald-500/40 transition-all duration-200 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
                   id={`exam-${item.id}`}
                   key={item.id}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-xs font-extrabold text-sky-700">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
                           {classes.find((c) => c.id === item.classId)?.code ??
                             item.classId}
-                        </p>
-                        <h2 className="mt-1 font-heading text-xl font-extrabold">
+                        </span>
+                        <h2 className="mt-2 font-heading text-lg sm:text-xl font-bold tracking-tight text-[var(--ink)]">
                           {item.title}
                         </h2>
                       </div>
@@ -308,36 +308,36 @@ export default function ExamsScreen() {
                         }
                       />
                     </div>
-                    <div className="mt-5 grid grid-cols-3 divide-x divide-slate-100 border-y border-slate-100 py-4 text-center">
+                    <div className="mt-4 flex flex-wrap items-center gap-6 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 px-4 py-2.5 text-xs">
                       <div>
-                        <p className="font-extrabold">
+                        <span className="text-slate-400">Số câu: </span>
+                        <strong className="font-extrabold text-[var(--ink)]">
                           {item.questionCount ?? item.questionIds.length}
-                        </p>
-                        <p className="text-[11px] text-slate-500">Câu hỏi</p>
+                        </strong>
                       </div>
                       <div>
-                        <p className="font-extrabold">
-                          {item.durationMinutes}&apos;
-                        </p>
-                        <p className="text-[11px] text-slate-500">Thời gian</p>
+                        <span className="text-slate-400">Thời lượng: </span>
+                        <strong className="font-extrabold text-[var(--ink)]">
+                          {item.durationMinutes} phút
+                        </strong>
                       </div>
                       <div>
-                        <p className="font-extrabold">
+                        <span className="text-slate-400">
+                          {learner ? "Lượt còn lại: " : "Thang điểm: "}
+                        </span>
+                        <strong className="font-extrabold text-emerald-600 dark:text-emerald-400">
                           {learner
                             ? (item.remainingAttempts ?? 0)
                             : item.totalScore}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {learner ? "Lượt còn lại" : "Tổng điểm"}
-                        </p>
+                        </strong>
                       </div>
                     </div>
-                    <p className="mt-4 flex items-center gap-2 text-xs text-slate-500">
-                      <Clock3 size={14} />
-                      {new Date(item.openAt).toLocaleString(
-                        activeLocale(),
-                      )} —{" "}
-                      {new Date(item.closeAt).toLocaleString(activeLocale())}
+                    <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                      <Clock3 size={14} className="text-slate-400" />
+                      <span>Thời gian mở: </span>
+                      <span className="font-medium">
+                        {new Date(item.openAt).toLocaleString(activeLocale())} — {new Date(item.closeAt).toLocaleString(activeLocale())}
+                      </span>
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 lg:justify-end">
