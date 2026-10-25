@@ -7,28 +7,75 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
-/** Nút dùng chung với biến thể màu, trạng thái loading và hành vi disabled nhất quán. */
-export function Button({ children, variant = "primary", loading = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost"; loading?: boolean }) {
+/** Nút tương tác chính với các biến thể màu tinh gọn, trạng thái loading và disabled. */
+export function Button({
+  children,
+  variant = "primary",
+  loading = false,
+  className = "",
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "secondary" | "danger" | "ghost";
+  loading?: boolean;
+}) {
   const styles = {
-    primary: "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700 shadow-sm shadow-emerald-700/10 hover:shadow-emerald-500/20",
-    secondary: "border border-[var(--rule-strong)] bg-[var(--surface)] text-[var(--ink)] hover:border-emerald-500 hover:bg-emerald-50/40 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300 shadow-xs",
-    danger: "bg-rose-600 text-white hover:bg-rose-500 active:bg-rose-700 shadow-sm shadow-rose-700/10",
-    ghost: "text-[var(--ink-soft)] hover:bg-emerald-50/60 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+    primary:
+      "bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-xs focus-visible:ring-2 focus-visible:ring-emerald-500/40",
+    secondary:
+      "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs focus-visible:ring-2 focus-visible:ring-slate-400/20",
+    danger:
+      "bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white shadow-xs focus-visible:ring-2 focus-visible:ring-rose-500/40",
+    ghost:
+      "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800/60",
   };
-  return <button aria-busy={loading || undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform,box-shadow] duration-150 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} /> : null}{children}</button>;
+
+  return (
+    <button
+      aria-busy={loading || undefined}
+      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:pointer-events-none focus:outline-none ${styles[variant]} ${className}`}
+      disabled={loading || props.disabled}
+      {...props}
+    >
+      {loading ? <LoaderCircle aria-hidden="true" className="animate-spin shrink-0" size={15} /> : null}
+      {children}
+    </button>
+  );
 }
 
-/** Ghép nhãn, control và lỗi trường thành một khối form thống nhất. */
-export function Field({ label, error, children }: { label: React.ReactNode; error?: string; children: React.ReactNode }) {
-  return <label className="block text-sm font-bold text-[var(--ink)]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[var(--danger)]">{error}</span> : null}</label>;
+/** Khối form gom nhãn, phần tử điều khiển và thông báo lỗi. */
+export function Field({
+  label,
+  error,
+  children,
+}: {
+  label: React.ReactNode;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-slate-800 dark:text-slate-200">
+      <span>{label}</span>
+      <div className="mt-1.5">{children}</div>
+      {error ? (
+        <span className="mt-1 block text-xs font-medium text-rose-600 dark:text-rose-400">{error}</span>
+      ) : null}
+    </label>
+  );
 }
 
-export const inputClass = "min-h-11 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-muted)] focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:bg-[var(--surface-muted)] disabled:text-[var(--ink-muted)] shadow-xs";
+export const inputClass =
+  "min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 shadow-2xs";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
-/** Thanh tab có count, ARIA và hỗ trợ chuyển focus bằng phím mũi tên. */
-export function Tabs<T extends string>({ items, value, onChange, label, className = "" }: {
+/** Thanh tab tối giản với số lượng, nhãn accessible và hỗ trợ bàn phím mũi tên. */
+export function Tabs<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+  className = "",
+}: {
   items: Array<{ value: T; label: string; count?: number }>;
   value: T;
   onChange: (value: T) => void;
@@ -36,6 +83,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   className?: string;
 }) {
   const baseId = useId();
+
   /** Chuyển tab vòng tròn và đưa focus tới tab vừa chọn. */
   const moveFocus = (currentIndex: number, direction: -1 | 1) => {
     const nextIndex = (currentIndex + direction + items.length) % items.length;
@@ -46,33 +94,62 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   };
 
   return (
-    <div aria-label={label} className={`flex gap-1 overflow-x-auto border-b border-[var(--rule-strong)] ${className}`} role="tablist">
-      {items.map((item, index) => (
-        <button
-          aria-selected={item.value === value}
-          className={`relative inline-flex min-h-12 shrink-0 items-center gap-2 px-4 text-sm font-extrabold transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)] ${item.value === value ? "text-[var(--ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[var(--accent)]" : "text-[var(--ink-muted)] hover:bg-[var(--surface-muted)]/70 hover:text-[var(--ink)]"}`}
-          id={`${baseId}-${item.value}`}
-          key={item.value}
-          onClick={() => onChange(item.value)}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") { event.preventDefault(); moveFocus(index, -1); }
-            if (event.key === "ArrowRight") { event.preventDefault(); moveFocus(index, 1); }
-          }}
-          role="tab"
-          tabIndex={item.value === value ? 0 : -1}
-          type="button"
-        >
-          {item.label}
-          {typeof item.count === "number" ? <span className="min-w-6 rounded-full bg-[var(--surface-muted)] px-2 py-0.5 text-center text-xs tabular-nums text-[var(--ink-soft)]">{item.count}</span> : null}
-        </button>
-      ))}
+    <div
+      aria-label={label}
+      className={`flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800 ${className}`}
+      role="tablist"
+    >
+      {items.map((item, index) => {
+        const selected = item.value === value;
+        return (
+          <button
+            aria-selected={selected}
+            className={`relative inline-flex min-h-11 shrink-0 items-center gap-2 px-3.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${
+              selected
+                ? "text-emerald-600 dark:text-emerald-400 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-emerald-600 dark:after:bg-emerald-400 font-bold"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
+            }`}
+            id={`${baseId}-${item.value}`}
+            key={item.value}
+            onClick={() => onChange(item.value)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                moveFocus(index, -1);
+              }
+              if (event.key === "ArrowRight") {
+                event.preventDefault();
+                moveFocus(index, 1);
+              }
+            }}
+            role="tab"
+            tabIndex={selected ? 0 : -1}
+            type="button"
+          >
+            {item.label}
+            {typeof item.count === "number" ? (
+              <span
+                className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold tabular-nums ${
+                  selected
+                    ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {item.count}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-/** Quản lý phân trang phía client, ép page size vào tập 10/20/30/40/50 và tự chặn trang vượt giới hạn. */
+/** Quản lý phân trang phía client và ép cỡ trang hợp lệ. */
 export function usePagination<T>(items: readonly T[], initialPageSize = 10) {
-  const safeInitialSize = PAGE_SIZE_OPTIONS.includes(initialPageSize as (typeof PAGE_SIZE_OPTIONS)[number]) ? initialPageSize : 10;
+  const safeInitialSize = PAGE_SIZE_OPTIONS.includes(initialPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
+    ? initialPageSize
+    : 10;
   const [requestedPage, setRequestedPage] = useState(1);
   const [pageSize, setPageSizeState] = useState(safeInitialSize);
   const totalItems = items.length;
@@ -107,7 +184,15 @@ function visiblePages(page: number, totalPages: number) {
 }
 
 /** Điều khiển phân trang accessible, hiển thị phạm vi hiện tại và selector số dòng. */
-export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSizeChange, itemLabel = "mục", className = "" }: {
+export function Pagination({
+  totalItems,
+  page,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+  itemLabel = "mục",
+  className = "",
+}: {
   totalItems: number;
   page: number;
   pageSize: number;
@@ -123,22 +208,75 @@ export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSiz
   const end = Math.min(totalItems, currentPage * pageSize);
 
   return (
-    <nav aria-label={`Phân trang ${itemLabel}`} className={`mt-5 flex flex-col gap-3 border-t border-[var(--rule)] pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--ink-soft)]">
-        <span aria-live="polite">Hiển thị <strong className="text-[var(--ink)]">{start}–{end}</strong> trong {totalItems} {itemLabel}</span>
-        <label className="inline-flex items-center gap-2 font-bold text-[var(--ink)]">
+    <nav
+      aria-label={`Phân trang ${itemLabel}`}
+      className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}
+    >
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+        <span aria-live="polite">
+          Hiển thị <strong className="font-semibold text-slate-900 dark:text-slate-100">{start}–{end}</strong> trong {totalItems} {itemLabel}
+        </span>
+        <label className="inline-flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300">
           Số dòng
-          <select aria-label={`Số ${itemLabel} mỗi trang`} className="min-h-11 rounded-lg border border-[var(--rule-strong)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15" onChange={(event) => onPageSizeChange(Number(event.target.value))} value={pageSize}>
-            {PAGE_SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          <select
+            aria-label={`Số ${itemLabel} mỗi trang`}
+            className="min-h-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 text-xs sm:text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            value={pageSize}
+          >
+            {PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
           </select>
         </label>
       </div>
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn trang">
-        <button aria-label="Trang trước" className="grid size-11 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} type="button"><ChevronLeft aria-hidden="true" size={18} /></button>
-        {visiblePages(currentPage, totalPages).map((item) => typeof item === "number" ? (
-          <button aria-current={item === currentPage ? "page" : undefined} aria-label={`Trang ${item}`} className={`min-h-11 min-w-11 rounded-lg px-2 text-sm font-bold ${item === currentPage ? "bg-[var(--action)] text-[var(--action-ink)]" : "text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"}`} key={item} onClick={() => onPageChange(item)} type="button">{item}</button>
-        ) : <span aria-hidden="true" className="grid min-h-11 min-w-7 place-items-center text-[var(--ink-muted)]" key={item}>…</span>)}
-        <button aria-label="Trang sau" className="grid size-11 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-35" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)} type="button"><ChevronRight aria-hidden="true" size={18} /></button>
+        <button
+          aria-label="Trang trước"
+          className="grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
+          type="button"
+        >
+          <ChevronLeft aria-hidden="true" size={16} />
+        </button>
+        {visiblePages(currentPage, totalPages).map((item) =>
+          typeof item === "number" ? (
+            <button
+              aria-current={item === currentPage ? "page" : undefined}
+              aria-label={`Trang ${item}`}
+              className={`min-h-9 min-w-9 rounded-lg px-2 text-xs sm:text-sm font-semibold transition-colors ${
+                item === currentPage
+                  ? "bg-emerald-600 text-white font-bold shadow-xs"
+                  : "border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-2xs"
+              }`}
+              key={item}
+              onClick={() => onPageChange(item)}
+              type="button"
+            >
+              {item}
+            </button>
+          ) : (
+            <span
+              aria-hidden="true"
+              className="grid min-h-9 min-w-6 place-items-center text-xs text-slate-400 dark:text-slate-600"
+              key={item}
+            >
+              …
+            </span>
+          ),
+        )}
+        <button
+          aria-label="Trang sau"
+          className="grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"
+          disabled={currentPage >= totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
+          type="button"
+        >
+          <ChevronRight aria-hidden="true" size={16} />
+        </button>
       </div>
     </nav>
   );
@@ -146,11 +284,14 @@ export function Pagination({ totalItems, page, pageSize, onPageChange, onPageSiz
 
 /** Lấy control có thể Tab tới, kể cả summary; bỏ phần tử bị ẩn trong details hoặc tổ tiên. */
 function modalControls(dialog: HTMLElement): HTMLElement[] {
-  return Array.from(dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], summary, [tabindex]")).filter((element) => {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], summary, [tabindex]"),
+  ).filter((element) => {
     if (element.tabIndex < 0 || element.matches(":disabled")) return false;
     for (let node: HTMLElement | null = element; node && node !== dialog; node = node.parentElement) {
       const style = getComputedStyle(node);
-      if (node.hidden || node.hasAttribute("inert") || style.display === "none" || style.visibility === "hidden") return false;
+      if (node.hidden || node.hasAttribute("inert") || style.display === "none" || style.visibility === "hidden")
+        return false;
       if (node instanceof HTMLDetailsElement && !node.open) {
         const summary = node.querySelector(":scope > summary");
         if (!summary?.contains(element)) return false;
@@ -190,14 +331,30 @@ function isolateModal(wrapper: HTMLElement) {
   };
 }
 
-/** Hộp thoại khóa cuộn, giữ focus bên trong, đóng bằng Escape và trả focus về phần tử trước. */
-export function Modal({ open, title, description, onClose, children, size = "md" }: { open: boolean; title: string; description?: string; onClose: () => void; children: React.ReactNode; size?: "md" | "xl" }) {
+/** Hộp thoại chuẩn tối giản, khóa cuộn, giữ focus và hỗ trợ phím Escape. */
+export function Modal({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  size = "md",
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  size?: "md" | "xl";
+}) {
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
 
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -229,8 +386,14 @@ export function Modal({ open, title, description, onClose, children, size = "md"
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("focusin", containFocus);
@@ -245,13 +408,52 @@ export function Modal({ open, title, description, onClose, children, size = "md"
   }, [open]);
 
   if (!open) return null;
-  return <div className="fixed inset-0 z-[70] grid place-items-center p-4"><button aria-label="Đóng hộp thoại" className="absolute inset-0 bg-[var(--overlay)] backdrop-blur-sm" onClick={onClose} tabIndex={-1} type="button" /><section aria-describedby={description ? descriptionId : undefined} aria-labelledby={titleId} aria-modal="true" className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-2xl border border-[var(--rule)] bg-[var(--surface)] p-5 shadow-[var(--dialog-shadow)] md:p-7 ${size === "xl" ? "max-w-6xl" : "max-w-xl"}`} ref={dialogRef} role="dialog"><button aria-label="Đóng" className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" onClick={onClose} type="button"><X size={19} /></button><h2 className="pr-12 font-heading text-2xl font-bold tracking-[-0.025em] text-[var(--ink)]" id={titleId}>{title}</h2>{description ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-soft)]" id={descriptionId}>{description}</p> : null}<div className="mt-6">{children}</div></section></div>;
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center p-4 overflow-y-auto">
+      <button
+        aria-label="Đóng hộp thoại"
+        className="fixed inset-0 bg-slate-900/50 dark:bg-black/75 backdrop-blur-xs transition-opacity"
+        onClick={onClose}
+        tabIndex={-1}
+        type="button"
+      />
+      <section
+        aria-describedby={description ? descriptionId : undefined}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className={`relative my-auto max-h-[90dvh] w-full overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xl dark:shadow-2xl ${
+          size === "xl" ? "max-w-5xl" : "max-w-xl"
+        }`}
+        ref={dialogRef}
+        role="dialog"
+      >
+        <button
+          aria-label="Đóng"
+          className="absolute right-4 top-4 grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-100 transition-colors"
+          onClick={onClose}
+          type="button"
+        >
+          <X size={18} />
+        </button>
+        <h2 className="pr-10 text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100" id={titleId}>
+          {title}
+        </h2>
+        {description ? (
+          <p className="mt-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed" id={descriptionId}>
+            {description}
+          </p>
+        ) : null}
+        <div className="mt-5">{children}</div>
+      </section>
+    </div>
+  );
 }
 
-/** Render Markdown/GFM và công thức LaTeX qua KaTeX cho nội dung đa môn. */
+/** Render Markdown/GFM và công thức LaTeX qua KaTeX cho nội dung học tập. */
 export function RichText({ children, className = "" }: { children: string; className?: string }) {
   return (
-    <div className={`rich-content min-w-0 text-[var(--ink)] ${className}`}>
+    <div className={`rich-content min-w-0 text-slate-800 dark:text-slate-200 ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
         {children}
       </ReactMarkdown>
@@ -262,7 +464,18 @@ export function RichText({ children, className = "" }: { children: string; class
 type FormatAction = "bold" | "italic" | "inline-math" | "block-math";
 
 /** Textarea có toolbar chèn Markdown in đậm/nghiêng và LaTeX vào vùng đang chọn. */
-export function FormattedTextarea({ value, onChange, label, rows = 5, required = false, minLength, placeholder, error, disabled = false, compact = false }: {
+export function FormattedTextarea({
+  value,
+  onChange,
+  label,
+  rows = 5,
+  required = false,
+  minLength,
+  placeholder,
+  error,
+  disabled = false,
+  compact = false,
+}: {
   value: string;
   onChange: (value: string) => void;
   label: string;
@@ -302,43 +515,86 @@ export function FormattedTextarea({ value, onChange, label, rows = 5, required =
   };
 
   const controls: Array<{ action: FormatAction; label: string; icon: React.ReactNode }> = [
-    { action: "bold", label: "In đậm", icon: <Bold size={16} /> },
-    { action: "italic", label: "In nghiêng", icon: <Italic size={16} /> },
-    { action: "inline-math", label: "Công thức trong dòng", icon: <Sigma size={16} /> },
-    { action: "block-math", label: "Khối công thức", icon: <Braces size={16} /> },
+    { action: "bold", label: "In đậm", icon: <Bold size={14} /> },
+    { action: "italic", label: "In nghiêng", icon: <Italic size={14} /> },
+    { action: "inline-math", label: "Công thức trong dòng", icon: <Sigma size={14} /> },
+    { action: "block-math", label: "Khối công thức", icon: <Braces size={14} /> },
   ];
 
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <label className="text-sm font-bold text-[var(--ink)]" htmlFor={errorId}>{label}</label>
+        <label className="text-sm font-semibold text-slate-800 dark:text-slate-200" htmlFor={errorId}>
+          {label}
+        </label>
         <div aria-label={`Định dạng ${label.toLowerCase()}`} className="flex flex-wrap gap-1" role="toolbar">
           {controls.map((control) => (
-            <button aria-label={control.label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-40" disabled={disabled} key={control.action} onClick={() => applyFormat(control.action)} title={control.label} type="button">
-              {control.icon}<span className={compact ? "sr-only" : "hidden sm:inline"}>{control.label}</span>
+            <button
+              aria-label={control.label}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+              disabled={disabled}
+              key={control.action}
+              onClick={() => applyFormat(control.action)}
+              title={control.label}
+              type="button"
+            >
+              {control.icon}
+              <span className={compact ? "sr-only" : "hidden sm:inline"}>{control.label}</span>
             </button>
           ))}
         </div>
       </div>
-      <textarea aria-describedby={error ? `${errorId}-error` : undefined} aria-invalid={Boolean(error)} className={`${inputClass} mt-2 resize-y font-sans leading-6`} disabled={disabled} id={errorId} minLength={minLength} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} ref={textareaRef} required={required} rows={rows} value={value} />
-      {error ? <p className="mt-1 text-xs font-semibold text-[var(--danger)]" id={`${errorId}-error`}>{error}</p> : compact ? null : <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">Chọn đoạn văn rồi dùng thanh định dạng. Công thức dùng LaTeX giữa <code>$...$</code> hoặc <code>$$...$$</code>.</p>}
+      <textarea
+        aria-describedby={error ? `${errorId}-error` : undefined}
+        aria-invalid={Boolean(error)}
+        className={`${inputClass} mt-1.5 resize-y font-sans leading-relaxed`}
+        disabled={disabled}
+        id={errorId}
+        minLength={minLength}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        ref={textareaRef}
+        required={required}
+        rows={rows}
+        value={value}
+      />
+      {error ? (
+        <p className="mt-1 text-xs font-semibold text-rose-600 dark:text-rose-400" id={`${errorId}-error`}>
+          {error}
+        </p>
+      ) : compact ? null : (
+        <p className="mt-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+          Chọn đoạn văn rồi dùng thanh định dạng. Công thức dùng LaTeX giữa <code>$...$</code> hoặc <code>$$...$$</code>.
+        </p>
+      )}
     </div>
   );
 }
 
-/** Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt và màu ngữ nghĩa. */
+/** Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt và màu sắc rõ ràng. */
 export function StatusBadge({ status }: { status: string }) {
   const isPositive = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED", "GRADED"].includes(status);
   const isNegative = ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status);
-  const isPending = ["PENDING", "PENDING_VERIFICATION", "PENDING_REVIEW", "IN_REVIEW", "IN_PROGRESS", "SUBMITTED", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status);
+  const isPending = [
+    "PENDING",
+    "PENDING_VERIFICATION",
+    "PENDING_REVIEW",
+    "IN_REVIEW",
+    "IN_PROGRESS",
+    "SUBMITTED",
+    "PROCESSING",
+    "LATE",
+    "MEDIUM",
+    "SMALL_SAMPLE",
+  ].includes(status);
 
   const style = isPositive
-    ? "border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-950/50 dark:text-emerald-300"
+    ? "border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
     : isNegative
-      ? "border-rose-200/80 bg-rose-50 text-rose-700 dark:border-rose-800/80 dark:bg-rose-950/50 dark:text-rose-300"
+      ? "border-rose-200/80 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
       : isPending
-        ? "border-amber-200/80 bg-amber-50 text-amber-700 dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-300"
-        : "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
+        ? "border-amber-200/80 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
+        : "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300";
 
   const dot = isPositive
     ? "bg-emerald-500"
@@ -348,10 +604,47 @@ export function StatusBadge({ status }: { status: string }) {
         ? "bg-amber-500"
         : "bg-slate-400";
 
-  const labels: Record<string, string> = { PENDING: "Chưa xác thực", PENDING_VERIFICATION: "Chờ xác minh email", PENDING_REVIEW: "Chờ phê duyệt", ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", IN_PROGRESS: "Đang làm bài", SUBMITTED: "Chờ chấm", GRADED: "Đã chấm", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
+  const labels: Record<string, string> = {
+    PENDING: "Chưa xác thực",
+    PENDING_VERIFICATION: "Chờ xác minh email",
+    PENDING_REVIEW: "Chờ phê duyệt",
+    ACTIVE: "Đang hoạt động",
+    PUBLISHED: "Đã phát hành",
+    DRAFT: "Bản nháp",
+    LOCKED: "Đã khóa",
+    REJECTED: "Đã từ chối",
+    COMPLETED: "Đã hoàn tất",
+    SCHEDULED: "Đã lên lịch",
+    CANCELLED: "Đã hủy",
+    OPEN: "Đang mở",
+    IN_REVIEW: "Đang xử lý",
+    IN_PROGRESS: "Đang làm bài",
+    SUBMITTED: "Chờ chấm",
+    GRADED: "Đã chấm",
+    RESOLVED: "Đã xử lý",
+    CLOSED: "Đã đóng",
+    PRESENT: "Có mặt",
+    LATE: "Đi muộn",
+    ABSENT: "Vắng",
+    EXCUSED: "Có phép",
+    PROCESSING: "Đang xử lý",
+    FAILED: "Thất bại",
+    EXPIRED: "Đã hết hạn",
+    NONE: "Chưa có",
+    VISIBLE: "Đang hiển thị",
+    HIDDEN: "Đã ẩn",
+    STABLE: "Ổn định",
+    SMALL_SAMPLE: "Mẫu nhỏ",
+    HIGH: "Rủi ro cao",
+    MEDIUM: "Rủi ro vừa",
+    LOW: "Rủi ro thấp",
+  };
 
   return (
-    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.01em] shadow-2xs ${style}`} title={labels[status] ? `Mã trạng thái: ${status}` : undefined}>
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold shadow-2xs ${style}`}
+      title={labels[status] ? `Mã trạng thái: ${status}` : undefined}
+    >
       <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
       {labels[status] ?? status}
     </span>

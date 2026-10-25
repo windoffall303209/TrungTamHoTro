@@ -184,11 +184,12 @@ const navItems: NavigationItem[] = [
   },
 ];
 
-/** Lọc mục điều hướng theo vai trò/quyền và đánh dấu route đang hoạt động. */
+/** Sidebar điều hướng tinh gọn, hỗ trợ đầy đủ Light/Dark theme. */
 function Sidebar({ close }: { close?: () => void }) {
   const pathname = usePathname();
   const { session } = useApp();
   const { t } = useI18n();
+
   const available = navItems.filter((item) => {
     const roleAllowed = !item.roles || item.roles.includes(session.roleCode);
     const permissionAllowed =
@@ -234,32 +235,29 @@ function Sidebar({ close }: { close?: () => void }) {
   ].filter((s) => s.items.length > 0);
 
   return (
-    <div className="flex h-full flex-col bg-[var(--nav)] text-[var(--nav-text)] border-r border-slate-800/60 shadow-xl">
-      <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5 bg-black/15">
-        <div className="grid size-10 place-items-center rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-slate-950 font-black shadow-md shadow-emerald-500/20">
-          <GraduationCap size={20} />
+    <div className="flex h-full flex-col bg-white dark:bg-[#0b111c] border-r border-slate-200 dark:border-slate-800/80 transition-colors">
+      <div className="flex h-15 items-center gap-3 border-b border-slate-200 dark:border-slate-800/80 px-5">
+        <div className="grid size-9 place-items-center rounded-lg bg-emerald-600 text-white font-bold shadow-xs">
+          <GraduationCap size={19} />
         </div>
         <div className="min-w-0">
-          <p className="font-heading text-lg font-bold tracking-[-0.02em] text-white">
+          <p className="font-bold text-base tracking-tight text-slate-900 dark:text-slate-100">
             Wind EDU
           </p>
-          <p className="text-[11px] font-semibold text-emerald-400/90 truncate">
-            Học tập & Giảng dạy số
+          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
+            Trung tâm đào tạo số
           </p>
         </div>
       </div>
-      <nav
-        aria-label="Điều hướng chính"
-        className="flex-1 overflow-y-auto px-3 py-4 space-y-5"
-      >
+
+      <nav aria-label="Điều hướng chính" className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
         {sections.map((section) => (
-          <div key={section.title} className="space-y-1">
-            <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+          <div key={section.title} className="space-y-0.5">
+            <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               {section.title}
             </p>
             {section.items.map(({ href, label, icon: Icon }) => {
-              const active =
-                pathname === href || pathname.startsWith(`${href}/`);
+              const active = pathname === href || pathname.startsWith(`${href}/`);
               const resolvedLabel =
                 href === "/courses"
                   ? session.roleCode === "LEARNER"
@@ -271,10 +269,10 @@ function Sidebar({ close }: { close?: () => void }) {
               return (
                 <Link
                   aria-current={active ? "page" : undefined}
-                  className={`group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-150 ${
+                  className={`group flex min-h-9 items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition-all duration-150 ${
                     active
-                      ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 font-bold border-l-[3px] border-emerald-400 pl-[9px] shadow-xs"
-                      : "text-slate-400 hover:bg-white/6 hover:text-slate-100"
+                      ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 dark:border-emerald-500 pl-[10px]"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200"
                   }`}
                   href={href}
                   key={href}
@@ -283,10 +281,10 @@ function Sidebar({ close }: { close?: () => void }) {
                   <Icon
                     className={`shrink-0 transition-colors ${
                       active
-                        ? "text-emerald-400"
-                        : "text-slate-400 group-hover:text-slate-200"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300"
                     }`}
-                    size={18}
+                    size={17}
                   />
                   <span className="truncate">{t(resolvedLabel)}</span>
                 </Link>
@@ -299,15 +297,13 @@ function Sidebar({ close }: { close?: () => void }) {
   );
 }
 
-/** Khung workspace responsive chứa sidebar, header, theme, thông báo và menu tài khoản. */
+/** Khung workspace responsive chứa sidebar, header, theme toggle, thông báo và menu tài khoản. */
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [notifications, setNotifications] = useState<LearningNotification[]>(
-    [],
-  );
+  const [notifications, setNotifications] = useState<LearningNotification[]>([]);
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [notificationError, setNotificationError] = useState("");
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -335,7 +331,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }, [session.roleCode]);
 
-  // Đóng mọi overlay bằng Escape và khóa cuộn nền khi menu mobile mở.
   useEffect(() => {
     window.queueMicrotask(() => {
       void loadNotifications();
@@ -344,7 +339,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!notificationOpen && !profileOpen) return;
-    /** Đóng các lớp nổi trên cùng bằng Escape để bảo đảm thao tác bàn phím nhất quán. */
     const closeOverlay = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setNotificationOpen(false);
@@ -356,17 +350,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     };
   }, [notificationOpen, profileOpen]);
 
-  // Đóng trung tâm thông báo khi người dùng bấm ra ngoài cả nút mở và bảng nội dung.
   useEffect(() => {
     if (!notificationOpen) return;
-    /** Đóng danh sách thông báo khi người dùng nhấn bên ngoài vùng thông báo. */
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!notificationRef.current?.contains(event.target as Node))
+      if (!notificationRef.current?.contains(event.target as Node)) {
         setNotificationOpen(false);
+      }
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () =>
+    return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
+    };
   }, [notificationOpen]);
 
   /** Đánh dấu một thông báo chưa đọc rồi thay đúng item trong state. */
@@ -419,7 +413,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  /** Ánh xạ định danh nghiệp vụ chuẩn sang đúng đối tượng và giữ liên kết sâu. */
+  /** Ánh xạ định danh nghiệp vụ chuẩn sang đúng đối tượng. */
   function notificationHref(item: LearningNotification): string {
     const entityType = item.entityType.trim().toUpperCase();
     const entityId = encodeURIComponent(item.entityId);
@@ -468,29 +462,33 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--canvas)] text-[var(--ink)]">
+    <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)]">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 lg:block">
         <Sidebar />
       </aside>
+
       {menuOpen ? (
         <MobileDrawer onClose={() => setMenuOpen(false)}>
           <Sidebar close={() => setMenuOpen(false)} />
         </MobileDrawer>
       ) : null}
+
       <div className="lg:pl-64">
         <a
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-2 focus:z-[90] focus:rounded-lg focus:bg-[var(--surface)] focus:p-3 focus:text-[var(--ink)]"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-2 focus:z-[90] focus:rounded-lg focus:bg-white dark:focus:bg-slate-900 focus:p-3 focus:text-slate-900 dark:focus:text-slate-100 shadow-md"
           href="#workspace-main"
         >
           Đi tới nội dung chính
         </a>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-y-2 border-b border-slate-200/80 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 px-4 py-2.5 backdrop-blur-md md:px-7 shadow-2xs">
+
+        {/* Header tối giản chuẩn mực */}
+        <header className="sticky top-0 z-20 flex min-h-15 flex-wrap items-center justify-between gap-y-2 border-b border-slate-200 dark:border-slate-800/80 bg-white/80 dark:bg-[#0b111c]/80 px-4 py-2.5 backdrop-blur-md md:px-7">
           <div className="flex min-w-0 items-center gap-3">
             <button
               aria-label="Mở menu"
               aria-expanded={menuOpen}
               aria-haspopup="dialog"
-              className="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-[var(--ink)] hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
+              className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden transition-colors shadow-2xs"
               onClick={() => {
                 setNotificationOpen(false);
                 setProfileOpen(false);
@@ -498,30 +496,33 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               }}
               type="button"
             >
-              <Menu size={18} />
+              <Menu size={17} />
             </button>
             <div className="min-w-0 max-[359px]:hidden flex items-center gap-2.5">
-              <span className="font-heading font-extrabold text-sm sm:text-base text-[var(--ink)] tracking-tight">
+              <span className="font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100 tracking-tight">
                 Wind EDU
               </span>
               <span className="hidden sm:inline-block text-slate-300 dark:text-slate-700">|</span>
-              <span className="hidden sm:inline-block text-xs font-medium text-[var(--ink-soft)] truncate">
-                Trung tâm đào tạo & giảng dạy số
+              <span className="hidden sm:inline-block text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                Nền tảng đào tạo & giảng dạy số
               </span>
             </div>
           </div>
+
           <div className="relative flex max-w-full flex-wrap items-center justify-end gap-2 md:gap-3">
-            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300 text-xs font-bold shadow-2xs">
-              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+            {/* Role indicator pill */}
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs font-semibold shadow-2xs">
+              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {session.user.roleName}
             </div>
+
             {session.availableRoles.length > 1 ? (
               <>
                 <label className="sr-only" htmlFor="role-switcher">
                   Vai trò đang sử dụng
                 </label>
                 <select
-                  className="min-h-10 w-36 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--ink)] outline-none transition focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15 md:w-auto md:text-sm shadow-2xs cursor-pointer"
+                  className="min-h-9 w-32 shrink-0 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 md:w-auto shadow-2xs cursor-pointer"
                   id="role-switcher"
                   onChange={(event) =>
                     void setRole(event.target.value as RoleCode)
@@ -536,8 +537,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 </select>
               </>
             ) : null}
+
             <ThemeToggle />
             <LanguageSwitcher compact />
+
+            {/* Notification button & popover */}
             <div className="relative" ref={notificationRef}>
               <button
                 aria-controls="notification-center"
@@ -547,64 +551,65 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     ? `Thông báo, ${unreadCount} chưa đọc`
                     : "Thông báo"
                 }
-                className="relative grid size-10 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-[var(--ink-soft)] hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 bg-[var(--surface)] transition-colors shadow-2xs"
+                className="relative grid size-9.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
                 onClick={() => {
                   setNotificationOpen((open) => !open);
                   setProfileOpen(false);
                 }}
                 type="button"
               >
-                <Bell size={18} />
+                <Bell size={17} />
                 {unreadCount ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[10px] font-black leading-4 text-white ring-2 ring-[var(--surface)] shadow-xs">
+                  <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white dark:ring-slate-900 shadow-xs">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 ) : null}
               </button>
+
               {notificationOpen ? (
                 <section
                   aria-label="Trung tâm thông báo"
-                  className="absolute right-0 top-12 z-30 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[var(--rule)] bg-[var(--surface)] shadow-[var(--popover-shadow)]"
+                  className="absolute right-0 top-11 z-30 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
                   id="notification-center"
                 >
-                  <div className="flex items-center justify-between border-b border-[var(--rule)] px-5 py-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30">
                     <div>
-                      <h2 className="font-heading text-base font-extrabold">
+                      <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                         Thông báo
                       </h2>
-                      <p className="mt-0.5 text-xs text-[var(--ink-soft)]">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
                         {unreadCount
                           ? `${unreadCount} mục chưa đọc`
                           : "Đã đọc tất cả"}
                       </p>
                     </div>
                     <button
-                      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-extrabold text-[var(--accent-ink)] hover:bg-[var(--surface-muted)] disabled:text-[var(--rule-strong)]"
+                      className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:text-slate-300 dark:disabled:text-slate-700 transition-colors"
                       disabled={!unreadCount}
                       onClick={() => void markAllRead()}
                       type="button"
                     >
-                      <CheckCheck size={15} />
+                      <CheckCheck size={14} />
                       Đọc tất cả
                     </button>
                   </div>
-                  <div className="max-h-[min(32rem,70dvh)] overflow-y-auto">
+                  <div className="max-h-[min(30rem,68dvh)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
                     {notificationLoading ? (
-                      <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-semibold text-[var(--ink-soft)]">
+                      <div className="flex min-h-36 items-center justify-center gap-2 text-xs font-semibold text-slate-500">
                         <LoaderCircle
-                          className="animate-spin text-[var(--accent)]"
-                          size={19}
+                          className="animate-spin text-emerald-600"
+                          size={18}
                         />
                         Đang tải…
                       </div>
                     ) : notificationError ? (
-                      <div className="grid min-h-40 place-items-center px-5 text-center">
+                      <div className="grid min-h-36 place-items-center px-4 text-center">
                         <div>
-                          <p className="text-sm font-bold text-[var(--danger)]">
+                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">
                             {notificationError}
                           </p>
                           <button
-                            className="action-link mt-2"
+                            className="mt-2 text-xs font-semibold text-emerald-600 hover:underline"
                             onClick={() => void loadNotifications()}
                             type="button"
                           >
@@ -615,7 +620,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     ) : notifications.length ? (
                       notifications.map((item) => (
                         <Link
-                          className={`block min-h-16 border-b border-[var(--rule)] px-5 py-4 transition last:border-0 hover:bg-[var(--surface-muted)]/65 ${item.readAt ? "bg-[var(--surface)]" : "bg-[var(--accent-soft)]/60"}`}
+                          className={`block px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                            item.readAt
+                              ? "bg-white dark:bg-slate-900"
+                              : "bg-emerald-50/50 dark:bg-emerald-950/20"
+                          }`}
                           href={notificationHref(item)}
                           key={item.id}
                           onClick={() => {
@@ -623,15 +632,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             setNotificationOpen(false);
                           }}
                         >
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-2.5">
                             <span
-                              className={`mt-1.5 size-2 shrink-0 rounded-full ${item.readAt ? "bg-[var(--rule-strong)]" : "bg-[var(--accent)]"}`}
+                              className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                                item.readAt ? "bg-slate-300 dark:bg-slate-700" : "bg-emerald-500"
+                              }`}
                             />
-                            <div>
-                              <p className="text-sm font-bold text-[var(--ink)]">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
                                 {item.title}
                               </p>
-                              <p className="mt-1 text-xs text-[var(--ink-soft)]">
+                              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                                 {formatDateTime(item.createdAt)}
                               </p>
                             </div>
@@ -639,13 +650,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         </Link>
                       ))
                     ) : (
-                      <div className="grid min-h-40 place-items-center px-5 text-center">
+                      <div className="grid min-h-36 place-items-center px-4 text-center">
                         <div>
                           <Bell
-                            className="mx-auto text-[var(--rule-strong)]"
-                            size={28}
+                            className="mx-auto text-slate-300 dark:text-slate-700"
+                            size={24}
                           />
-                          <p className="mt-2 text-sm font-bold text-[var(--ink-soft)]">
+                          <p className="mt-2 text-xs font-semibold text-slate-500">
                             Chưa có thông báo
                           </p>
                         </div>
@@ -655,11 +666,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 </section>
               ) : null}
             </div>
+
+            {/* Profile menu */}
             <div
               className="relative"
               onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget))
+                if (!event.currentTarget.contains(event.relatedTarget)) {
                   setProfileOpen(false);
+                }
               }}
               onMouseEnter={() => setProfileOpen(true)}
               onMouseLeave={() => setProfileOpen(false)}
@@ -669,15 +683,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 aria-expanded={profileOpen}
                 aria-haspopup="menu"
                 aria-label="Mở menu tài khoản"
-                className="flex min-h-12 items-center gap-2 rounded-xl px-1.5 text-left transition hover:bg-[var(--surface-muted)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:pr-2"
+                className="flex min-h-10 items-center gap-2 rounded-lg px-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2"
                 onClick={() => setProfileOpen((open) => !open)}
                 type="button"
               >
                 <div className="hidden min-w-0 text-right md:block">
-                  <p className="max-w-40 truncate text-sm font-extrabold text-[var(--ink)]">
+                  <p className="max-w-36 truncate text-xs font-bold text-slate-900 dark:text-slate-100">
                     {session.user.name}
                   </p>
-                  <p className="mt-0.5 max-w-40 truncate text-xs text-[var(--ink-soft)]">
+                  <p className="max-w-36 truncate text-[11px] text-slate-500 dark:text-slate-400">
                     {session.user.roleName}
                   </p>
                 </div>
@@ -687,34 +701,37 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   priority
                 />
                 <ChevronDown
-                  className={`hidden text-[var(--ink-muted)] transition-transform sm:block ${profileOpen ? "rotate-180" : ""}`}
-                  size={15}
+                  className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
+                    profileOpen ? "rotate-180" : ""
+                  }`}
+                  size={14}
                 />
               </button>
+
               {profileOpen ? (
-                <div className="absolute right-0 top-full z-40 pt-2">
+                <div className="absolute right-0 top-full z-40 pt-1.5">
                   <section
                     aria-label="Menu tài khoản"
-                    className="w-[min(14rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[var(--rule)] bg-[var(--surface)] p-2 shadow-[var(--popover-shadow)]"
+                    className="w-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
                     id="profile-menu"
                     role="menu"
                   >
                     <Link
-                      className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-bold text-[var(--ink)] hover:bg-[var(--surface-muted)]"
+                      className="flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                       href="/account"
                       onClick={() => setProfileOpen(false)}
                       role="menuitem"
                     >
-                      <UserRoundCog size={17} />
-                      Thông tin
+                      <UserRoundCog size={15} />
+                      Thông tin tài khoản
                     </Link>
                     <button
-                      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-bold text-[var(--danger)] hover:bg-[var(--accent-soft)]"
+                      className="flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
                       onClick={() => void signOut()}
                       role="menuitem"
                       type="button"
                     >
-                      <LogOut size={17} />
+                      <LogOut size={15} />
                       Đăng xuất
                     </button>
                   </section>
@@ -723,7 +740,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
-        <main id="workspace-main" tabIndex={-1}>
+
+        <main id="workspace-main" tabIndex={-1} className="outline-none">
           {children}
         </main>
       </div>

@@ -10,7 +10,10 @@ const themeEvent = "wind-edu-theme-change";
 
 /** Đọc theme đã áp dụng trực tiếp trên document root. */
 function activeTheme(): Theme {
-  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.dataset.theme === "dark" || document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "light";
 }
 
 /** Đồng bộ theme giữa component và các tab trình duyệt qua custom/storage event. */
@@ -18,9 +21,15 @@ function subscribe(callback: () => void): () => void {
   /** Đồng bộ lựa chọn giao diện khi một tab khác thay đổi localStorage. */
   const syncStoredTheme = (event: StorageEvent) => {
     if (event.key !== storageKey || (event.newValue !== "light" && event.newValue !== "dark")) return;
-    document.documentElement.dataset.theme = event.newValue;
-    document.documentElement.style.colorScheme = event.newValue;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", event.newValue === "dark" ? "#0b1322" : "#f8fafc");
+    const next = event.newValue;
+    document.documentElement.dataset.theme = next;
+    document.documentElement.style.colorScheme = next;
+    if (next === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#080c14" : "#f8fafc");
     callback();
   };
   window.addEventListener(themeEvent, callback);
@@ -31,36 +40,46 @@ function subscribe(callback: () => void): () => void {
   };
 }
 
-/** Nút chuyển sáng/tối, lưu lựa chọn và cập nhật màu chrome trình duyệt. */
+/** Nút chuyển sáng/tối tối giản, mượt mà, lưu trạng thái lâu dài. */
 export function ThemeToggle() {
   const theme = useSyncExternalStore(subscribe, activeTheme, () => "light");
 
-  /** Áp dụng theme mới tức thời và bật lớp chuyển màu ngắn để giao diện không giật. */
+  /** Chuyển đổi theme mượt mà không chớp mắt, lưu cả cookie và localStorage. */
   function toggleTheme(): void {
     const root = document.documentElement;
-    const nextTheme: Theme = activeTheme() === "dark" ? "light" : "dark";
+    const current = activeTheme();
+    const nextTheme: Theme = current === "dark" ? "light" : "dark";
+
     root.classList.add("theme-changing");
     root.dataset.theme = nextTheme;
     root.style.colorScheme = nextTheme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#0b1322" : "#f8fafc");
+    if (nextTheme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#080c14" : "#f8fafc");
+
     window.localStorage.setItem(storageKey, nextTheme);
+    document.cookie = `${storageKey}=${nextTheme}; path=/; max-age=31536000; SameSite=Lax`;
     window.dispatchEvent(new Event(themeEvent));
-    window.setTimeout(() => root.classList.remove("theme-changing"), 220);
+    window.setTimeout(() => root.classList.remove("theme-changing"), 200);
   }
 
-  const label = theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
+  const isDark = theme === "dark";
+  const label = isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
 
   return (
     <button
       aria-label={label}
-      aria-pressed={theme === "dark"}
-      className="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-[var(--surface)] text-[var(--ink-soft)] hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-2xs transition-colors"
+      aria-pressed={isDark}
+      className="relative grid size-9.5 shrink-0 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 dark:hover:border-emerald-500/50 shadow-2xs transition-all duration-150 active:scale-95"
       onClick={toggleTheme}
       title={label}
       type="button"
     >
-      <Moon aria-hidden="true" className="theme-icon-moon" size={17} />
-      <Sun aria-hidden="true" className="theme-icon-sun" size={18} />
+      <Moon aria-hidden="true" className="theme-icon-moon" size={16} />
+      <Sun aria-hidden="true" className="theme-icon-sun" size={17} />
     </button>
   );
 }

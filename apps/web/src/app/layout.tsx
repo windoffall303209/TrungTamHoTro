@@ -25,14 +25,21 @@ const themeInitializer = `(() => {
     const stored = localStorage.getItem("wind-edu-theme");
     const theme = stored === "light" || stored === "dark"
       ? stored
-      : "light";
+      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0b1322" : "#f8fafc");
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#080c14" : "#f8fafc");
     const locale = localStorage.getItem("wind-edu-locale") === "en-US" ? "en-US" : "vi-VN";
     document.documentElement.lang = locale;
     document.documentElement.dataset.locale = locale;
-  } catch { document.documentElement.dataset.theme = "light"; }
+  } catch {
+    document.documentElement.dataset.theme = "light";
+  }
 })();`;
 
 /** Khung HTML gốc, nạp font/theme sớm và cung cấp trạng thái ứng dụng cho mọi route. */

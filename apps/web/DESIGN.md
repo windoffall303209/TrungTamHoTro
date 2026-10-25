@@ -1,77 +1,61 @@
----
-name: Wind EDU
-description: Nền tảng Giảng dạy & Học tập Số — Theme tươi mát, trực quan và tối ưu thao tác.
-colors:
-  canvas: "#f8fafc"
-  canvas-deep: "#f1f5f9"
-  surface: "#ffffff"
-  ink: "#0f172a"
-  ink-soft: "#334155"
-  ink-muted: "#64748b"
-  rule: "#e2e8f0"
-  rule-strong: "#cbd5e1"
-  emerald: "#059669"
-  emerald-light: "#10b981"
-  teal: "#0d9488"
-  cyan: "#0284c7"
-  amber: "#f59e0b"
-  rose: "#e11d48"
-  night-canvas: "#0b1322"
-  night-surface: "#152238"
-  night-ink: "#f8fafc"
-  night-emerald: "#10b981"
-typography:
-  display:
-    fontFamily: "Be Vietnam Pro, system-ui, sans-serif"
-    fontWeight: 800
-    lineHeight: 1.2
-  body:
-    fontFamily: "Be Vietnam Pro, system-ui, sans-serif"
-    fontWeight: 400
-    lineHeight: 1.6
-rounded:
-  control: "12px"
-  card: "16px"
-  dialog: "20px"
+# Wind EDU — Clean Slate Minimalist Design System
+
+## 1. Triết lý thiết kế (Design Philosophy)
+
+Hệ thống giao diện mới của Wind EDU được xây dựng dựa trên 5 nguyên tắc nền tảng:
+
+- **Minimalism (Tối giản chuẩn mực):** Loại bỏ mọi thành phần trang trí thừa thãi, hoa văn rườm rà. Tập trung tối đa vào nội dung và tác vụ học tập/giảng dạy.
+- **Clean UI (Giao diện sạch sẽ):** Bố cục thoáng đãng, tỷ lệ khoảng cách (spacing) đồng nhất dựa trên bội số của 4px (padding 8px, 12px, 16px, 20px, 24px). Đường viền hairline tinh tế (`1px solid`).
+- **Modern UX (Trải nghiệm hiện đại):** Thao tác nhanh gọn, giảm thiểu số bước tương tác, phản hồi trạng thái tức thời (Hover, Focus, Active, Disabled, Loading).
+- **Responsive (Đa nền tảng):** Tương thích hoàn hảo trên Desktop (1280px+), Tablet (768px-1024px) và Mobile (<768px) với Mobile Drawer mượt mà.
+- **Independent Themes (Hai hệ thống Theme độc lập):** Light Theme và Dark Theme được thiết kế và tính toán quang học riêng biệt, không phải là phép đảo màu máy móc.
+
 ---
 
-# Design System: Wind EDU (Modern EdTech)
+## 2. Hệ màu & Design Tokens
 
-## 1. Triết lý Thiết kế: "Tươi Mát, Trực Quan, Tối Ưu Tác Vụ"
+### A. Light Theme (Giao diện sáng)
+- **Canvas (Nền chính):** `#f8fafc` (Slate 50) — Nền dịu mắt, sạch sẽ.
+- **Surface (Thẻ, Bảng, Hộp thoại):** `#ffffff` (Pure White) — Nổi bật nhẹ trên nền canvas.
+- **Hairline Borders:** `#e2e8f0` (Slate 200) — Viền 1px thanh lịch.
+- **Typography:**
+  - Tiêu đề & Văn bản chính: `#0f172a` (Slate 900) — Tương phản cao, dễ đọc.
+  - Văn bản phụ / Mô tả: `#475569` (Slate 600).
+  - Nhãn mờ / Placeholder: `#94a3b8` (Slate 400).
+- **Brand Primary Accent:** `#059669` (Emerald 600) — Sắc xanh ngọc lục bảo tươi mát, tượng trưng cho tri thức và tăng trưởng.
+- **Đổ bóng (Shadows):** Cực kỳ nhẹ nhàng (`0 1px 3px rgba(15, 23, 42, 0.04)`), không tạo bóng đổ tối đậm.
 
-Wind EDU được tái thiết kế theo tiêu chuẩn nền tảng giáo dục số đương đại:
-- **Tươi mới & Khơi gợi cảm hứng**: Bảng màu chủ đạo Ngọc Lục Bảo (Emerald) phối hợp cùng Xanh Đại Dương (Oceanic Teal & Sky Cyan) mang lại cảm giác nhẹ nhàng, tràn đầy năng lượng học tập và giảng dạy.
-- **Tối ưu thao tác người dùng (Workflow-First)**: Loại bỏ các rào cản thao tác (action barriers). Mọi thông tin quan trọng đều có thể tương tác trực tiếp: cân bằng điểm tự động, gợi ý nhanh lý do chấm thi, thẻ trạng thái có đèn tín hiệu, tìm kiếm tài liệu nhạy bén.
-- **Phân cấp thị giác rõ ràng**: Canvas sáng sạch (`#f8fafc`) kết hợp thẻ bề mặt phẳng có bóng đổ tinh tế (`rounded-2xl`, `shadow-xs`), viền chuẩn mực (`border-slate-200`), phông chữ sắc nét `Be Vietnam Pro`.
+### B. Dark Theme (Giao diện tối chuyên sâu)
+- **Canvas (Không gian sâu):** `#080c14` (Deep Space Obsidian) — Không bị ám xám đục.
+- **Surface Level 1 (Thẻ, Sidebar):** `#101927` — Phân lớp chiều sâu quang học.
+- **Surface Level 2 (Modal, Popover):** `#162438` — Nổi bật trên Level 1.
+- **Hairline Borders:** `#1e293b` (Slate 800) — Đường viền mảnh định hình khối rõ nét.
+- **Typography:**
+  - Tiêu đề & Văn bản chính: `#f8fafc` (Slate 50) — Rõ nét, không gây chói mắt.
+  - Văn bản phụ / Mô tả: `#94a3b8` (Slate 400).
+  - Nhãn mờ / Placeholder: `#64748b` (Slate 500).
+- **Brand Primary Accent:** `#10b981` (Emerald 500) — Phát sáng nhẹ nhàng trên nền tối.
+- **Đổ bóng (Shadows):** Kết hợp glow viền tinh tế và shadow mờ sâu.
 
-## 2. Bảng Màu Ngữ Nghĩa (Semantic Palette)
+---
 
-- **Primary / Brand Action**: Emerald `#059669` (Dark `#10b981`).
-- **Surface**: White `#ffffff` (Dark `#152238`).
-- **Canvas Backdrop**: Slate-50 `#f8fafc` (Dark `#0b1322`).
-- **Text & Contrast**: Slate-900 `#0f172a` (Chính), Slate-600 `#334155` (Phụ), Slate-400 `#94a3b8` (Ghi chú).
-- **Trạng thái (Status Dots & Badges)**:
-  - Thành công / Hoạt động / Đã công bố: Emerald `#10b981` (Nền `#ecfdf5`).
-  - Chờ duyệt / Đang xử lý: Amber `#f59e0b` (Nền `#fffbeb`).
-  - Lỗi / Từ chối / Khóa: Rose `#e11d48` (Nền `#fff1f2`).
-  - Bản nháp / Trung gian: Slate `#64748b` (Nền `#f1f5f9`).
+## 3. Kiến trúc Component cốt lõi
 
-## 3. Thành Phần Giao Diện (Core Components)
+1. **Button (`<Button />`):**
+   - Các biến thể: `primary` (Emerald), `secondary` (viền mảnh tinh gọn), `danger` (Rose), `ghost`.
+   - Trạng thái: Hover nâng nhẹ/đổi sắc thái, Active scale `0.98`, Loading với spinner xoay đều, Disabled mờ 45% không click được.
 
-1. **Button**:
-   - `primary`: Nền xanh ngọc emerald rực rỡ, hover nâng nhẹ, hiệu ứng active scale 0.98.
-   - `secondary`: Viền slate crisp, nền trắng, hover chuyển nhẹ sang ánh mint.
-   - `danger`: Sắc đỏ hồng rose tươi, cảnh báo rõ ràng.
-   - `ghost`: Nút phẳng không viền, làm nổi bật nội dung bảng và danh sách.
+2. **Form Controls (`inputClass`, `<Field />`):**
+   - Viền `border-slate-200 dark:border-slate-800`.
+   - Bo góc vừa phải (`rounded-lg` / `8px`).
+   - Focus ring mảnh: `ring-2 ring-emerald-500/15` sạch sẽ, không che khuất nhãn.
 
-2. **Workspace Shell**:
-   - Sidebar đêm đại dương sâu (`#091b29`), thanh điều hướng nhóm theo 4 phân hệ rõ ràng (Giảng dạy, Khảo thí, Trao đổi, Quản trị).
-   - Thanh Header kính mờ (`backdrop-blur-md bg-white/85`), hiển thị huy hiệu vai trò có đèn tín hiệu pulsing, chuông thông báo trực quan và chuyển vai trò tiện lợi.
+3. **Status Badges (`<StatusBadge />`):**
+   - Dạng pill mềm mại bo tròn hoàn toàn (`rounded-full`).
+   - Chấm tròn chỉ thị màu phát tín hiệu trực quan (`size-1.5 rounded-full`).
+   - Phối màu ngữ nghĩa: Hoạt động (Emerald), Cảnh báo/Chờ duyệt (Amber), Từ chối/Lỗi (Rose), Trung tính (Slate).
 
-3. **StatusBadge**:
-   - Bo tròn dạng viên thuốc (`rounded-full`), tích hợp chấm tín hiệu trạng thái (`●`), viền và nền pastel dịu mắt.
-
-4. **Trang Dashboard & Danh sách Đề thi**:
-   - Banner chào đón với nền gradient đa sắc tinh tế.
-   - Các thẻ chỉ số hoạt động (KPI Cards) có số liệu nổi bật và hiệu ứng hover tinh tế.
-   - Lưới phân hệ dạng Card tương tác, biểu tượng bo góc hiện đại.
+4. **Sidebar & Header:**
+   - Sidebar thích ứng hoàn toàn: Nền trắng trong Light mode, Nền obsidian trong Dark mode.
+   - Header dạng kính mờ (glassmorphism) với `backdrop-blur-md` tinh tế.
+   - Nút `ThemeToggle` lưu song song cả `localStorage` và `cookie` để loại bỏ 100% tình trạng nhấp nháy giao diện khi tải lại trang.
