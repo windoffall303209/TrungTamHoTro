@@ -309,7 +309,7 @@ export function DashboardHome() {
               <Sparkles size={13} className="text-sky-600 dark:text-sky-400" />
               <span>{session.user.roleName}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               Xin chào, {session.user.name} 👋
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
@@ -318,7 +318,7 @@ export function DashboardHome() {
           </div>
 
           <button
-            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition-all hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300 active:scale-95 disabled:opacity-40"
+            className="inline-flex min-h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 shadow-2xs transition-all hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300 active:scale-95 disabled:opacity-40"
             disabled={loading}
             onClick={() => void refresh()}
             type="button"
@@ -374,7 +374,7 @@ export function DashboardHome() {
                   className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700/60"
                   key={label}
                 >
-                  <p className={`text-2xl sm:text-3xl font-bold tracking-tight tabular-nums ${textAccent}`}>
+                  <p className={`text-2xl font-bold tracking-tight tabular-nums ${textAccent}`}>
                     {value}
                   </p>
                   <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -391,7 +391,7 @@ export function DashboardHome() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
               Phân hệ chức năng
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">

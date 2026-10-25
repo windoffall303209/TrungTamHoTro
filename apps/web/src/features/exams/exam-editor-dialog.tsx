@@ -207,12 +207,12 @@ export function ExamEditorDialog({
                 ) : (
                   filteredSelectableQuestions.map((question) => (
                     <label
-                      className="grid min-h-12 grid-cols-[auto_minmax(0,1fr)_5rem] items-start gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--surface-muted)]"
+                      className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_5rem] items-start gap-3 rounded-lg px-2.5 py-2 text-xs sm:text-sm text-slate-800 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-slate-800 transition-colors"
                       key={question.id}
                     >
                       <input
                         checked={form.questionIds.includes(question.id)}
-                        className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]"
+                        className="mt-0.5 size-4 shrink-0 accent-sky-600"
                         onChange={(event) =>
                           setForm((current) => {
                             const questionIds = event.target.checked

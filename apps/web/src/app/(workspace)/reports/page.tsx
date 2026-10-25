@@ -183,29 +183,62 @@ export default function ReportsPage() {
     <PageHeader eyebrow="Operational Intelligence" title="Báo cáo vận hành" description="Đối soát chỉ số theo kỳ, nhận diện rủi ro có giải thích và quản lý lịch sử xuất dữ liệu." />
 
     <section className="mb-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs">
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
-        <Field label="Từ ngày"><input className={inputClass} max={filters.to} type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></Field>
-        <Field label="Đến ngày"><input className={inputClass} min={filters.from} type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></Field>
-        {manager ? <><Field label="Điểm danh dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.attendanceBelow} onChange={(event) => setFilters({ ...filters, attendanceBelow: Number(event.target.value) })} /></Field><Field label="Điểm dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.scoreBelow} onChange={(event) => setFilters({ ...filters, scoreBelow: Number(event.target.value) })} /></Field><Field label="Tiến độ dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.completionBelow} onChange={(event) => setFilters({ ...filters, completionBelow: Number(event.target.value) })} /></Field></> : null}
-        <div className="flex items-end gap-2"><Button loading={loading} onClick={() => { void loadOverview(); void loadExamAnalytics(); }} variant="secondary"><Filter size={15} />Áp dụng</Button>{manager ? <Button loading={submitting} onClick={() => void createExport()}><Download size={15} />CSV</Button> : null}{instructor ? <Button onClick={() => { const params = new URLSearchParams(query); if (selectedClassId) params.set("classId", selectedClassId); void downloadApiFile(`/instructor/analytics/exams/export?${params}`, session.roleCode); }}><Download size={15} />CSV đánh giá</Button> : null}</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-full sm:w-44">
+          <Field label="Từ ngày"><input className={inputClass} max={filters.to} type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></Field>
+        </div>
+        <div className="w-full sm:w-44">
+          <Field label="Đến ngày"><input className={inputClass} min={filters.from} type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} /></Field>
+        </div>
+        {manager ? (
+          <>
+            <div className="w-full sm:w-36">
+              <Field label="Điểm danh dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.attendanceBelow} onChange={(event) => setFilters({ ...filters, attendanceBelow: Number(event.target.value) })} /></Field>
+            </div>
+            <div className="w-full sm:w-36">
+              <Field label="Điểm dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.scoreBelow} onChange={(event) => setFilters({ ...filters, scoreBelow: Number(event.target.value) })} /></Field>
+            </div>
+            <div className="w-full sm:w-36">
+              <Field label="Tiến độ dưới %"><input className={inputClass} max={100} min={1} type="number" value={filters.completionBelow} onChange={(event) => setFilters({ ...filters, completionBelow: Number(event.target.value) })} /></Field>
+            </div>
+          </>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button loading={loading} onClick={() => { void loadOverview(); void loadExamAnalytics(); }} variant="secondary">
+            <Filter size={15} />
+            Lọc
+          </Button>
+          {manager ? (
+            <Button loading={submitting} onClick={() => void createExport()}>
+              <Download size={15} />
+              CSV
+            </Button>
+          ) : null}
+          {instructor ? (
+            <Button onClick={() => { const params = new URLSearchParams(query); if (selectedClassId) params.set("classId", selectedClassId); void downloadApiFile(`/instructor/analytics/exams/export?${params}`, session.roleCode); }}>
+              <Download size={15} />
+              CSV đánh giá
+            </Button>
+          ) : null}
+        </div>
       </div>
     </section>
 
     <section aria-label="Chỉ số báo cáo" className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-7">
       {metrics.map(({ label, value }) => (
         <div key={label} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center hover:border-sky-300 dark:hover:border-sky-700 transition-colors">
-          <p className="tabular text-2xl sm:text-3xl font-extrabold text-sky-700 dark:text-sky-300">{value}</p>
+          <p className="tabular text-2xl font-bold text-sky-700 dark:text-sky-300">{value}</p>
           <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</p>
         </div>
       ))}
     </section>
 
     {report ? <section className="mb-7 grid gap-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs lg:grid-cols-[1.2fr_.8fr]">
-      <div><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-heading text-xl font-extrabold">Định nghĩa chỉ số</h2><span className="text-xs font-bold text-slate-500">v{report.definitionVersion} · {report.timezone}</span></div><dl className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{Object.entries(report.metricDefinitions).map(([key, definition]) => <div className="grid gap-1 py-3 text-xs leading-5 sm:grid-cols-[minmax(8rem,.4fr)_1fr]" key={key}><dt className="font-bold text-slate-900">{key}</dt><dd className="text-slate-600">{definition}</dd></div>)}</dl></div>
-      <aside className="rounded-xl bg-amber-50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-amber-700">Cần chú ý</p><p className="mt-3 text-3xl font-extrabold text-amber-950">{report.openReports + report.openTickets}</p><p className="mt-1 text-sm leading-6 text-amber-800">báo cáo nội dung và phiếu hỗ trợ đang chờ xử lý.</p></aside>
+      <div><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">Định nghĩa chỉ số</h2><span className="text-xs font-bold text-slate-500">v{report.definitionVersion} · {report.timezone}</span></div><dl className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{Object.entries(report.metricDefinitions).map(([key, definition]) => <div className="grid gap-1 py-3 text-xs leading-5 sm:grid-cols-[minmax(8rem,.4fr)_1fr]" key={key}><dt className="font-bold text-slate-900">{key}</dt><dd className="text-slate-600">{definition}</dd></div>)}</dl></div>
+      <aside className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">Cần chú ý</p><p className="mt-2 text-2xl font-bold text-amber-950 dark:text-amber-200">{report.openReports + report.openTickets}</p><p className="mt-1 text-xs sm:text-sm leading-6 text-amber-800 dark:text-amber-300">báo cáo nội dung và phiếu hỗ trợ đang chờ xử lý.</p></aside>
     </section> : <div className="mt-7 h-48 animate-pulse rounded-2xl bg-slate-200" />}
 
-    <section className="mb-7 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs"><div className="border-b border-slate-100 p-5"><h2 className="font-heading text-xl font-extrabold">Hiệu quả theo lớp</h2><p className="mt-1 text-sm text-slate-500">Tiến độ nội dung, đánh giá và tỷ lệ tham dự được tổng hợp theo lớp.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Lớp</th><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Học liệu</th><th className="px-5 py-3">Đề / lượt nộp</th><th className="px-5 py-3">Điểm TB</th><th className="px-5 py-3">Điểm danh</th><th className="px-5 py-3">Trạng thái</th></tr></thead><tbody className="divide-y divide-slate-100">{classPagination.pageItems.map((item) => <tr key={item.classId}><td className="px-5 py-4"><p className="font-extrabold">{item.classCode}</p><p className="text-xs text-slate-500">{item.className}</p></td><td className="px-5 py-4">{item.learners}</td><td className="px-5 py-4">{item.publishedMaterials}</td><td className="px-5 py-4">{item.exams} / {item.submittedAttempts}</td><td className="px-5 py-4 font-extrabold">{item.averageScore}</td><td className="px-5 py-4">{item.attendanceRate}%</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td></tr>)}</tbody></table></div><Pagination className="mx-5 mb-5" itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} /></section>
+    <section className="mb-7 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs"><div className="border-b border-slate-100 dark:border-slate-800 p-5"><h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">Hiệu quả theo lớp</h2><p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">Tiến độ nội dung, đánh giá và tỷ lệ tham dự được tổng hợp theo lớp.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-slate-50 dark:bg-slate-800/50 text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400"><tr><th className="px-5 py-3">Lớp</th><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Học liệu</th><th className="px-5 py-3">Đề / lượt nộp</th><th className="px-5 py-3">Điểm TB</th><th className="px-5 py-3">Điểm danh</th><th className="px-5 py-3">Trạng thái</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classPagination.pageItems.map((item) => <tr key={item.classId}><td className="px-5 py-4"><p className="font-extrabold text-slate-900 dark:text-slate-100">{item.classCode}</p><p className="text-xs text-slate-500 dark:text-slate-400">{item.className}</p></td><td className="px-5 py-4">{item.learners}</td><td className="px-5 py-4">{item.publishedMaterials}</td><td className="px-5 py-4">{item.exams} / {item.submittedAttempts}</td><td className="px-5 py-4 font-extrabold">{item.averageScore}</td><td className="px-5 py-4">{item.attendanceRate}%</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td></tr>)}</tbody></table></div><Pagination className="mx-5 mb-5" itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} /></section>
 
     {instructor ? <section className="mb-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs"><div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Phân tích kết quả đánh giá</h2><p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">Chỉ số lấy từ bài đã chấm; thống kê câu hỏi chỉ mở sau khi đề đóng.</p></div><div className="w-full sm:w-80"><Field label="Lớp"><SearchableSelect aria-label="Tìm và lọc lớp được phân công" onChange={(value) => { setSelectedClassId(value); examPagination.resetPage(); }} options={classReports.map((item) => ({ value: item.classId, label: `${item.classCode} — ${item.className}`, keywords: item.classId }))} placeholder="Tất cả lớp được phân công" value={selectedClassId} /></Field></div></div><div className="mt-5 space-y-3">{examPagination.pageItems.map((exam) => <article className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={exam.examId}><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm font-bold text-slate-900 dark:text-slate-100">{exam.title}</strong>{exam.smallSampleWarning ? <StatusBadge status="SMALL_SAMPLE" /> : <StatusBadge status="STABLE" />}</div><div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-white dark:bg-slate-900 p-3 text-center border border-slate-100 dark:border-slate-800"><div><p className="tabular text-xl font-extrabold text-slate-900 dark:text-slate-100">{exam.sampleSize}</p><p className="text-[11px] text-slate-400">Bài đã chấm</p></div><div><p className="tabular text-xl font-extrabold text-sky-700 dark:text-sky-300">{exam.averagePercentage}%</p><p className="text-[11px] text-slate-400">Điểm TB</p></div><div><p className="tabular text-xl font-extrabold text-emerald-600 dark:text-emerald-400">{exam.passRate}%</p><p className="text-[11px] text-slate-400">Đạt ≥ 50%</p></div></div><p className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${exam.questionStatsAvailable ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"}`}>{exam.questionStatsAvailable ? `Đã mở thống kê ${exam.questionStats.length} câu sau khi đề đóng.` : "Đề còn mở: hệ thống chưa hiển thị thống kê câu hỏi để tránh lộ tín hiệu đáp án."}</p></article>)}</div><Pagination className="mt-4" itemLabel="đề thi phân tích" onPageChange={examPagination.setPage} onPageSizeChange={examPagination.setPageSize} page={examPagination.page} pageSize={examPagination.pageSize} totalItems={examPagination.totalItems} /></section> : null}
 
