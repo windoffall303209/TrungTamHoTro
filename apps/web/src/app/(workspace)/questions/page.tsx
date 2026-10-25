@@ -210,26 +210,26 @@ export default function QuestionsPage() {
 
   if (!canView) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
-      <PageHeader eyebrow="Assessment Design" title="Ngân hàng câu hỏi" description="Soạn câu hỏi đa môn, định dạng chữ và công thức, kiểm tra trước khi đưa vào đề." actions={canManage ? <><Link className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] hover:border-[var(--accent)]" href="/questions/scan"><ImagePlus size={17} />Quét ảnh đề</Link><Button onClick={() => setImportOpen(true)} variant="secondary"><Upload size={17} />Nhập JSONL</Button><Button onClick={openCreate}><Plus size={17} />Soạn câu hỏi</Button></> : undefined} />
-      <section className="my-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <div className="relative md:col-span-2"><Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} /><input aria-label="Tìm câu hỏi" className={`${inputClass} pl-10`} placeholder="Tìm nội dung hoặc thẻ…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.resetPage(); }} /></div>
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+      <PageHeader eyebrow="Assessment Design" title="Ngân hàng câu hỏi" description="Soạn câu hỏi đa môn, định dạng chữ và công thức, kiểm tra trước khi đưa vào đề." actions={canManage ? <><Link className="inline-flex min-h-9.5 items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 text-xs sm:text-sm font-bold text-[var(--ink)] hover:border-[var(--accent)]" href="/questions/scan"><ImagePlus size={16} />Quét ảnh đề</Link><Button onClick={() => setImportOpen(true)} variant="secondary" className="h-9.5 text-xs sm:text-sm"><Upload size={16} />Nhập JSONL</Button><Button onClick={openCreate} className="h-9.5 text-xs sm:text-sm"><Plus size={16} />Soạn câu hỏi</Button></> : undefined} />
+      <section className="my-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
+        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-6">
+          <div className="relative md:col-span-2"><Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input aria-label="Tìm câu hỏi" className={`${inputClass} pl-9 text-xs sm:text-sm`} placeholder="Tìm nội dung hoặc thẻ…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.resetPage(); }} /></div>
           <SearchableSelect aria-label="Tìm và lọc khóa học" onChange={(value) => { setFilters({ ...filters, courseId: value }); pagination.resetPage(); }} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Mọi khóa học" value={filters.courseId} />
-          <select aria-label="Lọc dạng câu hỏi" className={inputClass} value={filters.type} onChange={(event) => { setFilters({ ...filters, type: event.target.value }); pagination.resetPage(); }}><option value="">Mọi dạng</option>{Object.entries(typeMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
-          <select aria-label="Lọc độ khó" className={inputClass} value={filters.difficulty} onChange={(event) => { setFilters({ ...filters, difficulty: event.target.value }); pagination.resetPage(); }}><option value="">Mọi độ khó</option><option value="1">Dễ</option><option value="2">Trung bình</option><option value="3">Khó</option></select>
-          <input aria-label="Lọc chính xác theo thẻ" className={inputClass} placeholder="Lọc chính xác theo thẻ…" value={filters.tag} onChange={(event) => { setFilters({ ...filters, tag: event.target.value }); pagination.resetPage(); }} />
+          <select aria-label="Lọc dạng câu hỏi" className={`${inputClass} text-xs sm:text-sm`} value={filters.type} onChange={(event) => { setFilters({ ...filters, type: event.target.value }); pagination.resetPage(); }}><option value="">Mọi dạng</option>{Object.entries(typeMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
+          <select aria-label="Lọc độ khó" className={`${inputClass} text-xs sm:text-sm`} value={filters.difficulty} onChange={(event) => { setFilters({ ...filters, difficulty: event.target.value }); pagination.resetPage(); }}><option value="">Mọi độ khó</option><option value="1">Dễ</option><option value="2">Trung bình</option><option value="3">Khó</option></select>
+          <input aria-label="Lọc chính xác theo thẻ" className={`${inputClass} text-xs sm:text-sm`} placeholder="Lọc chính xác theo thẻ…" value={filters.tag} onChange={(event) => { setFilters({ ...filters, tag: event.target.value }); pagination.resetPage(); }} />
         </div>
       </section>
       <SectionState loading={loading} empty={items.length === 0}>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-slate-400">
             <span>{items.length} câu hỏi phù hợp</span>
             <span>Trang {pagination.page}/{pagination.totalPages}</span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {pagination.pageItems.map((item, index) => (
-              <article className="grid gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 md:grid-cols-[auto_minmax(0,1fr)_auto]" key={item.id}>
+              <article className="grid gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 md:grid-cols-[auto_minmax(0,1fr)_auto]" key={item.id}>
                 <div className="grid size-10 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 font-extrabold text-sm border border-sky-100 dark:border-sky-800">
                   {index + 1}
                 </div>

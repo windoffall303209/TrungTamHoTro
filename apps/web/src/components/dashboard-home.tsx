@@ -403,9 +403,9 @@ export function DashboardHome() {
   }, [refresh]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-8">
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 space-y-5">
       {/* Hero Welcome Banner Sky Blue */}
-      <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 dark:border-sky-800/60 bg-gradient-to-r from-sky-500/10 via-cyan-500/5 to-blue-500/10 dark:from-sky-950/40 dark:via-cyan-950/20 dark:to-blue-950/30 p-6 md:p-8 backdrop-blur-sm shadow-xs">
+      <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 dark:border-sky-800/60 bg-gradient-to-r from-sky-500/10 via-cyan-500/5 to-blue-500/10 dark:from-sky-950/40 dark:via-cyan-950/20 dark:to-blue-950/30 p-4.5 sm:p-5 md:p-6 backdrop-blur-sm shadow-xs">
         <div className="absolute right-0 top-0 -mr-10 -mt-10 size-60 rounded-full bg-sky-400/15 blur-3xl pointer-events-none" />
         <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-5">
           <div className="space-y-2">
@@ -517,19 +517,19 @@ export function DashboardHome() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visibleModules.map(({ href, name, nameEn, detail, detailEn, icon: Icon }) => (
             <Link
-              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
+              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-4.5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
               href={href}
               key={href}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="grid size-10 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
-                  <Icon size={19} />
+                <div className="grid size-9.5 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
+                  <Icon size={18} />
                 </div>
                 <div className="rounded-md p-1 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                  <ArrowUpRight size={17} />
+                  <ArrowUpRight size={16} />
                 </div>
               </div>
-              <div className="mt-4">
+              <div className="mt-3">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
                   {isEn ? nameEn : name}
                 </h3>

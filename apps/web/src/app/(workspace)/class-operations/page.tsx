@@ -164,11 +164,11 @@ export default function ClassOperationsPage() {
   const pendingExams = exams.filter((item) => item.status === "PENDING_REVIEW");
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
-      <Tabs className="mt-6" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materialSearch.total }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
+      <Tabs className="mt-3.5 mb-3" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materialSearch.total }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
 
-      {activeTab === "members" ? <section className="mt-7 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+      {activeTab === "members" ? <section className="mt-3.5 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
         <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-[var(--surface)] p-6">
         <div className="flex items-center gap-3">
           <UsersRound className="text-sky-700" />

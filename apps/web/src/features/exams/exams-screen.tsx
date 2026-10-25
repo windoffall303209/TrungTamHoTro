@@ -79,7 +79,7 @@ export default function ExamsScreen() {
 
   if (!allowed) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
         eyebrow="Khảo thí & Đánh giá năng lực"
         title="Đề thi & kết quả"
@@ -254,7 +254,7 @@ export default function ExamsScreen() {
       ) : null}
       {learner ? (
         <Tabs
-          className="mt-6"
+          className="mt-3.5 mb-3"
           items={[
             { value: "exams", label: "Đề thi", count: visibleItems.length },
             { value: "results", label: "Kết quả", count: results.length },
@@ -282,10 +282,10 @@ export default function ExamsScreen() {
                   : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
             }
           >
-            <div className="space-y-3.5">
+            <div className="space-y-3">
               {pagination.pageItems.map((item) => (
                 <article
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
                   id={`exam-${item.id}`}
                   key={item.id}
                 >

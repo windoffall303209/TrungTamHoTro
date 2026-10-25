@@ -114,13 +114,13 @@ export default function LearningHistoryPage() {
   };
   if (session.roleCode !== "LEARNER") return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-5xl px-5 py-8 md:px-8 md:py-10">
+    <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
         eyebrow="My Learning Record"
         title="Lịch sử học tập"
         description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
       />
-      <div className="space-y-4 mt-6">
+      <div className="space-y-3 mt-3.5">
         {items.length ? pagination.pageItems.map((item) => {
           const summary = summaries[item.id];
           return (
