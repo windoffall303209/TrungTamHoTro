@@ -338,63 +338,268 @@ export default function MaterialsPage() {
       />
       <SectionState loading={loading} empty={courseOptions.length === 0 && !learner}>
         <div className="grid gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
-          <aside aria-label="Danh sách môn học" className="self-start border-y border-[var(--rule-strong)] lg:sticky lg:top-6">
-            {learner ? <button aria-current={sharedLibrary ? "page" : undefined} className={`flex w-full items-center gap-2 border-b border-[var(--rule)] px-4 py-4 text-left text-sm font-extrabold ${sharedLibrary ? "bg-[var(--ink)] text-white" : "bg-[var(--surface)]/65 hover:bg-[var(--surface-muted)]"}`} onClick={() => { setSelectedCourseId(SHARED_LIBRARY); setClassFilter(""); pagination.setPage(1); }} type="button"><Library size={17} />Thư viện chung</button> : null}
-            <div className="flex items-center gap-2 border-b border-[var(--rule)] px-4 py-3 text-sm font-extrabold text-[var(--ink)]"><BookOpen size={17} />Môn học của bạn</div>
+          <aside aria-label="Danh sách môn học" className="self-start rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs space-y-1.5 lg:sticky lg:top-6">
+            <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <BookOpen size={15} className="text-sky-600 dark:text-sky-400" />
+              <span>Môn học của bạn</span>
+            </div>
+            {learner ? (
+              <button
+                aria-current={sharedLibrary ? "page" : undefined}
+                className={`flex w-full items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-semibold transition-all ${
+                  sharedLibrary
+                    ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                }`}
+                onClick={() => { setSelectedCourseId(SHARED_LIBRARY); setClassFilter(""); pagination.setPage(1); }}
+                type="button"
+              >
+                <Library size={16} />
+                Thư viện chung
+              </button>
+            ) : null}
             {courseOptions.map((course) => {
               const active = selectedCourseId === course.id;
-              return <button aria-current={active ? "page" : undefined} className={`group flex w-full items-start justify-between gap-3 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 ${active ? "bg-[var(--ink)] text-white" : "bg-[var(--surface)]/65 hover:bg-[var(--surface-muted)]"}`} key={course.id} onClick={() => { setSelectedCourseId(course.id); setClassFilter(""); pagination.setPage(1); }} type="button">
-                <span className="min-w-0"><span className={`block text-xs font-extrabold ${active ? "text-white/65" : "text-[var(--accent-ink)]"}`}>{course.code}</span><span className="mt-1 block font-heading text-base font-extrabold leading-snug">{course.name}</span></span>
-              </button>;
+              return (
+                <button
+                  key={course.id}
+                  aria-current={active ? "page" : undefined}
+                  className={`group flex w-full flex-col items-start gap-1 rounded-xl px-3.5 py-3 text-left transition-all ${
+                    active
+                      ? "bg-sky-50 dark:bg-sky-950/60 text-sky-900 dark:text-sky-100 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  }`}
+                  onClick={() => { setSelectedCourseId(course.id); setClassFilter(""); pagination.setPage(1); }}
+                  type="button"
+                >
+                  <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-bold tracking-wide uppercase transition-colors ${
+                    active
+                      ? "bg-sky-200/70 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200"
+                  }`}>
+                    {course.code}
+                  </span>
+                  <span className="font-semibold text-sm leading-snug line-clamp-2">
+                    {course.name}
+                  </span>
+                </button>
+              );
             })}
           </aside>
           <section aria-busy={materialsLoading} aria-labelledby="selected-course-title" className="min-w-0">
-            <div className="flex flex-col gap-4 border-b border-[var(--rule-strong)] pb-5 sm:flex-row sm:items-end sm:justify-between">
-              {sharedLibrary ? <div className="max-w-2xl"><h2 className="font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">Thư viện chung</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">Học liệu dùng chung cho mọi học viên, thuộc mọi môn học.</p></div> : <div className="max-w-2xl"><div className="flex items-center gap-2 text-xs font-extrabold text-[var(--accent-ink)]"><Layers3 size={15} />{selectedClasses.length} lớp triển khai</div><h2 className="mt-2 font-heading text-2xl font-extrabold tracking-tight" id="selected-course-title">{selectedCourse?.name ?? "Chọn môn học"}</h2><p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{selectedCourse?.description}</p></div>}
-              <p className="text-sm font-bold tabular-nums text-[var(--ink-muted)]">{totalItems} tài liệu</p>
-            </div>
-            <div className="my-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="relative md:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" size={17} /><input aria-label="Tìm học liệu" maxLength={255} className={`${inputClass} pl-10`} placeholder="Tìm trong môn này…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }} /></div>
-              {sharedLibrary ? null : <select aria-label="Lọc theo lớp" className={inputClass} value={classFilter} onChange={(event) => { setClassFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả lớp của môn</option>{selectedClasses.map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name}</option>)}</select>}
-              <select aria-label="Lọc theo loại tệp" className={inputClass} value={mimeFilter} onChange={(event) => { setMimeFilter(event.target.value); pagination.setPage(1); }}><option value="">Tất cả loại tệp</option><option value="application/pdf">PDF</option><option value="application/msword">Word DOC</option><option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option><option value="video/mp4">Video MP4</option><option value="image/png">Ảnh PNG</option><option value="image/jpeg">Ảnh JPEG</option></select>
-              <input maxLength={255} aria-label="Lọc theo thẻ" className={inputClass} placeholder="Thẻ chính xác, ví dụ api" value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }} />
-            </div>
-            {materialsLoading ? <p role="status">Đang tải dữ liệu…</p> : visibleItems.length ? <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
-          {pagination.pageItems.map((item) => (
-            <article className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 2xl:grid-cols-[minmax(18rem,1fr)_minmax(0,1fr)] 2xl:items-center" key={item.id}>
-              <div className="flex min-w-0 gap-4">
-                <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><FileText size={20} /></div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-heading text-lg font-extrabold">{item.name}</h2>
-                    <StatusBadge status={materialStatus(item.visibility)} />
-                    <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">{item.scope === "SHARED" ? "Dùng chung" : "Riêng lớp"}</span>
-                  </div>
-                  {item.quarantinedAt ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">Đã cách ly · {item.quarantineReason}</p> : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500">
-                    {classes.some((classItem) => classItem.id === item.classId) ? <span>{classes.find((classItem) => classItem.id === item.classId)?.code}</span> : null}
-                    <span className="flex items-center gap-1.5"><FolderOpen size={14} />{item.folder}</span>
-                    <span>Phiên bản {item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB</span>
-                    {item.tags.map((tag) => <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600" key={tag}>#{tag}</span>)}
-                  </div>
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              {sharedLibrary ? (
+                <div className="max-w-2xl">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 dark:bg-sky-950/40 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60">
+                    Toàn bộ học viên
+                  </span>
+                  <h2 className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100" id="selected-course-title">
+                    Thư viện chung
+                  </h2>
+                  <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                    Học liệu dùng chung cho mọi học viên, thuộc mọi môn học.
+                  </p>
                 </div>
+              ) : (
+                <div className="max-w-2xl">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 dark:bg-sky-950/40 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60">
+                    <Layers3 size={13} />
+                    {selectedClasses.length} lớp triển khai
+                  </div>
+                  <h2 className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100" id="selected-course-title">
+                    {selectedCourse?.name ?? "Chọn môn học"}
+                  </h2>
+                  <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                    {selectedCourse?.description}
+                  </p>
+                </div>
+              )}
+              <div className="flex shrink-0 items-center gap-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 px-3.5 py-2">
+                <span className="text-xs text-slate-400 dark:text-slate-500">Tổng cộng:</span>
+                <span className="text-sm font-bold text-sky-600 dark:text-sky-400 tabular-nums">
+                  {totalItems} tài liệu
+                </span>
               </div>
-              <div className="flex flex-wrap gap-1 lg:justify-end">
-                  <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="ghost"><Eye size={14} />Xem</Button>
-                  {instructor && ["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(item.mimeType) && item.sizeBytes <= 12 * 1024 * 1024 ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setAiTarget(item)} variant="ghost">Hỏi AI</Button> : null}
-                  {session.roleCode === "LEARNER" && item.visibility === "PUBLISHED" ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setStudyTarget(item)} variant="ghost">Bộ ôn tập</Button> : null}
-                  <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost"><Download size={14} />Tải</Button>
-                  <Button onClick={() => void showHistory(item)} variant="ghost"><History size={14} />Lịch sử</Button>
-                  {canEdit(item) ? <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost"><UploadCloud size={14} />Bản mới</Button> : null}
-                  {canEdit(item) && item.visibility !== "DRAFT" ? <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void toggleVisibility(item)} variant="ghost">{item.visibility === "PUBLISHED" ? "Ẩn" : "Gửi duyệt"}</Button> : null}
-                  {canEdit(item) && item.classId ? <Button onClick={() => void toggleScope(item)} variant="ghost">{item.scope === "SHARED" ? "Đặt riêng lớp" : "Dùng chung"}</Button> : null}
-                  {instructor && item.ownerId === session.user.id ? <Button onClick={() => void openEditors(item)} variant="ghost"><UserCog size={14} />Quyền sửa</Button> : null}
-                  {instructor && item.ownerId === session.user.id ? <Button onClick={() => void remove(item)} variant="ghost"><Trash2 size={14} />Xóa</Button> : null}
-                  {manager ? <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "REVOKE" : "APPROVE"); }} variant="ghost">Kiểm duyệt</Button> : null}
+            </div>
+            <div className="my-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="relative sm:col-span-2 xl:col-span-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  aria-label="Tìm học liệu"
+                  maxLength={255}
+                  className={`${inputClass} pl-10 h-10 text-sm`}
+                  placeholder="Tìm trong môn này…"
+                  value={query}
+                  onChange={(event) => { setQuery(event.target.value); pagination.setPage(1); }}
+                />
               </div>
-            </article>
-          ))}
-            </div> : <div className="border-y border-[var(--rule-strong)] py-12 text-center"><FileText className="mx-auto text-[var(--ink-muted)]" size={28} /><p className="mt-3 font-bold text-[var(--ink)]">Chưa có tài liệu phù hợp trong môn này</p><p className="mt-1 text-sm text-[var(--ink-soft)]">Đổi bộ lọc hoặc tải tài liệu vào một lớp thuộc môn học.</p>{instructor && selectedCourse ? <Button className="mt-4" onClick={openUpload} variant="secondary"><Plus size={16} />Thêm học liệu</Button> : null}</div>}
+              {sharedLibrary ? null : (
+                <select
+                  aria-label="Lọc theo lớp"
+                  className={`${inputClass} h-10 text-sm`}
+                  value={classFilter}
+                  onChange={(event) => { setClassFilter(event.target.value); pagination.setPage(1); }}
+                >
+                  <option value="">Tất cả lớp của môn</option>
+                  {selectedClasses.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.code} — {item.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <select
+                aria-label="Lọc theo loại tệp"
+                className={`${inputClass} h-10 text-sm`}
+                value={mimeFilter}
+                onChange={(event) => { setMimeFilter(event.target.value); pagination.setPage(1); }}
+              >
+                <option value="">Tất cả loại tệp</option>
+                <option value="application/pdf">PDF</option>
+                <option value="application/msword">Word DOC</option>
+                <option value="application/vnd.openxmlformats-officedocument.wordprocessingml.document">Word DOCX</option>
+                <option value="video/mp4">Video MP4</option>
+                <option value="image/png">Ảnh PNG</option>
+                <option value="image/jpeg">Ảnh JPEG</option>
+              </select>
+              <input
+                maxLength={255}
+                aria-label="Lọc theo thẻ"
+                className={`${inputClass} h-10 text-sm`}
+                placeholder="Thẻ chính xác, ví dụ api"
+                value={tagFilter}
+                onChange={(event) => { setTagFilter(event.target.value); pagination.setPage(1); }}
+              />
+            </div>
+            {materialsLoading ? (
+              <div className="py-16 text-center text-sm font-semibold text-slate-500">Đang tải dữ liệu…</div>
+            ) : visibleItems.length ? (
+              <div className="space-y-3.5">
+                {pagination.pageItems.map((item) => (
+                  <article
+                    key={item.id}
+                    className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 hover:shadow-md transition-all flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between"
+                  >
+                    <div className="flex min-w-0 items-start gap-4">
+                      <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/60 border border-sky-100 dark:border-sky-900/50 text-sky-600 dark:text-sky-400 transition-colors group-hover:scale-105">
+                        <FileText size={22} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 leading-snug">
+                            {item.name}
+                          </h3>
+                          <StatusBadge status={materialStatus(item.visibility)} />
+                          <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                            {item.scope === "SHARED" ? "Dùng chung" : "Riêng lớp"}
+                          </span>
+                        </div>
+                        {item.quarantinedAt ? (
+                          <p className="mt-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                            Đã cách ly · {item.quarantineReason}
+                          </p>
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          {classes.some((classItem) => classItem.id === item.classId) ? (
+                            <span className="font-semibold text-sky-600 dark:text-sky-400">
+                              {classes.find((classItem) => classItem.id === item.classId)?.code}
+                            </span>
+                          ) : null}
+                          <span className="flex items-center gap-1">
+                            <FolderOpen size={13} className="text-slate-400" />
+                            {item.folder}
+                          </span>
+                          <span>
+                            Phiên bản {item.version} · {(item.sizeBytes / 1024).toFixed(1)} KB
+                          </span>
+                          {item.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 2xl:justify-end border-t 2xl:border-t-0 border-slate-100 dark:border-slate-800/60 pt-3 2xl:pt-0">
+                      <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void preview(item)} variant="secondary" className="h-8 text-xs px-2.5">
+                        <Eye size={13} />
+                        Xem
+                      </Button>
+                      {instructor && ["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(item.mimeType) && item.sizeBytes <= 12 * 1024 * 1024 ? (
+                        <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setAiTarget(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                          Hỏi AI
+                        </Button>
+                      ) : null}
+                      {session.roleCode === "LEARNER" && item.visibility === "PUBLISHED" ? (
+                        <Button disabled={Boolean(item.quarantinedAt)} onClick={() => setStudyTarget(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                          Bộ ôn tập
+                        </Button>
+                      ) : null}
+                      <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void download(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                        <Download size={13} />
+                        Tải
+                      </Button>
+                      <Button onClick={() => void showHistory(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                        <History size={13} />
+                        Lịch sử
+                      </Button>
+                      {canEdit(item) ? (
+                        <Button onClick={() => { setVersionTarget(item); setVersionFile(null); }} variant="ghost" className="h-8 text-xs px-2.5">
+                          <UploadCloud size={13} />
+                          Bản mới
+                        </Button>
+                      ) : null}
+                      {canEdit(item) && item.visibility !== "DRAFT" ? (
+                        <Button disabled={Boolean(item.quarantinedAt)} onClick={() => void toggleVisibility(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                          {item.visibility === "PUBLISHED" ? "Ẩn" : "Gửi duyệt"}
+                        </Button>
+                      ) : null}
+                      {canEdit(item) && item.classId ? (
+                        <Button onClick={() => void toggleScope(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                          {item.scope === "SHARED" ? "Đặt riêng lớp" : "Dùng chung"}
+                        </Button>
+                      ) : null}
+                      {instructor && item.ownerId === session.user.id ? (
+                        <Button onClick={() => void openEditors(item)} variant="ghost" className="h-8 text-xs px-2.5">
+                          <UserCog size={13} />
+                          Quyền sửa
+                        </Button>
+                      ) : null}
+                      {instructor && item.ownerId === session.user.id ? (
+                        <Button onClick={() => void remove(item)} variant="ghost" className="h-8 text-xs px-2.5 text-rose-600 hover:text-rose-700 dark:text-rose-400">
+                          <Trash2 size={13} />
+                          Xóa
+                        </Button>
+                      ) : null}
+                      {manager ? (
+                        <Button onClick={() => { setReviewTarget(item); setReviewAction(item.visibility === "PUBLISHED" ? "REVOKE" : "APPROVE"); }} variant="ghost" className="h-8 text-xs px-2.5">
+                          Kiểm duyệt
+                        </Button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 py-14 text-center">
+                <FileText className="mx-auto text-slate-300 dark:text-slate-600" size={32} />
+                <p className="mt-3 font-semibold text-slate-800 dark:text-slate-200">
+                  Chưa có tài liệu phù hợp trong môn này
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Đổi bộ lọc hoặc tải tài liệu vào một lớp thuộc môn học.
+                </p>
+                {instructor && selectedCourse ? (
+                  <Button className="mt-4" onClick={openUpload} variant="secondary">
+                    <Plus size={15} />
+                    Thêm học liệu
+                  </Button>
+                ) : null}
+              </div>
+            )}
             <Pagination itemLabel="học liệu" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
           </section>
         </div>

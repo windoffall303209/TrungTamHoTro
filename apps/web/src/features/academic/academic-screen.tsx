@@ -146,35 +146,41 @@ export default function AcademicScreen() {
       </div>
 
       <div className="grid gap-7 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,.85fr)]">
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 px-5 py-6">
-          <div className="flex items-center gap-3">
-            <ClipboardPenLine className="text-[var(--accent)]" size={21} />
-            <h2 className="section-title">Bài tập</h2>
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="grid size-9 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/50">
+              <ClipboardPenLine size={18} />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Bài tập lớp học</h2>
           </div>
-          <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+          <div className="space-y-3.5">
             {filteredAssignments.length ? (
               assignmentPagination.pageItems.map((item) => (
                 <article
-                  className="scroll-mt-24 py-5"
+                  className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-5 hover:border-sky-300 dark:hover:border-sky-700 transition-all scroll-mt-24"
                   id={`academic-${item.id}`}
                   key={item.id}
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-bold">{item.title}</h3>
+                        <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">{item.title}</h3>
                         <StatusBadge status={item.status} />
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">
+                      <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400">
                         {item.description}
                       </p>
-                      <p className="mt-2 text-xs font-semibold text-[var(--ink-muted)]">
-                        Hạn{" "}
-                        {new Date(item.dueAt).toLocaleString(activeLocale())} ·{" "}
-                        {item.maxScore} điểm · {item.rubric.length} tiêu chí
-                      </p>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold text-sky-700 dark:text-sky-300">
+                          Hạn: {new Date(item.dueAt).toLocaleString(activeLocale())}
+                        </span>
+                        <span>·</span>
+                        <span>{item.maxScore} điểm</span>
+                        <span>·</span>
+                        <span>{item.rubric.length} tiêu chí</span>
+                      </div>
                       {item.submission ? (
-                        <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-[var(--success)]">
+                        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                           <CheckCircle2 size={14} />
                           {item.submission.status === "GRADED"
                             ? `Đã chấm: ${item.submission.score}/${item.maxScore}`
@@ -182,7 +188,7 @@ export default function AcademicScreen() {
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
+                    <div className="flex shrink-0 flex-wrap gap-1.5 pt-2 sm:pt-0">
                       {canTeach ? (
                         <>
                           {item.status === "DRAFT" ? (
@@ -190,15 +196,17 @@ export default function AcademicScreen() {
                               <Button
                                 onClick={() => editAssignment(item)}
                                 variant="ghost"
+                                className="h-8 text-xs px-2.5"
                               >
-                                <Pencil size={15} />
+                                <Pencil size={13} />
                                 Sửa
                               </Button>
                               <Button
                                 onClick={() => void publish(item)}
                                 variant="secondary"
+                                className="h-8 text-xs px-2.5"
                               >
-                                <Send size={15} />
+                                <Send size={13} />
                                 Xuất bản
                               </Button>
                             </>
@@ -208,13 +216,15 @@ export default function AcademicScreen() {
                               <Button
                                 onClick={() => openLifecycle(item, "EXTEND")}
                                 variant="ghost"
+                                className="h-8 text-xs px-2.5"
                               >
-                                <CalendarDays size={15} />
+                                <CalendarDays size={13} />
                                 Gia hạn
                               </Button>
                               <Button
                                 onClick={() => openLifecycle(item, "CLOSE")}
                                 variant="ghost"
+                                className="h-8 text-xs px-2.5"
                               >
                                 Đóng bài
                               </Button>
@@ -223,15 +233,17 @@ export default function AcademicScreen() {
                           <Button
                             onClick={() => void openAssignmentHistory(item)}
                             variant="ghost"
+                            className="h-8 text-xs px-2.5"
                           >
-                            <History size={15} />
+                            <History size={13} />
                             Lịch sử
                           </Button>
                           <Button
                             onClick={() => void openSubmissions(item)}
                             variant="ghost"
+                            className="h-8 text-xs px-2.5"
                           >
-                            <UsersRound size={15} />
+                            <UsersRound size={13} />
                             Bài nộp
                           </Button>
                         </>
@@ -247,6 +259,7 @@ export default function AcademicScreen() {
                             setSubmissionError("");
                           }}
                           variant="secondary"
+                          className="h-8 text-xs px-3"
                         >
                           {item.submission ? "Sửa bài nộp" : "Nộp bài"}
                         </Button>
@@ -256,12 +269,13 @@ export default function AcademicScreen() {
                 </article>
               ))
             ) : (
-              <p className="py-10 text-center text-sm text-[var(--ink-muted)]">
+              <p className="py-10 text-center text-xs sm:text-sm text-slate-400">
                 Lớp này chưa có bài tập.
               </p>
             )}
           </div>
           <Pagination
+            className="mt-4"
             itemLabel="bài tập"
             onPageChange={assignmentPagination.setPage}
             onPageSizeChange={assignmentPagination.setPageSize}
@@ -271,20 +285,22 @@ export default function AcademicScreen() {
           />
         </section>
         <div className="space-y-7">
-          <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 px-5 py-6">
-            <div className="flex items-center gap-3">
-              <CalendarDays className="text-[var(--accent)]" size={21} />
-              <h2 className="section-title">Lịch sắp tới</h2>
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="grid size-9 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/50">
+                <CalendarDays size={18} />
+              </div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Lịch sắp tới</h2>
             </div>
             {dataReady &&
             !upcomingEvents.some(
               (item) => !selectedClassId || item.classId === selectedClassId,
             ) ? (
-              <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">
+              <p className="mt-2 text-xs text-slate-400">
                 Không có lịch sắp tới trong phạm vi đã chọn.
               </p>
             ) : null}
-            <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+            <div className="mt-3 space-y-2">
               {upcomingEvents
                 .filter(
                   (item) =>
@@ -293,11 +309,11 @@ export default function AcademicScreen() {
                 .slice(0, 7)
                 .map((item) => (
                   <Link
-                    className="flex items-start gap-3 py-3 hover:text-[var(--accent-ink)]"
+                    className="flex items-center gap-3 rounded-xl p-2.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     href={item.href}
                     key={item.id}
                   >
-                    <time className="w-24 shrink-0 text-xs font-bold tabular-nums text-[var(--ink-muted)]">
+                    <time className="w-20 shrink-0 font-semibold tabular-nums text-sky-700 dark:text-sky-300">
                       {new Date(item.startAt).toLocaleString(activeLocale(), {
                         day: "2-digit",
                         month: "2-digit",
@@ -305,9 +321,9 @@ export default function AcademicScreen() {
                         minute: "2-digit",
                       })}
                     </time>
-                    <span className="min-w-0">
-                      <strong className="block text-sm">{item.title}</strong>
-                      <small className="text-[var(--ink-muted)]">
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-slate-900 dark:text-slate-100">{item.title}</strong>
+                      <small className="text-slate-400">
                         {item.classCode}
                       </small>
                     </span>
@@ -315,20 +331,22 @@ export default function AcademicScreen() {
                 ))}
             </div>
           </section>
-          <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 px-5 py-6">
-            <div className="flex items-center gap-3">
-              <Megaphone className="text-[var(--accent)]" size={21} />
-              <h2 className="section-title">Thông báo lớp</h2>
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="grid size-9 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/50">
+                <Megaphone size={18} />
+              </div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Thông báo lớp</h2>
             </div>
             {dataReady &&
             !announcements.some(
               (item) => !selectedClassId || item.classId === selectedClassId,
             ) ? (
-              <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">
+              <p className="mt-2 text-xs text-slate-400">
                 Chưa có thông báo cho lớp đã chọn.
               </p>
             ) : null}
-            <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+            <div className="mt-3 space-y-3">
               {announcements
                 .filter(
                   (item) =>
@@ -337,15 +355,15 @@ export default function AcademicScreen() {
                 .slice(0, 5)
                 .map((item) => (
                   <article
-                    className="scroll-mt-24 py-4"
+                    className="rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3.5 scroll-mt-24"
                     id={`academic-${item.id}`}
                     key={item.id}
                   >
-                    <h3 className="text-sm font-bold">{item.title}</h3>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[var(--ink-soft)]">
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{item.title}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                       {item.body}
                     </p>
-                    <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                    <p className="mt-2 text-[10px] text-slate-400">
                       {item.authorName} ·{" "}
                       {new Date(item.publishedAt).toLocaleString(
                         activeLocale(),
@@ -359,49 +377,51 @@ export default function AcademicScreen() {
       </div>
 
       {canTeach ? (
-        <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 px-5 py-6">
-          <div className="flex items-center gap-3">
-            <BookOpenCheck className="text-[var(--accent)]" size={21} />
-            <h2 className="section-title">Sổ điểm tổng hợp</h2>
+        <section className="mt-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
+          <div className="flex items-center gap-2.5 mb-5">
+            <div className="grid size-9 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/50">
+              <BookOpenCheck size={18} />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Sổ điểm tổng hợp</h2>
           </div>
-          <div className="mt-5 overflow-x-auto">
+          <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[54rem] border-collapse text-left text-sm">
               <thead>
-                <tr className="border-y border-[var(--rule-strong)] text-xs text-[var(--ink-soft)]">
-                  <th className="px-3 py-3">Học viên</th>
-                  <th className="px-3 py-3">Đề thi</th>
-                  <th className="px-3 py-3">Bài tập</th>
-                  <th className="px-3 py-3">Trạng thái</th>
-                  <th className="px-3 py-3">Tổng kết</th>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-400">
+                  <th className="px-3.5 py-3">Học viên</th>
+                  <th className="px-3.5 py-3">Đề thi</th>
+                  <th className="px-3.5 py-3">Bài tập</th>
+                  <th className="px-3.5 py-3">Trạng thái</th>
+                  <th className="px-3.5 py-3">Tổng kết</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {gradebookPagination.pageItems.map((row) => (
                   <tr
-                    className="border-b border-[var(--rule)]"
+                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
                     key={row.learnerId}
                   >
-                    <td className="px-3 py-4">
-                      <strong>{row.learnerName}</strong>
-                      <small className="mt-0.5 block text-[var(--ink-muted)]">
+                    <td className="px-3.5 py-3.5">
+                      <strong className="text-slate-900 dark:text-slate-100">{row.learnerName}</strong>
+                      <small className="mt-0.5 block text-xs text-slate-400">
                         {row.learnerEmail}
                       </small>
                     </td>
-                    <td className="px-3 py-4 tabular-nums">
+                    <td className="px-3.5 py-3.5 tabular-nums text-slate-600 dark:text-slate-300">
                       {row.examEarned}/{row.examPossible}
                     </td>
-                    <td className="px-3 py-4 tabular-nums">
+                    <td className="px-3.5 py-3.5 tabular-nums text-slate-600 dark:text-slate-300">
                       {row.assignmentEarned}/{row.assignmentPossible}
                     </td>
-                    <td className="px-3 py-4 text-xs">
-                      <span className="block text-amber-700">
+                    <td className="px-3.5 py-3.5 text-xs">
+                      <span className="block text-amber-600 dark:text-amber-400 font-medium">
                         {row.awaitingGrade} chờ chấm
                       </span>
-                      <span className="block text-rose-700">
+                      <span className="block text-rose-600 dark:text-rose-400">
                         {row.notSubmitted} chưa nộp
                       </span>
                     </td>
-                    <td className="px-3 py-4 font-bold tabular-nums">
+                    <td className="px-3.5 py-3.5 font-bold tabular-nums text-sky-700 dark:text-sky-300">
                       {row.totalPercent}%
                     </td>
                   </tr>
@@ -409,12 +429,13 @@ export default function AcademicScreen() {
               </tbody>
             </table>
             {!gradebook.length ? (
-              <p className="py-10 text-center text-sm text-[var(--ink-muted)]">
+              <p className="py-10 text-center text-sm text-slate-400">
                 Chưa có học viên hoặc dữ liệu điểm.
               </p>
             ) : null}
           </div>
           <Pagination
+            className="mt-4"
             itemLabel="học viên"
             onPageChange={gradebookPagination.setPage}
             onPageSizeChange={gradebookPagination.setPageSize}

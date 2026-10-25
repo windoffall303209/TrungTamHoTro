@@ -350,12 +350,12 @@ export default function SupportPage() {
         <div className="space-y-3">
           {pagination.pageItems.map((item) => (
             <article
-              className="grid gap-4 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:grid-cols-[auto_1fr_auto] md:items-center"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-4 md:grid-cols-[auto_1fr_auto] md:items-center"
               id={`ticket-${item.id}`}
               key={item.id}
             >
               <div
-                className={`grid size-11 place-items-center rounded-xl ${item.severity === "P0" || item.severity === "P1" ? "bg-rose-100 text-rose-700" : "bg-sky-50 text-sky-700"}`}
+                className={`grid size-11 place-items-center rounded-xl border ${item.severity === "P0" || item.severity === "P1" ? "bg-rose-50 dark:bg-rose-950/40 border-rose-200/80 dark:border-rose-900/50 text-rose-600 dark:text-rose-400" : "bg-sky-50 dark:bg-sky-950/40 border-sky-100 dark:border-sky-900/50 text-sky-600 dark:text-sky-400"}`}
               >
                 <LifeBuoy size={21} />
               </div>
