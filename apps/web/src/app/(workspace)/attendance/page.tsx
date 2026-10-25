@@ -146,10 +146,10 @@ export default function AttendancePage() {
   if (!canManage) return <AccessDenied />;
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
-      <PageHeader eyebrow="Attendance Governance" title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <PageHeader eyebrow="Quản lý điểm danh" title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
 
-      <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
             <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString(activeLocale()) }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
@@ -157,53 +157,73 @@ export default function AttendancePage() {
           <Button disabled={!selectedId} onClick={() => void loadReview(selectedId)} variant="secondary"><RefreshCw size={16} />Làm mới</Button>
           <Button disabled={!review || Boolean(review.session.attendanceLockedAt) || statistics.openAppeals > 0} onClick={() => void lockAttendance()} variant="danger"><LockKeyhole size={16} />Khóa điểm danh</Button>
         </div>
-        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString(activeLocale())} bởi {review.session.attendanceLockedById}.</p> : null}
+        {review?.session.attendanceLockedAt ? <p className="mt-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 px-4 py-3 text-sm font-bold text-rose-700 dark:text-rose-300">Đã khóa lúc {new Date(review.session.attendanceLockedAt).toLocaleString(activeLocale())} bởi {review.session.attendanceLockedById}.</p> : null}
       </section>
 
-      <div className="metric-ledger mt-6">
-        {[{ label: "Học viên", value: statistics.enrolled }, { label: "Có mặt / muộn", value: statistics.present }, { label: "Vắng", value: statistics.absent }, { label: "Yêu cầu chờ xử lý", value: statistics.openAppeals }].map((item) => (
-          <div key={item.label}><p className="tabular text-2xl font-extrabold text-sky-700">{item.value}</p><p className="mt-1 text-xs font-bold text-slate-500">{item.label}</p></div>
+      <section aria-label="Chỉ số điểm danh" className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[{ label: "Học viên trong lớp", value: statistics.enrolled, color: "text-slate-900 dark:text-slate-100" }, { label: "Có mặt / muộn", value: statistics.present, color: "text-emerald-600 dark:text-emerald-400" }, { label: "Vắng mặt", value: statistics.absent, color: "text-rose-600 dark:text-rose-400" }, { label: "Yêu cầu chờ xử lý", value: statistics.openAppeals, color: "text-amber-600 dark:text-amber-400" }].map((item) => (
+          <div key={item.label} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center hover:border-sky-300 dark:hover:border-sky-700 transition-colors">
+            <p className={`tabular text-2xl sm:text-3xl font-extrabold ${item.color}`}>{item.value}</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">{item.label}</p>
+          </div>
         ))}
-      </div>
+      </section>
 
-      <div className="mt-7 grid gap-7 xl:grid-cols-[.85fr_1.15fr]">
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <div className="flex items-center gap-3"><FileJson className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Nhập dữ liệu nhà cung cấp</h2></div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">JSON là mảng gồm `providerParticipantId`, `learnerId`, `joinedAt`, `leftAt`. Hệ thống tự loại người ngoài lớp, chặn bản ghi trùng và tính phút thực tế.</p>
-          <form className="mt-5 space-y-4" onSubmit={(event) => void syncProvider(event)}>
-            <Field label="Dữ liệu JSON">
-              <textarea className={`${inputClass} font-mono text-xs`} disabled={Boolean(review?.session.attendanceLockedAt)} placeholder={'[{"providerParticipantId":"p-01","learnerId":"usr-learner","joinedAt":"2026-08-26T02:00:00.000Z","leftAt":"2026-08-26T03:00:00.000Z"}]'} required rows={9} value={providerJson} onChange={(event) => setProviderJson(event.target.value)} />
-            </Field>
-            <Button disabled={!selectedId || Boolean(review?.session.attendanceLockedAt)} loading={syncing} type="submit"><RefreshCw size={16} />Đồng bộ và đối chiếu</Button>
-          </form>
+      <div className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-3"><FileJson className="text-sky-600" /><h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Nhập dữ liệu tham dự</h2></div>
+            <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Đồng bộ từ nhà cung cấp họp trực tuyến. Hệ thống tự loại bỏ người ngoài lớp và tính phút thực tế.</p>
+            <form className="mt-4 space-y-4" onSubmit={(event) => void syncProvider(event)}>
+              <Field label="Dữ liệu JSON">
+                <textarea className={`${inputClass} font-mono text-xs`} disabled={Boolean(review?.session.attendanceLockedAt)} placeholder={'[{"providerParticipantId":"p-01","learnerId":"usr-learner","joinedAt":"2026-08-26T02:00:00.000Z","leftAt":"2026-08-26T03:00:00.000Z"}]'} required rows={8} value={providerJson} onChange={(event) => setProviderJson(event.target.value)} />
+              </Field>
+              <Button disabled={!selectedId || Boolean(review?.session.attendanceLockedAt)} loading={syncing} type="submit"><RefreshCw size={16} />Đồng bộ và đối chiếu</Button>
+            </form>
+          </div>
         </section>
 
-        <section className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
-          <div className="flex items-center gap-3 border-b border-slate-100 p-5"><UserCheck className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Kết quả điểm danh</h2></div>
+        <section className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 p-5"><UserCheck className="text-sky-600" /><h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Kết quả đối soát</h2></div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-left text-sm">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500"><tr><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Tham dự</th><th className="px-5 py-3">Trạng thái</th><th className="px-5 py-3">Nguồn</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {recordPagination.pageItems.map((item) => <tr key={item.learnerId}><td className="px-5 py-4 font-bold">{item.learnerId}</td><td className="px-5 py-4">{item.attendedMinutes} phút</td><td className="px-5 py-4"><StatusBadge status={item.status} /></td><td className="px-5 py-4 text-xs text-slate-500">{item.providerParticipantId ?? "Điều chỉnh thủ công"}</td></tr>)}
+            <table className="w-full min-w-[540px] text-left text-sm">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/40 text-[11px] uppercase tracking-wider text-slate-500">
+                <tr><th className="px-5 py-3">Học viên</th><th className="px-5 py-3">Tham dự</th><th className="px-5 py-3">Trạng thái</th><th className="px-5 py-3">Nguồn</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {recordPagination.pageItems.map((item) => (
+                  <tr key={item.learnerId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="px-5 py-4 font-bold text-slate-900 dark:text-slate-100">{item.learnerId}</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300 font-semibold">{item.attendedMinutes} phút</td>
+                    <td className="px-5 py-4"><StatusBadge status={item.status} /></td>
+                    <td className="px-5 py-4 text-xs text-slate-500">{item.providerParticipantId ?? "Thủ công"}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-            {!loading && !review?.records.length ? <p className="p-10 text-center text-sm text-slate-400">Chưa có dữ liệu điểm danh.</p> : null}
-            {loading ? <p className="p-10 text-center text-sm text-slate-400">Đang tải dữ liệu…</p> : null}
+            {!loading && !review?.records.length ? <p className="p-8 text-center text-sm text-slate-400">Chưa có dữ liệu điểm danh cho buổi học này.</p> : null}
+            {loading ? <p className="p-8 text-center text-sm text-slate-400">Đang nạp dữ liệu…</p> : null}
           </div>
-          <Pagination className="mx-5 mb-5" itemLabel="bản ghi điểm danh" onPageChange={recordPagination.setPage} onPageSizeChange={recordPagination.setPageSize} page={recordPagination.page} pageSize={recordPagination.pageSize} totalItems={recordPagination.totalItems} />
+          <Pagination className="mx-5 mb-4" itemLabel="bản ghi" onPageChange={recordPagination.setPage} onPageSizeChange={recordPagination.setPageSize} page={recordPagination.page} pageSize={recordPagination.pageSize} totalItems={recordPagination.totalItems} />
         </section>
       </div>
 
-      <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-        <div className="flex items-center gap-3"><CheckCircle2 className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Yêu cầu điều chỉnh</h2></div>
-        <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+        <div className="flex items-center gap-3 mb-4"><CheckCircle2 className="text-sky-600" /><h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Yêu cầu điều chỉnh & khiếu nại</h2></div>
+        <div className="space-y-3">
           {review?.appeals.length ? review.appeals.map((appeal) => (
-            <article className="px-1 py-5 md:px-4" key={appeal.id}>
-              <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-extrabold">{appeal.learnerId}</p><p className="mt-1 text-sm leading-6 text-slate-600">{appeal.reason}</p></div><StatusBadge status={appeal.status} /></div>
-              {appeal.resolution ? <p className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-500">Kết luận: {appeal.resolution}</p> : null}
-              {["OPEN", "IN_REVIEW"].includes(appeal.status) && !review.session.attendanceLockedAt ? <Button className="mt-4" onClick={() => openAppeal(appeal)} variant="secondary">Xử lý</Button> : null}
+            <article className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={appeal.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{appeal.learnerId}</p>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{appeal.reason}</p>
+                </div>
+                <StatusBadge status={appeal.status} />
+              </div>
+              {appeal.resolution ? <p className="mt-3 border-t border-slate-200 dark:border-slate-800 pt-2 text-xs text-slate-500">Kết luận: {appeal.resolution}</p> : null}
+              {["OPEN", "IN_REVIEW"].includes(appeal.status) && !review.session.attendanceLockedAt ? <Button className="mt-3 h-8 text-xs" onClick={() => openAppeal(appeal)} variant="secondary">Xử lý khiếu nại</Button> : null}
             </article>
-          )) : <p className="empty-copy">Không có yêu cầu điều chỉnh.</p>}
+          )) : <p className="text-xs text-slate-400 py-4 text-center">Không có yêu cầu điều chỉnh nào đang mở.</p>}
         </div>
       </section>
 

@@ -89,13 +89,13 @@ export default function MessagesScreen() {
   } = model;
 
   return (
-    <div className="mx-auto h-[calc(100dvh-4rem)] max-w-7xl p-0 md:px-6 md:py-4">
-      <div className="grid h-full min-h-0 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/70 md:grid-cols-[21rem_1fr] md:border-x">
+    <div className="mx-auto h-[calc(100dvh-4.5rem)] max-w-7xl p-0 md:px-6 md:py-3">
+      <div className="grid h-full min-h-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm md:grid-cols-[21rem_1fr]">
         <aside
-          className={`${selectedId ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r border-[var(--rule-strong)]`}
+          className={`${selectedId ? "hidden md:flex" : "flex"} min-h-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40`}
         >
           <form
-            className="flex gap-2 border-b border-[var(--rule)] p-3"
+            className="flex gap-2 border-b border-slate-200 dark:border-slate-800 p-3"
             onSubmit={(event) => void searchDirectory(event)}
           >
             <input
@@ -110,18 +110,18 @@ export default function MessagesScreen() {
             </Button>
           </form>
           {directory.length || classChoices.length ? (
-            <div className="max-h-72 overflow-y-auto border-b border-[var(--rule-strong)] p-2">
+            <div className="max-h-72 overflow-y-auto border-b border-slate-200 dark:border-slate-800 p-2">
               {classChoices.map((item) => (
                 <button
-                  className="flex w-full items-center gap-3 border-b border-[var(--rule)] px-3 py-3 text-left hover:bg-[var(--surface-muted)]"
+                  className="flex w-full items-center gap-3 border-b border-slate-100 dark:border-slate-800/60 px-3 py-3 text-left hover:bg-slate-100/60 dark:hover:bg-slate-800/60 transition-colors"
                   key={item.id}
                   onClick={() => void openClass(item.id)}
                   type="button"
                 >
-                  <Users size={17} className="text-[var(--accent)]" />
+                  <Users size={17} className="text-sky-600 dark:text-sky-400" />
                   <span>
                     <strong className="block text-sm">{item.name}</strong>
-                    <small className="text-[var(--ink-muted)]">
+                    <small className="text-slate-500">
                       {item.code} · trò chuyện lớp
                     </small>
                   </span>
@@ -129,12 +129,12 @@ export default function MessagesScreen() {
               ))}
               {directory.map((entry) => (
                 <button
-                  className="flex w-full items-center gap-3 border-b border-[var(--rule)] px-3 py-3 text-left hover:bg-[var(--surface-muted)]"
+                  className="flex w-full items-center gap-3 border-b border-slate-100 dark:border-slate-800/60 px-3 py-3 text-left hover:bg-slate-100/60 dark:hover:bg-slate-800/60 transition-colors"
                   key={entry.id}
                   onClick={() => void openDirect(entry.id)}
                   type="button"
                 >
-                  <MessageCircle size={17} className="text-[var(--accent)]" />
+                  <MessageCircle size={17} className="text-sky-600 dark:text-sky-400" />
                   <span className="min-w-0">
                     <strong className="block truncate text-sm">
                       {entry.displayName}
@@ -159,7 +159,11 @@ export default function MessagesScreen() {
               conversations.map((item) => (
                 <button
                   aria-current={item.id === selectedId ? "true" : undefined}
-                  className={`w-full border-b border-[var(--rule)] px-4 py-4 text-left ${item.id === selectedId ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--surface-muted)]"}`}
+                  className={`w-full border-b border-slate-100 dark:border-slate-800/60 px-4 py-3.5 text-left transition-all ${
+                    item.id === selectedId
+                      ? "bg-sky-50/80 dark:bg-sky-950/40 border-l-4 border-l-sky-500 shadow-2xs font-semibold"
+                      : "hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
+                  }`}
                   key={item.id}
                   onClick={() => setSelectedId(item.id)}
                   type="button"
@@ -191,20 +195,20 @@ export default function MessagesScreen() {
         >
           {selected ? (
             <>
-              <header className="flex min-h-16 flex-wrap items-center gap-3 border-b border-[var(--rule-strong)] px-4 py-2">
+              <header className="flex min-h-16 flex-wrap items-center gap-3 border-b border-slate-200 dark:border-slate-800 px-4 py-2">
                 <button
                   aria-label="Quay lại danh sách"
-                  className="grid size-10 place-items-center md:hidden"
+                  className="grid size-10 place-items-center md:hidden text-slate-600 dark:text-slate-400"
                   onClick={() => setSelectedId("")}
                   type="button"
                 >
                   <ArrowLeft size={19} />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <h2 className="truncate font-heading text-lg font-bold">
+                  <h2 className="truncate text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
                     {selected.title}
                   </h2>
-                  <p className="text-xs text-[var(--ink-muted)]">
+                  <p className="text-xs text-slate-500">
                     {selected.type === "CLASS"
                       ? `${selected.members.filter((item) => item.status === "ACTIVE").length} thành viên`
                       : selected.members.find(
@@ -219,15 +223,15 @@ export default function MessagesScreen() {
                 >
                   <input
                     aria-label="Tìm trong hội thoại"
-                    className="min-h-10 w-44 rounded-lg border border-[var(--rule)] bg-[var(--surface)] px-3 text-sm outline-none focus:border-[var(--accent)]"
+                    className="min-h-10 w-48 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 text-xs outline-none focus:border-sky-500"
                     minLength={2}
                     onChange={(event) => setMessageQuery(event.target.value)}
-                    placeholder="Tìm trong tin nhắn"
+                    placeholder="Tìm trong tin nhắn…"
                     value={messageQuery}
                   />
                   <button
                     aria-label="Tìm trong hội thoại"
-                    className="grid size-10 place-items-center rounded-lg hover:bg-[var(--surface-muted)]"
+                    className="grid size-10 place-items-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
                     type="submit"
                   >
                     <Search size={17} />
@@ -239,7 +243,7 @@ export default function MessagesScreen() {
                       ? "Bật thông báo"
                       : "Tắt thông báo 24 giờ"
                   }
-                  className="grid size-10 place-items-center rounded-lg hover:bg-[var(--surface-muted)]"
+                  className="grid size-10 place-items-center rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
                   onClick={() => void toggleMute()}
                   type="button"
                 >
@@ -252,7 +256,7 @@ export default function MessagesScreen() {
                 {selected.type === "DIRECT" ? (
                   <button
                     aria-label="Chặn người dùng"
-                    className="grid size-10 place-items-center rounded-lg text-[var(--danger)] hover:bg-rose-50"
+                    className="grid size-10 place-items-center rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                     onClick={() => setBlockOpen(true)}
                     type="button"
                   >
@@ -261,7 +265,7 @@ export default function MessagesScreen() {
                 ) : null}
               </header>
               {searchResults.length ? (
-                <div className="max-h-40 overflow-y-auto border-b border-[var(--rule)] bg-[var(--surface-muted)] px-4">
+                <div className="max-h-40 overflow-y-auto border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-4">
                   <div className="flex items-center justify-between py-2 text-xs font-bold">
                     <span>
                       {searchResults.length} kết quả cho “{messageQuery}”
@@ -278,7 +282,7 @@ export default function MessagesScreen() {
                   </div>
                   {searchResults.map((item) => (
                     <button
-                      className="block w-full border-t border-[var(--rule)] py-2 text-left text-xs"
+                      className="block w-full border-t border-slate-100 dark:border-slate-800 py-2 text-left text-xs"
                       key={item.id}
                       onClick={() => setSearchResults([])}
                       type="button"
@@ -349,27 +353,31 @@ export default function MessagesScreen() {
                           </button>
                         ) : null}
                         <article
-                          className={`max-w-[82%] rounded-xl px-4 py-3 text-left text-sm ${mine ? "bg-[var(--action)] text-[var(--action-ink)]" : "border border-[var(--rule)] bg-[var(--surface)]"}`}
+                          className={`max-w-[82%] px-4 py-3 text-left text-sm ${
+                            mine
+                              ? "rounded-2xl rounded-tr-xs bg-sky-600 text-white shadow-xs"
+                              : "rounded-2xl rounded-tl-xs border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 shadow-xs"
+                          }`}
                         >
                           {message.replyTo ? (
                             <span
-                              className={`mb-2 block rounded-md px-2 py-1 text-xs ${mine ? "bg-white/10 text-white/75" : "bg-[var(--surface-muted)] text-[var(--ink-muted)]"}`}
+                              className={`mb-2 block rounded-lg px-2.5 py-1 text-xs ${mine ? "bg-white/15 text-white/90" : "bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300"}`}
                             >
                               {message.replyTo.senderName}:{" "}
                               {message.replyTo.content}
                             </span>
                           ) : null}
                           {!mine ? (
-                            <strong className="mb-1 block text-xs text-[var(--accent)]">
+                            <strong className="mb-1 block text-xs font-bold text-sky-600 dark:text-sky-400">
                               {message.senderName}
                             </strong>
                           ) : null}
-                          <span className="whitespace-pre-wrap break-words">
+                          <span className="whitespace-pre-wrap break-words leading-relaxed">
                             {message.content}
                           </span>
                           {message.context ? (
                             <Link
-                              className={`mt-2 block rounded-lg border px-3 py-2 font-bold ${mine ? "border-white/20 bg-white/10" : "border-[var(--rule)] bg-[var(--surface-muted)]"}`}
+                              className={`mt-2 block rounded-xl border px-3 py-2 font-bold ${mine ? "border-white/20 bg-white/10 text-white" : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40 text-sky-700 dark:text-sky-300"}`}
                               href={message.context.href}
                             >
                               {message.context.type === "ASSIGNMENT"
@@ -478,30 +486,30 @@ export default function MessagesScreen() {
                 <div ref={bottomRef} />
               </div>
               {selected.readOnly ? (
-                <p className="border-t border-[var(--rule-strong)] px-4 py-4 text-center text-sm font-semibold text-[var(--ink-muted)]">
+                <p className="border-t border-slate-200 dark:border-slate-800 px-4 py-4 text-center text-sm font-semibold text-slate-500">
                   Hội thoại này chỉ còn quyền đọc.
                 </p>
               ) : (
                 <form
-                  className="shrink-0 border-t border-[var(--rule-strong)] bg-[var(--surface)] p-3"
+                  className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
                   onSubmit={(event) => void sendMessage(event)}
                 >
                   {replyTo ? (
-                    <div className="mb-2 flex items-center justify-between gap-3 bg-[var(--surface-muted)] px-3 py-2 text-xs">
-                      <span className="truncate">
-                        <Reply className="mr-1 inline" size={13} />
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-xs">
+                      <span className="truncate text-slate-700 dark:text-slate-300">
+                        <Reply className="mr-1 inline text-sky-600" size={13} />
                         Trả lời {replyTo.senderName}: {replyTo.content}
                       </span>
-                      <button onClick={() => setReplyTo(null)} type="button">
+                      <button className="text-slate-500 hover:text-slate-800" onClick={() => setReplyTo(null)} type="button">
                         Hủy
                       </button>
                     </div>
                   ) : null}
                   {failedMessage ? (
-                    <div className="mb-2 flex items-center justify-between gap-3 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 px-3 py-2 text-xs text-rose-800 dark:text-rose-200">
                       <span>Tin nhắn chưa gửi.</span>
                       <button
-                        className="font-bold"
+                        className="font-bold underline"
                         onClick={() =>
                           void sendMessage(undefined, failedMessage)
                         }
@@ -522,7 +530,7 @@ export default function MessagesScreen() {
                         )
                         .map((member) => (
                           <button
-                            className={`rounded-full border px-2 py-1 text-[11px] font-bold ${mentionedUserIds.includes(member.userId) ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-deep)]" : "border-[var(--rule)]"}`}
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${mentionedUserIds.includes(member.userId) ? "border-sky-500 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300" : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300"}`}
                             key={member.userId}
                             onClick={() =>
                               setMentionedUserIds((current) =>
@@ -583,7 +591,7 @@ export default function MessagesScreen() {
                       ))}
                     </div>
                   ) : null}
-                  <div className="flex min-h-14 items-end gap-1 rounded-2xl border border-[var(--rule-strong)] bg-[var(--surface)] p-1.5 transition focus-within:border-[var(--accent)] focus-within:ring-3 focus-within:ring-[var(--accent)]/15">
+                  <div className="flex min-h-14 items-end gap-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-1.5 transition-all focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/20">
                     <label
                       aria-label="Đính kèm tệp"
                       className={`grid size-11 shrink-0 place-items-center rounded-xl text-[var(--ink-soft)] transition-colors ${recording || sending ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"}`}

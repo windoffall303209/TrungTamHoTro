@@ -289,7 +289,7 @@ export default function LiveClassesPage() {
         <div className="space-y-4">
           {pagination.pageItems.map((item) => (
             <article
-              className="grid gap-5 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
               id={`session-${item.id}`}
               key={item.id}
             >

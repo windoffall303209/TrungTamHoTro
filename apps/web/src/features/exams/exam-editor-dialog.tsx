@@ -189,7 +189,7 @@ export function ExamEditorDialog({
                   />
                 </div>
               ) : null}
-              <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-2">
+              <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-2.5">
                 {!form.classId ? (
                   <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">
                     Chọn lớp học trước để xem câu hỏi phù hợp.
@@ -312,10 +312,10 @@ export function ExamEditorDialog({
                   </span>
                 </Field>
                 <fieldset>
-                  <legend className="text-sm font-bold text-[var(--ink)]">
+                  <legend className="text-sm font-bold text-slate-900 dark:text-slate-100">
                     Phạm vi ngữ cảnh
                   </legend>
-                  <div className="mt-2 divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
+                  <div className="mt-2 space-y-2">
                     {[
                       {
                         value: "AUTO" as const,
@@ -337,14 +337,19 @@ export function ExamEditorDialog({
                       },
                     ].map((option) => {
                       const Icon = option.icon;
+                      const selected = aiConfig.contextMode === option.value;
                       return (
                         <label
-                          className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-[var(--surface-muted)]"
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-all ${
+                            selected
+                              ? "border-sky-500 bg-sky-50/70 dark:bg-sky-950/30 ring-1 ring-sky-500"
+                              : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300"
+                          }`}
                           key={option.value}
                         >
                           <input
-                            checked={aiConfig.contextMode === option.value}
-                            className="mt-1 size-4 accent-[var(--accent)]"
+                            checked={selected}
+                            className="mt-1 size-4 accent-sky-600"
                             name="contextMode"
                             onChange={() =>
                               setAiConfig({
@@ -355,14 +360,14 @@ export function ExamEditorDialog({
                             type="radio"
                           />
                           <Icon
-                            className="mt-0.5 shrink-0 text-[var(--accent-ink)]"
+                            className={`mt-0.5 shrink-0 ${selected ? "text-sky-600 dark:text-sky-400" : "text-slate-500"}`}
                             size={18}
                           />
                           <span>
-                            <span className="block text-sm font-extrabold text-[var(--ink)]">
+                            <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">
                               {option.title}
                             </span>
-                            <span className="mt-0.5 block text-xs leading-5 text-[var(--ink-muted)]">
+                            <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                               {option.text}
                             </span>
                           </span>
@@ -375,31 +380,31 @@ export function ExamEditorDialog({
                   <fieldset>
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <legend className="text-sm font-bold text-[var(--ink)]">
+                        <legend className="text-sm font-bold text-slate-900 dark:text-slate-100">
                           Tài liệu ưu tiên
                         </legend>
-                        <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                           Chọn tối đa 6 tệp đã phát hành. Để trống để hệ thống
                           tự chọn trong môn học.
                         </p>
                       </div>
-                      <span className="text-xs font-bold tabular-nums text-[var(--ink-muted)]">
+                      <span className="text-xs font-bold tabular-nums text-slate-500">
                         {aiConfig.materialIds.length}/6
                       </span>
                     </div>
-                    <div className="mt-2 max-h-44 divide-y divide-[var(--rule)] overflow-y-auto border-y border-[var(--rule-strong)]">
+                    <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-2">
                       <MaterialSearchControls search={materialSearch} />
                       {eligibleMaterials.length ? (
                         eligibleMaterials.map((material) => (
                           <label
-                            className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-[var(--surface-muted)]"
+                            className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-white dark:hover:bg-slate-800 transition-all text-xs"
                             key={material.id}
                           >
                             <input
                               checked={aiConfig.materialIds.includes(
                                 material.id,
                               )}
-                              className="mt-1 size-4 accent-[var(--accent)]"
+                              className="mt-0.5 size-4 accent-sky-600"
                               disabled={
                                 !aiConfig.materialIds.includes(material.id) &&
                                 aiConfig.materialIds.length >= 6
@@ -494,31 +499,31 @@ export function ExamEditorDialog({
                     </p>
                   </div>
                   <div className="text-right">
-                    <strong className="text-3xl font-extrabold tabular-nums text-[var(--accent-ink)]">
+                    <strong className="text-3xl font-extrabold tabular-nums text-sky-600 dark:text-sky-400">
                       {aiQuestionTotal}
                     </strong>
-                    <span className="ml-1 text-xs font-bold text-[var(--ink-muted)]">
+                    <span className="ml-1 text-xs font-bold text-slate-500">
                       câu
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
+                <div className="mt-3 space-y-2">
                   {questionTypeOptions.map((option) => (
                     <label
-                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4 py-3"
+                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs"
                       key={option.type}
                     >
                       <span>
-                        <span className="block text-sm font-extrabold text-[var(--ink)]">
+                        <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">
                           {option.label}
                         </span>
-                        <span className="mt-0.5 block text-xs leading-5 text-[var(--ink-muted)]">
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                           {option.description}
                         </span>
                       </span>
                       <input
                         aria-label={`Số câu ${option.label}`}
-                        className={`${inputClass} text-center font-extrabold tabular-nums`}
+                        className={`${inputClass} text-center font-bold tabular-nums`}
                         max={50}
                         min={0}
                         onChange={(event) =>
@@ -637,7 +642,7 @@ export function ExamEditorDialog({
               />
             </Field>
           ) : null}
-          <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-[var(--rule)] bg-[var(--surface)] py-4 md:-bottom-7">
+          <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-4 md:-bottom-7">
             <Button
               className="mr-auto"
               disabled={saving}

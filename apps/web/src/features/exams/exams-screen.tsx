@@ -158,7 +158,7 @@ export default function ExamsScreen() {
             <div className="mt-5 space-y-4 border-t border-sky-200 pt-5">
               {attemptQuestions.map((question, index) => (
                 <fieldset
-                  className="rounded-xl bg-[var(--surface)] p-4"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
                   key={question.id}
                 >
                   <legend className="px-1 text-sm font-extrabold">

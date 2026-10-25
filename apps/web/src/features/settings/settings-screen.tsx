@@ -104,9 +104,9 @@ export default function SettingsScreen() {
         }
       />
       {!activeSection ? (
-        <nav
+        <div
           aria-label="Danh sách chức năng cấu hình"
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
         >
           {settingsSections.map((item) => {
             const Icon = item.icon;
@@ -142,45 +142,45 @@ export default function SettingsScreen() {
                                 : "Đang tải";
             return (
               <button
-                className="group grid min-h-24 w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 transition hover:bg-[var(--surface-muted)] md:px-6"
+                className="group flex flex-col justify-between rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 text-left shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 hover:shadow-md"
                 key={item.id}
                 onClick={() =>
                   router.push(`/admin/settings?section=${item.id}`)
                 }
                 type="button"
               >
-                <span className="grid size-12 place-items-center rounded-xl border border-[var(--rule)] bg-[var(--surface)] text-[var(--accent-ink)]">
-                  <Icon size={21} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-heading text-lg font-extrabold text-[var(--ink)]">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="grid size-12 place-items-center rounded-2xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800">
+                      <Icon size={22} />
+                    </span>
+                    <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300">
+                      {summary}
+                    </span>
+                  </div>
+                  <h3 className="mt-4 font-heading text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 transition-colors">
                     {item.title}
-                  </span>
-                  <span className="mt-1 block text-sm leading-5 text-[var(--ink-soft)]">
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                     {item.description}
-                  </span>
-                </span>
-                <span className="flex items-center gap-3">
-                  <span className="hidden text-xs font-bold text-[var(--ink-muted)] sm:inline">
-                    {summary}
-                  </span>
-                  <ChevronRight
-                    className="text-[var(--ink-muted)] transition group-hover:translate-x-1 group-hover:text-[var(--accent-ink)]"
-                    size={20}
-                  />
-                </span>
+                  </p>
+                </div>
+                <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-sky-600 dark:text-sky-400">
+                  <span>Thiết lập</span>
+                  <ChevronRight size={14} className="transition-transform group-hover:translate-x-1" />
+                </div>
               </button>
             );
           })}
-        </nav>
+        </div>
       ) : null}
       {activeSection === "notifications" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
           <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Cấu hình việc chuyển tiếp thông báo hệ thống (nhắc lịch học, bài tập mới, kết quả chấm thi, thông báo lớp...) tới hòm thư cá nhân của học viên thông qua dịch vụ Resend.
             </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               {[
                 {
                   enabled: false,
@@ -202,7 +202,7 @@ export default function SettingsScreen() {
                 return (
                   <button
                     aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
+                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
                     disabled={saving}
                     key={String(option.enabled)}
                     onClick={() =>
@@ -211,11 +211,11 @@ export default function SettingsScreen() {
                     type="button"
                   >
                     <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
+                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
                         {option.title}
                       </span>
                       <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
+                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
                       >
                         {selected ? (
                           <span className="size-2 rounded-full bg-white" />
@@ -226,17 +226,17 @@ export default function SettingsScreen() {
                       <span
                         className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           option.enabled
-                            ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]"
-                            : "bg-[var(--surface-muted)] text-[var(--ink-soft)]"
+                            ? "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300"
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                         }`}
                       >
                         {option.badge}
                       </span>
                     </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
+                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                       {option.description}
                     </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
+                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
                       {selected ? "Đang áp dụng" : "Chọn cấu hình này"}
                     </span>
                   </button>
@@ -247,14 +247,14 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       {activeSection === "exam-approval" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
           <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Thiết lập này áp dụng cho các đề được giảng viên gửi từ thời điểm
               thay đổi. Đề đã nằm trong hàng chờ vẫn có thể được quản trị viên
               phê duyệt hoặc trả lại.
             </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               {[
                 {
                   mode: "AUTO" as const,
@@ -273,28 +273,28 @@ export default function SettingsScreen() {
                 return (
                   <button
                     aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
+                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
                     disabled={saving}
                     key={option.mode}
                     onClick={() => void saveExamApprovalMode(option.mode)}
                     type="button"
                   >
                     <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
+                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
                         {option.title}
                       </span>
                       <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
+                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
                       >
                         {selected ? (
                           <span className="size-2 rounded-full bg-white" />
                         ) : null}
                       </span>
                     </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
+                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                       {option.description}
                     </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
+                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
                       {selected ? "Đang áp dụng" : "Chọn chế độ này"}
                     </span>
                   </button>
@@ -305,14 +305,14 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       {activeSection === "question-approval" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
           <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Giảng viên vẫn chủ động lưu bản nháp. Chế độ này chỉ được áp dụng
               khi họ chọn Xuất bản; câu hỏi đang chờ duyệt không tự thay đổi khi
               cấu hình được cập nhật.
             </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               {[
                 {
                   mode: "AUTO" as const,
@@ -331,28 +331,28 @@ export default function SettingsScreen() {
                 return (
                   <button
                     aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
+                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
                     disabled={saving}
                     key={option.mode}
                     onClick={() => void saveQuestionApprovalMode(option.mode)}
                     type="button"
                   >
                     <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
+                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
                         {option.title}
                       </span>
                       <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
+                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
                       >
                         {selected ? (
                           <span className="size-2 rounded-full bg-white" />
                         ) : null}
                       </span>
                     </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
+                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                       {option.description}
                     </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
+                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
                       {selected ? "Đang áp dụng" : "Chọn chế độ này"}
                     </span>
                   </button>
@@ -363,13 +363,13 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       {activeSection === "ai-providers" ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 md:px-6">
             <div>
-              <h2 className="font-heading text-xl font-extrabold">
+              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
                 Nhà cung cấp AI
               </h2>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--ink-soft)]">
+              <p className="mt-1 max-w-2xl text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                 API key được mã hóa và không hiển thị lại. Lưu nhà cung cấp, sau
                 đó phân công model riêng cho từng chức năng bên dưới.
               </p>
@@ -382,7 +382,7 @@ export default function SettingsScreen() {
               Thêm custom
             </Button>
           </div>
-          <div className="divide-y divide-[var(--rule)] border-t border-[var(--rule)]">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">
             <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
             <AiGradingOperations />
             {aiProviders.map((item) => (
@@ -392,14 +392,14 @@ export default function SettingsScreen() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-bold text-[var(--ink)]">{item.name}</h3>
+                    <h3 className="font-bold text-slate-900 dark:text-slate-100">{item.name}</h3>
                     {item.isDefault ? <StatusBadge status="DEFAULT" /> : null}
                     <StatusBadge status={item.healthStatus} />
                   </div>
-                  <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">
+                  <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">
                     {item.model} · {item.maskedApiKey}
                   </p>
-                  <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                  <p className="mt-1 text-xs text-slate-400">
                     {item.enabled ? "Đang bật" : "Đang tắt"}
                     {item.lastCheckedAt
                       ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString(activeLocale())}`
@@ -434,47 +434,46 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       {activeSection === "health" && health ? (
-        <section className="metric-ledger mb-7">
+        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-7">
           <div
-            className={
-              health.status === "healthy" ? "bg-emerald-50" : "bg-amber-50"
-            }
+            className={`rounded-2xl border p-4 shadow-xs text-center ${
+              health.status === "healthy" ? "border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300"
+            }`}
           >
             <Activity
-              className={
+              className={`mx-auto ${
                 health.status === "healthy"
-                  ? "text-emerald-700"
-                  : "text-amber-700"
-              }
-              size={19}
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+              size={22}
             />
-            <p className="mt-3 font-extrabold">
+            <p className="mt-2 text-sm font-extrabold">
               {health.status === "healthy"
-                ? "Hoạt động ổn định"
+                ? "Ổn định"
                 : "Cần kiểm tra"}
             </p>
-            <p className="text-xs text-slate-600">
-              Cơ sở dữ liệu:{" "}
-              {health.database === "connected" ? "đã kết nối" : health.database}
+            <p className="text-[11px] opacity-75">
+              DB: {health.database === "connected" ? "kết nối" : health.database}
             </p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-sky-700 dark:text-sky-300">
               {health.apiLatencyMs} ms
             </p>
-            <p className="text-xs text-slate-500">Độ trễ API</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Độ trễ API</p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-slate-900 dark:text-slate-100">
               {health.storageUsagePercent}%
             </p>
-            <p className="text-xs text-slate-500">Dung lượng lưu trữ</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Dung lượng lưu trữ</p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-indigo-600 dark:text-indigo-400">
               {health.queueDepth}
             </p>
-            <p className="text-xs text-slate-500">Tác vụ đang chờ</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Tác vụ đang chờ</p>
           </div>
         </section>
       ) : null}
@@ -482,7 +481,7 @@ export default function SettingsScreen() {
         className={`${["general", "history", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}
       >
         <section
-          className={`${activeSection === "general" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+          className={`${activeSection === "general" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
         >
           <div className="flex items-center gap-3">
             <ShieldCheck className="text-sky-700" />
@@ -655,31 +654,31 @@ export default function SettingsScreen() {
           )}
         </section>
         <section
-          className={`${activeSection === "history" ? "block" : "hidden"} order-3 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6 xl:col-span-2`}
+          className={`${activeSection === "history" ? "block" : "hidden"} order-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs xl:col-span-2`}
         >
-          <h2 className="font-heading text-xl font-extrabold">
+          <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
             Lịch sử cấu hình
           </h2>
-          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+          <div className="mt-4 space-y-3">
             {history.length ? (
               history.slice(0, 6).map((item) => (
                 <article
-                  className="py-4"
+                  className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4"
                   key={`${item.version}-${item.effectiveAt}`}
                 >
                   <div className="flex items-center justify-between">
-                    <strong>Phiên bản {item.version}</strong>
-                    <span className="text-xs text-sky-700">
+                    <strong className="text-slate-900 dark:text-slate-100">Phiên bản {item.version}</strong>
+                    <span className="text-xs font-semibold text-sky-600 dark:text-sky-400">
                       {new Date(item.effectiveAt) > new Date()
                         ? "Đã lên lịch"
                         : "Đang/đã hiệu lực"}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-400">
                     {new Date(item.effectiveAt).toLocaleString(activeLocale())}{" "}
                     · {item.updatedBy}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                     {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
                     {item.storageQuotaMb} MB ·{" "}
                     {item.examApprovalMode === "MANUAL"
@@ -693,7 +692,7 @@ export default function SettingsScreen() {
                 </article>
               ))
             ) : (
-              <p className="empty-copy">Chưa có phiên bản cấu hình trước đó.</p>
+              <p className="text-xs text-slate-400 py-4 text-center">Chưa có phiên bản cấu hình trước đó.</p>
             )}
           </div>
         </section>
@@ -701,20 +700,20 @@ export default function SettingsScreen() {
           className={`${["integrations", "backups"].includes(activeSection ?? "") ? "block" : "hidden"} order-2 space-y-7`}
         >
           <section
-            className={`${activeSection === "integrations" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+            className={`${activeSection === "integrations" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
           >
             <div className="flex items-center gap-3">
-              <CloudCog className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">
+              <CloudCog className="text-sky-600" />
+              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
                 Tích hợp lớp học
               </h2>
             </div>
-            <div className="mt-5 divide-y divide-slate-100">
+            <div className="mt-5 space-y-3">
               {integrations.map((item) => (
-                <div className="py-4" key={item.id}>
+                <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={item.id}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-extrabold">
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
                         {item.provider.replace("_", " ")}{" "}
                         {item.isDefault ? "· Mặc định" : ""}
                       </p>
@@ -728,11 +727,11 @@ export default function SettingsScreen() {
                     <button
                       aria-pressed={item.enabled}
                       aria-label={`Bật tắt ${item.provider}`}
-                      className={`relative h-11 w-14 rounded-full transition ${item.enabled ? "bg-sky-600" : "bg-slate-200"}`}
+                      className={`relative h-9 w-14 rounded-full transition-colors ${item.enabled ? "bg-sky-600" : "bg-slate-200 dark:bg-slate-700"}`}
                       onClick={() => void toggle(item)}
                     >
                       <span
-                        className={`absolute top-3 size-5 rounded-full bg-[var(--surface)] shadow transition ${item.enabled ? "left-8" : "left-1"}`}
+                        className={`absolute top-1.5 size-6 rounded-full bg-white shadow-xs transition-transform ${item.enabled ? "left-7" : "left-1"}`}
                       />
                     </button>
                   </div>
@@ -740,12 +739,14 @@ export default function SettingsScreen() {
                     <Button
                       onClick={() => setConfiguring(item)}
                       variant="ghost"
+                      className="h-8 text-xs"
                     >
                       Cấu hình
                     </Button>
                     <Button
                       onClick={() => void testIntegration(item)}
                       variant="ghost"
+                      className="h-8 text-xs"
                     >
                       Kiểm tra kết nối
                     </Button>
@@ -753,6 +754,7 @@ export default function SettingsScreen() {
                       <Button
                         onClick={() => void setDefault(item)}
                         variant="ghost"
+                        className="h-8 text-xs"
                       >
                         Đặt mặc định
                       </Button>
@@ -761,6 +763,7 @@ export default function SettingsScreen() {
                       <Button
                         onClick={() => void testMeeting(item)}
                         variant="secondary"
+                        className="h-8 text-xs"
                       >
                         Tạo phòng thử
                       </Button>
@@ -771,28 +774,28 @@ export default function SettingsScreen() {
             </div>
           </section>
           <section
-            className={`${activeSection === "backups" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+            className={`${activeSection === "backups" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <DatabaseBackup className="text-sky-700" />
-                <h2 className="font-heading text-xl font-extrabold">Sao lưu</h2>
+                <DatabaseBackup className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Sao lưu</h2>
               </div>
-              <Button onClick={() => void backup()} variant="secondary">
+              <Button onClick={() => void backup()} variant="secondary" className="h-8 text-xs">
                 Chạy ngay
               </Button>
             </div>
-            <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+            <div className="mt-4 space-y-2">
               {backups.slice(0, 4).map((item) => (
                 <div
-                  className="flex items-center justify-between gap-3 py-4"
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30"
                   key={item.id}
                 >
                   <div>
-                    <p className="text-sm font-bold">
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
                       {item.type} · {item.sizeMb} MB
                     </p>
-                    <p className="text-[10px] text-slate-400">
+                    <p className="text-[11px] text-slate-400">
                       {new Date(item.createdAt).toLocaleString(activeLocale())}{" "}
                       · {item.checksum}
                     </p>
@@ -805,12 +808,12 @@ export default function SettingsScreen() {
         </div>
       </div>
       {activeSection === "storage" && storage ? (
-        <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section className="mt-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <HardDrive className="text-sky-700" />
+              <HardDrive className="text-sky-600" />
               <div>
-                <h2 className="font-heading text-xl font-extrabold">
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
                   Phân bổ lưu trữ
                 </h2>
                 <p className="text-xs text-slate-500">
@@ -829,7 +832,7 @@ export default function SettingsScreen() {
               style={{ width: `${storage.usagePercent}%` }}
             />
           </div>
-          <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+          <div className="mt-5 divide-y divide-slate-100 dark:divide-slate-800 border-y border-slate-200 dark:border-slate-800">
             {storage.byClass.length ? (
               storage.byClass.map((item) => (
                 <div className="py-4" key={item.classId}>
@@ -1036,10 +1039,10 @@ export default function SettingsScreen() {
             />
           </Field>
           <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold">
+            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.enabled}
-                className="size-5 accent-[var(--accent)]"
+                className="size-5 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, enabled: event.target.checked })
                 }
@@ -1047,10 +1050,10 @@ export default function SettingsScreen() {
               />
               Bật cấu hình này
             </label>
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold">
+            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3.5 text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.isDefault}
-                className="size-5 accent-[var(--accent)]"
+                className="size-5 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, isDefault: event.target.checked })
                 }
