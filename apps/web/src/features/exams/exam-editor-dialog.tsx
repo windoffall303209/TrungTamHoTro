@@ -478,9 +478,8 @@ export function ExamEditorDialog({
                   </p>
                 </div>
                 {!examAiProviders.length ? (
-                  <p className="rounded-lg bg-[var(--warning-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--warning-deep)]">
-                    Chưa có cấu hình AI sinh đề đang hoạt động. Liên hệ quản trị
-                    viên để thiết lập.
+                  <p className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:text-amber-200">
+                    💡 Chưa có cấu hình AI sinh đề chuyên biệt. Hệ thống sẽ tự động điều phối nhà cung cấp AI mặc định của hệ thống.
                   </p>
                 ) : null}
               </div>

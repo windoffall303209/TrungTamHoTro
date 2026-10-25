@@ -196,60 +196,104 @@ function Sidebar({ close }: { close?: () => void }) {
     return roleAllowed && permissionAllowed;
   });
 
+  const sections = [
+    {
+      title: "Học tập & Giảng dạy",
+      items: available.filter((i) =>
+        ["/dashboard", "/courses", "/academic", "/live-classes"].includes(i.href),
+      ),
+    },
+    {
+      title: "Khảo thí & Học liệu",
+      items: available.filter((i) =>
+        ["/materials", "/questions", "/exams"].includes(i.href),
+      ),
+    },
+    {
+      title: "Tương tác & Hỗ trợ",
+      items: available.filter((i) =>
+        ["/forum", "/messages", "/support", "/learning-history"].includes(i.href),
+      ),
+    },
+    {
+      title: "Quản trị & Vận hành",
+      items: available.filter((i) =>
+        [
+          "/reports",
+          "/class-operations",
+          "/attendance",
+          "/class-lifecycle",
+          "/teaching-operations",
+          "/admin/users",
+          "/admin/roles",
+          "/admin/settings",
+          "/admin/operations",
+        ].includes(i.href),
+      ),
+    },
+  ].filter((s) => s.items.length > 0);
+
   return (
-    <div className="flex h-full flex-col bg-[var(--nav)] text-[var(--nav-text)]">
-      <div className="flex h-16 items-center gap-3 border-b border-white/15 px-5">
-        <div className="grid size-10 place-items-center rounded-xl border border-white/25 bg-[var(--accent)] text-[var(--action-ink)]">
+    <div className="flex h-full flex-col bg-[var(--nav)] text-[var(--nav-text)] border-r border-slate-800/60 shadow-xl">
+      <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5 bg-black/15">
+        <div className="grid size-10 place-items-center rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-slate-950 font-black shadow-md shadow-emerald-500/20">
           <GraduationCap size={20} />
         </div>
-        <div>
-          <p className="font-heading text-lg font-bold tracking-[-0.025em]">
+        <div className="min-w-0">
+          <p className="font-heading text-lg font-bold tracking-[-0.02em] text-white">
             Wind EDU
           </p>
-          <p className="text-xs font-bold text-[var(--nav-muted)]">
-            Sổ giáo vụ số
+          <p className="text-[11px] font-semibold text-emerald-400/90 truncate">
+            Học tập & Giảng dạy số
           </p>
         </div>
       </div>
       <nav
         aria-label="Điều hướng chính"
-        className="flex-1 overflow-y-auto px-3 py-5"
+        className="flex-1 overflow-y-auto px-3 py-4 space-y-5"
       >
-        <p className="mb-3 px-3 text-xs font-bold text-[var(--nav-subtle)]">
-          Không gian chung
-        </p>
-        <div className="space-y-1">
-          {available.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
-            const resolvedLabel =
-              href === "/courses"
-                ? session.roleCode === "LEARNER"
-                  ? "Lớp của tôi"
-                  : session.roleCode === "INSTRUCTOR"
-                    ? "Lớp giảng dạy"
-                    : label
-                : label;
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                className={`group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${active ? "bg-[var(--surface)] text-[var(--ink)]" : "text-[var(--nav-muted)] hover:bg-[var(--surface)]/8 hover:text-[var(--nav-text)]"}`}
-                href={href}
-                key={href}
-                onClick={close}
-              >
-                <Icon
-                  className={
+        {sections.map((section) => (
+          <div key={section.title} className="space-y-1">
+            <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              {section.title}
+            </p>
+            {section.items.map(({ href, label, icon: Icon }) => {
+              const active =
+                pathname === href || pathname.startsWith(`${href}/`);
+              const resolvedLabel =
+                href === "/courses"
+                  ? session.roleCode === "LEARNER"
+                    ? "Lớp của tôi"
+                    : session.roleCode === "INSTRUCTOR"
+                      ? "Lớp giảng dạy"
+                      : label
+                  : label;
+              return (
+                <Link
+                  aria-current={active ? "page" : undefined}
+                  className={`group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-150 ${
                     active
-                      ? "text-[var(--accent)]"
-                      : "text-[var(--nav-subtle)] group-hover:text-[var(--nav-text)]"
-                  }
-                  size={18}
-                />
-                {t(resolvedLabel)}
-              </Link>
-            );
-          })}
-        </div>
+                      ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-300 font-bold border-l-[3px] border-emerald-400 pl-[9px] shadow-xs"
+                      : "text-slate-400 hover:bg-white/6 hover:text-slate-100"
+                  }`}
+                  href={href}
+                  key={href}
+                  onClick={close}
+                >
+                  <Icon
+                    className={`shrink-0 transition-colors ${
+                      active
+                        ? "text-emerald-400"
+                        : "text-slate-400 group-hover:text-slate-200"
+                    }`}
+                    size={18}
+                  />
+                  <span className="truncate">{t(resolvedLabel)}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
     </div>
   );
@@ -440,13 +484,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         >
           Đi tới nội dung chính
         </a>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-y-2 border-b border-[var(--rule-strong)] bg-[var(--canvas)]/92 px-4 py-2 backdrop-blur md:px-7">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-y-2 border-b border-slate-200/80 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 px-4 py-2.5 backdrop-blur-md md:px-7 shadow-2xs">
           <div className="flex min-w-0 items-center gap-3">
             <button
               aria-label="Mở menu"
               aria-expanded={menuOpen}
               aria-haspopup="dialog"
-              className="grid size-11 shrink-0 place-items-center rounded-lg border border-[var(--rule-strong)] text-[var(--ink)] lg:hidden"
+              className="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-[var(--ink)] hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
               onClick={() => {
                 setNotificationOpen(false);
                 setProfileOpen(false);
@@ -454,28 +498,30 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               }}
               type="button"
             >
-              <Menu size={20} />
+              <Menu size={18} />
             </button>
-            <div className="min-w-0 max-[359px]:hidden">
-              <p className="text-sm font-bold leading-5 text-[var(--ink)] sm:text-[1.05rem]">
-                <span className="sm:hidden">Wind EDU</span>
-                <span className="hidden sm:inline">
-                  Trung tâm hỗ trợ giảng dạy
-                </span>
-              </p>
-              <p className="mt-0.5 hidden text-[0.9rem] leading-[1.125rem] text-[var(--ink-soft)] sm:block">
-                Một không gian vận hành theo vai trò
-              </p>
+            <div className="min-w-0 max-[359px]:hidden flex items-center gap-2.5">
+              <span className="font-heading font-extrabold text-sm sm:text-base text-[var(--ink)] tracking-tight">
+                Wind EDU
+              </span>
+              <span className="hidden sm:inline-block text-slate-300 dark:text-slate-700">|</span>
+              <span className="hidden sm:inline-block text-xs font-medium text-[var(--ink-soft)] truncate">
+                Trung tâm đào tạo & giảng dạy số
+              </span>
             </div>
           </div>
           <div className="relative flex max-w-full flex-wrap items-center justify-end gap-2 md:gap-3">
+            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300 text-xs font-bold shadow-2xs">
+              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+              {session.user.roleName}
+            </div>
             {session.availableRoles.length > 1 ? (
               <>
                 <label className="sr-only" htmlFor="role-switcher">
                   Vai trò đang sử dụng
                 </label>
                 <select
-                  className="min-h-11 w-36 shrink-0 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--ink)] outline-none transition focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15 md:w-auto md:text-sm"
+                  className="min-h-10 w-36 shrink-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-[var(--surface)] px-3 py-1.5 text-xs font-bold text-[var(--ink)] outline-none transition focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15 md:w-auto md:text-sm shadow-2xs cursor-pointer"
                   id="role-switcher"
                   onChange={(event) =>
                     void setRole(event.target.value as RoleCode)
@@ -501,16 +547,16 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     ? `Thông báo, ${unreadCount} chưa đọc`
                     : "Thông báo"
                 }
-                className="relative grid size-11 place-items-center rounded-full border border-[var(--rule-strong)] text-[var(--ink-soft)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                className="relative grid size-10 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-[var(--ink-soft)] hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 bg-[var(--surface)] transition-colors shadow-2xs"
                 onClick={() => {
                   setNotificationOpen((open) => !open);
                   setProfileOpen(false);
                 }}
                 type="button"
               >
-                <Bell size={17} />
+                <Bell size={18} />
                 {unreadCount ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-[var(--accent-deep)] px-1 text-[10px] font-extrabold leading-4 text-[var(--action-ink)] ring-2 ring-[var(--canvas)]">
+                  <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[10px] font-black leading-4 text-white ring-2 ring-[var(--surface)] shadow-xs">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 ) : null}

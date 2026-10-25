@@ -9,8 +9,13 @@ import remarkMath from "remark-math";
 
 /** Nút dùng chung với biến thể màu, trạng thái loading và hành vi disabled nhất quán. */
 export function Button({ children, variant = "primary", loading = false, className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost"; loading?: boolean }) {
-  const styles = { primary: "bg-[var(--action)] text-[var(--action-ink)] hover:bg-[var(--accent)]", secondary: "border border-[var(--rule-strong)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--action)]", danger: "bg-[var(--danger-fill)] text-[var(--status-on-fill)] hover:bg-[var(--danger-hover)]", ghost: "text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]" };
-  return <button aria-busy={loading || undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform] duration-200 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} /> : null}{children}</button>;
+  const styles = {
+    primary: "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700 shadow-sm shadow-emerald-700/10 hover:shadow-emerald-500/20",
+    secondary: "border border-[var(--rule-strong)] bg-[var(--surface)] text-[var(--ink)] hover:border-emerald-500 hover:bg-emerald-50/40 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300 shadow-xs",
+    danger: "bg-rose-600 text-white hover:bg-rose-500 active:bg-rose-700 shadow-sm shadow-rose-700/10",
+    ghost: "text-[var(--ink-soft)] hover:bg-emerald-50/60 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+  };
+  return <button aria-busy={loading || undefined} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition-[background-color,color,border-color,transform,box-shadow] duration-150 hover:-translate-y-px active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 ${styles[variant]} ${className}`} disabled={loading || props.disabled} {...props}>{loading ? <LoaderCircle aria-hidden="true" className="animate-spin" size={16} /> : null}{children}</button>;
 }
 
 /** Ghép nhãn, control và lỗi trường thành một khối form thống nhất. */
@@ -18,7 +23,7 @@ export function Field({ label, error, children }: { label: React.ReactNode; erro
   return <label className="block text-sm font-bold text-[var(--ink)]"><span>{label}</span><div className="mt-2">{children}</div>{error ? <span className="mt-1 block text-xs font-medium text-[var(--danger)]">{error}</span> : null}</label>;
 }
 
-export const inputClass = "min-h-11 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-muted)] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent)]/15 disabled:cursor-not-allowed disabled:bg-[var(--surface-muted)] disabled:text-[var(--ink-muted)]";
+export const inputClass = "min-h-11 w-full rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-muted)] focus:border-emerald-500 focus:ring-3 focus:ring-emerald-500/15 disabled:cursor-not-allowed disabled:bg-[var(--surface-muted)] disabled:text-[var(--ink-muted)] shadow-xs";
 
 export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
@@ -323,13 +328,32 @@ export function FormattedTextarea({ value, onChange, label, rows = 5, required =
 
 /** Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt và màu ngữ nghĩa. */
 export function StatusBadge({ status }: { status: string }) {
-  const style = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED", "GRADED"].includes(status)
-    ? "border-[var(--success)]/25 bg-[var(--success)]/10 text-[var(--success-deep)]"
-    : ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status)
-      ? "border-[var(--danger)]/25 bg-[var(--danger)]/10 text-[var(--danger-deep)]"
-    : ["PENDING", "PENDING_VERIFICATION", "PENDING_REVIEW", "IN_REVIEW", "IN_PROGRESS", "SUBMITTED", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status)
-        ? "border-[var(--warning)]/25 bg-[var(--warning)]/10 text-[var(--warning-deep)]"
-        : "border-[var(--rule-strong)] bg-[var(--surface-muted)] text-[var(--ink-soft)]";
+  const isPositive = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED", "GRADED"].includes(status);
+  const isNegative = ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status);
+  const isPending = ["PENDING", "PENDING_VERIFICATION", "PENDING_REVIEW", "IN_REVIEW", "IN_PROGRESS", "SUBMITTED", "PROCESSING", "LATE", "MEDIUM", "SMALL_SAMPLE"].includes(status);
+
+  const style = isPositive
+    ? "border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-950/50 dark:text-emerald-300"
+    : isNegative
+      ? "border-rose-200/80 bg-rose-50 text-rose-700 dark:border-rose-800/80 dark:bg-rose-950/50 dark:text-rose-300"
+      : isPending
+        ? "border-amber-200/80 bg-amber-50 text-amber-700 dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-300"
+        : "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
+
+  const dot = isPositive
+    ? "bg-emerald-500"
+    : isNegative
+      ? "bg-rose-500"
+      : isPending
+        ? "bg-amber-500"
+        : "bg-slate-400";
+
   const labels: Record<string, string> = { PENDING: "Chưa xác thực", PENDING_VERIFICATION: "Chờ xác minh email", PENDING_REVIEW: "Chờ phê duyệt", ACTIVE: "Đang hoạt động", PUBLISHED: "Đã phát hành", DRAFT: "Bản nháp", LOCKED: "Đã khóa", REJECTED: "Đã từ chối", COMPLETED: "Đã hoàn tất", SCHEDULED: "Đã lên lịch", CANCELLED: "Đã hủy", OPEN: "Đang mở", IN_REVIEW: "Đang xử lý", IN_PROGRESS: "Đang làm bài", SUBMITTED: "Chờ chấm", GRADED: "Đã chấm", RESOLVED: "Đã xử lý", CLOSED: "Đã đóng", PRESENT: "Có mặt", LATE: "Đi muộn", ABSENT: "Vắng", EXCUSED: "Có phép", PROCESSING: "Đang xử lý", FAILED: "Thất bại", EXPIRED: "Đã hết hạn", NONE: "Chưa có", VISIBLE: "Đang hiển thị", HIDDEN: "Đã ẩn", STABLE: "Ổn định", SMALL_SAMPLE: "Mẫu nhỏ", HIGH: "Rủi ro cao", MEDIUM: "Rủi ro vừa", LOW: "Rủi ro thấp" };
-  return <span className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-extrabold tracking-[0.02em] ${style}`} title={labels[status] ? `Mã trạng thái: ${status}` : undefined}>{labels[status] ?? status}</span>;
+
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.01em] shadow-2xs ${style}`} title={labels[status] ? `Mã trạng thái: ${status}` : undefined}>
+      <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
+      {labels[status] ?? status}
+    </span>
+  );
 }

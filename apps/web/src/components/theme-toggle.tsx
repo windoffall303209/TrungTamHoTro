@@ -20,7 +20,7 @@ function subscribe(callback: () => void): () => void {
     if (event.key !== storageKey || (event.newValue !== "light" && event.newValue !== "dark")) return;
     document.documentElement.dataset.theme = event.newValue;
     document.documentElement.style.colorScheme = event.newValue;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", event.newValue === "dark" ? "#0b1620" : "#f7f4ed");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", event.newValue === "dark" ? "#0b1322" : "#f8fafc");
     callback();
   };
   window.addEventListener(themeEvent, callback);
@@ -42,7 +42,7 @@ export function ThemeToggle() {
     root.classList.add("theme-changing");
     root.dataset.theme = nextTheme;
     root.style.colorScheme = nextTheme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#0b1620" : "#f7f4ed");
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#0b1322" : "#f8fafc");
     window.localStorage.setItem(storageKey, nextTheme);
     window.dispatchEvent(new Event(themeEvent));
     window.setTimeout(() => root.classList.remove("theme-changing"), 220);
@@ -54,7 +54,7 @@ export function ThemeToggle() {
     <button
       aria-label={label}
       aria-pressed={theme === "dark"}
-      className="grid size-11 shrink-0 place-items-center rounded-full border border-[var(--rule-strong)] text-[var(--ink-soft)] hover:border-[var(--accent)] hover:bg-[var(--surface-muted)] hover:text-[var(--accent-deep)]"
+      className="grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-[var(--surface)] text-[var(--ink-soft)] hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-2xs transition-colors"
       onClick={toggleTheme}
       title={label}
       type="button"
