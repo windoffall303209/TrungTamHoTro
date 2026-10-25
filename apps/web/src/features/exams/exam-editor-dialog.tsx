@@ -265,12 +265,29 @@ export function ExamEditorDialog({
                 )}
               </div>
               {form.questionIds.length ? (
-                <p
-                  className={`mt-2 text-xs font-bold ${Math.abs(allocatedScore - form.totalScore) < 0.001 ? "text-[var(--success-deep)]" : "text-[var(--danger)]"}`}
-                >
-                  Đã phân bổ {Math.round(allocatedScore * 100) / 100}/
-                  {form.totalScore} điểm.
-                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p
+                    className={`text-xs font-bold ${Math.abs(allocatedScore - form.totalScore) <= 0.05 ? "text-[var(--success-deep)]" : "text-[var(--danger)]"}`}
+                  >
+                    Đã phân bổ {Math.round(allocatedScore * 100) / 100}/
+                    {form.totalScore} điểm.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        scoreAllocations: distributeScores(
+                          current.questionIds,
+                          current.totalScore,
+                        ),
+                      }))
+                    }
+                    className="text-xs font-bold text-[var(--accent)] hover:underline"
+                  >
+                    ⚡ Cân bằng điểm tự động
+                  </button>
+                </div>
               ) : null}
             </fieldset>
           ) : (
@@ -644,9 +661,8 @@ export function ExamEditorDialog({
                 !form.classId ||
                 (createMode === "MANUAL"
                   ? form.questionIds.length === 0 ||
-                    Math.abs(allocatedScore - form.totalScore) >= 0.001
+                    Math.abs(allocatedScore - form.totalScore) > 0.05
                   : !aiConfig.focus.trim() ||
-                    !aiConfig.providerId ||
                     aiQuestionTotal < 1 ||
                     aiQuestionTotal > 50)
               }

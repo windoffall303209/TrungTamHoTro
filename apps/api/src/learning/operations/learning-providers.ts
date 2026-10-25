@@ -77,16 +77,22 @@ export function resolveExamScoreAllocations(
   const allocatedTotal =
     Math.round(allocations.reduce((sum, item) => sum + item.score, 0) * 100) /
     100;
-  if (Math.abs(allocatedTotal - totalScore) > 0.001)
+  if (Math.abs(allocatedTotal - totalScore) > 0.05)
     throw new BadRequestException(
       `Tổng điểm từng câu phải bằng ${totalScore}.`,
     );
-  return Object.fromEntries(
+  const diff = Math.round((totalScore - allocatedTotal) * 100) / 100;
+  const result: Record<string, number> = Object.fromEntries(
     allocations.map((item) => [
       item.questionId,
       Math.round(item.score * 100) / 100,
     ]),
   );
+  if (diff !== 0 && questionIds.length > 0) {
+    const lastId = questionIds[questionIds.length - 1]!;
+    result[lastId] = Math.round((result[lastId] + diff) * 100) / 100;
+  }
+  return result;
 }
 
 /** Lấy thang điểm một câu trong fallback in-memory, hỗ trợ dữ liệu cũ chia đều. */

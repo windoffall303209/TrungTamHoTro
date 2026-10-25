@@ -175,10 +175,28 @@ export function ExamGradingDialog({
             </Field>
             {activeRegrade ? (
               <Field label="Kết luận phúc khảo">
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {[
+                    "Chấp nhận khiếu nại, đã rà soát và cộng bổ sung điểm.",
+                    "Bài làm đáp ứng đúng yêu cầu thang điểm chi tiết.",
+                    "Đã xem lại và giữ nguyên điểm do lập luận chưa đầy đủ.",
+                    "Đáp án không khớp với biểu điểm chuẩn đã công bố.",
+                  ].map((res) => (
+                    <button
+                      key={res}
+                      type="button"
+                      onClick={() => setRegradeResolution(res)}
+                      className="rounded-full border border-[var(--rule)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                    >
+                      {res}
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   className={inputClass}
                   maxLength={1000}
                   minLength={5}
+                  placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do giải quyết phúc khảo..."
                   required
                   rows={4}
                   value={regradeResolution}
@@ -188,9 +206,32 @@ export function ExamGradingDialog({
             ) : null}
             {!activeRegrade && grading?.status === "GRADED" ? (
               <Field label="Lý do sửa điểm">
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {[
+                    "Sửa lỗi nhập điểm số",
+                    "Chấm lại theo phản hồi học viên",
+                    "Cộng điểm khuyến khích phần tự luận",
+                    "Hiệu chỉnh theo đáp án chuẩn cập nhật",
+                  ].map((reason) => (
+                    <button
+                      key={reason}
+                      type="button"
+                      onClick={() =>
+                        setGrade({
+                          ...grade,
+                          correctionReason: reason,
+                        })
+                      }
+                      className="rounded-full border border-[var(--rule)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   className={inputClass}
                   minLength={5}
+                  placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
                   required
                   rows={3}
                   value={grade.correctionReason}

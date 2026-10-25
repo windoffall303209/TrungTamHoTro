@@ -321,11 +321,16 @@ export class ContentController {
   }
 
   @Get("instructor/question-bank/ai-providers") @RequirePermissions("question:manage")
-  /** Chỉ trả các AI provider đang bật và đã có khóa để giao diện lựa chọn. */
+  /** Chỉ trả các AI provider đang bật và đã có khóa; tự động fallback sang provider khả dụng nếu chưa gán tác vụ riêng. */
   async listQuestionScanProviders(@Query("task") task?: string): Promise<Awaited<ReturnType<AiProviderService["list"]>>> {
+    const allProviders = (await this.aiProviders.list()).filter((item) => item.enabled && item.hasApiKey);
     const config = (await this.aiProviders.getTaskConfigs())[task === "GENERATE_EXAM" ? "GENERATE_EXAM" : "SCAN_IMAGE"];
-    if (!config) return [];
-    return (await this.aiProviders.list()).filter((item) => item.id === config.providerId && item.enabled && item.hasApiKey).map((item) => ({ ...item, model: config.model }));
+    if (config) {
+      const matched = allProviders.filter((item) => item.id === config.providerId).map((item) => ({ ...item, model: config.model }));
+      if (matched.length) return matched;
+    }
+    const defaultProvider = allProviders.find((item) => item.isDefault) ?? allProviders[0];
+    return defaultProvider ? [defaultProvider] : allProviders;
   }
 
   @Get("instructor/question-bank/ai-providers/:providerId/models") @RequirePermissions("question:manage")
@@ -385,8 +390,15 @@ export class ContentController {
     const { clientRequestId, providerId: _providerId, model: _model, ...payload } = input;
     void _providerId; void _model;
     return this.aiRequests.run(clientRequestId, session.user.id, payload, async () => {
-    const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds, input.contextMode === "WEB_SEARCH");
-    const aiTask = await this.aiProviders.resolveTask("GENERATE_EXAM");
+      const context = await this.learning.getExamGenerationContext(input.classId, session.user.id, input.materialIds, input.contextMode === "WEB_SEARCH");
+      const taskConfigs = await this.aiProviders.getTaskConfigs();
+      let aiTask = taskConfigs["GENERATE_EXAM"];
+      if (!aiTask) {
+        const activeProviders = (await this.aiProviders.list()).filter((item) => item.enabled && item.hasApiKey && (item.provider === "GEMINI" || item.provider === "OPENAI" || item.provider === "CUSTOM"));
+        const fallback = activeProviders.find((item) => item.isDefault) ?? activeProviders[0];
+        if (fallback) aiTask = { providerId: fallback.id, model: fallback.model };
+        else aiTask = await this.aiProviders.resolveTask("GENERATE_EXAM");
+      }
     const generated = await this.aiProviders.generateExamDraft({
       ...aiTask,
       courseName: context.courseName,
