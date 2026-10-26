@@ -625,11 +625,11 @@ export function LearnerClassWorkspace({
 
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
-      {/* KHUNG BỐ CỤC LỚP HỌC 2 CỘT PHONG CÁCH SHUB */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* CỘT DỌC BÊN TRÁI: SIDEBAR LỚP HỌC (THEO ĐÚNG ẢNH 3 CỦA NGƯỜI DÙNG) */}
-        <aside className="lg:col-span-3 space-y-4">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
+      {/* KHUNG BỐ CỤC LỚP HỌC 2 CỘT PHONG CÁCH SHUB (GIẢM 35% CHIỀU NGANG THANH DỌC) */}
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* CỘT DỌC BÊN TRÁI: SIDEBAR LỚP HỌC (ĐÃ GIẢM CHIỀU NGANG 35% XUỐNG W-52) */}
+        <aside className="w-full lg:w-52 shrink-0 space-y-4">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs">
             {/* Nút quay lại danh sách lớp */}
             <button
               type="button"
@@ -641,20 +641,20 @@ export function LearnerClassWorkspace({
             </button>
 
             {/* Thông tin lớp học */}
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 mb-3">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 line-clamp-1">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
                 {item.name || item.code}
               </h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                 Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
               </p>
 
-              <div className="mt-3 flex items-center gap-2">
-                <div className="size-8 rounded-full bg-slate-200 dark:bg-slate-700 grid place-items-center text-xs font-bold text-slate-700 dark:text-slate-200 shrink-0">
+              <div className="mt-2.5 flex items-center gap-2">
+                <div className="size-7 rounded-full bg-slate-200 dark:bg-slate-700 grid place-items-center text-[10px] font-bold text-slate-700 dark:text-slate-200 shrink-0">
                   {teacherName.slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Giáo viên</span>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 block leading-tight">Giáo viên</span>
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
                     {teacherName}
                   </p>
@@ -681,14 +681,14 @@ export function LearnerClassWorkspace({
                     key={id}
                     type="button"
                     onClick={() => setActiveTab(id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left ${
                       active
                         ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     }`}
                   >
-                    <Icon size={16} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
-                    <span>{label}</span>
+                    <Icon size={15} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
+                    <span className="truncate">{label}</span>
                   </button>
                 );
               })}
@@ -697,7 +697,7 @@ export function LearnerClassWorkspace({
         </aside>
 
         {/* CỘT NỘI DUNG CHÍNH BÊN PHẢI (THEO TỪNG TAB CON) */}
-        <main className="lg:col-span-9 space-y-5">
+        <main className="flex-1 min-w-0 space-y-5">
           {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE) ================= */}
           {activeTab === "feed" && (
             <div className="space-y-4">
