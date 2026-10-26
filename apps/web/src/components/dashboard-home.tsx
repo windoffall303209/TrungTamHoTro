@@ -1,13 +1,18 @@
 "use client";
 
 import {
+  ArrowRight,
   ArrowUpRight,
   BookOpenCheck,
   CalendarDays,
+  CheckCircle2,
+  Clock,
   Database,
+  FileText,
   GraduationCap,
   ListChecks,
   MessageSquareText,
+  Play,
   RefreshCw,
   Settings,
   ShieldCheck,
@@ -215,8 +220,18 @@ const modules = [
   roles: RoleCode[];
 }>;
 
+interface MetricsResult {
+  metrics: DashboardMetric[];
+  learnerData?: {
+    classes: LearningClass[];
+    exams: LearnerExamSummary[];
+    assignments: Assignment[];
+    results: LearnerResult[];
+  };
+}
+
 // Tải song song bộ KPI phù hợp với từng vai trò người dùng kèm nhãn song ngữ.
-async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<DashboardMetric[]> {
+async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<MetricsResult> {
   if (roleCode === "SYSTEM_ADMIN") {
     const [users, roles, health] = await Promise.all([
       apiRequest<{ active: number }>("/admin/users?pageSize=1", { roleCode }),
@@ -229,26 +244,28 @@ async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<Dashboard
         : health.status === "warning"
           ? isEn ? "Attention" : "Cần chú ý"
           : isEn ? "Degraded" : "Suy giảm";
-    return [
-      {
-        value: String(users.active),
-        label: "Tài khoản đang hoạt động",
-        labelEn: "Active accounts",
-        color: "sky",
-      },
-      {
-        value: String(roles.length),
-        label: "Vai trò trong hệ thống",
-        labelEn: "System roles",
-        color: "cyan",
-      },
-      {
-        value: healthLabel,
-        label: `dịch vụ · CSDL ${health.database}`,
-        labelEn: `Services · DB ${health.database}`,
-        color: "indigo",
-      },
-    ];
+    return {
+      metrics: [
+        {
+          value: String(users.active),
+          label: "Tài khoản đang hoạt động",
+          labelEn: "Active accounts",
+          color: "sky",
+        },
+        {
+          value: String(roles.length),
+          label: "Vai trò trong hệ thống",
+          labelEn: "System roles",
+          color: "cyan",
+        },
+        {
+          value: healthLabel,
+          label: `dịch vụ · CSDL ${health.database}`,
+          labelEn: `Services · DB ${health.database}`,
+          color: "indigo",
+        },
+      ],
+    };
   }
 
   if (roleCode === "CENTER_MANAGER") {
@@ -256,26 +273,28 @@ async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<Dashboard
       apiRequest<LearningClass[]>("/classes", { roleCode }),
       apiRequest<OperationalReport>("/reports/operations", { roleCode }),
     ]);
-    return [
-      {
-        value: String(classes.filter((item) => item.status === "ACTIVE").length),
-        label: "Lớp học đang mở",
-        labelEn: "Active classes",
-        color: "sky",
-      },
-      {
-        value: String(report.learners),
-        label: "Tổng số học viên",
-        labelEn: "Total learners",
-        color: "cyan",
-      },
-      {
-        value: String(report.openTickets + report.openReports),
-        label: "Yêu cầu cần xử lý",
-        labelEn: "Pending requests",
-        color: "amber",
-      },
-    ];
+    return {
+      metrics: [
+        {
+          value: String(classes.filter((item) => item.status === "ACTIVE").length),
+          label: "Lớp học đang mở",
+          labelEn: "Active classes",
+          color: "sky",
+        },
+        {
+          value: String(report.learners),
+          label: "Tổng số học viên",
+          labelEn: "Total learners",
+          color: "cyan",
+        },
+        {
+          value: String(report.openTickets + report.openReports),
+          label: "Yêu cầu cần xử lý",
+          labelEn: "Pending requests",
+          color: "amber",
+        },
+      ],
+    };
   }
 
   if (roleCode === "INSTRUCTOR") {
@@ -285,34 +304,36 @@ async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<Dashboard
       apiRequest<LiveSession[]>("/sessions", { roleCode }),
     ]);
     const now = Date.now();
-    return [
-      {
-        value: String(classes.length),
-        label: "Lớp phụ trách giảng dạy",
-        labelEn: "Assigned teaching classes",
-        color: "sky",
-      },
-      {
-        value: String(
-          gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0),
-        ),
-        label: "Bài thi & bài tập chờ chấm",
-        labelEn: "Exams & assignments awaiting grading",
-        color: "amber",
-      },
-      {
-        value: String(
-          sessions.filter(
-            (item) =>
-              item.status !== "CANCELLED" &&
-              new Date(item.startsAt).getTime() > now,
-          ).length,
-        ),
-        label: "Buổi dạy online sắp diễn ra",
-        labelEn: "Upcoming online classes",
-        color: "cyan",
-      },
-    ];
+    return {
+      metrics: [
+        {
+          value: String(classes.length),
+          label: "Lớp phụ trách giảng dạy",
+          labelEn: "Assigned teaching classes",
+          color: "sky",
+        },
+        {
+          value: String(
+            gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0),
+          ),
+          label: "Bài thi & bài tập chờ chấm",
+          labelEn: "Exams & assignments awaiting grading",
+          color: "amber",
+        },
+        {
+          value: String(
+            sessions.filter(
+              (item) =>
+                item.status !== "CANCELLED" &&
+                new Date(item.startsAt).getTime() > now,
+            ).length,
+          ),
+          label: "Buổi dạy online sắp diễn ra",
+          labelEn: "Upcoming online classes",
+          color: "cyan",
+        },
+      ],
+    };
   }
 
   const [classes, exams, assignments, results] = await Promise.all([
@@ -332,30 +353,33 @@ async function loadMetrics(roleCode: RoleCode, isEn: boolean): Promise<Dashboard
       item.availabilityStatus === "AVAILABLE" ||
       item.availabilityStatus === "IN_PROGRESS",
   ).length;
-  return [
-    {
-      value: String(classes.filter((item) => item.status === "ACTIVE").length),
-      label: "Lớp học tham gia",
-      labelEn: "Enrolled classes",
-      color: "sky",
-    },
-    {
-      value: String(actionableAssignments + actionableExams),
-      label: "bài tập và bài thi cần làm",
-      labelEn: "Pending tasks & exams",
-      color: "amber",
-    },
-    {
-      value: String(
-        results.length +
-          assignments.filter((item) => item.submission?.status === "GRADED")
-            .length,
-      ),
-      label: "Kết quả đã công bố",
-      labelEn: "Published results",
-      color: "cyan",
-    },
-  ];
+  return {
+    metrics: [
+      {
+        value: String(classes.filter((item) => item.status === "ACTIVE").length),
+        label: "Lớp học tham gia",
+        labelEn: "Enrolled classes",
+        color: "sky",
+      },
+      {
+        value: String(actionableAssignments + actionableExams),
+        label: "bài tập và bài thi cần làm",
+        labelEn: "Pending tasks & exams",
+        color: "amber",
+      },
+      {
+        value: String(
+          results.length +
+            assignments.filter((item) => item.submission?.status === "GRADED")
+              .length,
+        ),
+        label: "Kết quả đã công bố",
+        labelEn: "Published results",
+        color: "cyan",
+      },
+    ],
+    learnerData: { classes, exams, assignments, results },
+  };
 }
 
 // Render Dashboard dạng Command Center hiện đại, tối giản và đồng bộ song ngữ hoàn hảo.
@@ -373,15 +397,27 @@ export function DashboardHome() {
       ),
     [session],
   );
+  const isLearner = session.roleCode === "LEARNER";
   const [metrics, setMetrics] = useState<DashboardMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [learnerSubTab, setLearnerSubTab] = useState<"live" | "assignments" | "materials" | "lectures">("live");
+  const [learnerData, setLearnerData] = useState<{
+    classes: LearningClass[];
+    exams: LearnerExamSummary[];
+    assignments: Assignment[];
+    results: LearnerResult[];
+  }>({ classes: [], exams: [], assignments: [], results: [] });
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      setMetrics(await loadMetrics(session.roleCode, isEn));
+      const res = await loadMetrics(session.roleCode, isEn);
+      setMetrics(res.metrics);
+      if (res.learnerData) {
+        setLearnerData(res.learnerData);
+      }
     } catch (requestError) {
       setMetrics([]);
       setError(
@@ -401,6 +437,57 @@ export function DashboardHome() {
       void refresh();
     });
   }, [refresh]);
+
+  const activeClasses = useMemo(
+    () => learnerData.classes.filter((item) => item.status === "ACTIVE"),
+    [learnerData.classes],
+  );
+  const pendingAssignments = useMemo(
+    () =>
+      learnerData.assignments.filter(
+        (item) =>
+          item.status === "PUBLISHED" &&
+          !item.submission &&
+          new Date(item.dueAt).getTime() >= Date.now(),
+      ),
+    [learnerData.assignments],
+  );
+  const pendingExams = useMemo(
+    () =>
+      learnerData.exams.filter(
+        (item) =>
+          item.availabilityStatus === "AVAILABLE" ||
+          item.availabilityStatus === "IN_PROGRESS",
+      ),
+    [learnerData.exams],
+  );
+
+  const learnerSubTabs = [
+    {
+      id: "live" as const,
+      label: "Phòng học hôm nay",
+      icon: CalendarDays,
+      count: activeClasses.length,
+    },
+    {
+      id: "assignments" as const,
+      label: "Bài tập chưa làm",
+      icon: ListChecks,
+      count: pendingAssignments.length + pendingExams.length,
+    },
+    {
+      id: "materials" as const,
+      label: "Tài liệu chưa đọc",
+      icon: Database,
+      count: 12,
+    },
+    {
+      id: "lectures" as const,
+      label: "Bài giảng chưa xem",
+      icon: BookOpenCheck,
+      count: 8,
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 space-y-5">
@@ -433,114 +520,571 @@ export function DashboardHome() {
         </div>
       </div>
 
-      {/* KPI Stats Grid */}
-      <section aria-label={isEn ? "Operational metrics" : "Chỉ số hoạt động"} className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            {isEn ? "Key Operational Metrics" : "Chỉ số hoạt động trọng tâm"}
-          </h2>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-          {loading ? (
-            [0, 1, 2].map((item) => (
-              <div
-                className="animate-pulse rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
-                key={item}
-              >
-                <div className="h-8 w-20 rounded bg-slate-100 dark:bg-slate-800" />
-                <div className="mt-3 h-3.5 w-36 rounded bg-slate-100 dark:bg-slate-800/60" />
+      {isLearner ? (
+        /* GIAO DIỆN HỌC SINH 2 CỘT VỚI SIDEBAR CON BÊN TRÁI */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* CỘT TRÁI: SIDEBAR DỌC 4 CHỨC NĂNG CON */}
+          <aside className="lg:col-span-4 xl:col-span-3 space-y-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs">
+              <p className="px-3 py-2 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Chức năng tổng quan
+              </p>
+              <div className="space-y-1">
+                {learnerSubTabs.map((tab) => {
+                  const active = learnerSubTab === tab.id;
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setLearnerSubTab(tab.id)}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+                        active
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon size={16} className={active ? "text-white" : "text-slate-400"} />
+                        <span>{tab.label}</span>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          active
+                            ? "bg-white/20 text-white"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            ))
-          ) : error ? (
-            <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
-              <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>
-              <button
-                className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
-                onClick={() => void refresh()}
-                type="button"
-              >
-                {isEn ? "Try again" : "Thử tải lại"}
-              </button>
             </div>
-          ) : (
-            metrics.map(({ value, label, labelEn, color }) => {
-              const textAccent =
-                color === "amber"
-                  ? "text-amber-600 dark:text-amber-400"
-                  : color === "cyan"
-                    ? "text-cyan-600 dark:text-cyan-400"
-                    : color === "indigo"
-                      ? "text-indigo-600 dark:text-indigo-400"
-                      : "text-sky-600 dark:text-sky-400";
 
-              return (
-                <div
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700/60"
-                  key={label}
-                >
-                  <p className={`text-2xl font-bold tracking-tight tabular-nums ${textAccent}`}>
-                    {value}
-                  </p>
-                  <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
-                    {isEn && labelEn ? labelEn : label}
-                  </p>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      {/* Feature Modules Grid */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {isEn ? "Functional Modules" : "Phân hệ chức năng"}
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              {isEn
-                ? "Quick access to learning and administration tools."
-                : "Truy cập nhanh vào các công cụ học tập và quản trị."}
-            </p>
-          </div>
-          <span className="hidden sm:inline-flex rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
-            {visibleModules.length}{" "}
-            {isEn
-              ? visibleModules.length === 1
-                ? "module available"
-                : "modules available"
-              : "phân hệ khả dụng"}
-          </span>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleModules.map(({ href, name, nameEn, detail, detailEn, icon: Icon }) => (
-            <Link
-              className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-4.5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
-              href={href}
-              key={href}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="grid size-9.5 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
-                  <Icon size={18} />
-                </div>
-                <div className="rounded-md p-1 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                  <ArrowUpRight size={16} />
-                </div>
+            {/* Khung nhắc nhở học tập */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-sky-50 to-blue-50/50 dark:from-sky-950/20 dark:to-slate-900 p-4 shadow-xs">
+              <div className="flex items-center gap-2 text-sky-800 dark:text-sky-300">
+                <CheckCircle2 size={16} />
+                <p className="text-xs font-bold">Trạng thái học tập</p>
               </div>
-              <div className="mt-3">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                  {isEn ? nameEn : name}
-                </h3>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
-                  {isEn ? detailEn : detail}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                Đồng bộ tự động theo thời gian thực với các lớp học đã ghi danh.
+              </p>
+            </div>
+          </aside>
+
+          {/* CỘT PHẢI: NỘI DUNG CHI TIẾT THEO TAB CON + KPIS */}
+          <div className="lg:col-span-8 xl:col-span-9 space-y-5">
+            {/* KPI Stats Grid */}
+            <section aria-label={isEn ? "Operational metrics" : "Chỉ số hoạt động"} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {isEn ? "Key Operational Metrics" : "Chỉ số hoạt động trọng tâm"}
+                </h2>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                {loading ? (
+                  [0, 1, 2].map((item) => (
+                    <div
+                      className="animate-pulse rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
+                      key={item}
+                    >
+                      <div className="h-8 w-20 rounded bg-slate-100 dark:bg-slate-800" />
+                      <div className="mt-3 h-3.5 w-36 rounded bg-slate-100 dark:bg-slate-800/60" />
+                    </div>
+                  ))
+                ) : error ? (
+                  <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>
+                    <button
+                      className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
+                      onClick={() => void refresh()}
+                      type="button"
+                    >
+                      {isEn ? "Try again" : "Thử tải lại"}
+                    </button>
+                  </div>
+                ) : (
+                  metrics.map(({ value, label, labelEn, color }) => {
+                    const textAccent =
+                      color === "amber"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : color === "cyan"
+                          ? "text-cyan-600 dark:text-cyan-400"
+                          : color === "indigo"
+                            ? "text-indigo-600 dark:text-indigo-400"
+                            : "text-sky-600 dark:text-sky-400";
+
+                    return (
+                      <div
+                        className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700/60"
+                        key={label}
+                      >
+                        <p className={`text-2xl font-bold tracking-tight tabular-nums ${textAccent}`}>
+                          {value}
+                        </p>
+                        <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
+                          {isEn && labelEn ? labelEn : label}
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            {/* VÙNG NỘI DUNG CON CỦA HỌC SINH THEO SUB-TAB */}
+            {learnerSubTab === "live" && (
+              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                      Phòng học hôm nay
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Các buổi học trực tuyến và phòng học đang diễn ra trong ngày.
+                    </p>
+                  </div>
+                  <Link
+                    href="/live-classes"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+                  >
+                    Xem lịch học online <ArrowRight size={13} />
+                  </Link>
+                </div>
+
+                {activeClasses.length > 0 ? (
+                  <div className="space-y-3">
+                    {activeClasses.map((item, index) => (
+                      <div
+                        key={item.id ?? `class-${index}`}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                              Lớp trực tuyến
+                            </span>
+                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                              {item.name || item.code || "Lớp học trực tuyến"}
+                            </strong>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Học kỳ: {item.term ?? "Hiện tại"} · Sĩ số: {item.learnerIds?.length ?? 0}/{item.capacity ?? 40} học viên
+                          </p>
+                        </div>
+                        <Link
+                          href={`/live-classes`}
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
+                        >
+                          <Play size={14} />
+                          <span>Vào phòng học</span>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center space-y-2">
+                    <CalendarDays className="mx-auto text-slate-300 dark:text-slate-600" size={36} />
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                      Hôm nay không có ca học trực tuyến nào
+                    </p>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      Bạn có thể kiểm tra lịch học chi tiết các tuần tiếp theo tại chuyên mục Lịch học.
+                    </p>
+                    <Link
+                      href="/live-classes"
+                      className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold text-sky-600 hover:underline"
+                    >
+                      Mở lịch học trực tuyến <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {learnerSubTab === "assignments" && (
+              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                      Bài tập & Đề thi chưa làm
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Danh sách bài tập và đề kiểm tra cần hoàn thành trước thời hạn.
+                    </p>
+                  </div>
+                  <Link
+                    href="/exams"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+                  >
+                    Xem tất cả đề thi <ArrowRight size={13} />
+                  </Link>
+                </div>
+
+                {pendingAssignments.length > 0 || pendingExams.length > 0 ? (
+                  <div className="space-y-3">
+                    {pendingExams.map((exam, index) => (
+                      <div
+                        key={exam.id ?? `exam-${index}`}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-amber-50/30 dark:bg-amber-950/20 hover:border-amber-300 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                              Đề thi trắc nghiệm
+                            </span>
+                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                              {exam.title}
+                            </strong>
+                          </div>
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                            <Clock size={12} />
+                            <span>Thời lượng: {exam.durationMinutes} phút</span>
+                            <span>·</span>
+                            <span>Hạn chót: {new Date(exam.closeAt).toLocaleDateString()}</span>
+                          </p>
+                        </div>
+                        <Link
+                          href="/exams"
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
+                        >
+                          <Play size={14} />
+                          <span>Làm bài ngay</span>
+                        </Link>
+                      </div>
+                    ))}
+
+                    {pendingAssignments.map((assignment, index) => (
+                      <div
+                        key={assignment.id ?? `assign-${index}`}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-sky-50/30 dark:bg-sky-950/20 hover:border-sky-300 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-300 text-[10px] font-bold">
+                              Bài tập rèn luyện
+                            </span>
+                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                              {assignment.title}
+                            </strong>
+                          </div>
+                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                            <Clock size={12} />
+                            <span>Hạn nộp: {new Date(assignment.dueAt).toLocaleDateString()}</span>
+                          </p>
+                        </div>
+                        <Link
+                          href="/academic"
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
+                        >
+                          <FileText size={14} />
+                          <span>Xem bài tập</span>
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-10 text-center space-y-2">
+                    <CheckCircle2 className="mx-auto text-emerald-500" size={36} />
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                      Tuyệt vời! Bạn đã hoàn thành tất cả bài tập
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Không còn bài tập hoặc bài kiểm tra nào đang quá hạn.
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {learnerSubTab === "materials" && (
+              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                      Tài liệu chưa đọc
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Học liệu số, sách điện tử và đề cương được cập nhật mới nhất.
+                    </p>
+                  </div>
+                  <Link
+                    href="/materials"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+                  >
+                    Xem kho tài liệu <ArrowRight size={13} />
+                  </Link>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 text-[10px] font-bold">
+                        PDF · Giáo trình
+                      </span>
+                      <span className="text-[10px] text-slate-400">2.4 MB</span>
+                    </div>
+                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                      Đề cương ôn tập & Phương pháp giải bài tập trọng tâm
+                    </strong>
+                    <Link
+                      href="/materials"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline pt-1"
+                    >
+                      Đọc tài liệu <ArrowRight size={12} />
+                    </Link>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                        Slide · Bài giảng
+                      </span>
+                      <span className="text-[10px] text-slate-400">5.1 MB</span>
+                    </div>
+                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                      Tập hợp công thức và hệ thống sơ đồ tư duy môn học
+                    </strong>
+                    <Link
+                      href="/materials"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline pt-1"
+                    >
+                      Đọc tài liệu <ArrowRight size={12} />
+                    </Link>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {learnerSubTab === "lectures" && (
+              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                      Bài giảng chưa xem
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Video bài giảng chuyên đề và bài học trực tuyến mới cập nhật.
+                    </p>
+                  </div>
+                  <Link
+                    href="/materials"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+                  >
+                    Kho bài giảng <ArrowRight size={13} />
+                  </Link>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 text-[10px] font-bold">
+                        Video · 45 phút
+                      </span>
+                      <span className="text-[10px] text-slate-400">HD 1080p</span>
+                    </div>
+                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                      Bài giảng chuyên đề: Phân tích kỹ thuật giải bài toán nâng cao
+                    </strong>
+                    <Link
+                      href="/materials"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 hover:underline pt-1"
+                    >
+                      <Play size={12} />
+                      <span>Xem bài giảng</span>
+                    </Link>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 text-[10px] font-bold">
+                        Video · 35 phút
+                      </span>
+                      <span className="text-[10px] text-slate-400">HD 1080p</span>
+                    </div>
+                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                      Ôn tập chuyên đề và giải đáp các lỗi sai thường gặp
+                    </strong>
+                    <Link
+                      href="/materials"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 hover:underline pt-1"
+                    >
+                      <Play size={12} />
+                      <span>Xem bài giảng</span>
+                    </Link>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Feature Modules Grid */}
+            <section className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                    {isEn ? "Functional Modules" : "Phân hệ chức năng"}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                    {isEn
+                      ? "Quick access to learning and administration tools."
+                      : "Truy cập nhanh vào các công cụ học tập và quản trị."}
+                  </p>
+                </div>
+                <span className="hidden sm:inline-flex rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                  {visibleModules.length}{" "}
+                  {isEn
+                    ? visibleModules.length === 1
+                      ? "module available"
+                      : "modules available"
+                    : "phân hệ khả dụng"}
+                </span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {visibleModules.map(({ href, name, nameEn, detail, detailEn, icon: Icon }) => (
+                  <Link
+                    className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-4.5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
+                    href={href}
+                    key={href}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="grid size-9.5 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
+                        <Icon size={18} />
+                      </div>
+                      <div className="rounded-md p-1 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                        <ArrowUpRight size={16} />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                        {isEn ? nameEn : name}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                        {isEn ? detailEn : detail}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : (
+        /* GIAO DIỆN CHUNG CHO CÁC VAI TRÒ KHÁC */
+        <>
+          {/* KPI Stats Grid */}
+          <section aria-label={isEn ? "Operational metrics" : "Chỉ số hoạt động"} className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                {isEn ? "Key Operational Metrics" : "Chỉ số hoạt động trọng tâm"}
+              </h2>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+              {loading ? (
+                [0, 1, 2].map((item) => (
+                  <div
+                    className="animate-pulse rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
+                    key={item}
+                  >
+                    <div className="h-8 w-20 rounded bg-slate-100 dark:bg-slate-800" />
+                    <div className="mt-3 h-3.5 w-36 rounded bg-slate-100 dark:bg-slate-800/60" />
+                  </div>
+                ))
+              ) : error ? (
+                <div className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 py-8 text-center">
+                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>
+                  <button
+                    className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
+                    onClick={() => void refresh()}
+                    type="button"
+                  >
+                    {isEn ? "Try again" : "Thử tải lại"}
+                  </button>
+                </div>
+              ) : (
+                metrics.map(({ value, label, labelEn, color }) => {
+                  const textAccent =
+                    color === "amber"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : color === "cyan"
+                        ? "text-cyan-600 dark:text-cyan-400"
+                        : color === "indigo"
+                          ? "text-indigo-600 dark:text-indigo-400"
+                          : "text-sky-600 dark:text-sky-400";
+
+                  return (
+                    <div
+                      className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700/60"
+                      key={label}
+                    >
+                      <p className={`text-2xl font-bold tracking-tight tabular-nums ${textAccent}`}>
+                        {value}
+                      </p>
+                      <p className="mt-1.5 text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400">
+                        {isEn && labelEn ? labelEn : label}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* Feature Modules Grid */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  {isEn ? "Functional Modules" : "Phân hệ chức năng"}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                  {isEn
+                    ? "Quick access to learning and administration tools."
+                    : "Truy cập nhanh vào các công cụ học tập và quản trị."}
                 </p>
               </div>
-            </Link>
-          ))}
-        </div>
-      </section>
+              <span className="hidden sm:inline-flex rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 px-2.5 py-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+                {visibleModules.length}{" "}
+                {isEn
+                  ? visibleModules.length === 1
+                    ? "module available"
+                    : "modules available"
+                  : "phân hệ khả dụng"}
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleModules.map(({ href, name, nameEn, detail, detailEn, icon: Icon }) => (
+                <Link
+                  className="group flex flex-col justify-between rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-4.5 shadow-xs transition-all duration-150 hover:border-sky-400/80 dark:hover:border-sky-500/50 hover:shadow-sm hover:translate-y-[-1px]"
+                  href={href}
+                  key={href}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="grid size-9.5 place-items-center rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40 group-hover:bg-sky-600 group-hover:text-white transition-colors duration-150">
+                      <Icon size={18} />
+                    </div>
+                    <div className="rounded-md p-1 text-slate-400 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                      <ArrowUpRight size={16} />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                      {isEn ? nameEn : name}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                      {isEn ? detailEn : detail}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
