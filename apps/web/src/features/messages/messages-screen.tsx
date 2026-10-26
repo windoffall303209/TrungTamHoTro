@@ -5,58 +5,38 @@ import {
   shouldSendChatMessage,
   shouldStartChatTimeGroup,
 } from "@/lib/chat-message";
-import { SHARED_DEFAULT_CONTACTS } from "@/lib/chat-shared-store";
 import {
-  AlertCircle,
   ArrowLeft,
   ArrowUp,
   Bell,
   BellOff,
-  ChevronDown,
   Download,
   Eye,
-  FileText,
-  Image as ImageIcon,
-  Info,
   LoaderCircle,
-  Lock,
   MessageCircle,
   Mic,
-  MoreHorizontal,
   Paperclip,
-  Phone,
-  Pin,
-  Plus,
   Reply,
   RotateCcw,
   Search,
   ShieldAlert,
-  Smile,
   Square,
   SquarePen,
-  ThumbsUp,
   User,
-  Users,
   UserX,
-  Video,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { InlineChatImage, roleLabels } from "./messages.shared";
 import { useMessagesModel } from "./use-messages-model";
 
 /** Hiển thị avatar tròn dạng chữ cái viết tắt hoặc hình đại diện */
-function MessengerAvatarBadge({
+function UserAvatarBadge({
   name,
-  gradient,
   size = "md",
-  isOnline = true,
 }: {
   name: string;
-  gradient?: string;
-  size?: "xs" | "sm" | "md" | "lg" | "xl";
-  isOnline?: boolean;
+  size?: "xs" | "sm" | "md" | "lg";
 }) {
   const initials = name
     .trim()
@@ -66,41 +46,24 @@ function MessengerAvatarBadge({
     .join("");
 
   const sizeClass = {
-    xs: "size-4 text-[9px]",
-    sm: "size-7 text-xs",
-    md: "size-12 text-sm",
+    xs: "size-5 text-[10px]",
+    sm: "size-8 text-xs",
+    md: "size-11 text-sm",
     lg: "size-14 text-base",
-    xl: "size-20 text-xl",
-  }[size];
-
-  const dotSize = {
-    xs: "size-1.5 border-1",
-    sm: "size-2.5 border-1.5",
-    md: "size-3.5 border-2",
-    lg: "size-4 border-2",
-    xl: "size-5 border-2",
   }[size];
 
   return (
     <div className="relative shrink-0 select-none">
       <div
-        className={`${sizeClass} rounded-full bg-gradient-to-tr ${
-          gradient || "from-blue-600 via-indigo-600 to-purple-600"
-        } grid place-items-center text-white font-bold shadow-sm overflow-hidden`}
+        className={`${sizeClass} rounded-full bg-gradient-to-tr from-purple-600 via-indigo-600 to-blue-600 grid place-items-center text-white font-bold shadow-xs overflow-hidden`}
       >
         {initials || "U"}
       </div>
-      {isOnline && (
-        <span
-          className={`absolute bottom-0 right-0 ${dotSize} rounded-full bg-emerald-500 border-[#181920] shadow-xs`}
-          title="Đang hoạt động"
-        />
-      )}
     </div>
   );
 }
 
-/** Lắp ghép màn hình tin nhắn Facebook Messenger chuẩn 3 cột chuyên nghiệp */
+/** Màn hình tin nhắn 1-1 chuyên nghiệp 2 cột tinh gọn, kết nối trực tiếp dữ liệu từ CSDL. */
 export default function MessagesScreen() {
   const model = useMessagesModel();
   const {
@@ -124,8 +87,6 @@ export default function MessagesScreen() {
     failedMessage,
     messageFiles,
     setMessageFiles,
-    mentionedUserIds,
-    setMentionedUserIds,
     messageQuery,
     setMessageQuery,
     searchResults,
@@ -149,83 +110,48 @@ export default function MessagesScreen() {
     updateDraft,
     searchDirectory,
     openDirect,
-    openClass,
     sendMessage,
     searchConversation,
     toggleMute,
     reportMessage,
     blockDirectUser,
     openAttachment,
-    classChoices,
-    isInfoPanelOpen,
-    setIsInfoPanelOpen,
-    activeFilter,
-    setActiveFilter,
   } = model;
 
-  // Trạng thái đóng/mở các mục accordion của Cột 3 (Thông tin đoạn chat)
-  const [accordionOpen, setAccordionOpen] = useState<{
-    info: boolean;
-    customize: boolean;
-    media: boolean;
-    privacy: boolean;
-  }>({
-    info: true,
-    customize: true,
-    media: false,
-    privacy: false,
-  });
-
-  // Tìm contact tương ứng từ SHARED_DEFAULT_CONTACTS để lấy gradient & status
-  const currentContact = SHARED_DEFAULT_CONTACTS.find(
-    (c) => c.id === selected?.id,
+  // Lấy thông tin người đối thoại 1-1 từ members của cuộc trò chuyện
+  const partnerMember = selected?.members.find(
+    (m) => m.userId !== session.user.id,
   );
 
-  // Lọc danh sách đoạn chat theo các tab Messenger: Tất cả, Chưa đọc, Nhóm
-  const filteredConversations = conversations.filter((item) => {
-    if (activeFilter === "unread") return (item.unreadCount ?? 0) > 0;
-    if (activeFilter === "groups") return item.type === "CLASS";
-    return true;
-  });
-
   return (
-    <div className="mx-auto h-[calc(100dvh-4.5rem)] max-w-[1920px] p-0 md:p-3">
-      <div className="flex h-full min-h-0 overflow-hidden rounded-none md:rounded-2xl border border-slate-800 bg-[#121319] text-slate-100 shadow-2xl">
-        {/* ===================== CỘT 1: SIDEBAR ĐOẠN CHAT (~360px) ===================== */}
+    <div className="mx-auto h-[calc(100dvh-4.5rem)] max-w-7xl p-0 md:p-3">
+      <div className="grid h-full min-h-0 overflow-hidden rounded-none md:rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#121319] shadow-sm md:grid-cols-[22rem_1fr]">
+        {/* ===================== CỘT 1: DANH SÁCH ĐOẠN CHAT 1-1 ===================== */}
         <aside
           className={`${
             selectedId ? "hidden md:flex" : "flex"
-          } w-full md:w-[350px] lg:w-[360px] shrink-0 min-h-0 flex-col border-r border-slate-800/90 bg-[#16171f]`}
+          } min-h-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#161720]`}
         >
-          {/* Header Đoạn chat với nút ba chấm và nút Soạn tin nhắn mới */}
-          <div className="flex items-center justify-between px-4 pt-4 pb-2 select-none">
-            <h1 className="text-2xl font-bold tracking-tight text-white">
+          {/* Header Cột Đoạn chat */}
+          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800/80 select-none">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
               Đoạn chat
             </h1>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                className="grid size-9 place-items-center rounded-full bg-[#2a2b35] hover:bg-[#383a48] text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Tùy chọn đoạn chat"
-              >
-                <MoreHorizontal size={19} />
-              </button>
-              <button
-                type="button"
-                className="grid size-9 place-items-center rounded-full bg-[#2a2b35] hover:bg-[#383a48] text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Soạn tin nhắn mới"
-                onClick={() => {
-                  const input = document.getElementById("messenger-search-input");
-                  input?.focus();
-                }}
-              >
-                <SquarePen size={18} />
-              </button>
-            </div>
+            <button
+              type="button"
+              className="grid size-9 place-items-center rounded-full bg-slate-200 dark:bg-[#252735] hover:bg-slate-300 dark:hover:bg-[#343647] text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+              title="Tìm kiếm liên hệ mới"
+              onClick={() => {
+                const input = document.getElementById("direct-chat-search-input");
+                input?.focus();
+              }}
+            >
+              <SquarePen size={17} />
+            </button>
           </div>
 
-          {/* Thanh tìm kiếm hình viên thuốc chuẩn Facebook Messenger */}
-          <div className="px-3.5 py-2">
+          {/* Ô tìm kiếm người dùng từ CSDL */}
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800/60">
             <form
               className="relative flex items-center"
               onSubmit={(event) => void searchDirectory(event)}
@@ -235,10 +161,10 @@ export default function MessagesScreen() {
                 className="absolute left-3.5 text-slate-400 pointer-events-none"
               />
               <input
-                id="messenger-search-input"
-                aria-label="Tìm kiếm trên Messenger"
-                className="w-full h-10 rounded-full bg-[#252631] pl-10 pr-4 text-xs sm:text-sm text-white placeholder:text-slate-400 border border-transparent focus:border-purple-500/50 focus:bg-[#20212a] outline-none transition-all"
-                placeholder="Tìm kiếm trên Messenger"
+                id="direct-chat-search-input"
+                aria-label="Tìm kiếm người liên hệ"
+                className="w-full h-10 rounded-full bg-white dark:bg-[#222430] border border-slate-200 dark:border-slate-700/80 pl-10 pr-9 text-xs sm:text-sm text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-purple-500 transition-all"
+                placeholder="Tìm theo tên hoặc email…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -246,7 +172,7 @@ export default function MessagesScreen() {
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  className="absolute right-3 text-slate-400 hover:text-white"
+                  className="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-white"
                 >
                   <X size={15} />
                 </button>
@@ -254,254 +180,186 @@ export default function MessagesScreen() {
             </form>
           </div>
 
-          {/* Các tab phân loại hội thoại: Tất cả - Chưa đọc - Nhóm */}
-          <div className="flex items-center gap-1.5 px-3.5 pb-2 border-b border-slate-800/80 select-none overflow-x-auto scrollbar-none">
-            <button
-              type="button"
-              onClick={() => setActiveFilter("all")}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeFilter === "all"
-                  ? "bg-[#2e89ff]/20 text-[#60a5fa] border border-[#2e89ff]/40 shadow-xs"
-                  : "bg-[#252631] text-slate-400 hover:bg-[#2d2e3b] hover:text-slate-200"
-              }`}
-            >
-              Tất cả
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveFilter("unread")}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeFilter === "unread"
-                  ? "bg-[#2e89ff]/20 text-[#60a5fa] border border-[#2e89ff]/40 shadow-xs"
-                  : "bg-[#252631] text-slate-400 hover:bg-[#2d2e3b] hover:text-slate-200"
-              }`}
-            >
-              Chưa đọc
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveFilter("groups")}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                activeFilter === "groups"
-                  ? "bg-[#2e89ff]/20 text-[#60a5fa] border border-[#2e89ff]/40 shadow-xs"
-                  : "bg-[#252631] text-slate-400 hover:bg-[#2d2e3b] hover:text-slate-200"
-              }`}
-            >
-              Nhóm
-            </button>
-          </div>
-
-          {/* Kết quả tìm kiếm danh bạ hệ thống khi có query */}
-          {directory.length || classChoices.length ? (
-            <div className="max-h-72 overflow-y-auto border-b border-slate-800 p-2 bg-[#1c1d27]">
-              <p className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Kết quả tìm kiếm
+          {/* Kết quả tìm kiếm người dùng từ danh bạ CSDL */}
+          {directory.length > 0 && (
+            <div className="max-h-64 overflow-y-auto border-b border-slate-200 dark:border-slate-800 p-2 bg-slate-100 dark:bg-[#1a1b26]">
+              <p className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Kết quả tìm kiếm ({directory.length})
               </p>
-              {classChoices.map((item) => (
-                <button
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-[#282937] transition-colors cursor-pointer"
-                  key={item.id}
-                  onClick={() => void openClass(item.id)}
-                  type="button"
-                >
-                  <div className="size-10 rounded-full bg-indigo-600/30 text-indigo-400 grid place-items-center">
-                    <Users size={18} />
-                  </div>
-                  <span className="min-w-0 flex-1">
-                    <strong className="block truncate text-xs sm:text-sm text-white">
-                      {item.name}
-                    </strong>
-                    <small className="text-slate-400">
-                      {item.code} · Nhóm lớp
-                    </small>
-                  </span>
-                </button>
-              ))}
               {directory.map((entry) => (
                 <button
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-[#282937] transition-colors cursor-pointer"
                   key={entry.id}
                   onClick={() => void openDirect(entry.id)}
                   type="button"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-slate-200/70 dark:hover:bg-[#282937] transition-colors cursor-pointer"
                 >
-                  <MessengerAvatarBadge name={entry.displayName} size="sm" />
+                  <UserAvatarBadge name={entry.displayName} size="sm" />
                   <span className="min-w-0 flex-1">
-                    <strong className="block truncate text-xs sm:text-sm text-white">
+                    <strong className="block truncate text-xs sm:text-sm text-slate-800 dark:text-white">
                       {entry.displayName}
                     </strong>
-                    <small className="text-slate-400">
-                      {roleLabels[entry.roleCode]}
-                      {entry.sharedClasses[0]
-                        ? ` · ${entry.sharedClasses[0].code}`
-                        : ""}
+                    <small className="text-slate-500 dark:text-slate-400">
+                      {roleLabels[entry.roleCode] || "Người dùng"}
                     </small>
                   </span>
                 </button>
               ))}
             </div>
-          ) : null}
+          )}
 
-          {/* Danh sách cuộc trò chuyện chuẩn phong cách Messenger */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-0.5 scrollbar-thin">
+          {/* Danh sách các cuộc hội thoại 1-1 từ CSDL */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin">
             {loading ? (
               <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
-                <LoaderCircle className="animate-spin mb-2" size={24} />
-                <p className="text-xs">Đang tải đoạn chat…</p>
+                <LoaderCircle className="animate-spin mb-2" size={22} />
+                <p className="text-xs">Đang tải đoạn chat từ CSDL…</p>
               </div>
-            ) : filteredConversations.length ? (
-              filteredConversations.map((item) => {
+            ) : conversations.length ? (
+              conversations.map((item) => {
                 const isSelected = item.id === selectedId;
-                const matchContact = SHARED_DEFAULT_CONTACTS.find(
-                  (c) => c.id === item.id,
-                );
+                const partner = item.members.find((m) => m.userId !== session.user.id);
+                const title = partner?.displayName || item.title || "Cuộc trò chuyện";
                 return (
                   <button
                     aria-current={isSelected ? "true" : undefined}
                     key={item.id}
                     onClick={() => setSelectedId(item.id)}
                     type="button"
-                    className={`group w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer ${
+                    className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-left transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-[#252735] text-white shadow-xs"
-                        : "hover:bg-[#1d1f2a] text-slate-300"
+                        ? "bg-purple-50 dark:bg-[#252735] text-purple-900 dark:text-white border-l-4 border-purple-600 shadow-2xs font-semibold"
+                        : "hover:bg-slate-200/60 dark:hover:bg-[#1d1f2a] text-slate-700 dark:text-slate-300"
                     }`}
                   >
-                    <MessengerAvatarBadge
-                      name={item.title}
-                      gradient={matchContact?.gradient}
-                      size="md"
-                      isOnline={matchContact?.isOnline ?? true}
-                    />
+                    <UserAvatarBadge name={title} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <strong
-                          className={`truncate text-[14px] ${
+                          className={`truncate text-[13.5px] ${
                             isSelected || (item.unreadCount ?? 0) > 0
-                              ? "font-bold text-white"
-                              : "font-semibold text-slate-200"
+                              ? "font-bold text-slate-900 dark:text-white"
+                              : "font-semibold text-slate-700 dark:text-slate-200"
                           }`}
                         >
-                          {item.title}
+                          {title}
                         </strong>
-                        <span className="text-[11px] text-slate-400 shrink-0">
-                          {matchContact?.lastMessageTime || "Vừa xong"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <p
-                          className={`truncate text-[12px] leading-tight ${
-                            (item.unreadCount ?? 0) > 0
-                              ? "font-bold text-white"
-                              : "text-slate-400"
-                          }`}
-                        >
-                          {item.lastMessage?.content ??
-                            (item.type === "CLASS"
-                              ? "Nhóm lớp học"
-                              : "Chưa có tin nhắn")}
-                        </p>
                         {(item.unreadCount ?? 0) > 0 && (
-                          <span className="grid size-4 shrink-0 place-items-center rounded-full bg-blue-500 text-[10px] font-black text-white">
+                          <span className="grid size-4 shrink-0 place-items-center rounded-full bg-purple-600 text-[10px] font-black text-white">
                             {item.unreadCount}
                           </span>
                         )}
                       </div>
+                      <p
+                        className={`truncate text-xs mt-0.5 ${
+                          (item.unreadCount ?? 0) > 0
+                            ? "font-bold text-slate-900 dark:text-slate-100"
+                            : "text-slate-500 dark:text-slate-400"
+                        }`}
+                      >
+                        {item.lastMessage?.content || "Bắt đầu cuộc trò chuyện"}
+                      </p>
                     </div>
                   </button>
                 );
               })
             ) : (
-              <p className="p-6 text-center text-xs leading-5 text-slate-400">
-                Không có đoạn chat nào trong mục này.
+              <p className="p-6 text-center text-xs leading-5 text-slate-500 dark:text-slate-400">
+                Chưa có hội thoại nào trong CSDL. Dùng ô tìm kiếm để liên hệ với giảng viên hoặc quản trị viên.
               </p>
             )}
           </div>
         </aside>
 
-        {/* ===================== CỘT 2: KHUNG CHAT CHÍNH (FLEX-1) ===================== */}
+        {/* ===================== CỘT 2: KHUNG CHAT 1-1 CHÍNH (FLEX-1) ===================== */}
         <section
           className={`${
             selectedId ? "flex" : "hidden md:flex"
-          } flex-1 min-h-0 min-w-0 flex-col bg-[#14151d]`}
+          } min-h-0 min-w-0 flex-col bg-white dark:bg-[#121319]`}
         >
           {selected ? (
             <>
-              {/* Header Messenger với nút Gọi thoại, Video Call và nút Thông tin (Cột 3) */}
-              <header className="h-16 px-4 bg-[#1a1b24] border-b border-slate-800/90 flex items-center justify-between select-none">
+              {/* Header khung chat 1-1 */}
+              <header className="h-16 px-4 bg-white dark:bg-[#181922] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between select-none">
                 <div className="flex items-center gap-3 min-w-0">
                   <button
                     aria-label="Quay lại danh sách"
-                    className="grid size-9 place-items-center md:hidden rounded-full hover:bg-slate-700/60 text-slate-300"
+                    className="grid size-9 place-items-center md:hidden rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
                     onClick={() => setSelectedId("")}
                     type="button"
                   >
                     <ArrowLeft size={19} />
                   </button>
-                  <MessengerAvatarBadge
-                    name={selected.title}
-                    gradient={currentContact?.gradient}
+                  <UserAvatarBadge
+                    name={partnerMember?.displayName || selected.title}
                     size="sm"
-                    isOnline={currentContact?.isOnline ?? true}
                   />
                   <div className="min-w-0">
-                    <h2 className="truncate text-sm sm:text-base font-bold text-white leading-tight">
-                      {selected.title}
+                    <h2 className="truncate text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">
+                      {partnerMember?.displayName || selected.title}
                     </h2>
-                    <p className="text-[11px] text-slate-400 flex items-center gap-1 leading-tight">
-                      {currentContact?.isOnline ? (
-                        <>
-                          <span className="size-1.5 rounded-full bg-emerald-400 inline-block" />
-                          Đang hoạt động
-                        </>
-                      ) : (
-                        currentContact?.statusText || "Hoạt động gần đây"
-                      )}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                      {partnerMember?.roleCode
+                        ? roleLabels[partnerMember.roleCode as keyof typeof roleLabels] || partnerMember.roleCode
+                        : "Trò chuyện trực tiếp 1-1"}
                       {selected.readOnly ? " · Chỉ đọc" : ""}
                     </p>
                   </div>
                 </div>
 
-                {/* Các nút hành động header Messenger: Gọi thoại, Video call, Bật tắt Cột 3 */}
-                <div className="flex items-center gap-1 text-purple-400">
-                  <button
-                    type="button"
-                    onClick={() => alert("Chức năng gọi thoại đang kết nối…")}
-                    className="p-2 rounded-full hover:bg-purple-500/15 transition-colors cursor-pointer"
-                    title="Bắt đầu cuộc gọi thoại"
+                {/* Các công cụ thực tế của project: Tìm kiếm tin nhắn, Mute, Chặn, Báo cáo */}
+                <div className="flex items-center gap-1">
+                  <form
+                    className="hidden sm:flex items-center relative"
+                    onSubmit={(event) => void searchConversation(event)}
                   >
-                    <Phone size={19} />
-                  </button>
+                    <input
+                      aria-label="Tìm trong hội thoại"
+                      className="h-8.5 w-40 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#222430] pl-8 pr-3 text-xs outline-none focus:border-purple-500"
+                      minLength={2}
+                      onChange={(event) => setMessageQuery(event.target.value)}
+                      placeholder="Tìm tin nhắn…"
+                      value={messageQuery}
+                    />
+                    <Search
+                      size={14}
+                      className="absolute left-2.5 text-slate-400 pointer-events-none"
+                    />
+                  </form>
+
                   <button
-                    type="button"
-                    onClick={() => alert("Chức năng gọi video đang kết nối…")}
-                    className="p-2 rounded-full hover:bg-purple-500/15 transition-colors cursor-pointer"
-                    title="Bắt đầu gọi video"
-                  >
-                    <Video size={20} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsInfoPanelOpen((prev) => !prev)}
-                    className={`p-2 rounded-full transition-colors cursor-pointer ${
-                      isInfoPanelOpen
-                        ? "bg-purple-500/25 text-purple-300"
-                        : "hover:bg-purple-500/15 text-purple-400"
-                    }`}
-                    title={
-                      isInfoPanelOpen
-                        ? "Ẩn thông tin đoạn chat"
-                        : "Xem thông tin đoạn chat"
+                    aria-label={
+                      selected.mutedUntil
+                        ? "Bật thông báo"
+                        : "Tắt thông báo 24 giờ"
                     }
+                    className="grid size-9 place-items-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+                    onClick={() => void toggleMute()}
+                    title={selected.mutedUntil ? "Bật thông báo" : "Tắt thông báo"}
+                    type="button"
                   >
-                    <Info size={20} />
+                    {selected.mutedUntil ? (
+                      <BellOff size={17} className="text-purple-500" />
+                    ) : (
+                      <Bell size={17} />
+                    )}
+                  </button>
+
+                  <button
+                    aria-label="Chặn liên hệ"
+                    className="grid size-9 place-items-center rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 dark:text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                    onClick={() => setBlockOpen(true)}
+                    title="Chặn liên hệ riêng"
+                    type="button"
+                  >
+                    <UserX size={17} />
                   </button>
                 </div>
               </header>
 
-              {/* Thanh tìm kiếm nhanh nội dung trong cuộc trò chuyện (nếu đang tìm) */}
-              {searchResults.length ? (
-                <div className="max-h-40 overflow-y-auto border-b border-slate-800 bg-[#1c1d28] px-4 py-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              {/* Danh sách kết quả tìm kiếm tin nhắn nếu có */}
+              {searchResults.length > 0 && (
+                <div className="max-h-36 overflow-y-auto border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#1a1b26] px-4 py-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
                     <span>
                       {searchResults.length} kết quả cho “{messageQuery}”
                     </span>
@@ -511,28 +369,27 @@ export default function MessagesScreen() {
                         setMessageQuery("");
                       }}
                       type="button"
-                      className="text-slate-400 hover:text-white"
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-white"
                     >
-                      <X size={15} />
+                      <X size={14} />
                     </button>
                   </div>
                   {searchResults.map((item) => (
                     <button
-                      className="block w-full border-t border-slate-800/80 py-1.5 text-left text-xs text-slate-300 hover:text-white"
+                      className="block w-full border-t border-slate-200 dark:border-slate-800/80 py-1.5 text-left text-xs text-slate-600 dark:text-slate-300 hover:text-purple-600"
                       key={item.id}
                       onClick={() => setSearchResults([])}
                       type="button"
                     >
-                      <strong>{item.senderName}</strong>:{" "}
-                      {item.content.slice(0, 100)}
+                      <strong>{item.senderName}</strong>: {item.content.slice(0, 100)}
                     </button>
                   ))}
                 </div>
-              ) : null}
+              )}
 
               {/* Vùng hiển thị toàn bộ tin nhắn cuộn */}
               <div
-                className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[#121319] scrollbar-thin"
+                className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5 bg-slate-50/30 dark:bg-[#121319] scrollbar-thin"
                 onScroll={(event) =>
                   window.sessionStorage.setItem(
                     `wind-chat-scroll:${session.user.id}:${selected.id}`,
@@ -542,50 +399,39 @@ export default function MessagesScreen() {
                 ref={messagePaneRef}
               >
                 {/* Banner đầu trang hội thoại */}
-                <div className="flex flex-col items-center justify-center p-6 text-center my-4">
-                  <MessengerAvatarBadge
-                    name={selected.title}
-                    gradient={currentContact?.gradient}
-                    size="xl"
-                    isOnline={false}
+                <div className="flex flex-col items-center justify-center p-6 text-center my-3">
+                  <UserAvatarBadge
+                    name={partnerMember?.displayName || selected.title}
+                    size="lg"
                   />
-                  <h3 className="text-lg font-bold text-white mt-3">
-                    {selected.title}
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white mt-3">
+                    {partnerMember?.displayName || selected.title}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                    {currentContact?.role ||
-                      (selected.type === "CLASS"
-                        ? "Nhóm thảo luận lớp học"
-                        : "Thành viên Wind EDU")}
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {partnerMember?.roleCode
+                      ? roleLabels[partnerMember.roleCode as keyof typeof roleLabels] || partnerMember.roleCode
+                      : "Thành viên hệ thống"}
                   </p>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-2 bg-[#1c1d27] px-3 py-1 rounded-full border border-slate-800">
-                    <Lock size={12} className="text-emerald-400" />
-                    Được mã hóa đầu cuối
-                  </div>
                 </div>
 
-                {/* Danh sách bong bóng tin nhắn Messenger */}
+                {/* Danh sách các tin nhắn */}
                 {messages.map((message, index) => {
                   const mine = message.senderId === session.user.id;
                   const startsTimeGroup = shouldStartChatTimeGroup(
                     message.createdAt,
                     messages[index - 1]?.createdAt,
                   );
-                  const isLastMessage = index === messages.length - 1;
 
                   return (
                     <div key={message.id}>
                       {startsTimeGroup ? (
-                        <div className="my-4 text-center">
-                          <span className="text-[11px] font-semibold text-slate-400 bg-[#1e202a] px-3 py-1 rounded-full border border-slate-800">
-                            {new Date(message.createdAt).toLocaleDateString(
-                              "vi-VN",
-                              {
-                                weekday: "short",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              },
-                            )}
+                        <div className="my-3 text-center">
+                          <span className="text-[11px] font-semibold text-slate-400 bg-slate-200/60 dark:bg-[#1e202a] px-3 py-1 rounded-full">
+                            {new Date(message.createdAt).toLocaleDateString(locale, {
+                              weekday: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
                         </div>
                       ) : null}
@@ -597,11 +443,9 @@ export default function MessagesScreen() {
                       >
                         {!mine && (
                           <div className="mb-0.5 shrink-0">
-                            <MessengerAvatarBadge
+                            <UserAvatarBadge
                               name={message.senderName || selected.title}
-                              gradient={currentContact?.gradient}
                               size="xs"
-                              isOnline={false}
                             />
                           </div>
                         )}
@@ -609,15 +453,15 @@ export default function MessagesScreen() {
                         <div
                           className={`flex flex-col ${
                             mine ? "items-end" : "items-start"
-                          } max-w-[75%] sm:max-w-[70%]`}
+                          } max-w-[80%] sm:max-w-[70%]`}
                         >
                           {/* Trích dẫn tin nhắn đang reply nếu có */}
                           {message.replyTo ? (
                             <span
-                              className={`mb-1 block rounded-xl px-3 py-1.5 text-[11px] border leading-snug ${
+                              className={`mb-1 block rounded-xl px-3 py-1 text-[11px] border leading-snug ${
                                 mine
-                                  ? "bg-purple-950/40 border-purple-800/60 text-purple-200"
-                                  : "bg-[#252735] border-slate-700 text-slate-300"
+                                  ? "bg-purple-950/30 border-purple-800/50 text-purple-200"
+                                  : "bg-slate-200/70 dark:bg-[#252735] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
                               }`}
                             >
                               <strong className="block text-[10px] text-slate-400">
@@ -627,29 +471,23 @@ export default function MessagesScreen() {
                             </span>
                           ) : null}
 
-                          {/* Bong bóng tin nhắn chính */}
+                          {/* Bong bóng tin nhắn */}
                           <div
-                            className={`relative px-4 py-2.5 text-xs sm:text-[13.5px] leading-relaxed whitespace-pre-wrap break-words shadow-sm transition-all ${
+                            className={`relative px-4 py-2.5 text-xs sm:text-[13.5px] leading-relaxed whitespace-pre-wrap break-words shadow-2xs transition-all ${
                               mine
-                                ? "bg-gradient-to-r from-[#9333ea] to-[#a855f7] text-white rounded-2xl rounded-br-xs"
-                                : "bg-[#282933] text-slate-100 rounded-2xl rounded-bl-xs border border-slate-700/60"
+                                ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl rounded-br-xs"
+                                : "bg-white dark:bg-[#252733] text-slate-800 dark:text-slate-100 rounded-2xl rounded-bl-xs border border-slate-200 dark:border-slate-700/70"
                             }`}
                           >
-                            {!mine && selected.type === "CLASS" ? (
-                              <strong className="block text-[11px] font-bold text-purple-400 mb-0.5">
-                                {message.senderName}
-                              </strong>
-                            ) : null}
-
                             <span>{message.content}</span>
 
                             {/* Liên kết ngữ cảnh bài tập / đề thi / học liệu */}
                             {message.context ? (
                               <Link
-                                className={`mt-2 block rounded-xl border p-2.5 font-semibold text-xs ${
+                                className={`mt-2 block rounded-xl border p-2 text-xs font-semibold ${
                                   mine
                                     ? "border-white/20 bg-white/10 text-white"
-                                    : "border-slate-700 bg-slate-900/40 text-purple-300"
+                                    : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 text-purple-600 dark:text-purple-300"
                                 }`}
                                 href={message.context.href}
                               >
@@ -662,7 +500,7 @@ export default function MessagesScreen() {
                               </Link>
                             ) : null}
 
-                            {/* Các tệp đính kèm */}
+                            {/* Tệp đính kèm */}
                             {message.attachments?.length ? (
                               <div className="mt-2 space-y-1">
                                 {message.attachments.map((file) => {
@@ -686,8 +524,8 @@ export default function MessagesScreen() {
                                     );
                                   return (
                                     <div
-                                      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                                        mine ? "bg-white/15" : "bg-slate-800"
+                                      className={`flex items-center gap-2 rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                                        mine ? "bg-white/15" : "bg-slate-100 dark:bg-slate-800"
                                       }`}
                                       key={file.id}
                                     >
@@ -713,32 +551,32 @@ export default function MessagesScreen() {
                               </div>
                             ) : null}
                           </div>
-
-                          {/* Read receipt avatar nhỏ của người nhận ở cuối tin nhắn (chuẩn Messenger) */}
-                          {mine && isLastMessage && (
-                            <div className="flex items-center gap-1 mt-1 pr-1">
-                              <span className="text-[10px] text-slate-400">
-                                Đã xem
-                              </span>
-                              <MessengerAvatarBadge
-                                name={selected.title}
-                                gradient={currentContact?.gradient}
-                                size="xs"
-                                isOnline={false}
-                              />
-                            </div>
-                          )}
                         </div>
 
-                        {/* Nút reply nhanh khi hover */}
-                        <button
-                          type="button"
-                          onClick={() => setReplyTo(message)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-all cursor-pointer"
-                          title="Trả lời"
-                        >
-                          <Reply size={14} />
-                        </button>
+                        {/* Nút thao tác nhanh khi hover: Trả lời hoặc Báo cáo */}
+                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-all">
+                          <button
+                            type="button"
+                            onClick={() => setReplyTo(message)}
+                            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                            title="Trả lời"
+                          >
+                            <Reply size={14} />
+                          </button>
+                          {!mine && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReportTarget(message);
+                                setReportReason("");
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-500 rounded-full hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                              title="Báo cáo tin nhắn"
+                            >
+                              <ShieldAlert size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -746,49 +584,46 @@ export default function MessagesScreen() {
                 <div ref={bottomRef} />
               </div>
 
-              {/* Khung nhập tin nhắn Facebook Messenger với micro, ảnh, sticker, input Aa và nút Gửi/Like */}
+              {/* Form nhập và gửi tin nhắn */}
               {selected.readOnly ? (
-                <div className="p-4 border-t border-slate-800 bg-[#161720] text-center text-xs text-slate-400 font-semibold">
+                <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#161720] text-center text-xs text-slate-500 dark:text-slate-400 font-semibold">
                   Hội thoại này ở trạng thái chỉ đọc.
                 </div>
               ) : (
                 <form
-                  className="p-3 bg-[#161720] border-t border-slate-800/90 select-none"
+                  className="p-3 bg-white dark:bg-[#161720] border-t border-slate-200 dark:border-slate-800 select-none"
                   onSubmit={(event) => void sendMessage(event)}
                 >
-                  {/* Thanh thông báo trả lời tin nhắn */}
+                  {/* Trạng thái trả lời tin nhắn */}
                   {replyTo && (
-                    <div className="mb-2 flex items-center justify-between rounded-xl bg-[#222430] border border-slate-700/80 px-3 py-2 text-xs text-slate-200">
+                    <div className="mb-2 flex items-center justify-between rounded-xl bg-slate-100 dark:bg-[#222430] border border-slate-200 dark:border-slate-700/80 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200">
                       <span className="truncate">
                         <Reply
-                          className="mr-1.5 inline text-purple-400"
+                          className="mr-1.5 inline text-purple-600 dark:text-purple-400"
                           size={13}
                         />
-                        Đang trả lời <strong>{replyTo.senderName}</strong>:{" "}
-                        {replyTo.content}
+                        Trả lời <strong>{replyTo.senderName}</strong>: {replyTo.content}
                       </span>
                       <button
                         type="button"
                         onClick={() => setReplyTo(null)}
-                        className="text-slate-400 hover:text-white ml-2"
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-white ml-2"
                       >
                         <X size={14} />
                       </button>
                     </div>
                   )}
 
-                  {/* Thanh tệp đính kèm chờ gửi */}
-                  {messageFiles.length ? (
+                  {/* Danh sách tệp đính kèm */}
+                  {messageFiles.length > 0 && (
                     <div className="mb-2 flex flex-wrap gap-2">
                       {messageFiles.map((file, index) => (
                         <span
                           key={`${file.name}-${index}`}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#252735] border border-slate-700 px-2.5 py-1 text-xs text-slate-200"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-[#252735] border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200"
                         >
-                          <Paperclip size={12} className="text-purple-400" />
-                          <span className="truncate max-w-[120px]">
-                            {file.name}
-                          </span>
+                          <Paperclip size={12} className="text-purple-500" />
+                          <span className="truncate max-w-[120px]">{file.name}</span>
                           <button
                             type="button"
                             onClick={() =>
@@ -796,17 +631,17 @@ export default function MessagesScreen() {
                                 prev.filter((_, i) => i !== index),
                               )
                             }
-                            className="text-slate-400 hover:text-rose-400"
+                            className="text-slate-400 hover:text-rose-500"
                           >
                             <X size={12} />
                           </button>
                         </span>
                       ))}
                     </div>
-                  ) : null}
+                  )}
 
-                  {/* Thanh công cụ nhập liệu Facebook Messenger */}
-                  <div className="flex items-center gap-1 sm:gap-2">
+                  {/* Thanh công cụ nhập tin nhắn */}
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     {/* Nút ghi âm micro */}
                     <button
                       type="button"
@@ -814,22 +649,21 @@ export default function MessagesScreen() {
                       className={`grid size-9 sm:size-10 shrink-0 place-items-center rounded-full transition-colors cursor-pointer ${
                         recording
                           ? "bg-rose-600 text-white animate-pulse"
-                          : "text-purple-400 hover:bg-[#252735]"
+                          : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#252735]"
                       }`}
                       title={recording ? "Dừng ghi âm" : "Ghi âm tin nhắn thoại"}
                     >
-                      {recording ? <Square size={14} /> : <Mic size={19} />}
+                      {recording ? <Square size={14} /> : <Mic size={18} />}
                     </button>
 
-                    {/* Nút đính kèm ảnh */}
+                    {/* Nút đính kèm tệp */}
                     <label
-                      className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full text-purple-400 hover:bg-[#252735] transition-colors cursor-pointer"
-                      title="Đính kèm ảnh"
+                      className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#252735] transition-colors cursor-pointer"
+                      title="Đính kèm tệp"
                     >
-                      <ImageIcon size={19} />
+                      <Paperclip size={18} />
                       <input
                         type="file"
-                        accept="image/*"
                         multiple
                         className="hidden"
                         onChange={(e) => {
@@ -840,28 +674,8 @@ export default function MessagesScreen() {
                       />
                     </label>
 
-                    {/* Nút sticker */}
-                    <button
-                      type="button"
-                      onClick={() => updateDraft(`${draft} 😊`)}
-                      className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full text-purple-400 hover:bg-[#252735] transition-colors cursor-pointer"
-                      title="Chèn biểu tượng cảm xúc"
-                    >
-                      <Smile size={19} />
-                    </button>
-
-                    {/* Nút GIF */}
-                    <button
-                      type="button"
-                      onClick={() => updateDraft(`${draft} [GIF]`)}
-                      className="hidden sm:grid size-10 shrink-0 place-items-center rounded-full text-purple-400 hover:bg-[#252735] text-xs font-black transition-colors cursor-pointer"
-                      title="Chèn ảnh GIF"
-                    >
-                      GIF
-                    </button>
-
                     {/* Ô input Aa viên thuốc bo tròn */}
-                    <div className="flex-1 flex items-center rounded-full bg-[#252735] border border-slate-700/80 px-4 py-1.5 focus-within:border-purple-500/80 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all">
+                    <div className="flex-1 flex items-center rounded-full bg-slate-100 dark:bg-[#222430] border border-slate-200 dark:border-slate-700 px-4 py-1.5 focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all">
                       <input
                         type="text"
                         value={draft}
@@ -879,38 +693,24 @@ export default function MessagesScreen() {
                           event.preventDefault();
                           void sendMessage();
                         }}
-                        placeholder="Aa"
-                        className="w-full bg-transparent text-xs sm:text-sm text-white placeholder:text-slate-400 outline-none"
+                        placeholder="Nhập tin nhắn…"
+                        className="w-full bg-transparent text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 outline-none"
                       />
                     </div>
 
-                    {/* Nút gửi (Send màu tím) hoặc Like (ThumbsUp màu tím) */}
-                    {draft.trim() || messageFiles.length ? (
-                      <button
-                        type="submit"
-                        disabled={sending}
-                        className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full bg-purple-600 text-white hover:bg-purple-500 transition-colors cursor-pointer shadow-md"
-                        title="Gửi tin nhắn"
-                      >
-                        {sending ? (
-                          <LoaderCircle className="animate-spin" size={17} />
-                        ) : (
-                          <ArrowUp size={18} strokeWidth={2.5} />
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          updateDraft("👍");
-                          setTimeout(() => void sendMessage(), 50);
-                        }}
-                        className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full text-purple-400 hover:bg-[#252735] hover:scale-110 active:scale-95 transition-all cursor-pointer"
-                        title="Gửi Like"
-                      >
-                        <ThumbsUp size={20} fill="currentColor" />
-                      </button>
-                    )}
+                    {/* Nút gửi tin nhắn */}
+                    <button
+                      type="submit"
+                      disabled={sending || (!draft.trim() && !messageFiles.length)}
+                      className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-full bg-purple-600 text-white hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-xs"
+                      title="Gửi tin nhắn"
+                    >
+                      {sending ? (
+                        <LoaderCircle className="animate-spin" size={17} />
+                      ) : (
+                        <ArrowUp size={18} strokeWidth={2.5} />
+                      )}
+                    </button>
                   </div>
                 </form>
               )}
@@ -919,273 +719,19 @@ export default function MessagesScreen() {
             <div className="grid flex-1 place-items-center p-8 text-center text-slate-400">
               <div>
                 <MessageCircle
-                  className="mx-auto mb-3 text-purple-400/60"
+                  className="mx-auto mb-3 text-purple-400/50"
                   size={42}
                 />
-                <h3 className="text-base font-bold text-slate-200">
-                  Chọn một đoạn chat
+                <h3 className="text-base font-bold text-slate-700 dark:text-slate-200">
+                  Chọn một cuộc trò chuyện
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Chọn người liên hệ bên trái để bắt đầu cuộc trò chuyện.
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Chọn người liên hệ ở danh sách bên trái hoặc tìm kiếm để bắt đầu nhắn tin 1-1.
                 </p>
               </div>
             </div>
           )}
         </section>
-
-        {/* ===================== CỘT 3: THÔNG TIN ĐOẠN CHAT (~340px) ===================== */}
-        {selected && isInfoPanelOpen && (
-          <aside className="w-full md:w-[320px] lg:w-[340px] shrink-0 min-h-0 flex-col border-l border-slate-800/90 bg-[#16171f] overflow-y-auto scrollbar-thin select-none hidden lg:flex">
-            {/* Header thông tin người nhận với avatar lớn và mã hóa đầu cuối */}
-            <div className="flex flex-col items-center justify-center p-6 text-center border-b border-slate-800/80">
-              <MessengerAvatarBadge
-                name={selected.title}
-                gradient={currentContact?.gradient}
-                size="xl"
-                isOnline={currentContact?.isOnline ?? true}
-              />
-              <h2 className="text-base font-bold text-white mt-3 leading-snug">
-                {selected.title}
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {currentContact?.role ||
-                  (selected.type === "CLASS" ? "Nhóm lớp" : "Thành viên")}
-              </p>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-2 bg-[#22232f] px-3 py-1 rounded-full border border-slate-800">
-                <Lock size={12} className="text-emerald-400" />
-                Được mã hóa đầu cuối
-              </div>
-
-              {/* 3 nút tròn hành động: Trang cá nhân, Tắt thông báo, Tìm kiếm */}
-              <div className="grid grid-cols-3 gap-3 w-full mt-5">
-                <button
-                  type="button"
-                  onClick={() => alert(`Xem trang cá nhân của ${selected.title}`)}
-                  className="flex flex-col items-center gap-1.5 group cursor-pointer"
-                >
-                  <div className="size-10 rounded-full bg-[#272835] group-hover:bg-[#343647] text-slate-200 flex items-center justify-center transition-colors">
-                    <User size={18} />
-                  </div>
-                  <span className="text-[11px] text-slate-400 group-hover:text-slate-200 font-medium">
-                    Trang cá n...
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void toggleMute()}
-                  className="flex flex-col items-center gap-1.5 group cursor-pointer"
-                >
-                  <div className="size-10 rounded-full bg-[#272835] group-hover:bg-[#343647] text-slate-200 flex items-center justify-center transition-colors">
-                    {selected.mutedUntil ? (
-                      <BellOff size={18} className="text-purple-400" />
-                    ) : (
-                      <Bell size={18} />
-                    )}
-                  </div>
-                  <span className="text-[11px] text-slate-400 group-hover:text-slate-200 font-medium">
-                    {selected.mutedUntil ? "Bật thông báo" : "Tắt thông báo"}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const input = document.getElementById(
-                      "messenger-search-input",
-                    );
-                    input?.focus();
-                  }}
-                  className="flex flex-col items-center gap-1.5 group cursor-pointer"
-                >
-                  <div className="size-10 rounded-full bg-[#272835] group-hover:bg-[#343647] text-slate-200 flex items-center justify-center transition-colors">
-                    <Search size={18} />
-                  </div>
-                  <span className="text-[11px] text-slate-400 group-hover:text-slate-200 font-medium">
-                    Tìm kiếm
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {/* Các nhóm Accordion chi tiết chuẩn Messenger */}
-            <div className="p-3 space-y-1">
-              {/* 1. Thông tin về đoạn chat */}
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAccordionOpen((prev) => ({ ...prev, info: !prev.info }))
-                  }
-                  className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-300 hover:bg-[#20212d] rounded-xl transition-colors cursor-pointer"
-                >
-                  <span>Thông tin về đoạn chat</span>
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${
-                      accordionOpen.info ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {accordionOpen.info && (
-                  <div className="px-2 pb-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => alert("Xem các tin nhắn quan trọng đã ghim")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <Pin size={16} className="text-slate-400" />
-                      <span>Xem tin nhắn đã ghim</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* 2. Tùy chỉnh đoạn chat */}
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAccordionOpen((prev) => ({
-                      ...prev,
-                      customize: !prev.customize,
-                    }))
-                  }
-                  className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-300 hover:bg-[#20212d] rounded-xl transition-colors cursor-pointer"
-                >
-                  <span>Tùy chỉnh đoạn chat</span>
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${
-                      accordionOpen.customize ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {accordionOpen.customize && (
-                  <div className="px-2 pb-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => alert("Chủ đề tím gradient Messenger đã kích hoạt")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <span className="size-4 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 shadow-xs" />
-                      <span>Đổi chủ đề</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => alert("Biểu tượng cảm xúc mặc định: 👍")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <ThumbsUp size={16} className="text-purple-400" />
-                      <span>Thay đổi biểu tượng cảm xúc</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => alert("Chỉnh sửa biệt danh hiển thị trong đoạn chat")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <span className="text-xs font-extrabold text-slate-400 font-mono">
-                        Aa
-                      </span>
-                      <span>Chỉnh sửa biệt danh</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* 3. File phương tiện và file */}
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAccordionOpen((prev) => ({ ...prev, media: !prev.media }))
-                  }
-                  className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-300 hover:bg-[#20212d] rounded-xl transition-colors cursor-pointer"
-                >
-                  <span>File phương tiện và file</span>
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${
-                      accordionOpen.media ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {accordionOpen.media && (
-                  <div className="px-2 pb-2 space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => alert("Xem kho ảnh và video đã chia sẻ")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <ImageIcon size={16} className="text-slate-400" />
-                      <span>File phương tiện</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => alert("Xem các tệp tài liệu đã gửi")}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-slate-300 hover:bg-[#252735] transition-colors cursor-pointer text-left"
-                    >
-                      <FileText size={16} className="text-slate-400" />
-                      <span>File đính kèm</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* 4. Quyền riêng tư và hỗ trợ */}
-              <div className="rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAccordionOpen((prev) => ({
-                      ...prev,
-                      privacy: !prev.privacy,
-                    }))
-                  }
-                  className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-300 hover:bg-[#20212d] rounded-xl transition-colors cursor-pointer"
-                >
-                  <span>Quyền riêng tư và hỗ trợ</span>
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${
-                      accordionOpen.privacy ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {accordionOpen.privacy && (
-                  <div className="px-2 pb-2 space-y-1">
-                    {selected.type === "DIRECT" && (
-                      <button
-                        type="button"
-                        onClick={() => setBlockOpen(true)}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-rose-400 hover:bg-rose-950/30 transition-colors cursor-pointer text-left"
-                      >
-                        <UserX size={16} />
-                        <span>Chặn người dùng</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const lastMsg = messages[messages.length - 1];
-                        if (lastMsg) {
-                          setReportTarget(lastMsg);
-                          setReportReason("");
-                        } else {
-                          alert("Chưa có tin nhắn để báo cáo");
-                        }
-                      }}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs text-amber-400 hover:bg-amber-950/30 transition-colors cursor-pointer text-left"
-                    >
-                      <ShieldAlert size={16} />
-                      <span>Báo cáo sự cố hoặc tin nhắn</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
-        )}
       </div>
 
       {/* Modal báo cáo tin nhắn */}
@@ -1193,7 +739,7 @@ export default function MessagesScreen() {
         open={Boolean(reportTarget)}
         onClose={() => setReportTarget(null)}
         title="Báo cáo tin nhắn"
-        description="Báo cáo được gửi ẩn danh cho ban kiểm duyệt học tập Wind EDU."
+        description="Báo cáo được gửi trực tiếp cho bộ phận quản trị và kiểm duyệt."
       >
         <form
           className="space-y-4"
@@ -1222,7 +768,7 @@ export default function MessagesScreen() {
         open={blockOpen}
         onClose={() => setBlockOpen(false)}
         title="Chặn liên hệ riêng"
-        description="Sau khi chặn, hai bên sẽ không thể nhắn tin riêng. Nhóm lớp học vẫn hoạt động theo quy định lớp."
+        description="Sau khi chặn, hai bên sẽ không thể nhắn tin riêng 1-1 với nhau."
       >
         <form
           className="space-y-4"

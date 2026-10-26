@@ -38,18 +38,13 @@ export interface MiniChatMessage {
   imageUrl?: string;
 }
 
+import { usePathname } from "next/navigation";
+
 export interface MinimizedBubble {
   contact: ChatContact;
   unreadCount: number;
   lastInteractedAt: number;
 }
-
-import {
-  SHARED_DEFAULT_CONTACTS,
-  getStoredChatMessages,
-  appendSharedChatMessage,
-  subscribeSharedChat,
-} from "@/lib/chat-shared-store";
 
 // Lọc bỏ các liên hệ trùng lặp ID và đảm bảo số ô chat mini không vượt quá 2
 export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
@@ -64,10 +59,47 @@ export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
   return result.slice(0, 2);
 }
 
-// Danh bạ liên hệ dùng chung chuẩn hóa toàn hệ thống
-const INITIAL_CONTACTS: ChatContact[] = SHARED_DEFAULT_CONTACTS;
+// Danh bạ khởi tạo dự phòng cho widget khi chưa fetch API
+const INITIAL_CONTACTS: ChatContact[] = [
+  {
+    id: "teacher-1",
+    name: "Hà Thị Lý",
+    role: "Giáo viên Toán",
+    initials: "HTL",
+    gradient: "from-blue-600 to-indigo-600",
+    isOnline: true,
+    statusText: "Đang hoạt động",
+  },
+  {
+    id: "student-hai",
+    name: "Phạm Ánh Hải",
+    role: "Học viên lớp Toán 12A1",
+    initials: "AH",
+    gradient: "from-rose-500 to-pink-600",
+    isOnline: true,
+    statusText: "Đang hoạt động",
+  },
+  {
+    id: "student-anime",
+    name: "Nguyễn Thảo My",
+    role: "Học sinh 12A3",
+    initials: "TM",
+    gradient: "from-sky-400 to-indigo-500",
+    isOnline: true,
+    statusText: "Đang hoạt động",
+  },
+  {
+    id: "teacher-nam",
+    name: "Vũ Thành Nam",
+    role: "Giảng viên CNTT",
+    initials: "VTN",
+    gradient: "from-emerald-600 to-teal-600",
+    isOnline: true,
+    statusText: "Đang hoạt động",
+  },
+];
 
-// Khởi tạo các bong bóng avatar thu gọn ban đầu giống mẫu ảnh của học sinh
+// Khởi tạo các bong bóng avatar thu gọn ban đầu
 const INITIAL_BUBBLES: MinimizedBubble[] = [
   {
     contact: INITIAL_CONTACTS[1], // Phạm Ánh Hải
@@ -75,15 +107,7 @@ const INITIAL_BUBBLES: MinimizedBubble[] = [
     lastInteractedAt: Date.now() - 300000,
   },
   {
-    contact: {
-      id: "student-anime",
-      name: "Nguyễn Thảo My",
-      role: "Học sinh 12A3",
-      initials: "TM",
-      gradient: "from-sky-400 to-indigo-500",
-      isOnline: true,
-      statusText: "Đang hoạt động",
-    },
+    contact: INITIAL_CONTACTS[2], // Nguyễn Thảo My
     unreadCount: 1,
     lastInteractedAt: Date.now() - 120000,
   },
@@ -466,6 +490,7 @@ function ContactPickerWindow({
 
 // Component MiniChatWidget quản lý tối đa 2 ô chat minisize, avatar thu gọn và chọn người
 export function MiniChatWidget() {
+  const pathname = usePathname();
   const { session } = useApp();
   const currentUserId = session?.user?.id || "student-current";
 
@@ -487,47 +512,13 @@ export function MiniChatWidget() {
     displacedWindow: ChatContact | null;
   } | null>(null);
 
-  // Kho tin nhắn của từng người được nạp từ kho dùng chung
-  const [chatMessages, setChatMessages] = useState<Record<string, MiniChatMessage[]>>(() => {
-    const stored = getStoredChatMessages();
-    const mapped: Record<string, MiniChatMessage[]> = {};
-    for (const [convId, list] of Object.entries(stored)) {
-      mapped[convId] = list.map((item) => ({
-        id: item.id,
-        senderId: item.senderId,
-        content: item.content,
-        createdAt: new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        isLike: item.content === "👍",
-      }));
-    }
-    return mapped;
-  });
+  // Kho tin nhắn của từng người
+  const [chatMessages, setChatMessages] = useState<Record<string, MiniChatMessage[]>>({});
 
-  // Lắng nghe sự kiện đồng bộ tin nhắn thời gian thực từ trang Tin nhắn chính
-  useEffect(() => {
-    const unsubscribe = subscribeSharedChat((event) => {
-      const detail = event.detail;
-      if (detail?.conversationId && detail?.message) {
-        const msg = detail.message;
-        setChatMessages((prev) => {
-          const list = prev[detail.conversationId] || [];
-          if (list.some((m) => m.id === msg.id)) return prev;
-          const mapped: MiniChatMessage = {
-            id: msg.id,
-            senderId: msg.senderId,
-            content: msg.content,
-            createdAt: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            isLike: msg.content === "👍",
-          };
-          return {
-            ...prev,
-            [detail.conversationId]: [...list, mapped],
-          };
-        });
-      }
-    });
-    return unsubscribe;
-  }, []);
+  // Ẩn hoàn toàn ô chat minisize khi người dùng đã vào trang Chat chính (/messages)
+  if (pathname?.startsWith("/messages")) {
+    return null;
+  }
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {
@@ -751,16 +742,6 @@ export function MiniChatWidget() {
       [contactId]: [...(prev[contactId] || []), newMsg],
     }));
 
-    // Lưu vào store dùng chung để đồng bộ sang trang tin nhắn chính
-    appendSharedChatMessage({
-      id: newMsg.id,
-      conversationId: contactId,
-      senderId: currentUserId,
-      senderName: session?.user?.name || "Tôi",
-      content: messageContent,
-      createdAt: new Date().toISOString(),
-    });
-
     // Cập nhật timestamp tương tác
     setBubbles((prev) =>
       prev.map((b) =>
@@ -768,7 +749,7 @@ export function MiniChatWidget() {
       )
     );
 
-    // Mô phỏng phản hồi tự động sau 1.5s
+    // Phản hồi mô phỏng nhẹ khi test tương tác
     const responses = AUTO_RESPONSES[contactId] || [
       "Mình nhận được tin nhắn rồi nhé, lát trao đổi tiếp nha!",
     ];
@@ -789,17 +770,6 @@ export function MiniChatWidget() {
         ...prev,
         [contactId]: [...(prev[contactId] || []), replyMsg],
       }));
-
-      // Đồng bộ phản hồi vào store dùng chung
-      const targetContact = contacts.find((c) => c.id === contactId);
-      appendSharedChatMessage({
-        id: replyMsg.id,
-        conversationId: contactId,
-        senderId: contactId,
-        senderName: targetContact?.name || "Người nhận",
-        content: replyContent,
-        createdAt: new Date().toISOString(),
-      });
 
       // Nếu ô chat của người này đang ở dạng avatar bubble thu nhỏ: tăng chỉ số báo tin nhắn mới chưa đọc!
       setBubbles((prev) =>
@@ -829,15 +799,6 @@ export function MiniChatWidget() {
         ...prev,
         [contactId]: [...(prev[contactId] || []), newMsg],
       }));
-
-      appendSharedChatMessage({
-        id: newMsg.id,
-        conversationId: contactId,
-        senderId: currentUserId,
-        senderName: session?.user?.name || "Tôi",
-        content: "[Hình ảnh đính kèm]",
-        createdAt: new Date().toISOString(),
-      });
     };
     reader.readAsDataURL(file);
   };
