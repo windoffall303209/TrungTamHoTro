@@ -141,10 +141,20 @@ export class AccountController {
 
   @Get("avatar")
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
+  @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
   /** Đọc ảnh đại diện từ object storage và stream đúng MIME để trình duyệt hiển thị nội tuyến. */
   async avatar(@Headers("cookie") cookies?: string): Promise<StreamableFile> {
     const session = await this.session(cookies);
     const avatar = await this.auth.readAvatar(session.user.id);
+    return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
+  }
+
+  @Get("users/:id/avatar")
+  @Header("Cross-Origin-Resource-Policy", "cross-origin")
+  @Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+  /** Cho phép tải ảnh đại diện công khai của người dùng trong hệ thống mà không phụ thuộc phiên hiện tại. */
+  async userAvatar(@Param("id") id: string): Promise<StreamableFile> {
+    const avatar = await this.auth.readAvatar(id);
     return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
   }
 

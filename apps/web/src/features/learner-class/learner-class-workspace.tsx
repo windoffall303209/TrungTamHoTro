@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -36,7 +36,15 @@ import {
   Flag,
   History,
 } from "lucide-react";
-import type { LearningClass, Course } from "@/lib/learning-types";
+import type {
+  LearningClass,
+  Course,
+  LearnerExamSummary,
+  Assignment,
+  LearningMaterial,
+  LiveSession,
+} from "@/lib/learning-types";
+import { apiRequest } from "@/lib/api-client";
 import { UserAvatar } from "@/components/user-avatar";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 import {
@@ -96,6 +104,8 @@ interface AssignmentItem {
   status: "PENDING" | "SUBMITTED" | "GRADED";
   score?: number;
   totalQuestions?: number;
+  remainingAttempts?: number | null;
+  attemptLimit?: number;
 }
 
 interface LectureItem {
@@ -125,6 +135,34 @@ export function LearnerClassWorkspace({
 }: LearnerClassWorkspaceProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<SubTab>("feed");
+
+  // Dữ liệu thật nạp từ cơ sở dữ liệu backend
+  const [classExams, setClassExams] = useState<LearnerExamSummary[]>([]);
+  const [classAssignments, setClassAssignments] = useState<Assignment[]>([]);
+  const [classMaterials, setClassMaterials] = useState<LearningMaterial[]>([]);
+  const [classSessions, setClassSessions] = useState<LiveSession[]>([]);
+
+  /** Tải dữ liệu toàn diện của lớp học từ cơ sở dữ liệu thật */
+  const loadClassData = useCallback(async () => {
+    try {
+      const [exams, assignments, materials, sessions] = await Promise.all([
+        apiRequest<LearnerExamSummary[]>(`/learner/classes/${item.id}/exams`).catch(() => []),
+        apiRequest<Assignment[]>(`/academic/assignments?classId=${item.id}`).catch(() => []),
+        apiRequest<LearningMaterial[]>(`/materials?classId=${item.id}`).catch(() => []),
+        apiRequest<LiveSession[]>(`/sessions?classId=${item.id}`).catch(() => []),
+      ]);
+      if (Array.isArray(exams)) setClassExams(exams);
+      if (Array.isArray(assignments)) setClassAssignments(assignments);
+      if (Array.isArray(materials)) setClassMaterials(materials);
+      if (Array.isArray(sessions)) setClassSessions(sessions);
+    } catch {
+      // Giữ dữ liệu hiện tại nếu mạng có sự cố
+    }
+  }, [item.id]);
+
+  useEffect(() => {
+    void loadClassData();
+  }, [loadClassData]);
 
   // Danh sách giảng viên lớp học (hiển thị 1 hoặc 2 giáo viên kèm avatar thật)
   const displayInstructors = useMemo(() => {
@@ -243,47 +281,63 @@ export function LearnerClassWorkspace({
   const [activeDocument, setActiveDocument] = useState<DocumentViewerData | null>(null);
   const [activeLecture, setActiveLecture] = useState<LecturePlayerData | null>(null);
 
-  const assignmentsList: AssignmentItem[] = useMemo(
-    () => [
+  // Danh sách bài tập & đề thi: ƯU TIÊN LẤY DỮ LIỆU THỰC TỪ DATABASE CỦA LỚP
+  const assignmentsList: AssignmentItem[] = useMemo(() => {
+    const dbExams: AssignmentItem[] = classExams.map((exam) => ({
+      id: exam.id,
+      title: exam.title,
+      type: "EXAM",
+      durationMinutes: exam.durationMinutes || 45,
+      dueAt: exam.closeAt || "2026-12-31T23:59:00Z",
+      status: exam.availabilityStatus === "CLOSED" ? "SUBMITTED" : "PENDING",
+      totalQuestions: 10,
+      remainingAttempts: exam.remainingAttempts,
+      attemptLimit: exam.attemptLimit,
+    }));
+
+    const dbAssigns: AssignmentItem[] = classAssignments.map((assign) => ({
+      id: assign.id,
+      title: assign.title,
+      type: "ESSAY",
+      durationMinutes: 45,
+      dueAt: assign.dueAt || "2026-12-31T23:59:00Z",
+      status:
+        assign.submission?.status === "GRADED"
+          ? "GRADED"
+          : assign.submission
+            ? "SUBMITTED"
+            : "PENDING",
+      score: assign.submission?.score ?? undefined,
+      totalQuestions: 4,
+      remainingAttempts: null,
+    }));
+
+    const combined = [...dbExams, ...dbAssigns];
+    if (combined.length > 0) return combined;
+
+    return [
       {
-        id: "exam-1",
-        title: "Kiểm tra 15 phút: Hàm số và Đồ thị nâng cao",
-        type: "EXAM",
-        durationMinutes: 15,
-        dueAt: "2026-10-30T22:00:00Z",
-        status: "PENDING",
-        totalQuestions: 10,
-      },
-      {
-        id: "exam-2",
-        title: "Bài tập rèn luyện: Phương trình lượng giác cơ bản",
+        id: "demo-exam-01-1",
+        title: `Kiểm tra tiến độ — ${item.code}`,
         type: "EXAM",
         durationMinutes: 30,
-        dueAt: "2026-11-02T23:59:00Z",
+        dueAt: "2026-11-30T22:00:00Z",
         status: "PENDING",
-        totalQuestions: 15,
+        totalQuestions: 10,
+        remainingAttempts: 2,
       },
       {
-        id: "essay-1",
-        title: "Bài tập tự luận chuyên đề 3: Khảo sát sự biến thiên",
-        type: "ESSAY",
-        durationMinutes: 45,
-        dueAt: "2026-11-05T18:00:00Z",
-        status: "PENDING",
-        totalQuestions: 4,
-      },
-      {
-        id: "exam-3",
-        title: "Đề thi thử giữa kỳ 1: Tổ hợp và Xác suất toán học",
+        id: "exam-mid-web",
+        title: `Kiểm tra giữa kỳ — ${item.name}`,
         type: "EXAM",
         durationMinutes: 45,
-        dueAt: "2026-11-15T20:00:00Z",
+        dueAt: "2026-12-30T23:59:00Z",
         status: "PENDING",
-        totalQuestions: 25,
+        totalQuestions: 10,
+        remainingAttempts: 2,
       },
-    ],
-    [],
-  );
+    ];
+  }, [classExams, classAssignments, item.code, item.name]);
 
   // State cho Bài giảng
   const [lectureSearch, setLectureSearch] = useState("");
@@ -527,7 +581,6 @@ export function LearnerClassWorkspace({
     if (selectedPostForModal?.id === postId) {
       setSelectedPostForModal(null);
     }
-    alert("Đã ẩn bài viết khỏi bảng tin của bạn.");
   };
 
   /** Bật/tắt theo dõi thông báo bài viết */
@@ -535,11 +588,6 @@ export function LearnerClassWorkspace({
     const isFollowing = Boolean(followingPostIds[postId]);
     setFollowingPostIds((prev) => ({ ...prev, [postId]: !isFollowing }));
     setActivePostMenuId(null);
-    alert(
-      !isFollowing
-        ? "Đã bật theo dõi: Hệ thống sẽ gửi thông báo cho bạn khi có người thích hoặc bình luận bài viết này."
-        : "Đã tắt theo dõi thông báo bài viết này.",
-    );
   };
 
   /** Mở popup báo cáo bài viết */
@@ -1842,10 +1890,13 @@ export function LearnerClassWorkspace({
       {activeExamForTaking && (
         <ExamTakingModal
           open={Boolean(activeExamForTaking)}
-          onClose={() => setActiveExamForTaking(null)}
+          onClose={() => {
+            setActiveExamForTaking(null);
+            void loadClassData();
+          }}
           exam={activeExamForTaking}
-          onSubmitted={(result) => {
-            alert(`Chúc mừng! Bạn đã hoàn thành bài thi với điểm số: ${result.score}/10`);
+          onSubmitted={() => {
+            void loadClassData();
           }}
         />
       )}

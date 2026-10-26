@@ -46,9 +46,26 @@ async function seed() {
     const role = await prisma.role.findUniqueOrThrow({ where: { code: input.role } });
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   }
-  const course = await prisma.course.upsert({ where: { code: "WEB-FULLSTACK" }, update: { status: "PUBLISHED" }, create: { id: "course-web", code: "WEB-FULLSTACK", name: "Phát triển Web Full-stack", description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.", outcomes: ["Thiết kế giao diện responsive", "Xây dựng REST API", "Thiết kế cơ sở dữ liệu"], status: "PUBLISHED", ownerId: "usr-manager" } });
-  await prisma.course.upsert({ where: { code: "DATA-FOUNDATION" }, update: {}, create: { id: "course-data", code: "DATA-FOUNDATION", name: "Nền tảng dữ liệu", description: "Tổ chức, phân tích và trực quan hóa dữ liệu.", outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu"], status: "DRAFT", ownerId: "usr-manager" } });
-  const learningClass = await prisma.learningClass.upsert({ where: { code_term: { code: "WEB-K01", term: "2026-HK1" } }, update: { status: "ACTIVE" }, create: { id: "class-web-01", courseId: course.id, courseVersion: 1, code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: new Date("2026-08-18T01:00:00.000Z"), endAt: new Date("2026-12-20T10:00:00.000Z"), capacity: 40, status: "ACTIVE" } });
+  let course = await prisma.course.findFirst({ where: { OR: [{ code: "WEB-FULLSTACK" }, { id: "course-web" }] } });
+  if (course) {
+    course = await prisma.course.update({ where: { id: course.id }, data: { code: "WEB-FULLSTACK", status: "PUBLISHED" } });
+  } else {
+    course = await prisma.course.create({ data: { id: "course-web", code: "WEB-FULLSTACK", name: "Phát triển Web Full-stack", description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.", outcomes: ["Thiết kế giao diện responsive", "Xây dựng REST API", "Thiết kế cơ sở dữ liệu"], status: "PUBLISHED", ownerId: "usr-manager" } });
+  }
+
+  let courseData = await prisma.course.findFirst({ where: { OR: [{ code: "DATA-FOUNDATION" }, { id: "course-data" }] } });
+  if (courseData) {
+    courseData = await prisma.course.update({ where: { id: courseData.id }, data: { code: "DATA-FOUNDATION" } });
+  } else {
+    courseData = await prisma.course.create({ data: { id: "course-data", code: "DATA-FOUNDATION", name: "Nền tảng dữ liệu", description: "Tổ chức, phân tích và trực quan hóa dữ liệu.", outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu"], status: "DRAFT", ownerId: "usr-manager" } });
+  }
+
+  let learningClass = await prisma.learningClass.findFirst({ where: { OR: [{ code: "WEB-K01", term: "2026-HK1" }, { id: "class-web-01" }] } });
+  if (learningClass) {
+    learningClass = await prisma.learningClass.update({ where: { id: learningClass.id }, data: { status: "ACTIVE" } });
+  } else {
+    learningClass = await prisma.learningClass.create({ data: { id: "class-web-01", courseId: course.id, courseVersion: 1, code: "WEB-K01", name: "Web Full-stack K01", term: "2026-HK1", startAt: new Date("2026-08-18T01:00:00.000Z"), endAt: new Date("2026-12-20T10:00:00.000Z"), capacity: 40, status: "ACTIVE" } });
+  }
   await prisma.classInstructor.upsert({ where: { classId_instructorId: { classId: learningClass.id, instructorId: "usr-instructor" } }, update: {}, create: { classId: learningClass.id, instructorId: "usr-instructor" } });
   await prisma.classEnrollment.upsert({ where: { classId_learnerId: { classId: learningClass.id, learnerId: "usr-learner" } }, update: { status: "ACTIVE" }, create: { classId: learningClass.id, learnerId: "usr-learner", status: "ACTIVE" } });
   const seededMaterials = [
