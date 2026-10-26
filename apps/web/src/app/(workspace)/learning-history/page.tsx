@@ -116,7 +116,6 @@ export default function LearningHistoryPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
-        eyebrow="My Learning Record"
         title="Lịch sử học tập"
         description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
       />
