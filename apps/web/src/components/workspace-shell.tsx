@@ -43,6 +43,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useI18n } from "@/providers/i18n-provider";
+import { MiniChatWidget } from "@/components/mini-chat-widget";
 
 interface NavigationItem {
   href: string;
@@ -275,13 +276,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     );
     return found ?? sections[0];
   }, [sections, pathname]);
-  // Danh sách điều hướng trung tâm dành riêng cho Học sinh
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: 3 chức năng chính
   const learnerNavItems = useMemo(
     () => [
       { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
-      { href: "/messages", label: "Chat", icon: MessageSquareText },
     ],
     [],
   );
@@ -535,19 +535,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Role indicator pill hoặc nút Hỏi đáp */}
-            {session.roleCode === "LEARNER" ? (
-              <Link
-                href="/forum"
-                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors"
-              >
-                <Sparkles size={14} className="text-blue-200" />
-                <span>Hỏi đáp</span>
-                <span className="text-[11px] font-medium text-blue-100 hidden xl:inline">
-                  cùng SHub Share
-                </span>
-              </Link>
-            ) : (
+            {/* Role indicator pill cho giảng viên và quản trị */}
+            {session.roleCode !== "LEARNER" && (
               <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-2xs">
                 <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
                 {t(session.user.roleName)}
@@ -1065,6 +1054,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       <main id="workspace-main" tabIndex={-1} className="flex-1 outline-none">
         {children}
       </main>
+
+      {/* Widget Chat Mini nổi góc dưới phải màn hình */}
+      <MiniChatWidget />
     </div>
   );
 }
