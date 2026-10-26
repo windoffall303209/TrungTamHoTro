@@ -1154,9 +1154,9 @@ export function DashboardHome() {
                 )}
               </div>
 
-              {/* Footer thanh phân trang 10 / 20 / 30 */}
-              <div className="p-3.5 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shrink-0">
-                <span className="text-slate-500 font-medium">
+              {/* Footer thanh phân trang 10 / 20 / 30 căn giữa */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-center gap-3 text-xs shrink-0 relative">
+                <span className="text-slate-500 font-medium sm:absolute sm:left-4">
                   Hiển thị{" "}
                   <strong>
                     {totalTabItems === 0
@@ -1168,7 +1168,7 @@ export function DashboardHome() {
                   trong tổng số <strong>{totalTabItems}</strong> mục
                 </span>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center justify-center gap-1.5">
                   <button
                     type="button"
                     disabled={learnerCurrentPage <= 1}

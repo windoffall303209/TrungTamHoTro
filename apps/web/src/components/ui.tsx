@@ -213,9 +213,9 @@ export function Pagination({
   return (
     <nav
       aria-label={isEn ? `Pagination for ${t(itemLabel)}` : `Phân trang ${itemLabel}`}
-      className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between ${className}`}
+      className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-center relative ${className}`}
     >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 sm:absolute sm:left-0">
         <span aria-live="polite">
           {isEn ? (
             <>
@@ -243,7 +243,7 @@ export function Pagination({
           </select>
         </label>
       </div>
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t("Chọn trang")}>
+      <div className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t("Chọn trang")}>
         <button
           aria-label={t("Trang trước")}
           className="grid size-8.5 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40 transition-colors shadow-2xs"

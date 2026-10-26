@@ -50,18 +50,18 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-label={`${t("Ngôn ngữ")}: ${activeOption.label}`}
-        className={`inline-flex h-11 items-center justify-center rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] font-bold text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-muted)] ${compact ? "min-w-[4.25rem] gap-1.5 px-2" : "min-w-36 gap-2 px-3"}`}
+        className={`inline-flex items-center justify-center rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] font-bold text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-muted)] ${compact ? "h-[42px] min-w-[4.6rem] gap-2 px-2.5" : "h-11 min-w-36 gap-2 px-3"}`}
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
-        <Languages aria-hidden="true" className="shrink-0 text-[var(--ink-soft)]" size={16} strokeWidth={1.8} />
-        <span className={compact ? "text-xs tracking-[0.04em]" : "text-sm"}>
+        <Languages aria-hidden="true" className="shrink-0 text-[var(--ink-soft)]" size={17} strokeWidth={1.8} />
+        <span className={compact ? "text-[13px] tracking-[0.04em]" : "text-sm"}>
           {compact ? activeOption.code : activeOption.label}
         </span>
         <ChevronDown
           aria-hidden="true"
           className={`shrink-0 text-[var(--ink-soft)] transition-transform ${open ? "rotate-180" : ""}`}
-          size={14}
+          size={15}
         />
       </button>
 
