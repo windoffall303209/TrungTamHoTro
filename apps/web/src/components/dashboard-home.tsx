@@ -490,7 +490,7 @@ export function DashboardHome() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 space-y-5">
+    <div className="w-full px-5 sm:px-6 lg:px-8 py-5 space-y-5">
       {/* Hero Welcome Banner Sky Blue */}
       <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 dark:border-sky-800/60 bg-gradient-to-r from-sky-500/10 via-cyan-500/5 to-blue-500/10 dark:from-sky-950/40 dark:via-cyan-950/20 dark:to-blue-950/30 p-4.5 sm:p-5 md:p-6 backdrop-blur-sm shadow-xs">
         <div className="absolute right-0 top-0 -mr-10 -mt-10 size-60 rounded-full bg-sky-400/15 blur-3xl pointer-events-none" />

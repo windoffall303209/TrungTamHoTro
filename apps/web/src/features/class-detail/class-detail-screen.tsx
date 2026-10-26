@@ -105,7 +105,7 @@ export default function ClassDetailScreen() {
             onBack={() => router.push("/courses")}
           />
         ) : (
-          <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+          <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
             <button
               className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
               onClick={() => router.push("/courses")}
