@@ -27,9 +27,9 @@ import {
   Trash2,
   UserPlus,
 } from "lucide-react";
-import Link from "next/link";
 import { DetailTab, roleLabel } from "./class-detail.shared";
 import { useClassDetailModel } from "./use-class-detail-model";
+import { LearnerClassWorkspace } from "@/features/learner-class/learner-class-workspace";
 
 /** Lắp ghép màn hình chi tiết lớp từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function ClassDetailScreen() {
@@ -95,18 +95,25 @@ export default function ClassDetailScreen() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
-      <button
-        className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
-        onClick={() => router.push("/courses")}
-        type="button"
-      >
-        <ArrowLeft size={17} />
-        Quay lại danh sách lớp
-      </button>
-      <SectionState loading={loading} empty={!item}>
-        {item ? (
-          <>
+    <SectionState loading={loading} empty={!item}>
+      {item ? (
+        session.roleCode === "LEARNER" ? (
+          <LearnerClassWorkspace
+            item={item}
+            course={course}
+            teacherName={primaryInstructor?.displayName || "Wind Fall"}
+            onBack={() => router.push("/courses")}
+          />
+        ) : (
+          <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+            <button
+              className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
+              onClick={() => router.push("/courses")}
+              type="button"
+            >
+              <ArrowLeft size={17} />
+              Quay lại danh sách lớp
+            </button>
             <header className="flex flex-col gap-5 border-b border-slate-200 dark:border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -895,9 +902,9 @@ export default function ClassDetailScreen() {
                 </Button>
               </form>
             </Modal>
-          </>
-        ) : null}
-      </SectionState>
-    </div>
+          </div>
+        )
+      ) : null}
+    </SectionState>
   );
 }
