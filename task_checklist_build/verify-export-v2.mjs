@@ -1,0 +1,10 @@
+import fs from "node:fs/promises";
+import { FileBlob, SpreadsheetFile } from "@oai/artifact-tool";
+const path = "C:/Users/WIND-OF-FALL/Documents/Project/TestDoAn/outputs/checktask_v2_optimized/Checktask_He_Thong_Trung_Tam_v2_optimized.xlsx";
+const wb = await SpreadsheetFile.importXlsx(await FileBlob.load(path));
+wb.recalculate();
+const overview = await wb.inspect({ kind: "table", range: "Tổng quan!D4:I15", include: "values,formulas", tableMaxRows: 12, tableMaxCols: 6 });
+const errors = await wb.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A|#NUM!|#NULL!|#SPILL!|#CALC!", options: { useRegex: true, maxResults: 300 }, summary: "reimported export formula scan" });
+const a2 = wb.worksheets.getItem("2.1").getRange("A5:A17").values;
+await fs.writeFile("C:/Users/WIND-OF-FALL/Documents/Project/TestDoAn/outputs/checktask_v2_optimized/qa_reimport.ndjson", `${overview.ndjson}\n${errors.ndjson}\n${JSON.stringify({checkboxValues: a2})}`, "utf8");
+console.log(overview.ndjson); console.log(errors.ndjson); console.log(JSON.stringify(a2));
