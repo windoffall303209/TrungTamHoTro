@@ -63,7 +63,7 @@ export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
 // Danh bạ khởi tạo dự phòng cho widget khi chưa fetch API
 const INITIAL_CONTACTS: ChatContact[] = [
   {
-    id: "teacher-1",
+    id: "cm74e2k9s000008l41829abcd",
     name: "Hà Thị Lý",
     role: "Giáo viên Toán",
     initials: "HTL",
@@ -72,7 +72,7 @@ const INITIAL_CONTACTS: ChatContact[] = [
     statusText: "Đang hoạt động",
   },
   {
-    id: "student-hai",
+    id: "usr-student-hai",
     name: "Phạm Ánh Hải",
     role: "Học viên lớp Toán 12A1",
     initials: "AH",
@@ -81,7 +81,7 @@ const INITIAL_CONTACTS: ChatContact[] = [
     statusText: "Đang hoạt động",
   },
   {
-    id: "student-anime",
+    id: "usr-student-my",
     name: "Nguyễn Thảo My",
     role: "Học sinh 12A3",
     initials: "TM",
@@ -90,7 +90,7 @@ const INITIAL_CONTACTS: ChatContact[] = [
     statusText: "Đang hoạt động",
   },
   {
-    id: "teacher-nam",
+    id: "usr-teacher-nam",
     name: "Vũ Thành Nam",
     role: "Giảng viên CNTT",
     initials: "VTN",
@@ -471,18 +471,36 @@ function ContactPickerWindow({
   );
 }
 
+// Key lưu trạng thái các ô chat đang mở trong session người dùng
+const MINI_CHAT_STORAGE_KEY = "wind_edu_mini_chat_open_windows";
+
 // Component MiniChatWidget quản lý tối đa 2 ô chat minisize, avatar thu gọn và chọn người
 export function MiniChatWidget() {
   const pathname = usePathname();
   const { session } = useApp();
-  const currentUserId = session?.user?.id || "student-current";
+  const currentUserId = session?.user?.id || "usr-learner-3";
 
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
   const [contacts, setContacts] = useState<ChatContact[]>(INITIAL_CONTACTS);
 
   // Danh sách các ô chat đang mở tối đa 2 ô: [chatSlot2, chatSlot1]
   // Vị trí hiển thị từ trái qua phải: Ô chat 2 - Ô chat 1 - Cột Logo chat
-  const [openWindows, setOpenWindows] = useState<ChatContact[]>([]);
+  const [openWindows, setOpenWindows] = useState<ChatContact[]>(() => {
+    if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
+      try {
+        const saved = window.sessionStorage.getItem(MINI_CHAT_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved) as ChatContact[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return deduplicateChatWindows(parsed);
+          }
+        }
+      } catch {
+        // Bỏ qua lỗi session
+      }
+    }
+    return [];
+  });
 
   // Danh sách avatar chat thu gọn nằm phía trên nút logo chat (tối đa 5 avatar)
   const [bubbles, setBubbles] = useState<MinimizedBubble[]>(INITIAL_BUBBLES);
@@ -497,6 +515,20 @@ export function MiniChatWidget() {
 
   // Kho tin nhắn của từng người
   const [chatMessages, setChatMessages] = useState<Record<string, MiniChatMessage[]>>({});
+
+  // Lưu trạng thái các ô chat đang mở vào sessionStorage để khi reload trang không bị mất
+  useEffect(() => {
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    try {
+      if (openWindows.length > 0) {
+        window.sessionStorage.setItem(MINI_CHAT_STORAGE_KEY, JSON.stringify(openWindows));
+      } else {
+        window.sessionStorage.removeItem(MINI_CHAT_STORAGE_KEY);
+      }
+    } catch {
+      // Bỏ qua lỗi quota
+    }
+  }, [openWindows]);
 
   // Nạp danh bạ và các đoạn hội thoại thật từ cơ sở dữ liệu PostgreSQL
   useEffect(() => {
@@ -517,7 +549,7 @@ export function MiniChatWidget() {
               displayName: string;
               roleCode: string;
             }>
-          >("/chat/users/directory").catch(() => []),
+          >("/chat/directory").catch(() => []),
         ]);
 
         if (Array.isArray(directory) && directory.length > 0) {
@@ -547,6 +579,15 @@ export function MiniChatWidget() {
             const retained = prev.filter((p) => !existingIds.has(p.id));
             return [...realContacts, ...retained];
           });
+
+          // Đồng bộ lại conversationId cho các ô chat đang mở nếu vừa tìm thấy
+          setOpenWindows((prev) =>
+            prev.map((win) => {
+              if (win.conversationId) return win;
+              const matched = realContacts.find((c) => c.id === win.id);
+              return matched?.conversationId ? { ...win, conversationId: matched.conversationId } : win;
+            })
+          );
 
           // Nạp các bong bóng thu gọn từ hội thoại thật gần nhất trong DB
           if (Array.isArray(conversations) && conversations.length > 0) {
@@ -587,32 +628,30 @@ export function MiniChatWidget() {
   useEffect(() => {
     async function loadMessagesForOpenWindows() {
       for (const win of openWindows) {
-        if (win.conversationId) {
-          try {
-            const msgs = await apiRequest<
-              Array<{
-                id: string;
-                senderId: string;
-                content: string;
-                createdAt: string;
-              }>
-            >(`/chat/conversations/${win.conversationId}/messages`);
+        const targetConvId =
+          win.conversationId || contacts.find((c) => c.id === win.id)?.conversationId;
 
-            if (Array.isArray(msgs)) {
-              setChatMessages((prev) => ({
-                ...prev,
-                [win.id]: msgs.map((m) => ({
-                  id: m.id,
-                  senderId: m.senderId,
-                  content: m.content,
-                  createdAt: new Date(m.createdAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
-                  isLike: m.content === "👍",
-                })),
-              }));
-            }
+        if (targetConvId) {
+          try {
+            const res = await apiRequest<
+              | { items?: Array<{ id: string; senderId: string; content: string; createdAt: string }> }
+              | Array<{ id: string; senderId: string; content: string; createdAt: string }>
+            >(`/chat/conversations/${targetConvId}/messages?limit=50`);
+
+            const rawList = Array.isArray(res) ? res : res?.items || [];
+            setChatMessages((prev) => ({
+              ...prev,
+              [win.id]: rawList.map((m) => ({
+                id: m.id,
+                senderId: m.senderId,
+                content: m.content,
+                createdAt: new Date(m.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+                isLike: m.content === "👍",
+              })),
+            }));
           } catch {
             // Giữ tin nhắn hiện tại
           }
@@ -623,7 +662,7 @@ export function MiniChatWidget() {
     if (openWindows.length > 0) {
       void loadMessagesForOpenWindows();
     }
-  }, [openWindows]);
+  }, [openWindows, contacts]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {
@@ -673,7 +712,7 @@ export function MiniChatWidget() {
     setOpenWindows((prev) => prev.filter((c) => c.id !== contactId));
   }, []);
 
-  // Mở trực tiếp ô chat của một liên hệ theo đúng thứ tự 2 ô tối đa
+  // Mở trực tiếp ô chat của một liên hệ theo đúng thứ tự 2 ô tối đa và kết nối CSDL
   const openChatForContact = useCallback(
     (contact: ChatContact) => {
       // Đóng khung chọn người nhắn và dọn dẹp bộ nhớ tạm nếu picker đang mở
@@ -688,23 +727,29 @@ export function MiniChatWidget() {
       // Xóa khỏi danh sách bong bóng thu nhỏ nếu đang ở bubble
       setBubbles((prev) => prev.filter((b) => b.contact.id !== contact.id));
 
+      const existingConvId =
+        contact.conversationId || contacts.find((c) => c.id === contact.id)?.conversationId;
+      const initialContact: ChatContact = existingConvId
+        ? { ...contact, conversationId: existingConvId }
+        : contact;
+
       setOpenWindows((prev) => {
         // Lọc sạch trùng lặp trước khi xử lý
         const cleaned = deduplicateChatWindows(prev);
 
         // Nếu người này đã mở sẵn ở một ô chat: giữ nguyên vị trí, không nhân bản
-        if (cleaned.some((c) => c.id === contact.id)) {
-          return cleaned;
+        if (cleaned.some((c) => c.id === initialContact.id)) {
+          return cleaned.map((c) => (c.id === initialContact.id ? { ...c, ...initialContact } : c));
         }
 
         // Trường hợp 1: Chưa mở ô nào -> Mở thành Ô chat 1 (vị trí sát logo)
         if (cleaned.length === 0) {
-          return [contact];
+          return [initialContact];
         }
 
         // Trường hợp 2: Đang mở 1 ô chat (ô chat 1) -> Ô mới mở thành Ô chat 2 (bên trái ô 1)
         if (cleaned.length === 1) {
-          return deduplicateChatWindows([contact, cleaned[0]]);
+          return deduplicateChatWindows([initialContact, cleaned[0]]);
         }
 
         // Trường hợp 3: Đang mở 2 ô chat [ô 2, ô 1] ->
@@ -713,14 +758,36 @@ export function MiniChatWidget() {
         // Ô mới mở tại vị trí ô 2
         const oldSlot2 = cleaned[0];
         const oldSlot1 = cleaned[1];
-        if (oldSlot1 && oldSlot1.id !== contact.id && oldSlot1.id !== oldSlot2.id) {
+        if (oldSlot1 && oldSlot1.id !== initialContact.id && oldSlot1.id !== oldSlot2.id) {
           addContactToBubbles(oldSlot1, 0);
         }
 
-        return deduplicateChatWindows([contact, oldSlot2]);
+        return deduplicateChatWindows([initialContact, oldSlot2]);
       });
+
+      // Nếu chưa có conversationId trong DB, kết nối hội thoại direct qua API ngay
+      if (!existingConvId) {
+        void (async () => {
+          try {
+            const conv = await apiRequest<{ id: string }>("/chat/conversations/direct", {
+              method: "POST",
+              body: JSON.stringify({ userId: contact.id }),
+            });
+            if (conv?.id) {
+              setContacts((prev) =>
+                prev.map((c) => (c.id === contact.id ? { ...c, conversationId: conv.id } : c))
+              );
+              setOpenWindows((prev) =>
+                prev.map((w) => (w.id === contact.id ? { ...w, conversationId: conv.id } : w))
+              );
+            }
+          } catch {
+            // Giữ kết nối cục bộ
+          }
+        })();
+      }
     },
-    [addContactToBubbles]
+    [addContactToBubbles, contacts]
   );
 
   // Lắng nghe sự kiện toàn cục open-mini-chat từ các màn hình khác
@@ -830,12 +897,16 @@ export function MiniChatWidget() {
     setIsPickerOpen(false);
   };
 
-
   // Gửi tin nhắn và lưu trữ vật lý vào cơ sở dữ liệu PostgreSQL
   const handleSendMessage = async (contactId: string, text: string, isLike = false) => {
     const messageContent = isLike ? "👍" : text;
+    const clientMessageId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
     const newMsg: MiniChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: clientMessageId,
       senderId: currentUserId,
       content: messageContent,
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -857,26 +928,35 @@ export function MiniChatWidget() {
 
     // 2. Lưu trữ vật lý vào database PostgreSQL thông qua API chat
     try {
-      let targetConvId = contacts.find((c) => c.id === contactId)?.conversationId;
+      let targetConvId =
+        openWindows.find((w) => w.id === contactId)?.conversationId ||
+        contacts.find((c) => c.id === contactId)?.conversationId;
 
-      // Nếu chưa có conversationId trong DB, tạo hoặc lấy cuộc hội thoại 1-1
+      // Nếu chưa có conversationId trong DB, tạo hoặc lấy cuộc hội thoại direct 1-1
       if (!targetConvId) {
-        const conv = await apiRequest<{ id: string }>(`/chat/direct/${contactId}`, {
+        const conv = await apiRequest<{ id: string }>("/chat/conversations/direct", {
           method: "POST",
+          body: JSON.stringify({ userId: contactId }),
         });
-        targetConvId = conv.id;
-        setContacts((prev) =>
-          prev.map((c) => (c.id === contactId ? { ...c, conversationId: conv.id } : c))
-        );
+        if (conv?.id) {
+          targetConvId = conv.id;
+          setContacts((prev) =>
+            prev.map((c) => (c.id === contactId ? { ...c, conversationId: conv.id } : c))
+          );
+          setOpenWindows((prev) =>
+            prev.map((w) => (w.id === contactId ? { ...w, conversationId: conv.id } : w))
+          );
+        }
       }
 
       // Gửi tin nhắn vào bảng chat_messages
       if (targetConvId) {
         await apiRequest(`/chat/conversations/${targetConvId}/messages`, {
           method: "POST",
-          body: {
+          body: JSON.stringify({
             content: messageContent,
-          },
+            clientMessageId,
+          }),
         });
       }
     } catch {
