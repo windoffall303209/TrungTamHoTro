@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { publicApiUrl } from "@/lib/api-client";
 
 /** Lấy tối đa hai chữ cái cuối của họ tên làm avatar dự phòng. */
@@ -12,7 +12,7 @@ function initials(name: string): string {
   return parts.slice(-2).map((part) => part[0]?.toUpperCase()).join("") || "U";
 }
 
-/** Hiển thị avatar từ URL tuyệt đối/blob hoặc ghép URL API; fallback sang chữ cái initials an toàn không bị tràn chữ. */
+/** Hiển thị avatar với cơ chế Progressive Fallback: Initials luôn hiện lập tức 0ms, ảnh chỉ hiện đè lên khi đã nạp xong 100%. */
 export function UserAvatar({
   avatarUrl,
   name,
@@ -34,35 +34,47 @@ export function UserAvatar({
     <span
       className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 dark:from-blue-600 dark:to-indigo-500 font-extrabold text-white ring-1 ring-blue-400/30 shadow-2xs select-none ${className}`}
     >
+      {/* Lớp chữ cái Initials luôn luôn hiển thị lập tức không bao giờ để vòng tròn trống */}
+      <span aria-hidden="true" className="uppercase font-bold tracking-tight select-none">
+        {initials(name)}
+      </span>
+
+      {/* Lớp ảnh nạp tiến trình: chỉ hiện mượt mà khi đã tải thành công, tự huỷ nếu lỗi hoặc quá hạn */}
       {source ? (
-        <AvatarImage key={source} name={name} priority={priority} source={source} />
-      ) : (
-        <span aria-hidden="true" className="uppercase font-bold tracking-tight">
-          {initials(name)}
-        </span>
-      )}
+        <AvatarImageOverlay
+          key={source}
+          priority={priority}
+          source={source}
+        />
+      ) : null}
     </span>
   );
 }
 
-/** Theo dõi lỗi tải ảnh để thay bằng initials ngay trong cùng khung avatar mà không hiện icon vỡ hay tràn alt text. */
-function AvatarImage({
+/** Tải ảnh đại diện với kiểm soát timeout và fade-in mượt mà, không bao giờ chặn hoặc che mất chữ initials khi ảnh chưa sẵn sàng. */
+function AvatarImageOverlay({
   source,
-  name,
+  priority,
 }: {
   source: string;
-  name: string;
   priority: boolean;
 }) {
+  const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  if (failed || !source) {
-    return (
-      <span aria-hidden="true" className="uppercase font-bold tracking-tight">
-        {initials(name)}
-      </span>
-    );
-  }
+  useEffect(() => {
+    // Timeout an toàn 2.5s: Nếu mạng chậm hoặc stream pending, hủy tải để không tốn tài nguyên
+    const timeout = setTimeout(() => {
+      setLoaded((curr) => {
+        if (!curr) setFailed(true);
+        return curr;
+      });
+    }, 2500);
+
+    return () => clearTimeout(timeout);
+  }, [source]);
+
+  if (failed) return null;
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -70,7 +82,12 @@ function AvatarImage({
       src={source}
       alt=""
       aria-hidden="true"
-      className="size-full object-cover"
+      loading={priority ? "eager" : "lazy"}
+      crossOrigin="use-credentials"
+      className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ${
+        loaded ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+      onLoad={() => setLoaded(true)}
       onError={() => setFailed(true)}
     />
   );

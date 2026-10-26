@@ -551,109 +551,60 @@ export function DashboardHome() {
   }, []);
 
   const assignmentsList = useMemo(() => {
+    // 1. Lấy toàn bộ đề thi THẬT từ cơ sở dữ liệu
+    const dbExams = (learnerData.exams || []).map((exam) => ({
+      id: exam.id,
+      title: exam.title,
+      type: "EXAM" as const,
+      durationMinutes: exam.durationMinutes || 45,
+      totalQuestions: 10,
+      remainingAttempts: exam.remainingAttempts ?? 2,
+      dueAt: exam.closeAt
+        ? new Date(exam.closeAt).toLocaleDateString("vi-VN")
+        : "Không giới hạn",
+      subject: "Bài kiểm tra chính khóa",
+    }));
+
+    // 2. Lấy toàn bộ bài tập THẬT từ cơ sở dữ liệu
+    const dbAssignments = (learnerData.assignments || []).map((assign) => ({
+      id: assign.id,
+      title: assign.title,
+      type: "ASSIGNMENT" as const,
+      durationMinutes: 45,
+      totalQuestions: 10,
+      remainingAttempts: null,
+      dueAt: assign.dueAt
+        ? new Date(assign.dueAt).toLocaleDateString("vi-VN")
+        : "Không giới hạn",
+      subject: "Bài tập thực hành",
+    }));
+
+    const combined = [...dbExams, ...dbAssignments];
+    if (combined.length > 0) return combined;
+
     return [
       {
-        id: "assign-1",
-        title: "Kiểm tra 15 phút: Đại số & Giải tích chương 1",
-        type: "EXAM",
-        durationMinutes: 15,
-        totalQuestions: 10,
-        remainingAttempts: 1,
-        dueAt: "28/10/2026",
-        subject: "Toán học",
-      },
-      {
-        id: "assign-2",
-        title: "Đề thi thử Tốt nghiệp THPT môn Toán đợt 1",
-        type: "EXAM",
-        durationMinutes: 90,
-        totalQuestions: 50,
-        remainingAttempts: 2,
-        dueAt: "30/10/2026",
-        subject: "Toán học",
-      },
-      {
-        id: "assign-3",
-        title: "Bài tập rèn luyện: Phương trình lượng giác và ứng dụng",
-        type: "ASSIGNMENT",
-        durationMinutes: 45,
-        totalQuestions: 15,
-        remainingAttempts: null,
-        dueAt: "29/10/2026",
-        subject: "Toán học",
-      },
-      {
-        id: "assign-4",
-        title: "Khảo sát chất lượng đầu năm môn Tiếng Anh",
-        type: "EXAM",
-        durationMinutes: 60,
-        totalQuestions: 40,
-        remainingAttempts: 1,
-        dueAt: "01/11/2026",
-        subject: "Tiếng Anh",
-      },
-      {
-        id: "assign-5",
-        title: "Bài tập thực hành: Khúc xạ ánh sáng và lăng kính",
-        type: "ASSIGNMENT",
+        id: "demo-exam-01-1",
+        title: "Kiểm tra tiến độ — WEB-K01",
+        type: "EXAM" as const,
         durationMinutes: 30,
         totalQuestions: 10,
-        remainingAttempts: 3,
-        dueAt: "02/11/2026",
-        subject: "Vật lý",
-      },
-      {
-        id: "assign-6",
-        title: "Đề kiểm tra định kỳ: Este - Lipit và Chất béo",
-        type: "EXAM",
-        durationMinutes: 45,
-        totalQuestions: 30,
         remainingAttempts: 2,
-        dueAt: "03/11/2026",
-        subject: "Hóa học",
+        dueAt: "30/11/2026",
+        subject: "Web Full-stack",
       },
       {
-        id: "assign-7",
-        title: "Bài tập tự luyện: Viết lại câu không đổi nghĩa IELTS",
-        type: "ASSIGNMENT",
-        durationMinutes: 40,
-        totalQuestions: 12,
-        remainingAttempts: null,
-        dueAt: "04/11/2026",
-        subject: "Tiếng Anh",
-      },
-      {
-        id: "assign-8",
-        title: "Kiểm tra nhanh 10 phút: Từ vựng Unit 3",
-        type: "EXAM",
-        durationMinutes: 10,
-        totalQuestions: 15,
-        remainingAttempts: 1,
-        dueAt: "05/11/2026",
-        subject: "Tiếng Anh",
-      },
-      {
-        id: "assign-9",
-        title: "Đề thi thử môn Vật lý - Chuyên đề Sóng âm",
-        type: "EXAM",
-        durationMinutes: 50,
-        totalQuestions: 40,
-        remainingAttempts: 3,
-        dueAt: "06/11/2026",
-        subject: "Vật lý",
-      },
-      {
-        id: "assign-10",
-        title: "Bài tập ôn tập cuối tuần: Hệ phương trình chứa căn thức",
-        type: "ASSIGNMENT",
-        durationMinutes: 60,
-        totalQuestions: 8,
-        remainingAttempts: null,
-        dueAt: "07/11/2026",
-        subject: "Toán học",
+        id: "exam-mid-web",
+        title: "Kiểm tra giữa kỳ Web Full-stack",
+        type: "EXAM" as const,
+        durationMinutes: 45,
+        totalQuestions: 10,
+        remainingAttempts: 2,
+        dueAt: "30/12/2026",
+        subject: "Web Full-stack",
       },
     ];
-  }, []);
+  }, [learnerData.exams, learnerData.assignments]);
 
   const materialsList = useMemo<DocumentViewerData[]>(() => {
     return [
@@ -1396,8 +1347,8 @@ export function DashboardHome() {
           open={Boolean(activeExamForTaking)}
           onClose={() => setActiveExamForTaking(null)}
           exam={activeExamForTaking}
-          onSubmitted={(res) => {
-            alert(`Chúc mừng! Bạn đã hoàn thành bài thi với điểm số: ${res.score}/10`);
+          onSubmitted={() => {
+            void refresh();
           }}
         />
       )}
