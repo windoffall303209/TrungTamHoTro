@@ -124,4 +124,34 @@ describe("MiniChatWidget", () => {
     // Bubble xuất hiện trở lại trên logo chat
     expect(screen.getByTitle(/Mở chat với/i)).toBeInTheDocument();
   });
+
+  it("không bao giờ tạo 2 ô chat trùng lặp cùng 1 người khi chọn lại từ picker", () => {
+    render(<MiniChatWidget />);
+
+    // Mở ô chat 1: Phạm Ánh Hải
+    fireEvent.click(screen.getByTitle("Mở chat với Phạm Ánh Hải"));
+    // Mở ô chat 2: Nguyễn Thảo My
+    fireEvent.click(screen.getByTitle("Mở chat với Nguyễn Thảo My"));
+
+    // Đang có 2 ô chat
+    expect(screen.getAllByTitle("Thu nhỏ ô chat thành avatar").length).toBe(2);
+
+    // Bấm nút Logo Chat để mở khung chọn người
+    const logoButton = screen.getByTitle("Soạn tin nhắn mới");
+    fireEvent.click(logoButton);
+
+    // Khung chọn người đang mở, chọn lại bạn Phạm Ánh Hải từ danh bạ
+    const haiButton = screen.getByRole("button", { name: /Phạm Ánh Hải/i });
+    fireEvent.click(haiButton);
+
+    // Kiểm tra số lượng nút đóng ô chat chỉ tối đa 2 và tiêu đề không bị trùng 2 ô cùng 1 người
+    const closeButtons = screen.getAllByTitle("Đóng ô chat");
+    expect(closeButtons.length).toBeLessThanOrEqual(2);
+
+    // Xác nhận không có 2 header ô chat độc lập cùng tên Phạm Ánh Hải
+    const headerHai = screen.getAllByText("Phạm Ánh Hải");
+    // Số lần xuất hiện tên trong 1 ô chat là 2 (1 ở thanh header, 1 ở nội dung thẻ thông tin). Nếu 2 ô trùng lặp sẽ là 4.
+    expect(headerHai.length).toBeLessThanOrEqual(3);
+  });
 });
+

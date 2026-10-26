@@ -44,6 +44,20 @@ export interface MinimizedBubble {
   lastInteractedAt: number;
 }
 
+// Lọc bỏ các liên hệ trùng lặp ID và đảm bảo số ô chat mini không vượt quá 2
+export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
+  const seen = new Set<string>();
+  const result: ChatContact[] = [];
+  for (const win of windows) {
+    if (win && win.id && !seen.has(win.id)) {
+      seen.add(win.id);
+      result.push(win);
+    }
+  }
+  return result.slice(0, 2);
+}
+
+
 // Danh bạ liên hệ mẫu chân thực với hình đại diện, trạng thái online và vai trò
 const INITIAL_CONTACTS: ChatContact[] = [
   {
@@ -616,35 +630,48 @@ export function MiniChatWidget() {
   // Mở trực tiếp ô chat của một liên hệ theo đúng thứ tự 2 ô tối đa
   const openChatForContact = useCallback(
     (contact: ChatContact) => {
-      // Xóa khỏi bubble nếu đang ở danh sách thu nhỏ
+      // Đóng khung chọn người nhắn và dọn dẹp bộ nhớ tạm nếu picker đang mở
+      setIsPickerOpen(false);
+      setTempStateBeforePicker((temp) => {
+        if (temp?.displacedWindow && temp.displacedWindow.id !== contact.id) {
+          addContactToBubbles(temp.displacedWindow, 0);
+        }
+        return null;
+      });
+
+      // Xóa khỏi danh sách bong bóng thu nhỏ nếu đang ở bubble
       setBubbles((prev) => prev.filter((b) => b.contact.id !== contact.id));
 
       setOpenWindows((prev) => {
-        // Nếu đã mở sẵn: không cần thêm mới
-        if (prev.some((c) => c.id === contact.id)) {
-          return prev;
+        // Lọc sạch trùng lặp trước khi xử lý
+        const cleaned = deduplicateChatWindows(prev);
+
+        // Nếu người này đã mở sẵn ở một ô chat: giữ nguyên vị trí, không nhân bản
+        if (cleaned.some((c) => c.id === contact.id)) {
+          return cleaned;
         }
 
         // Trường hợp 1: Chưa mở ô nào -> Mở thành Ô chat 1 (vị trí sát logo)
-        if (prev.length === 0) {
+        if (cleaned.length === 0) {
           return [contact];
         }
 
         // Trường hợp 2: Đang mở 1 ô chat (ô chat 1) -> Ô mới mở thành Ô chat 2 (bên trái ô 1)
-        if (prev.length === 1) {
-          // Trật tự mảng: [ô 2, ô 1]
-          return [contact, prev[0]];
+        if (cleaned.length === 1) {
+          return deduplicateChatWindows([contact, cleaned[0]]);
         }
 
         // Trường hợp 3: Đang mở 2 ô chat [ô 2, ô 1] ->
         // Ô 1 cũ bị thu nhỏ thành avatar bubble phía trên logo
         // Ô 2 cũ dời sang vị trí ô 1
         // Ô mới mở tại vị trí ô 2
-        const oldSlot2 = prev[0];
-        const oldSlot1 = prev[1];
-        addContactToBubbles(oldSlot1, 0);
+        const oldSlot2 = cleaned[0];
+        const oldSlot1 = cleaned[1];
+        if (oldSlot1 && oldSlot1.id !== contact.id && oldSlot1.id !== oldSlot2.id) {
+          addContactToBubbles(oldSlot1, 0);
+        }
 
-        return [contact, oldSlot2];
+        return deduplicateChatWindows([contact, oldSlot2]);
       });
     },
     [addContactToBubbles]
@@ -715,7 +742,7 @@ export function MiniChatWidget() {
       // Quay trở lại bình thường như người dùng mô tả:
       // Ô 2 về vị trí 2, ô 1 trở lại vị trí 1
       const restoredSlot1 = tempStateBeforePicker.displacedWindow;
-      setOpenWindows((prev) => [prev[0], restoredSlot1]);
+      setOpenWindows((prev) => deduplicateChatWindows([prev[0], restoredSlot1]));
     }
     setTempStateBeforePicker(null);
     setIsPickerOpen(false);
@@ -723,22 +750,40 @@ export function MiniChatWidget() {
 
   // Chọn một người từ khung chọn người nhắn tin
   const handleSelectContactFromPicker = (contact: ChatContact) => {
-    if (tempStateBeforePicker && tempStateBeforePicker.displacedWindow) {
-      // Đã chọn được người nhắn mới trong tình huống ban đầu có 2 ô chat:
-      // Người ở ô số 1 cũ sẽ thu nhỏ lại thành avatar xuất hiện trên logo chat
-      const oldSlot1 = tempStateBeforePicker.displacedWindow;
-      addContactToBubbles(oldSlot1, 0);
+    // Xóa liên hệ này khỏi danh sách bong bóng thu nhỏ nếu có
+    setBubbles((prev) => prev.filter((b) => b.contact.id !== contact.id));
 
-      // Ô số 2 cũ chuyển thành ô số 1, người mới chọn sẽ ở ô số 2
+    if (tempStateBeforePicker && tempStateBeforePicker.displacedWindow) {
+      // Tình huống mở picker khi ban đầu đang mở 2 ô chat:
+      const oldSlot1 = tempStateBeforePicker.displacedWindow;
       const oldSlot2 = openWindows[0];
-      setOpenWindows([contact, oldSlot2]);
+
+      if (oldSlot2 && contact.id === oldSlot2.id) {
+        // Nếu chọn lại chính người ở Slot 2 (đang tạm thế vào Slot 1):
+        // Giữ nguyên người này và khôi phục Slot 1 cũ về vị trí ban đầu, tuyệt đối không tạo 2 ô trùng lặp
+        setOpenWindows(deduplicateChatWindows([oldSlot2, oldSlot1]));
+      } else if (contact.id === oldSlot1.id) {
+        // Nếu chọn lại chính người ở Slot 1 cũ vừa bị ẩn tạm thời:
+        // Đưa người này trở lại danh sách cùng với Slot 2 cũ
+        setOpenWindows(deduplicateChatWindows([contact, oldSlot2]));
+      } else {
+        // Chọn một người hoàn toàn mới:
+        // Người ở ô số 1 cũ thu nhỏ lại thành avatar xuất hiện trên logo chat
+        addContactToBubbles(oldSlot1, 0);
+        setOpenWindows(deduplicateChatWindows([contact, oldSlot2]));
+      }
       setTempStateBeforePicker(null);
     } else {
-      // Trường hợp thông thường: mở theo logic chuẩn
-      openChatForContact(contact);
+      // Trường hợp thông thường (trước khi mở picker chỉ có 0 hoặc 1 ô chat):
+      if (openWindows.some((c) => c.id === contact.id)) {
+        // Đã mở sẵn ô chat này -> Không làm gì cả
+      } else {
+        openChatForContact(contact);
+      }
     }
     setIsPickerOpen(false);
   };
+
 
   // Gửi tin nhắn và mô phỏng phản hồi tự động
   const handleSendMessage = (contactId: string, text: string, isLike = false) => {
@@ -818,8 +863,13 @@ export function MiniChatWidget() {
 
   // Xác định các thành phần hiển thị ở Slot 2, Slot 1 và Cột Logo
   // Quy tắc hiển thị ngang từ trái sang phải: [Ô chat 2] [Ô chat 1] [Cột Logo chat]
-  const slot1Window = openWindows.length === 2 ? openWindows[1] : openWindows[0] || null;
-  const slot2Window = openWindows.length === 2 ? openWindows[0] : null;
+  const uniqueWindows = useMemo(() => deduplicateChatWindows(openWindows), [openWindows]);
+  const slot1Window = uniqueWindows.length === 2 ? uniqueWindows[1] : uniqueWindows[0] || null;
+  const slot2Window =
+    uniqueWindows.length === 2 && uniqueWindows[0]?.id !== uniqueWindows[1]?.id
+      ? uniqueWindows[0]
+      : null;
+
 
   return (
     <aside aria-label="Khung tin nhắn mini" className="fixed bottom-0 right-4 z-50 flex items-end gap-3 pointer-events-none select-none">
