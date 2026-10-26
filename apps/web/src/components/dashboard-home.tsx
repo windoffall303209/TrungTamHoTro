@@ -581,30 +581,7 @@ export function DashboardHome() {
     }));
 
     const combined = [...dbExams, ...dbAssignments];
-    if (combined.length > 0) return combined;
-
-    return [
-      {
-        id: "demo-exam-01-1",
-        title: "Kiểm tra tiến độ — WEB-K01",
-        type: "EXAM" as const,
-        durationMinutes: 30,
-        totalQuestions: 10,
-        remainingAttempts: 2,
-        dueAt: "30/11/2026",
-        subject: "Web Full-stack",
-      },
-      {
-        id: "exam-mid-web",
-        title: "Kiểm tra giữa kỳ Web Full-stack",
-        type: "EXAM" as const,
-        durationMinutes: 45,
-        totalQuestions: 10,
-        remainingAttempts: 2,
-        dueAt: "30/12/2026",
-        subject: "Web Full-stack",
-      },
-    ];
+    return combined;
   }, [learnerData.exams, learnerData.assignments]);
 
   const materialsList = useMemo<DocumentViewerData[]>(() => {

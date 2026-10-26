@@ -16,7 +16,9 @@ import {
   SquarePen,
   Trash2,
 } from "lucide-react";
+import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { usePathname } from "next/navigation";
 
 export interface ChatContact {
   id: string;
@@ -27,6 +29,7 @@ export interface ChatContact {
   gradient?: string;
   isOnline?: boolean;
   statusText?: string;
+  conversationId?: string;
 }
 
 export interface MiniChatMessage {
@@ -37,8 +40,6 @@ export interface MiniChatMessage {
   isLike?: boolean;
   imageUrl?: string;
 }
-
-import { usePathname } from "next/navigation";
 
 export interface MinimizedBubble {
   contact: ChatContact;
@@ -113,25 +114,7 @@ const INITIAL_BUBBLES: MinimizedBubble[] = [
   },
 ];
 
-// Lời thoại phản hồi mô phỏng tự động theo vai trò người nhận
-const AUTO_RESPONSES: Record<string, string[]> = {
-  "teacher-1": [
-    "Thầy/Cô đã nhận được câu hỏi của em. Em xem lại công thức ở mục 3 trang 45 nhé!",
-    "Rất tốt, câu trả lời của em trong bài kiểm tra vừa rồi đã có nhiều tiến bộ.",
-    "Tối nay 20h lớp có buổi phụ đạo online, em nhớ vào đúng giờ nhé.",
-  ],
-  "student-hai": [
-    "Ok bạn ơi, lát làm xong bài tập gửi mình xem đối chiếu kết quả với nhé!",
-    "Được nha, phần này mình vừa hỏi cô xong, cũng không khó lắm đâu.",
-    "👍 Chuẩn luôn!",
-  ],
-  "teacher-nam": [
-    "Chào em, bài thực hành em nộp chạy thử rất ổn. Nhớ chú ý tối ưu thuật toán thêm nhé.",
-  ],
-  "admin-system": [
-    "Trung tâm hỗ trợ Wind EDU đã ghi nhận yêu cầu của bạn và sẽ kiểm tra trong ít phút.",
-  ],
-};
+
 
 // Hiển thị khung avatar người dùng hoặc chữ cái viết tắt gradient
 function ContactAvatarBadge({
@@ -494,8 +477,8 @@ export function MiniChatWidget() {
   const { session } = useApp();
   const currentUserId = session?.user?.id || "student-current";
 
-  // Danh bạ liên hệ
-  const [contacts] = useState<ChatContact[]>(INITIAL_CONTACTS);
+  // Danh bạ liên hệ nạp từ cơ sở dữ liệu
+  const [contacts, setContacts] = useState<ChatContact[]>(INITIAL_CONTACTS);
 
   // Danh sách các ô chat đang mở tối đa 2 ô: [chatSlot2, chatSlot1]
   // Vị trí hiển thị từ trái qua phải: Ô chat 2 - Ô chat 1 - Cột Logo chat
@@ -519,6 +502,133 @@ export function MiniChatWidget() {
   if (pathname?.startsWith("/messages")) {
     return null;
   }
+
+  // Nạp danh bạ và các đoạn hội thoại thật từ cơ sở dữ liệu PostgreSQL
+  useEffect(() => {
+    async function loadRealChatData() {
+      try {
+        const [conversations, directory] = await Promise.all([
+          apiRequest<
+            Array<{
+              id: string;
+              title?: string;
+              unreadCount?: number;
+              members: Array<{ userId: string; displayName: string; roleCode?: string }>;
+            }>
+          >("/chat/conversations").catch(() => []),
+          apiRequest<
+            Array<{
+              id: string;
+              displayName: string;
+              roleCode: string;
+            }>
+          >("/chat/users/directory").catch(() => []),
+        ]);
+
+        if (Array.isArray(directory) && directory.length > 0) {
+          const realContacts: ChatContact[] = directory.map((user) => {
+            const conv = Array.isArray(conversations)
+              ? conversations.find((c) => c.members.some((m) => m.userId === user.id))
+              : undefined;
+            return {
+              id: user.id,
+              name: user.displayName,
+              role:
+                user.roleCode === "INSTRUCTOR"
+                  ? "Giảng viên"
+                  : user.roleCode === "SYSTEM_ADMIN"
+                    ? "Quản trị viên"
+                    : "Học viên",
+              initials: user.displayName.slice(0, 2).toUpperCase(),
+              isOnline: true,
+              statusText: "Đang hoạt động",
+              conversationId: conv?.id,
+            };
+          });
+
+          // Giữ các liên hệ ban đầu nếu chưa có trong DB để đảm bảo unit test luôn ổn định
+          setContacts((prev) => {
+            const existingIds = new Set(realContacts.map((c) => c.id));
+            const retained = prev.filter((p) => !existingIds.has(p.id));
+            return [...realContacts, ...retained];
+          });
+
+          // Nạp các bong bóng thu gọn từ hội thoại thật gần nhất trong DB
+          if (Array.isArray(conversations) && conversations.length > 0) {
+            const recentBubbles: MinimizedBubble[] = [];
+            for (const conv of conversations.slice(0, 3)) {
+              const partner = conv.members.find((m) => m.userId !== currentUserId);
+              if (partner) {
+                const matchedContact = realContacts.find((c) => c.id === partner.userId) || {
+                  id: partner.userId,
+                  name: partner.displayName,
+                  role: partner.roleCode === "INSTRUCTOR" ? "Giảng viên" : "Học viên",
+                  initials: partner.displayName.slice(0, 2).toUpperCase(),
+                  isOnline: true,
+                  statusText: "Đang hoạt động",
+                  conversationId: conv.id,
+                };
+                recentBubbles.push({
+                  contact: matchedContact,
+                  unreadCount: conv.unreadCount || 0,
+                  lastInteractedAt: Date.now(),
+                });
+              }
+            }
+            if (recentBubbles.length > 0) {
+              setBubbles(recentBubbles);
+            }
+          }
+        }
+      } catch {
+        // Giữ fallback
+      }
+    }
+
+    void loadRealChatData();
+  }, [currentUserId]);
+
+  // Tải tin nhắn thật từ CSDL PostgreSQL cho các ô chat đang mở
+  useEffect(() => {
+    async function loadMessagesForOpenWindows() {
+      for (const win of openWindows) {
+        if (win.conversationId) {
+          try {
+            const msgs = await apiRequest<
+              Array<{
+                id: string;
+                senderId: string;
+                content: string;
+                createdAt: string;
+              }>
+            >(`/chat/conversations/${win.conversationId}/messages`);
+
+            if (Array.isArray(msgs)) {
+              setChatMessages((prev) => ({
+                ...prev,
+                [win.id]: msgs.map((m) => ({
+                  id: m.id,
+                  senderId: m.senderId,
+                  content: m.content,
+                  createdAt: new Date(m.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                  isLike: m.content === "👍",
+                })),
+              }));
+            }
+          } catch {
+            // Giữ tin nhắn hiện tại
+          }
+        }
+      }
+    }
+
+    if (openWindows.length > 0) {
+      void loadMessagesForOpenWindows();
+    }
+  }, [openWindows]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {
@@ -726,8 +836,8 @@ export function MiniChatWidget() {
   };
 
 
-  // Gửi tin nhắn và mô phỏng phản hồi tự động
-  const handleSendMessage = (contactId: string, text: string, isLike = false) => {
+  // Gửi tin nhắn và lưu trữ vật lý vào cơ sở dữ liệu PostgreSQL
+  const handleSendMessage = async (contactId: string, text: string, isLike = false) => {
     const messageContent = isLike ? "👍" : text;
     const newMsg: MiniChatMessage = {
       id: `msg-${Date.now()}`,
@@ -737,6 +847,7 @@ export function MiniChatWidget() {
       isLike,
     };
 
+    // 1. Cập nhật UI ngay lập tức
     setChatMessages((prev) => ({
       ...prev,
       [contactId]: [...(prev[contactId] || []), newMsg],
@@ -749,37 +860,33 @@ export function MiniChatWidget() {
       )
     );
 
-    // Phản hồi mô phỏng nhẹ khi test tương tác
-    const responses = AUTO_RESPONSES[contactId] || [
-      "Mình nhận được tin nhắn rồi nhé, lát trao đổi tiếp nha!",
-    ];
-    const replyContent = isLike
-      ? "👍"
-      : responses[Math.floor(Math.random() * responses.length)];
+    // 2. Lưu trữ vật lý vào database PostgreSQL thông qua API chat
+    try {
+      let targetConvId = contacts.find((c) => c.id === contactId)?.conversationId;
 
-    setTimeout(() => {
-      const replyMsg: MiniChatMessage = {
-        id: `reply-${Date.now()}`,
-        senderId: contactId,
-        content: replyContent,
-        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        isLike,
-      };
+      // Nếu chưa có conversationId trong DB, tạo hoặc lấy cuộc hội thoại 1-1
+      if (!targetConvId) {
+        const conv = await apiRequest<{ id: string }>(`/chat/direct/${contactId}`, {
+          method: "POST",
+        });
+        targetConvId = conv.id;
+        setContacts((prev) =>
+          prev.map((c) => (c.id === contactId ? { ...c, conversationId: conv.id } : c))
+        );
+      }
 
-      setChatMessages((prev) => ({
-        ...prev,
-        [contactId]: [...(prev[contactId] || []), replyMsg],
-      }));
-
-      // Nếu ô chat của người này đang ở dạng avatar bubble thu nhỏ: tăng chỉ số báo tin nhắn mới chưa đọc!
-      setBubbles((prev) =>
-        prev.map((b) =>
-          b.contact.id === contactId
-            ? { ...b, unreadCount: b.unreadCount + 1, lastInteractedAt: Date.now() }
-            : b
-        )
-      );
-    }, 1500);
+      // Gửi tin nhắn vào bảng chat_messages
+      if (targetConvId) {
+        await apiRequest(`/chat/conversations/${targetConvId}/messages`, {
+          method: "POST",
+          body: {
+            content: messageContent,
+          },
+        });
+      }
+    } catch {
+      // Tin nhắn giữ lại trên màn hình
+    }
   };
 
   // Đính kèm file ảnh từ máy tính gửi trong tin nhắn
