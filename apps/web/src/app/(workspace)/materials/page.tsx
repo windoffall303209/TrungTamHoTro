@@ -331,7 +331,6 @@ export default function MaterialsPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
-        eyebrow="Content Repository"
         title="Kho học liệu"
         description="Tài liệu được quản lý theo môn học, sau đó theo từng lớp triển khai — không còn một danh sách trộn lẫn."
         actions={instructor ? <Button disabled={!selectedCourse || sharedLibrary} onClick={openUpload}><Plus size={17} />Thêm vào môn này</Button> : undefined}

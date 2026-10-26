@@ -597,7 +597,6 @@ export default function ForumPage() {
     <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 md:py-5 space-y-4">
       {/* Tiêu đề trang chính */}
       <PageHeader
-        eyebrow="Community Learning"
         title="Diễn đàn trao đổi"
         description="Thảo luận theo lớp, trao đổi bài học theo luồng và kiểm duyệt nội dung an toàn."
         actions={

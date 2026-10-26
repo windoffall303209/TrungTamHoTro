@@ -3,17 +3,18 @@
 import { activeLocale } from "@/i18n/runtime";
 import {
   CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   ExternalLink,
-  LayoutGrid,
-  List,
   Pencil,
   Play,
   Radio,
   Trash2,
+  UserCheck,
   Video,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
@@ -31,11 +32,39 @@ import {
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { hasPermission } from "@/lib/access-control";
+
+// Lấy mốc thời gian ngày thứ Hai đầu tuần từ một ngày bất kỳ
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+// Kiểm tra hai đối tượng thời gian có cùng ngày tháng năm hay không
+function isSameDay(d1: Date, d2: Date): boolean {
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
+}
+
+// Định dạng ngày và tháng dạng DD/MM từ đối tượng thời gian
+function formatDateDayMonth(d: Date): string {
+  const day = d.getDate().toString().padStart(2, "0");
+  const month = (d.getMonth() + 1).toString().padStart(2, "0");
+  return `${day}/${month}`;
+}
 
 /** Quản lý lịch, trạng thái tham gia và vòng đời của các buổi học trực tuyến. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const allowed = [
     "SYSTEM_ADMIN",
@@ -65,6 +94,68 @@ export default function LiveClassesPage() {
     provider: "GOOGLE_MEET",
     reason: "",
   });
+
+  // Trạng thái ngày được chọn để duyệt tuần hoặc tháng
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+
+  // Lấy mốc ngày thứ Hai đầu tuần hiện tại
+  const currentMonday = useMemo(() => getMonday(currentDate), [currentDate]);
+
+  // Lấy danh sách 7 ngày trong tuần từ thứ Hai đến Chủ nhật
+  const weekDays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(currentMonday);
+      d.setDate(currentMonday.getDate() + i);
+      return d;
+    });
+  }, [currentMonday]);
+
+  // Tính nhãn hiển thị khoảng thời gian theo tuần hoặc theo tháng
+  const periodLabel = useMemo(() => {
+    if (scheduleView === "week") {
+      const sunday = weekDays[6];
+      const mDay = currentMonday.getDate();
+      const mMonth = currentMonday.getMonth() + 1;
+      const sDay = sunday.getDate();
+      const sMonth = sunday.getMonth() + 1;
+      const year = sunday.getFullYear();
+      return `${t("Tuần")} ${mDay}/${mMonth} - ${sDay}/${sMonth}, ${year}`;
+    }
+    const month = currentDate.getMonth() + 1;
+    const year = currentDate.getFullYear();
+    return `${t("Tháng")} ${month}, ${year}`;
+  }, [scheduleView, currentMonday, weekDays, currentDate, t]);
+
+  // Chuyển sang tuần hoặc tháng trước đó
+  const handlePrevPeriod = () => {
+    setCurrentDate((prev) => {
+      const next = new Date(prev);
+      if (scheduleView === "week") {
+        next.setDate(next.getDate() - 7);
+      } else {
+        next.setMonth(next.getMonth() - 1);
+      }
+      return next;
+    });
+  };
+
+  // Chuyển sang tuần hoặc tháng tiếp theo
+  const handleNextPeriod = () => {
+    setCurrentDate((prev) => {
+      const next = new Date(prev);
+      if (scheduleView === "week") {
+        next.setDate(next.getDate() + 7);
+      } else {
+        next.setMonth(next.getMonth() + 1);
+      }
+      return next;
+    });
+  };
+
+  // Quay về mốc tuần hoặc tháng hiện tại
+  const handleToday = () => {
+    setCurrentDate(new Date());
+  };
   /** Nạp lớp và buổi trực tuyến theo phạm vi vai trò, đồng thời giữ bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!allowed) return;
@@ -261,17 +352,18 @@ export default function LiveClassesPage() {
       );
     }
   };
+
   if (!allowed) return <AccessDenied />;
+
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3">
         <PageHeader
-          eyebrow="Synchronous Learning"
-          title={learner ? "Lịch học trực tuyến" : "Lớp học online"}
+          title={learner ? t("Lịch học trực tuyến") : t("Lớp học online")}
           description={
             learner
-              ? "Thời khóa biểu các ca học theo tuần và theo tháng, hỗ trợ điểm danh và vào phòng trực tuyến."
-              : "Lập lịch, mở phòng, điểm danh và gắn bản ghi sau buổi học."
+              ? t("Thời khóa biểu các ca học theo tuần và theo tháng, hỗ trợ điểm danh và vào phòng trực tuyến.")
+              : t("Lập lịch, mở phòng, điểm danh và gắn bản ghi sau buổi học.")
           }
           actions={
             instructor || manager ? (
@@ -290,160 +382,288 @@ export default function LiveClassesPage() {
                 }}
               >
                 <CalendarPlus size={17} />
-                Lên lịch
+                {t("Lên lịch")}
               </Button>
             ) : undefined
           }
         />
+      </div>
 
-        {/* Nút chuyển đổi chế độ Lịch học Tuần / Tháng cho học sinh */}
-        {learner && (
-          <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 self-start sm:self-auto shrink-0">
+      {/* Thanh công cụ lịch học: Chuyển Tuần/Tháng và Điều hướng thời gian */}
+      {learner && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs mb-4">
+          {/* Nút chuyển đổi chế độ Tuần / Tháng */}
+          <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
             <button
               type="button"
               onClick={() => setScheduleView("week")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 scheduleView === "week"
-                  ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  ? "bg-[#0b57d0] text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
               }`}
             >
-              <LayoutGrid size={14} />
-              <span>Dạng tuần (Lưới)</span>
+              {t("Tuần")}
             </button>
             <button
               type="button"
               onClick={() => setScheduleView("month")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 scheduleView === "month"
-                  ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  ? "bg-[#0b57d0] text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
               }`}
             >
-              <List size={14} />
-              <span>Dạng tháng (Danh sách)</span>
+              {t("Tháng")}
             </button>
           </div>
-        )}
-      </div>
+
+          {/* Bộ điều hướng thời gian có nút chuyển lùi/tiến và mốc thời gian */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrevPeriod}
+              className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+              title={t("Thời gian trước")}
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 px-2 min-w-36 sm:min-w-44 text-center">
+              {periodLabel}
+            </span>
+
+            <button
+              type="button"
+              onClick={handleNextPeriod}
+              className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+              title={t("Thời gian sau")}
+            >
+              <ChevronRight size={16} />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToday}
+              className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+            >
+              {t("Hôm nay")}
+            </button>
+          </div>
+        </div>
+      )}
 
       <SectionState loading={loading} empty={items.length === 0}>
         {learner && scheduleView === "week" ? (
           /* CHẾ ĐỘ DẠNG TUẦN (LƯỚI 7 NGÀY THỜI KHÓA BIỂU) CHO HỌC SINH */
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-            {[
-              { day: "Thứ 2", offset: 1 },
-              { day: "Thứ 3", offset: 2 },
-              { day: "Thứ 4", offset: 3 },
-              { day: "Thứ 5", offset: 4 },
-              { day: "Thứ 6", offset: 5 },
-              { day: "Thứ 7", offset: 6 },
-              { day: "Chủ nhật", offset: 0 },
-            ].map(({ day, offset }, idx) => {
+            {weekDays.map((colDate, idx) => {
               const daySessions = items.filter((session) => {
                 const sDate = new Date(session.startsAt);
-                return sDate.getDay() === offset;
+                return isSameDay(sDate, colDate);
               });
+              const isColToday = isSameDay(colDate, new Date());
+              const dayNames = [
+                "Thứ 2",
+                "Thứ 3",
+                "Thứ 4",
+                "Thứ 5",
+                "Thứ 6",
+                "Thứ 7",
+                "Chủ nhật",
+              ];
+              const dayName = dayNames[idx];
 
               return (
                 <div
                   key={idx}
-                  className={`p-3.5 rounded-2xl border flex flex-col justify-between min-h-48 transition-all ${
-                    daySessions.length > 0
-                      ? "bg-blue-50/40 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60 shadow-2xs"
+                  className={`p-3 rounded-2xl border flex flex-col justify-between min-h-60 transition-all ${
+                    isColToday
+                      ? "bg-sky-50/50 dark:bg-sky-950/20 border-sky-300 dark:border-sky-800 shadow-xs"
                       : "bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800"
                   }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-2 mb-2.5">
-                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{day}</span>
-                      <span className="text-[10px] font-semibold text-slate-400">
-                        {daySessions.length ? `${daySessions.length} ca` : "Trống"}
-                      </span>
+                  <div className="flex-1 flex flex-col">
+                    {/* Header cột thứ và ngày DD/MM */}
+                    <div className="border-b border-slate-200/60 dark:border-slate-800 pb-2 mb-2.5">
+                      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                        {t(dayName)}
+                        {isColToday ? ` - ${t("Hôm nay")}` : ""}
+                      </p>
+                      <p className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
+                        {formatDateDayMonth(colDate)}
+                      </p>
                     </div>
 
+                    {/* Danh sách ca học trong ngày */}
                     {daySessions.length > 0 ? (
-                      <div className="space-y-2.5">
+                      <div className="space-y-2.5 flex-1">
                         {daySessions.map((session) => {
                           const isLive = session.status === "LIVE";
+                          const isUpcoming = clock < new Date(session.startsAt).getTime();
                           const canJoin =
                             clock >= new Date(session.startsAt).getTime() - 15 * 60_000 &&
                             clock <= new Date(session.endsAt).getTime() + 30 * 60_000;
+                          const isAttended = joinedSessionId === session.id;
 
                           return (
                             <div
                               key={session.id}
-                              className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-1.5 shadow-2xs"
+                              className="p-3 rounded-xl bg-[#0070ba] dark:bg-[#0b57d0] text-white shadow-md space-y-2 hover:shadow-lg transition-shadow"
                             >
                               <div className="flex items-center justify-between gap-1">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                    isLive
-                                      ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 animate-pulse"
-                                      : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                                  }`}
-                                >
-                                  {isLive ? "Đang học" : "Trực tuyến"}
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 text-white backdrop-blur-xs">
+                                  <Radio size={11} className={isLive ? "animate-pulse" : ""} />
+                                  <span>
+                                    {isLive
+                                      ? t("Đang diễn ra")
+                                      : isUpcoming
+                                        ? t("Sắp diễn ra")
+                                        : t("Đã kết thúc")}
+                                  </span>
                                 </span>
-                                <span className="text-[10px] text-slate-400 truncate">
+                                <span className="text-[10px] text-white/80 font-medium">
                                   {session.provider.replace("_", " ")}
                                 </span>
                               </div>
 
-                              <p className="text-xs font-bold text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug">
-                                {session.title}
-                              </p>
+                              <div>
+                                <h3 className="text-xs font-extrabold text-white line-clamp-2 leading-snug">
+                                  {session.title}
+                                </h3>
+                                <p className="text-[10px] text-white/80 mt-0.5 flex items-center gap-1 font-medium">
+                                  <Clock size={11} className="shrink-0" />
+                                  <span>
+                                    {new Date(session.startsAt).toLocaleTimeString(activeLocale(), {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                    {" - "}
+                                    {new Date(session.endsAt).toLocaleTimeString(activeLocale(), {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </p>
+                              </div>
 
-                              <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                                <Clock size={11} className="text-slate-400 shrink-0" />
-                                <span>
-                                  {new Date(session.startsAt).toLocaleTimeString(activeLocale(), {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                  {" - "}
-                                  {new Date(session.endsAt).toLocaleTimeString(activeLocale(), {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
-                              </p>
+                              <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
+                                <div className="flex items-center justify-between text-[10px] text-white/90">
+                                  <span className="flex items-center gap-1 font-semibold">
+                                    <UserCheck size={12} />
+                                    {isAttended ? t("Đã điểm danh") : t("Chưa điểm danh")}
+                                  </span>
+                                </div>
 
-                              {joinedSessionId === session.id ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void leave(session)}
-                                  className="w-full mt-1.5 py-1 px-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-[10px] font-bold transition-colors"
-                                >
-                                  Rời & Điểm danh
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={!canJoin}
-                                  onClick={() => void join(session)}
-                                  className={`w-full mt-1.5 py-1 px-2 rounded-lg text-[10px] font-bold transition-colors ${
-                                    canJoin
-                                      ? "bg-blue-600 hover:bg-blue-700 text-white shadow-2xs"
-                                      : "bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                                  }`}
-                                >
-                                  {isLive ? "Vào lớp ngay" : canJoin ? "Vào phòng" : "Chưa đến giờ"}
-                                </button>
-                              )}
+                                {isAttended ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void leave(session)}
+                                    className="w-full py-1.5 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                  >
+                                    {t("Rời phòng")}
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={!canJoin && !isLive}
+                                    onClick={() => void join(session)}
+                                    className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                                      canJoin || isLive
+                                        ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs"
+                                        : "bg-white/10 text-white/50 cursor-not-allowed"
+                                    }`}
+                                  >
+                                    {isLive ? t("Vào lớp ngay") : canJoin ? t("Vào phòng") : t("Chưa đến giờ")}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     ) : (
-                      <div className="py-6 text-center text-[11px] text-slate-400 italic">
-                        Không có ca học
+                      <div className="flex-1 flex items-center justify-center py-12 text-center text-xs text-slate-400 dark:text-slate-500 font-medium">
+                        {t("Không có lịch học")}
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        ) : learner && scheduleView === "month" ? (
+          /* CHẾ ĐỘ DẠNG THÁNG CHO HỌC SINH */
+          <div className="space-y-4">
+            {(() => {
+              const monthSessions = items.filter((session) => {
+                const d = new Date(session.startsAt);
+                return (
+                  d.getMonth() === currentDate.getMonth() &&
+                  d.getFullYear() === currentDate.getFullYear()
+                );
+              });
+
+              if (monthSessions.length === 0) {
+                return (
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-12 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
+                    {t("Không có lịch học trong tháng này")}
+                  </div>
+                );
+              }
+
+              return monthSessions.map((item) => (
+                <article
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+                  id={`session-${item.id}`}
+                  key={item.id}
+                >
+                  <div
+                    className={`grid size-12 place-items-center rounded-2xl ${
+                      item.status === "LIVE" ? "bg-rose-100 text-rose-600" : "bg-sky-50 text-sky-700"
+                    }`}
+                  >
+                    {item.status === "LIVE" ? <Radio className="animate-pulse" /> : <Video />}
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="font-heading text-lg font-extrabold">{item.title}</h2>
+                      <StatusBadge status={item.status} />
+                    </div>
+                    <p className="mt-2 text-xs sm:text-sm text-slate-500">
+                      {new Date(item.startsAt).toLocaleString(activeLocale())} —{" "}
+                      {new Date(item.endsAt).toLocaleTimeString(activeLocale(), {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      · {item.provider.replace("_", " ")}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {joinedSessionId === item.id ? (
+                      <Button onClick={() => void leave(item)} variant="secondary">
+                        {t("Rời phòng và chốt điểm danh")}
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={
+                          clock < new Date(item.startsAt).getTime() - 15 * 60_000 ||
+                          clock > new Date(item.endsAt).getTime() + 30 * 60_000
+                        }
+                        onClick={() => void join(item)}
+                      >
+                        {clock < new Date(item.startsAt).getTime() - 15 * 60_000
+                          ? t("Chưa đến giờ")
+                          : clock > new Date(item.endsAt).getTime() + 30 * 60_000
+                            ? t("Đã kết thúc")
+                            : t("Vào lớp")}{" "}
+                        <ExternalLink size={15} />
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              ));
+            })()}
           </div>
         ) : (
           /* CHẾ ĐỘ DẠNG THÁNG (DANH SÁCH CHI TIẾT) HOẶC VIEW CHO QUẢN TRỊ / GIẢNG VIÊN */
