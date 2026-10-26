@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { clearSessionDrafts } from "@/lib/session-drafts";
 import type { RoleCode, SessionData } from "@/lib/app-types";
@@ -100,7 +101,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, authError, login, completeMfa, logout, setRole, refreshSession, notify }), [authError, authLoading, completeMfa, login, logout, notify, refreshSession, session, setRole]);
-  return <AppContext.Provider value={value}>{children}{toast ? <div aria-live={toast.tone === "error" ? "assertive" : "polite"} className={`fixed bottom-5 left-5 right-5 z-[80] max-w-sm animate-toast rounded-xl px-4 py-3 text-sm font-semibold shadow-xl sm:left-auto ${toast.tone === "error" ? "bg-[var(--danger-fill)] text-[var(--status-on-fill)]" : toast.tone === "info" ? "bg-[var(--action)] text-[var(--action-ink)]" : "bg-[var(--success-fill)] text-[var(--status-on-fill)]"}`} role={toast.tone === "error" ? "alert" : "status"}>{toast.message}</div> : null}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+      {toast ? (
+        <aside
+          aria-live={toast.tone === "error" ? "assertive" : "polite"}
+          className="fixed top-5 right-5 z-[100000] w-[min(24rem,calc(100vw-2rem))] animate-slide-in-down rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-[#181922]/95 backdrop-blur-md p-4 shadow-2xl transition-all"
+          role={toast.tone === "error" ? "alert" : "status"}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`size-8 rounded-xl grid place-items-center shrink-0 ${
+                toast.tone === "error"
+                  ? "bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400"
+                  : toast.tone === "info"
+                    ? "bg-sky-100 text-sky-600 dark:bg-sky-950/60 dark:text-sky-400"
+                    : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
+              }`}
+            >
+              {toast.tone === "error" ? (
+                <AlertCircle size={18} />
+              ) : toast.tone === "info" ? (
+                <Info size={18} />
+              ) : (
+                <CheckCircle2 size={18} />
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0 pt-0.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                {toast.tone === "error"
+                  ? "Cảnh báo / Lỗi"
+                  : toast.tone === "info"
+                    ? "Thông báo"
+                    : "Thành công"}
+              </p>
+              <p className="mt-0.5 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                {toast.message}
+              </p>
+            </div>
+
+            <button
+              aria-label="Đóng thông báo"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              onClick={() => setToast(null)}
+              type="button"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        </aside>
+      ) : null}
+    </AppContext.Provider>
+  );
 }
 
 /** Truy cập AppContext và báo lỗi sớm nếu component nằm ngoài provider. */
