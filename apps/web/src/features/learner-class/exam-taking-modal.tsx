@@ -126,16 +126,18 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
         if (isMounted) setIsLoadingQuestions(false);
       }
 
-      // Mở lượt làm bài chính thức trong database nếu có thể
-      try {
-        const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam?.id}/attempts`, {
-          method: "POST",
-        });
-        if (isMounted && attempt?.id) {
-          setAttemptId(attempt.id);
+      // Mở lượt làm bài chính thức trong database nếu còn lượt làm bài
+      if (!(exam.remainingAttempts !== undefined && exam.remainingAttempts !== null && exam.remainingAttempts <= 0)) {
+        try {
+          const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam?.id}/attempts`, {
+            method: "POST",
+          });
+          if (isMounted && attempt?.id) {
+            setAttemptId(attempt.id);
+          }
+        } catch {
+          // Lượt làm bài dự phòng nếu offline
         }
-      } catch {
-        // Lượt làm bài dự phòng nếu vượt quá giới hạn hoặc offline
       }
     }
 
@@ -294,6 +296,10 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
   const answeredCount = Object.keys(answers).length;
   const flaggedCount = Object.values(flagged).filter(Boolean).length;
   const unansweredCount = questions.length - answeredCount;
+  const isOutOfAttempts =
+    exam.remainingAttempts !== undefined &&
+    exam.remainingAttempts !== null &&
+    exam.remainingAttempts <= 0;
 
   return (
     // Lớp phủ toàn màn hình với z-[99999] ghi đè lên toàn bộ giao diện và vô hiệu hóa các widget nổi
@@ -799,51 +805,83 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
         )}
       </div>
 
-      {/* ================= MODAL XÁC NHẬN BẮT ĐẦU LÀM BÀI ================= */}
+      {/* ================= MODAL XÁC NHẬN BẮT ĐẦU LÀM BÀI HOẶC THÔNG BÁO HẾT LƯỢT ================= */}
       {!startConfirmed && !isSubmitted && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1a1b22] border border-slate-200 dark:border-slate-800 p-6 shadow-2xl text-center space-y-4">
-            <div className="size-14 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 grid place-items-center mx-auto">
-              <HelpCircle size={32} />
-            </div>
+            {isOutOfAttempts ? (
+              <>
+                <div className="size-14 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 grid place-items-center mx-auto">
+                  <AlertTriangle size={32} />
+                </div>
 
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                Xác nhận bắt đầu làm bài
-              </h3>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Bạn xác định sẽ làm bài này chứ?
-              </p>
-              {exam.remainingAttempts !== undefined &&
-                exam.remainingAttempts !== null &&
-                exam.remainingAttempts > 0 && (
-                  <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs font-bold text-amber-800 dark:text-amber-300">
-                    Bài này còn {exam.remainingAttempts} lần làm bài.
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    Đã hết số lần làm bài
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                    Bạn đã sử dụng hết số lần làm bài quy định cho bài kiểm tra này (còn 0 lần). Hệ thống không cho phép thực hiện thêm lượt làm mới.
+                  </p>
+                  <div className="mt-3 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-xs font-bold text-rose-800 dark:text-rose-300">
+                    Còn 0 lần làm bài — Không thể bắt đầu lượt làm mới
                   </div>
-                )}
-            </div>
+                </div>
 
-            <div className="text-xs text-slate-500 space-y-1 py-1">
-              <p>Thời lượng làm bài: <strong>{exam.durationMinutes} phút</strong></p>
-              <p>Số lượng câu hỏi: <strong>{questions.length} câu trắc nghiệm</strong></p>
-            </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="size-14 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 grid place-items-center mx-auto">
+                  <HelpCircle size={32} />
+                </div>
 
-            <div className="flex gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setStartConfirmed(true)}
-                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer"
-              >
-                Bắt đầu làm bài
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
-              >
-                Hủy
-              </button>
-            </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    Xác nhận bắt đầu làm bài
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                    Bạn xác định sẽ làm bài này chứ?
+                  </p>
+                  {exam.remainingAttempts !== undefined &&
+                    exam.remainingAttempts !== null &&
+                    exam.remainingAttempts > 0 && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs font-bold text-amber-800 dark:text-amber-300">
+                        Bài này còn {exam.remainingAttempts} lần làm bài.
+                      </div>
+                    )}
+                </div>
+
+                <div className="text-xs text-slate-500 space-y-1 py-1">
+                  <p>Thời lượng làm bài: <strong>{exam.durationMinutes} phút</strong></p>
+                  <p>Số lượng câu hỏi: <strong>{questions.length} câu trắc nghiệm</strong></p>
+                </div>
+
+                <div className="flex gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setStartConfirmed(true)}
+                    className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    Bắt đầu làm bài
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
