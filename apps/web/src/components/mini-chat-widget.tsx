@@ -263,24 +263,8 @@ function SingleMiniChatWindow({
           </div>
         </div>
 
-        {/* Các nút gọi điện, gọi video, thu nhỏ và đóng ô chat */}
+        {/* Các nút thu nhỏ và đóng ô chat */}
         <div className="flex items-center gap-0.5 text-slate-400">
-          <button
-            type="button"
-            className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-slate-700/60 rounded-full transition-colors cursor-pointer"
-            title="Bắt đầu cuộc gọi thoại"
-            onClick={() => alert(`Đang kết nối cuộc gọi thoại với ${contact.name}`)}
-          >
-            <Phone size={15} />
-          </button>
-          <button
-            type="button"
-            className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-slate-700/60 rounded-full transition-colors cursor-pointer"
-            title="Bắt đầu cuộc gọi video"
-            onClick={() => alert(`Đang kết nối cuộc gọi video với ${contact.name}`)}
-          >
-            <Video size={15} />
-          </button>
           <button
             type="button"
             onClick={onMinimize}

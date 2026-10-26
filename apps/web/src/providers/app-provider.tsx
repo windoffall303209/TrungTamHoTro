@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { clearSessionDrafts } from "@/lib/session-drafts";
 import type { RoleCode, SessionData } from "@/lib/app-types";
-import { isSupportedLocale } from "@/i18n/catalog";
+import { isSupportedLocale, LOCALE_STORAGE_KEY } from "@/i18n/catalog";
 import { useI18n } from "@/providers/i18n-provider";
 
 const emptySession: SessionData = {
@@ -41,7 +41,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const adoptSession = useCallback((nextSession: SessionData) => {
     setAuthError("");
     setSession(nextSession);
-    if (isSupportedLocale(nextSession.user.locale)) setLocale(nextSession.user.locale);
+    const storedLocale = typeof window !== "undefined" ? window.localStorage.getItem(LOCALE_STORAGE_KEY) : null;
+    if (isSupportedLocale(storedLocale)) {
+      setLocale(storedLocale);
+    } else if (isSupportedLocale(nextSession.user.locale)) {
+      setLocale(nextSession.user.locale);
+    }
   }, [setLocale]);
 
   /** Chỉ hủy phiên khi server xác nhận hết quyền; lỗi mạng và giới hạn tần suất cho phép thử lại. */

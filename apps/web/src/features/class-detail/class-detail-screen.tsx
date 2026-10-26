@@ -102,6 +102,7 @@ export default function ClassDetailScreen() {
             item={item}
             course={course}
             teacherName={primaryInstructor?.displayName || "Wind Fall"}
+            instructors={instructors}
             onBack={() => router.push("/courses")}
           />
         ) : (
