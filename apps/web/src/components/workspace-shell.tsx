@@ -453,18 +453,18 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)] flex flex-col">
       {/* TẦNG 1: MASTER HEADER ĐIỀU HƯỚNG NGANG (Top Command Bar) */}
       <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#070b14]/90 backdrop-blur-md shadow-2xs">
-        <div className="relative flex h-16 w-full items-center justify-between px-5 sm:px-6 lg:px-8 gap-4">
+        <div className="relative flex h-[70px] w-full items-center justify-between px-5 sm:px-6 lg:px-8 gap-4">
           {/* Logo & Category Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 shrink-0">
             <Link className="flex items-center gap-2.5 shrink-0" href="/dashboard">
-              <span className="grid size-9.5 place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white shadow-sm shadow-sky-600/25">
-                <GraduationCap size={20} />
+              <span className="grid size-[42px] place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white shadow-sm shadow-sky-600/25">
+                <GraduationCap size={22} />
               </span>
               <div className="hidden sm:block">
-                <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
+                <span className="font-extrabold text-[17.5px] tracking-tight text-slate-900 dark:text-white">
                   Wind EDU
                 </span>
-                <span className="block text-[10px] font-semibold text-sky-600 dark:text-sky-400 -mt-0.5">
+                <span className="block text-[11px] font-semibold text-sky-600 dark:text-sky-400 -mt-0.5">
                   EduTech Cloud
                 </span>
               </div>
@@ -472,7 +472,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
             {/* Desktop Category Navigation dành cho Quản trị viên và Giảng viên */}
             {session.roleCode !== "LEARNER" && (
-              <nav className="hidden lg:flex items-center gap-1">
+              <nav className="hidden lg:flex items-center gap-1.5">
                 {sections.map((section) => {
                   const isSelected = currentSection?.id === section.id;
                   const targetHref = section.items[0]?.href ?? "/dashboard";
@@ -480,7 +480,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
                   return (
                     <Link
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                      className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 ${
                         isSelected
                           ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
                           : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
@@ -494,7 +494,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             ? "text-sky-600 dark:text-sky-400"
                             : "text-slate-400 dark:text-slate-500"
                         }`}
-                        size={15}
+                        size={16}
                       />
                       <span>{t(section.title)}</span>
                     </Link>
@@ -504,10 +504,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* 3 chức năng chính của Học sinh căn chính giữa 100% thanh header */}
+          {/* 3 chức năng chính của Học sinh: chữ tăng 20% (14.5px), nút & icon tăng 10% */}
           {session.roleCode === "LEARNER" && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center pointer-events-auto">
-              <nav aria-label="Điều hướng chính học sinh" className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs">
+              <nav aria-label="Điều hướng chính học sinh" className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs">
                 {learnerNavItems.map(({ href, label, icon: Icon }) => {
                   const isSelected =
                     href === "/dashboard"
@@ -515,9 +515,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       : pathname === href || pathname.startsWith(`${href}/`);
                   return (
                     <Link
-                      className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all duration-150 ${
+                      className={`flex items-center gap-2.5 px-5 py-2 rounded-xl text-[14.5px] font-extrabold tracking-tight transition-all duration-150 ${
                         isSelected
-                          ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-extrabold border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
+                          ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
                           : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
                       }`}
                       href={href}
@@ -529,7 +529,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             ? "text-sky-600 dark:text-sky-400"
                             : "text-slate-400 dark:text-slate-500"
                         }`}
-                        size={16}
+                        size={18}
                       />
                       <span>{t(label)}</span>
                     </Link>
@@ -540,10 +540,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Right Action Bar */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
             {/* Role indicator pill cho giảng viên và quản trị */}
             {session.roleCode !== "LEARNER" && (
-              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-2xs">
+              <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
                 <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
                 {t(session.user.roleName)}
               </div>
@@ -552,7 +552,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {session.availableRoles.length > 1 ? (
               <select
                 aria-label={t("Chọn vai trò sử dụng")}
-                className="min-h-8.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
+                className="min-h-9.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-[13px] font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
                 onChange={(event) => void setRole(event.target.value as RoleCode)}
                 value={session.roleCode}
               >
@@ -577,16 +577,16 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       : `Thông báo, ${unreadCount} chưa đọc`
                     : t("Thông báo")
                 }
-                className="relative grid size-9 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
+                className="relative grid size-[40px] place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
                 onClick={() => {
                   setNotificationOpen((open) => !open);
                   setProfileOpen(false);
                 }}
                 type="button"
               >
-                <Bell size={16} />
+                <Bell size={18} />
                 {unreadCount ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-sky-600 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white dark:ring-slate-900 shadow-xs">
+                  <span className="absolute -right-1 -top-1 grid min-w-4.5 place-items-center rounded-full bg-sky-600 px-1 text-[11px] font-bold leading-4.5 text-white ring-2 ring-white dark:ring-slate-900 shadow-xs">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 ) : null}
@@ -595,7 +595,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               {notificationOpen ? (
                 <section
                   aria-label={t("Trung tâm thông báo")}
-                  className="absolute right-0 top-11 z-50 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
+                  className="absolute right-0 top-12 z-50 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
                 >
                   <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30">
                     <div>
@@ -703,7 +703,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <button
                   aria-expanded={profileOpen}
                   aria-label={t("Mở menu tài khoản")}
-                  className="flex min-h-9 items-center gap-2.5 rounded-full pl-1.5 pr-3 py-1 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
+                  className="flex min-h-[40px] items-center gap-3 rounded-full pl-2 pr-3.5 py-1.5 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
                   onClick={() => setProfileOpen((open) => !open)}
                   type="button"
                 >
@@ -711,35 +711,35 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     avatarUrl={session.user.avatarUrl}
                     name={session.user.name}
                     priority
-                    className="size-7 rounded-full text-xs"
+                    className="size-8 rounded-full text-[13px]"
                   />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-xs">
+                  <span className="text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-xs">
                     {session.user.name}
                   </span>
                   <ChevronDown
                     className={`text-slate-500 transition-transform ${
                       profileOpen ? "rotate-180" : ""
                     }`}
-                    size={13}
+                    size={15}
                   />
                 </button>
               ) : (
                 <button
                   aria-expanded={profileOpen}
                   aria-label={t("Mở menu tài khoản")}
-                  className="flex min-h-9 items-center gap-2 rounded-lg px-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2"
+                  className="flex min-h-[40px] items-center gap-2.5 rounded-xl px-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2.5"
                   onClick={() => setProfileOpen((open) => !open)}
                   type="button"
                 >
-                  <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
-                  <span className="hidden sm:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
+                  <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority className="size-8 rounded-full text-[13px]" />
+                  <span className="hidden sm:inline-block text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
                     {session.user.name}
                   </span>
                   <ChevronDown
                     className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
                       profileOpen ? "rotate-180" : ""
                     }`}
-                    size={13}
+                    size={15}
                   />
                 </button>
               )}
@@ -907,11 +907,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {/* Mobile Menu Trigger */}
             <button
               aria-label={t("Mở menu điều hướng")}
-              className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
+              className="grid size-[40px] shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
               onClick={() => setMenuOpen((open) => !open)}
               type="button"
             >
-              <Menu size={16} />
+              <Menu size={18} />
             </button>
           </div>
         </div>

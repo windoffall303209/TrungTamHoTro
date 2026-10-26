@@ -73,13 +73,13 @@ export function ThemeToggle() {
     <button
       aria-label={label}
       aria-pressed={isDark}
-      className="relative grid size-9.5 shrink-0 place-items-center rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 dark:hover:border-sky-500/50 shadow-2xs transition-all duration-150 active:scale-95"
+      className="relative grid size-[42px] shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 dark:hover:border-sky-500/50 shadow-2xs transition-all duration-150 active:scale-95"
       onClick={toggleTheme}
       title={label}
       type="button"
     >
-      <Moon aria-hidden="true" className="theme-icon-moon" size={16} />
-      <Sun aria-hidden="true" className="theme-icon-sun" size={17} />
+      <Moon aria-hidden="true" className="theme-icon-moon" size={18} />
+      <Sun aria-hidden="true" className="theme-icon-sun" size={19} />
     </button>
   );
 }
