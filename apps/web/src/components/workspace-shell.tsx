@@ -1057,8 +1057,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      {/* Widget Chat Mini nổi góc dưới phải màn hình */}
-      <MiniChatWidget />
+      {/* Widget Chat Mini nổi góc dưới phải màn hình (ẩn khi vào trang /messages) */}
+      {!pathname.startsWith("/messages") && <MiniChatWidget />}
     </div>
   );
 }

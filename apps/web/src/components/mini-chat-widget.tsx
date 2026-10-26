@@ -498,11 +498,6 @@ export function MiniChatWidget() {
   // Kho tin nhắn của từng người
   const [chatMessages, setChatMessages] = useState<Record<string, MiniChatMessage[]>>({});
 
-  // Ẩn hoàn toàn ô chat minisize khi người dùng đã vào trang Chat chính (/messages)
-  if (pathname?.startsWith("/messages")) {
-    return null;
-  }
-
   // Nạp danh bạ và các đoạn hội thoại thật từ cơ sở dữ liệu PostgreSQL
   useEffect(() => {
     async function loadRealChatData() {
@@ -919,6 +914,11 @@ export function MiniChatWidget() {
       ? uniqueWindows[0]
       : null;
 
+
+  // Ẩn hoàn toàn ô chat minisize khi người dùng đã vào trang Chat chính (/messages)
+  if (pathname?.startsWith("/messages")) {
+    return null;
+  }
 
   return (
     <aside aria-label="Khung tin nhắn mini" className="fixed bottom-0 right-4 z-50 flex items-end gap-3 pointer-events-none select-none">
