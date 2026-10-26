@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -29,6 +29,12 @@ import {
   ChevronDown,
   LayoutGrid,
   List,
+  Trash2,
+  Edit3,
+  EyeOff,
+  Bell,
+  Flag,
+  History,
 } from "lucide-react";
 import type { LearningClass, Course } from "@/lib/learning-types";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
@@ -102,12 +108,32 @@ export function LearnerClassWorkspace({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<SubTab>("feed");
 
+  // Refs
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalCommentInputRef = useRef<HTMLInputElement>(null);
+
   // State cho Bảng tin lớp học
   const [newPostContent, setNewPostContent] = useState("");
   const [newPostImages, setNewPostImages] = useState<string[]>([]);
   const [selectedPostForModal, setSelectedPostForModal] = useState<ClassPost | null>(null);
   const [expandedPostIds, setExpandedPostIds] = useState<Record<string, boolean>>({});
   const [modalCommentText, setModalCommentText] = useState("");
+
+  // Quản lý tương tác bài viết (Menu 3 chấm, sửa, ẩn, theo dõi, báo cáo, lịch sử)
+  const [activePostMenuId, setActivePostMenuId] = useState<string | null>(null);
+  const [hiddenPostIds, setHiddenPostIds] = useState<Record<string, boolean>>({});
+  const [followingPostIds, setFollowingPostIds] = useState<Record<string, boolean>>({});
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingPostContent, setEditingPostContent] = useState("");
+  const [postEditHistories, setPostEditHistories] = useState<Record<string, Array<{ content: string; editedAt: string }>>>({
+    "post-1": [
+      { content: "Chào cả lớp, Thầy đã cập nhật đề cương ôn tập tuần này.", editedAt: "Hôm qua lúc 19:00" },
+    ],
+  });
+  const [historyModalPost, setHistoryModalPost] = useState<ClassPost | null>(null);
+  const [reportModalPost, setReportModalPost] = useState<ClassPost | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   const [posts, setPosts] = useState<ClassPost[]>([
     {
@@ -375,20 +401,128 @@ export function LearnerClassWorkspace({
     setNewPostImages([]);
   };
 
-  /** Thêm ảnh mẫu khi người dùng nhấn nút đính kèm ảnh */
-  const handleAddSampleImage = () => {
-    if (newPostImages.length >= 5) {
+  /** Chọn và đính kèm tệp ảnh thật từ máy tính (tối đa 5 ảnh) */
+  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const remainingSlots = 5 - newPostImages.length;
+    if (remainingSlots <= 0) {
       alert("Chỉ được đính kèm tối đa 5 hình ảnh trong một bài viết.");
       return;
     }
-    const sampleUrls = [
-      "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=800&auto=format&fit=crop&q=60",
-      "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=800&auto=format&fit=crop&q=60",
-      "https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=60",
-      "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800&auto=format&fit=crop&q=60",
-    ];
-    const nextImg = sampleUrls[newPostImages.length % sampleUrls.length];
-    setNewPostImages([...newPostImages, nextImg]);
+
+    const filesToRead = files.slice(0, remainingSlots);
+    filesToRead.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const result = loadEvent.target?.result as string;
+        if (result) {
+          setNewPostImages((prev) => (prev.length < 5 ? [...prev, result] : prev));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  /** Xóa bài viết khỏi bảng tin */
+  const handleDeletePost = (postId: string) => {
+    if (confirm("Bạn có chắc chắn muốn xóa bài viết này không?")) {
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      setActivePostMenuId(null);
+      if (selectedPostForModal?.id === postId) {
+        setSelectedPostForModal(null);
+      }
+    }
+  };
+
+  /** Bắt đầu chỉnh sửa nội dung bài viết */
+  const handleStartEditPost = (post: ClassPost) => {
+    setEditingPostId(post.id);
+    setEditingPostContent(post.content);
+    setActivePostMenuId(null);
+  };
+
+  /** Lưu nội dung bài viết đã chỉnh sửa */
+  const handleSaveEditPost = (postId: string) => {
+    if (!editingPostContent.trim()) return;
+
+    const postToEdit = posts.find((p) => p.id === postId);
+    if (postToEdit) {
+      const currentHistory = postEditHistories[postId] || [];
+      setPostEditHistories({
+        ...postEditHistories,
+        [postId]: [
+          ...currentHistory,
+          { content: postToEdit.content, editedAt: "Vừa xong" },
+        ],
+      });
+    }
+
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, content: editingPostContent.trim() } : p,
+      ),
+    );
+    if (selectedPostForModal?.id === postId) {
+      setSelectedPostForModal({
+        ...selectedPostForModal,
+        content: editingPostContent.trim(),
+      });
+    }
+    setEditingPostId(null);
+    setEditingPostContent("");
+  };
+
+  /** Ẩn bài viết khỏi bảng tin của học sinh */
+  const handleHidePost = (postId: string) => {
+    setHiddenPostIds((prev) => ({ ...prev, [postId]: true }));
+    setActivePostMenuId(null);
+    if (selectedPostForModal?.id === postId) {
+      setSelectedPostForModal(null);
+    }
+    alert("Đã ẩn bài viết khỏi bảng tin của bạn.");
+  };
+
+  /** Bật/tắt theo dõi thông báo bài viết */
+  const handleToggleFollowPost = (postId: string) => {
+    const isFollowing = Boolean(followingPostIds[postId]);
+    setFollowingPostIds((prev) => ({ ...prev, [postId]: !isFollowing }));
+    setActivePostMenuId(null);
+    alert(
+      !isFollowing
+        ? "Đã bật theo dõi: Hệ thống sẽ gửi thông báo cho bạn khi có người thích hoặc bình luận bài viết này."
+        : "Đã tắt theo dõi thông báo bài viết này.",
+    );
+  };
+
+  /** Mở popup báo cáo bài viết */
+  const handleOpenReportPost = (post: ClassPost) => {
+    setReportModalPost(post);
+    setReportReason("");
+    setReportSuccess(false);
+    setActivePostMenuId(null);
+  };
+
+  /** Gửi báo cáo bài viết */
+  const handleSubmitReport = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportReason.trim()) return;
+    setReportSuccess(true);
+    setTimeout(() => {
+      setReportModalPost(null);
+      setReportSuccess(false);
+    }, 1200);
+  };
+
+  /** Mở popup lịch sử chỉnh sửa bài viết */
+  const handleOpenHistoryPost = (post: ClassPost) => {
+    setHistoryModalPost(post);
+    setActivePostMenuId(null);
   };
 
   /** Thêm bình luận vào bài viết trong Modal nổi kiểu Facebook */
@@ -602,7 +736,7 @@ export function LearnerClassWorkspace({
                     {newPostImages.length < 5 && (
                       <button
                         type="button"
-                        onClick={handleAddSampleImage}
+                        onClick={() => fileInputRef.current?.click()}
                         className="size-16 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400 hover:text-blue-500 text-[10px]"
                       >
                         <span>+ Thêm ảnh</span>
@@ -613,9 +747,19 @@ export function LearnerClassWorkspace({
                 )}
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                  {/* Input ẩn để chọn file ảnh thật từ máy */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleImageFileSelect}
+                  />
+
                   <button
                     type="button"
-                    onClick={handleAddSampleImage}
+                    onClick={() => fileInputRef.current?.click()}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <ImageIcon size={15} className="text-emerald-500" />
@@ -633,14 +777,15 @@ export function LearnerClassWorkspace({
                 </div>
               </div>
 
-              {/* Danh sách các bài đăng trong lớp */}
+              {/* Danh sách các bài đăng trong lớp (lọc bỏ các bài đã ẩn) */}
               <div className="space-y-4">
-                {posts.map((post) => {
+                {posts.filter((p) => !hiddenPostIds[p.id]).map((post) => {
                   const isExpanded = Boolean(expandedPostIds[post.id]);
                   const isLongText = post.content.length > 180;
                   const displayContent = isLongText && !isExpanded
                     ? `${post.content.slice(0, 180)}...`
                     : post.content;
+                  const isOwner = post.authorName === "Vũ Thành Nam" || post.authorRole === "Học sinh";
 
                   return (
                     <article
@@ -666,35 +811,138 @@ export function LearnerClassWorkspace({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPostForModal(post)}
-                          className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                        >
-                          <MoreHorizontal size={16} />
-                        </button>
-                      </div>
-
-                      {/* Nội dung text bài viết */}
-                      <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
-                        <p>{displayContent}</p>
-                        {isLongText && (
+                        {/* Dropdown Menu Chức Năng Bài Viết (Xóa, Sửa, Ẩn, Theo dõi, Báo cáo, Lịch sử) */}
+                        <div className="relative">
                           <button
                             type="button"
-                            onClick={() =>
-                              setExpandedPostIds({
-                                ...expandedPostIds,
-                                [post.id]: !isExpanded,
-                              })
-                            }
-                            className="text-xs font-bold text-blue-600 hover:underline mt-1"
+                            onClick={() => setActivePostMenuId(activePostMenuId === post.id ? null : post.id)}
+                            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                           >
-                            {isExpanded ? "Ẩn bớt" : "Xem thêm"}
+                            <MoreHorizontal size={16} />
                           </button>
-                        )}
+
+                          {activePostMenuId === post.id && (
+                            <div
+                              className="absolute right-0 top-8 z-30 w-52 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl py-1 text-xs text-slate-700 dark:text-slate-200"
+                              onMouseLeave={() => setActivePostMenuId(null)}
+                            >
+                              {/* 1. Xóa bài viết (dành cho chủ tus) */}
+                              {isOwner && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePost(post.id)}
+                                  className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold text-left transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                  <span>Xóa bài viết</span>
+                                </button>
+                              )}
+
+                              {/* 2. Sửa bài viết (chủ tus) */}
+                              {isOwner && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditPost(post)}
+                                  className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
+                                >
+                                  <Edit3 size={14} />
+                                  <span>Sửa bài viết</span>
+                                </button>
+                              )}
+
+                              {/* 3. Ẩn bài viết */}
+                              <button
+                                type="button"
+                                onClick={() => handleHidePost(post.id)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
+                              >
+                                <EyeOff size={14} />
+                                <span>Ẩn bài viết</span>
+                              </button>
+
+                              {/* 4. Theo dõi bài viết */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleFollowPost(post.id)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
+                              >
+                                <Bell size={14} className={followingPostIds[post.id] ? "text-blue-600" : ""} />
+                                <span>{followingPostIds[post.id] ? "Tắt thông báo bài viết" : "Theo dõi bài viết"}</span>
+                              </button>
+
+                              {/* 5. Lịch sử chỉnh sửa */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenHistoryPost(post)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
+                              >
+                                <History size={14} />
+                                <span>Lịch sử chỉnh sửa</span>
+                              </button>
+
+                              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                              {/* 6. Báo cáo bài viết */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReportPost(post)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-semibold text-left transition-colors"
+                              >
+                                <Flag size={14} />
+                                <span>Báo cáo bài viết</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Hình ảnh bài viết: Tối đa 2 ảnh ngoài feed, ảnh 2 có +X nếu còn ảnh */}
+                      {/* Nội dung text bài viết hoặc Form sửa bài viết */}
+                      {editingPostId === post.id ? (
+                        <div className="space-y-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-blue-400">
+                          <textarea
+                            value={editingPostContent}
+                            onChange={(e) => setEditingPostContent(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 focus:outline-hidden resize-none"
+                            rows={3}
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingPostId(null)}
+                              className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100"
+                            >
+                              Hủy
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditPost(post.id)}
+                              className="px-3.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
+                            >
+                              Lưu thay đổi
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
+                          <p>{displayContent}</p>
+                          {isLongText && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedPostIds({
+                                  ...expandedPostIds,
+                                  [post.id]: !isExpanded,
+                                })
+                              }
+                              className="text-xs font-bold text-blue-600 hover:underline mt-1"
+                            >
+                              {isExpanded ? "Ẩn bớt" : "Xem thêm"}
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Hình ảnh bài viết: Tối đa 2 ảnh ngoài feed, click ảnh mở modal xem nổi */}
                       {post.images && post.images.length > 0 && (
                         <div
                           onClick={() => setSelectedPostForModal(post)}
@@ -1293,7 +1541,6 @@ export function LearnerClassWorkspace({
 
               {/* Danh sách bình luận */}
               <div className="pt-2 border-t border-slate-700/80 space-y-3">
-                <p className="text-xs font-bold text-slate-400">Bình luận phù hợp nhất</p>
                 {selectedPostForModal.comments.map((cmt) => (
                   <div key={cmt.id} className="flex items-start gap-2.5">
                     <div className="size-8 rounded-full bg-slate-700 grid place-items-center text-xs font-bold text-white shrink-0">
@@ -1306,8 +1553,16 @@ export function LearnerClassWorkspace({
                       </div>
                       <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 pl-2">
                         <span>{cmt.createdAt}</span>
-                        <button type="button" className="hover:underline font-bold text-slate-300">Thích</button>
-                        <button type="button" className="hover:underline font-bold text-slate-300">Trả lời</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalCommentText(`@${cmt.authorName} `);
+                            modalCommentInputRef.current?.focus();
+                          }}
+                          className="hover:underline font-bold text-blue-400 transition-colors"
+                        >
+                          Trả lời
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1327,6 +1582,7 @@ export function LearnerClassWorkspace({
                 TN
               </div>
               <input
+                ref={modalCommentInputRef}
                 type="text"
                 value={modalCommentText}
                 onChange={(e) => setModalCommentText(e.target.value)}
@@ -1341,6 +1597,130 @@ export function LearnerClassWorkspace({
                 <Send size={16} />
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL LỊCH SỬ CHỈNH SỬA BÀI VIẾT ================= */}
+      {historyModalPost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold text-sm">
+                <History size={16} className="text-blue-600" />
+                <span>Lịch sử chỉnh sửa</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalPost(null)}
+                className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 grid place-items-center"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-72 overflow-y-auto">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                  <span>Phiên bản hiện tại</span>
+                  <span className="text-emerald-600">Đang hiển thị</span>
+                </div>
+                <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
+                  {historyModalPost.content}
+                </p>
+              </div>
+
+              {(postEditHistories[historyModalPost.id] || []).map((hist, i) => (
+                <div key={i} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Phiên bản cũ</span>
+                    <span>{hist.editedAt}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {hist.content}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setHistoryModalPost(null)}
+              className="w-full py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL BÁO CÁO BÀI VIẾT ================= */}
+      {reportModalPost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+                <Flag size={16} />
+                <span>Báo cáo bài viết</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportModalPost(null)}
+                className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 grid place-items-center"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {reportSuccess ? (
+              <div className="py-6 text-center space-y-2">
+                <CheckCircle2 size={36} className="mx-auto text-emerald-500 animate-bounce" />
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  Cảm ơn bạn đã phản hồi!
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Đội ngũ quản trị sẽ xem xét bài viết này sớm nhất.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitReport} className="space-y-3">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Vui lòng cho biết lý do bạn báo cáo bài viết của <strong>{reportModalPost.authorName}</strong>:
+                </p>
+
+                <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
+                  {["Spam, quảng cáo không liên quan", "Nội dung phản cảm, vi phạm nội quy", "Thông tin sai lệch", "Lý do khác"].map((reason) => (
+                    <label key={reason} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="reportReason"
+                        checked={reportReason === reason}
+                        onChange={() => setReportReason(reason)}
+                        className="text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{reason}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setReportModalPost(null)}
+                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!reportReason}
+                    className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40"
+                  >
+                    Gửi báo cáo
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

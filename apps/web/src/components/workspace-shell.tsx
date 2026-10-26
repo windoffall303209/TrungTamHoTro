@@ -697,17 +697,19 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <button
                   aria-expanded={profileOpen}
                   aria-label={t("Mở menu tài khoản")}
-                  className="flex min-h-9 items-center gap-2 rounded-full pl-1 pr-2.5 py-0.5 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
+                  className="flex min-h-9 items-center gap-2.5 rounded-full pl-1.5 pr-3 py-1 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
                   onClick={() => setProfileOpen((open) => !open)}
                   type="button"
                 >
-                  <span className="size-7 rounded-full bg-slate-400 dark:bg-slate-600 text-white font-bold text-xs grid place-items-center uppercase shrink-0">
-                    {initials}
+                  <UserAvatar
+                    avatarUrl={session.user.avatarUrl}
+                    name={session.user.name}
+                    priority
+                    size="sm"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-xs">
+                    {session.user.name}
                   </span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-28">
-                    {shortName}
-                  </span>
-                  <span className="sr-only">{session.user.name}</span>
                   <ChevronDown
                     className={`text-slate-500 transition-transform ${
                       profileOpen ? "rotate-180" : ""
