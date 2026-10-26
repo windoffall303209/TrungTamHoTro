@@ -277,12 +277,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     );
     return found ?? sections[0];
   }, [sections, pathname]);
-  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: 3 chức năng chính
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Tổng quan, Lớp học, Lịch học, Tin nhắn
   const learnerNavItems = useMemo(
     () => [
       { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
+      { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
   );
