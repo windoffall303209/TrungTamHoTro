@@ -490,7 +490,7 @@ export function LearnerClassWorkspace({
   }, [materialsList, materialSearch, materialSort]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+    <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
       {/* KHUNG BỐ CỤC LỚP HỌC 2 CỘT PHONG CÁCH SHUB */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* CỘT DỌC BÊN TRÁI: SIDEBAR LỚP HỌC (THEO ĐÚNG ẢNH 3 CỦA NGƯỜI DÙNG) */}

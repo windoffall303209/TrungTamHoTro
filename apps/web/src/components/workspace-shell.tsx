@@ -452,7 +452,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)] flex flex-col">
       {/* TẦNG 1: MASTER HEADER ĐIỀU HƯỚNG NGANG (Top Command Bar) */}
       <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#070b14]/90 backdrop-blur-md shadow-2xs">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
+        <div className="flex h-16 w-full items-center justify-between px-5 sm:px-6 lg:px-8 gap-4">
           {/* Logo & Category Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 min-w-0">
             <Link className="flex items-center gap-2.5 shrink-0" href="/dashboard">
@@ -918,7 +918,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Ẩn cho học sinh, chuyển sang sidebar dọc) */}
         {currentSection && session.roleCode !== "LEARNER" ? (
           <div className="border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-[#090e1a]/80 backdrop-blur-sm overflow-x-auto">
-            <div className="mx-auto flex h-11 max-w-7xl items-center px-4 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
+            <div className="flex h-11 w-full items-center px-5 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
                 <Compass size={13} className="text-sky-500" />
                 {t(currentSection.title)}:
