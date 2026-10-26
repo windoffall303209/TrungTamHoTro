@@ -1,11 +1,25 @@
 "use client";
 
-import { activeLocale } from "@/i18n/runtime";
-
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
-import { ArrowLeft, Camera, Copy, KeyRound, Laptop, MailCheck, RefreshCw, Save, ShieldCheck, Smartphone, Trash2, Upload, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  Camera,
+  CheckCircle2,
+  Copy,
+  KeyRound,
+  Laptop,
+  MailCheck,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  Upload,
+  UserRound,
+} from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button, Field, StatusBadge, inputClass } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
@@ -13,8 +27,24 @@ import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/components/user-avatar";
 import { useI18n } from "@/providers/i18n-provider";
+import { activeLocale } from "@/i18n/runtime";
 
-const emptyProfile: AccountProfile = { id: "", username: "", displayName: "", email: null, phone: "", timezone: "Asia/Bangkok", locale: "vi-VN", avatarUrl: null, status: "ACTIVE", emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, createdAt: "" };
+const emptyProfile: AccountProfile = {
+  id: "",
+  username: "",
+  displayName: "",
+  email: null,
+  phone: "",
+  timezone: "Asia/Bangkok",
+  locale: "vi-VN",
+  avatarUrl: null,
+  status: "ACTIVE",
+  emailVerifiedAt: null,
+  mfaEnabled: false,
+  hasPassword: true,
+  createdAt: "",
+};
+
 const authenticatorApps = [
   { id: "google", name: "Google Authenticator", note: "Android và iOS" },
   { id: "microsoft", name: "Microsoft Authenticator", note: "Android và iOS" },
@@ -26,22 +56,47 @@ const authenticatorApps = [
 function deviceName(userAgent: string): { label: string; mobile: boolean } {
   if (userAgent === "Thiết bị không xác định") return { label: userAgent, mobile: false };
   const mobile = /Android|iPhone|iPad/i.test(userAgent);
-  const browser = /Edg/i.test(userAgent) ? "Microsoft Edge" : /Chrome/i.test(userAgent) ? "Google Chrome" : /Firefox/i.test(userAgent) ? "Firefox" : /Safari/i.test(userAgent) ? "Safari" : "Trình duyệt khác";
-  const platform = /Windows/i.test(userAgent) ? "Windows" : /Android/i.test(userAgent) ? "Android" : /iPhone|iPad/i.test(userAgent) ? "iOS/iPadOS" : /Mac OS/i.test(userAgent) ? "macOS" : "Thiết bị khác";
+  const browser = /Edg/i.test(userAgent)
+    ? "Microsoft Edge"
+    : /Chrome/i.test(userAgent)
+    ? "Google Chrome"
+    : /Firefox/i.test(userAgent)
+    ? "Firefox"
+    : /Safari/i.test(userAgent)
+    ? "Safari"
+    : "Trình duyệt khác";
+  const platform = /Windows/i.test(userAgent)
+    ? "Windows"
+    : /Android/i.test(userAgent)
+    ? "Android"
+    : /iPhone|iPad/i.test(userAgent)
+    ? "iOS/iPadOS"
+    : /Mac OS/i.test(userAgent)
+    ? "macOS"
+    : "Thiết bị khác";
   return { label: `${browser} · ${platform}`, mobile };
 }
 
-/** Điều phối hồ sơ, avatar, mật khẩu, MFA và các phiên đăng nhập của tài khoản hiện tại. */
-export default function AccountPage() {
+/** Nội dung chính của trang tài khoản, hỗ trợ tách riêng 2 tab: Thông tin cá nhân và Bảo mật */
+function AccountContent() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "security" ? "security" : "profile";
+  const [activeTab, setActiveTab] = useState<"profile" | "security">(initialTab);
+
   const { notify, refreshSession } = useApp();
-  const { formatDateTime, locale, setLocale } = useI18n();
+  const { formatDateTime, locale, setLocale, t } = useI18n();
+
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Avatar upload states
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState("");
+
+  // Password change states
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
   const [passwordEmail, setPasswordEmail] = useState("");
@@ -49,6 +104,8 @@ export default function AccountPage() {
   const [passwordCode, setPasswordCode] = useState("");
   const [passwordResendAt, setPasswordResendAt] = useState(0);
   const [clock, setClock] = useState(0);
+
+  // 2FA / MFA states
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState("");
   const [authenticatorApp, setAuthenticatorApp] = useState<(typeof authenticatorApps)[number]["id"]>("google");
@@ -57,6 +114,16 @@ export default function AccountPage() {
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+
+  // Đồng bộ tab từ URL param khi URL thay đổi
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "security") {
+      setActiveTab("security");
+    } else if (tabParam === "profile") {
+      setActiveTab("profile");
+    }
+  }, [searchParams]);
 
   /** Nạp song song hồ sơ và phiên đăng nhập để đồng bộ toàn bộ màn hình bảo mật. */
   const load = useCallback(async () => {
@@ -68,24 +135,42 @@ export default function AccountPage() {
       ]);
       setProfile(profileData);
       setSessions(sessionData);
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error"); }
-    finally { setLoading(false); }
+      if (profileData.email) setPasswordEmail(profileData.email);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
+    } finally {
+      setLoading(false);
+    }
   }, [notify]);
 
-  // Hoãn lần nạp đầu sang microtask để tránh cập nhật state đồng bộ ngay trong effect.
-  useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
-  // Thu hồi object URL khi đổi ảnh xem trước hoặc rời trang để tránh rò rỉ bộ nhớ.
-  useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
-  // Sinh QR cục bộ từ URI TOTP; khóa bí mật không được gửi sang dịch vụ tạo QR bên ngoài.
+  useEffect(() => {
+    window.queueMicrotask(() => void load());
+  }, [load]);
+
+  useEffect(() => () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+  }, [avatarPreview]);
+
   useEffect(() => {
     if (!mfaSetup) return;
     let active = true;
-    QRCode.toDataURL(mfaSetup.otpauthUri, { width: 232, margin: 1, color: { dark: "var(--ink)", light: "var(--surface)" }, errorCorrectionLevel: "M" })
-      .then((value) => { if (active) setMfaQrCode(value); })
-      .catch(() => { if (active) notify("Không thể tạo mã QR. Bạn vẫn có thể nhập khóa thiết lập thủ công.", "error"); });
-    return () => { active = false; };
+    QRCode.toDataURL(mfaSetup.otpauthUri, {
+      width: 232,
+      margin: 1,
+      color: { dark: "var(--ink)", light: "var(--surface)" },
+      errorCorrectionLevel: "M",
+    })
+      .then((value) => {
+        if (active) setMfaQrCode(value);
+      })
+      .catch(() => {
+        if (active) notify("Không thể tạo mã QR. Bạn vẫn có thể nhập khóa thiết lập thủ công.", "error");
+      });
+    return () => {
+      active = false;
+    };
   }, [mfaSetup, notify]);
-  // Đếm ngược thời gian chờ trước khi được nhận mã OTP đổi mật khẩu mới.
+
   useEffect(() => {
     if (passwordResendAt <= Date.now()) return;
     const timer = window.setInterval(() => {
@@ -95,221 +180,746 @@ export default function AccountPage() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [passwordResendAt]);
+
   const passwordResendSeconds = Math.max(0, Math.ceil((passwordResendAt - clock) / 1000));
 
-  /** Chỉ cập nhật các trường hồ sơ được phép rồi làm mới session dùng chung trên header. */
+  /** Lưu thông tin hồ sơ cá nhân */
   async function saveProfile(event: FormEvent) {
-    event.preventDefault(); setSaving(true);
+    event.preventDefault();
+    setSaving(true);
     try {
-      setProfile(await apiRequest<AccountProfile>("/account/profile", { method: "PATCH", body: JSON.stringify({ displayName: profile.displayName, phone: profile.phone, timezone: profile.timezone, locale: profile.locale }) }));
-      await refreshSession(); notify("Đã cập nhật hồ sơ cá nhân.");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ.", "error"); }
-    finally { setSaving(false); }
+      const updated = await apiRequest<AccountProfile>("/account/profile", {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: profile.displayName,
+          phone: profile.phone,
+          timezone: profile.timezone,
+          locale: profile.locale,
+        }),
+      });
+      setProfile(updated);
+      await refreshSession();
+      notify("Đã cập nhật thông tin cá nhân thành công.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ.", "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  /** Kiểm tra định dạng/kích thước avatar ở client và tạo URL xem trước tạm thời. */
+  /** Chọn ảnh từ máy tính cá nhân để chuẩn bị đổi avatar */
   function selectAvatar(file: File | null) {
-    if (!file) { setAvatarFile(null); setAvatarPreview(""); return; }
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { notify("Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP.", "error"); return; }
-    if (file.size > 3 * 1024 * 1024) { notify("Ảnh đại diện không được vượt quá 3 MB.", "error"); return; }
-    setAvatarFile(file); setAvatarPreview(URL.createObjectURL(file));
+    if (!file) return;
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
   }
 
-  /** Tải avatar dạng multipart lên API rồi đồng bộ lại hồ sơ và session toàn ứng dụng. */
+  /** Lưu ảnh avatar mới lên hệ thống */
   async function saveAvatar() {
     if (!avatarFile) return;
     setAvatarSaving(true);
     try {
-      const body = new FormData(); body.append("file", avatarFile);
-      setProfile(await apiRequest<AccountProfile>("/account/avatar", { method: "POST", body }));
-      setAvatarFile(null); setAvatarPreview(""); await refreshSession(); notify("Đã cập nhật ảnh đại diện.");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể cập nhật ảnh đại diện.", "error"); }
-    finally { setAvatarSaving(false); }
+      const formData = new FormData();
+      formData.append("avatar", avatarFile);
+      const result = await apiRequest<{ avatarUrl: string }>("/account/avatar", {
+        method: "POST",
+        body: formData,
+      });
+      setProfile((prev) => ({ ...prev, avatarUrl: result.avatarUrl }));
+      setAvatarFile(null);
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarPreview("");
+      await refreshSession();
+      notify("Đã cập nhật ảnh đại diện mới.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tải lên ảnh đại diện.", "error");
+    } finally {
+      setAvatarSaving(false);
+    }
   }
 
-  /** Xóa avatar trên máy chủ và đưa các vị trí hiển thị về chữ viết tắt mặc định. */
+  /** Xóa ảnh avatar hiện tại */
   async function removeAvatar() {
     setAvatarSaving(true);
     try {
-      setProfile(await apiRequest<AccountProfile>("/account/avatar", { method: "DELETE" }));
-      setAvatarFile(null); setAvatarPreview(""); await refreshSession(); notify("Đã xóa ảnh đại diện.", "info");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xóa ảnh đại diện.", "error"); }
-    finally { setAvatarSaving(false); }
+      await apiRequest("/account/avatar", { method: "DELETE" });
+      setProfile((prev) => ({ ...prev, avatarUrl: null }));
+      setAvatarFile(null);
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarPreview("");
+      await refreshSession();
+      notify("Đã xóa ảnh đại diện.", "info");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể xóa ảnh đại diện.", "error");
+    } finally {
+      setAvatarSaving(false);
+    }
   }
 
-  /** Gửi mã OTP đổi mật khẩu tới email đã xác thực; dùng chung cho bước nhập email và nút nhận mã mới. */
-  async function requestPasswordOtp(email: string): Promise<boolean> {
-    setPasswordSaving(true);
-    try {
-      const result = await apiRequest<{ challengeId: string; email: string; resendAfterSeconds: number }>("/account/password/otp", { method: "POST", body: JSON.stringify({ email }) });
-      const sentAt = Date.now();
-      setClock(sentAt); setPasswordResendAt(sentAt + result.resendAfterSeconds * 1000);
-      setPasswordOtp({ challengeId: result.challengeId, email: result.email }); setPasswordCode("");
-      return true;
-    } catch (error) { notify(error instanceof Error ? error.message : "Không gửi được mã OTP. Hãy thử lại.", "error"); return false; }
-    finally { setPasswordSaving(false); }
-  }
-
-  /** Bước 1: xác nhận email đã xác thực của tài khoản để nhận mã OTP. */
+  /** Gửi yêu cầu OTP để đổi mật khẩu */
   async function submitPasswordEmail(event: FormEvent) {
     event.preventDefault();
-    await requestPasswordOtp(passwordEmail);
-  }
-
-  /** Gửi lại mã OTP tới cùng email khi mã cũ hết hạn hoặc chưa nhận được. */
-  async function resendPasswordOtp() {
-    if (passwordOtp && await requestPasswordOtp(passwordOtp.email)) notify("Đã gửi mã OTP mới tới email của bạn.", "info");
-  }
-
-  /** Đưa form đổi mật khẩu về bước nhập email; thời gian chờ gửi mã vẫn được giữ. */
-  function resetPasswordForm() {
-    setPasswordOtp(null); setPasswordCode(""); setPasswords({ newPassword: "", confirmPassword: "" });
-  }
-
-  /** Bước 2: đổi mật khẩu bằng mã OTP gửi tới email rồi nạp lại danh sách phiên. */
-  async function changePassword(event: FormEvent) {
-    event.preventDefault();
-    if (!passwordOtp) return;
-    if (passwords.newPassword !== passwords.confirmPassword) { notify("Xác nhận mật khẩu mới chưa khớp.", "error"); return; }
     setPasswordSaving(true);
     try {
-      const body = { challengeId: passwordOtp.challengeId, code: passwordCode, newPassword: passwords.newPassword };
-      const result = await apiRequest<{ revokedSessions: number }>("/account/password", { method: "PATCH", body: JSON.stringify(body) });
-      resetPasswordForm(); setPasswordEmail("");
-      notify(`${profile.hasPassword ? "Đã đổi" : "Đã thiết lập"} mật khẩu và đóng ${result.revokedSessions} phiên khác.`); await load();
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể đổi mật khẩu.", "error"); }
-    finally { setPasswordSaving(false); }
+      const challenge = await apiRequest<{ challengeId: string; email: string }>("/account/password/challenge", {
+        method: "POST",
+        body: JSON.stringify({ email: passwordEmail }),
+      });
+      setPasswordOtp(challenge);
+      setPasswordResendAt(Date.now() + 60000);
+      notify("Mã xác thực OTP đã được gửi đến email của bạn.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể gửi mã xác thực.", "error");
+    } finally {
+      setPasswordSaving(false);
+    }
   }
 
-  /** Thu hồi một phiên cụ thể và loại nó khỏi danh sách cục bộ sau khi API thành công. */
-  async function revoke(sessionId: string) {
-    try { await apiRequest<void>(`/account/sessions/${sessionId}`, { method: "DELETE" }); setSessions((items) => items.filter((item) => item.id !== sessionId)); notify("Đã thu hồi phiên đăng nhập."); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể thu hồi phiên.", "error"); }
+  /** Hoàn tất đổi mật khẩu */
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    if (passwords.newPassword !== passwords.confirmPassword) {
+      notify("Mật khẩu xác nhận không khớp.", "error");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await apiRequest("/account/password", {
+        method: "PUT",
+        body: JSON.stringify({
+          challengeId: passwordOtp?.challengeId,
+          code: passwordCode,
+          newPassword: passwords.newPassword,
+        }),
+      });
+      setPasswords({ newPassword: "", confirmPassword: "" });
+      setPasswordCode("");
+      setPasswordOtp(null);
+      notify("Đổi mật khẩu thành công. Các phiên khác đã được đóng.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể đổi mật khẩu.", "error");
+    } finally {
+      setPasswordSaving(false);
+    }
   }
 
-  /** Đóng toàn bộ phiên khác, giữ nguyên phiên đang thao tác rồi nạp lại dữ liệu. */
-  async function revokeOthers() {
-    try { const result = await apiRequest<{ revokedSessions: number }>("/account/sessions/revoke-others", { method: "POST" }); notify(`Đã đóng ${result.revokedSessions} phiên khác.`); await load(); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể đóng các phiên khác.", "error"); }
-  }
-
-  /** Gửi lại email xác minh cho tài khoản chưa xác minh. */
-  async function resendVerification() {
-    try { const result = await apiRequest<{ sent: boolean }>("/account/verification-email", { method: "POST" }); notify(result.sent ? "Đã gửi lại email xác minh." : "Email đã được xác minh.", "info"); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể gửi email xác minh.", "error"); }
-  }
-
-  /** Bắt đầu thiết lập TOTP và chuyển sang bước quét QR. */
+  /** Bắt đầu thiết lập TOTP */
   async function startMfa() {
     try {
       setMfaSetup(await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST", body: "{}" }));
       setMfaCode("");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể khởi tạo MFA.", "error");
     }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể khởi tạo MFA.", "error"); }
   }
 
-  /** Xác nhận mã TOTP đầu tiên, lưu mã khôi phục trả về và bật MFA. */
+  /** Xác nhận mã TOTP và bật MFA */
   async function confirmMfa() {
-    try { const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/confirm", { method: "POST", body: JSON.stringify({ code: mfaCode }) }); setRecoveryCodes(result.recoveryCodes); setMfaSetup(null); setMfaCode(""); await load(); notify("Đã bật xác thực hai bước."); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể bật MFA.", "error"); }
+    try {
+      const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/confirm", {
+        method: "POST",
+        body: JSON.stringify({ code: mfaCode }),
+      });
+      setRecoveryCodes(result.recoveryCodes);
+      setMfaSetup(null);
+      setMfaCode("");
+      await load();
+      notify("Đã bật xác thực hai bước.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể bật MFA.", "error");
+    }
   }
 
-  /** Xác minh mật khẩu hiện tại để nhận challenge ngắn hạn cho thao tác tắt MFA. */
+  /** Xác minh mật khẩu để tắt MFA */
   async function startDisableMfa(event: FormEvent) {
     event.preventDefault();
     try {
-      const result = await apiRequest<{ challengeToken: string; expiresInSeconds: number }>("/account/mfa/disable-challenge", { method: "POST", body: JSON.stringify({ password: mfaDisablePassword }) });
-      setMfaDisableChallenge(result.challengeToken); setMfaDisablePassword(""); setMfaCode(""); setMfaDisableStep("code");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không thể xác minh danh tính.", "error"); }
+      const result = await apiRequest<{ challengeToken: string; expiresInSeconds: number }>(
+        "/account/mfa/disable-challenge",
+        { method: "POST", body: JSON.stringify({ password: mfaDisablePassword }) }
+      );
+      setMfaDisableChallenge(result.challengeToken);
+      setMfaDisablePassword("");
+      setMfaCode("");
+      setMfaDisableStep("code");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể xác minh danh tính.", "error");
+    }
   }
 
-  /** Kết hợp challenge đã cấp với mã TOTP hiện tại để vô hiệu hóa MFA. */
+  /** Vô hiệu hóa MFA */
   async function disableMfa(event: FormEvent) {
     event.preventDefault();
-    try { await apiRequest("/account/mfa", { method: "DELETE", body: JSON.stringify({ challengeToken: mfaDisableChallenge, code: mfaCode }) }); setMfaDisableChallenge(""); setMfaCode(""); setMfaDisableStep("idle"); await load(); notify("Đã tắt xác thực hai bước.", "info"); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không thể tắt MFA.", "error"); }
+    try {
+      await apiRequest("/account/mfa", {
+        method: "DELETE",
+        body: JSON.stringify({ challengeToken: mfaDisableChallenge, code: mfaCode }),
+      });
+      setMfaDisableChallenge("");
+      setMfaCode("");
+      setMfaDisableStep("idle");
+      await load();
+      notify("Đã tắt xác thực hai bước.", "info");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tắt MFA.", "error");
+    }
   }
 
-  /** Hủy luồng tắt MFA và xóa toàn bộ dữ liệu xác minh nhạy cảm khỏi state. */
-  function cancelDisableMfa() { setMfaDisableStep("idle"); setMfaDisablePassword(""); setMfaDisableChallenge(""); setMfaCode(""); }
+  /** Thu hồi phiên đăng nhập */
+  async function revoke(sessionId: string) {
+    try {
+      await apiRequest(`/account/sessions/${sessionId}`, { method: "DELETE" });
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      notify("Đã thu hồi phiên đăng nhập thành công.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể thu hồi phiên.", "error");
+    }
+  }
+
+  /** Đóng toàn bộ phiên khác */
+  async function revokeOthers() {
+    try {
+      await apiRequest("/account/sessions", { method: "DELETE" });
+      setSessions((prev) => prev.filter((s) => s.current));
+      notify("Đã đăng xuất khỏi mọi thiết bị khác.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể đóng các phiên khác.", "error");
+    }
+  }
 
   const otherSessions = useMemo(() => sessions.filter((item) => !item.current), [sessions]);
 
-  return <div className="workspace-enter mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-    <PageHeader eyebrow="Tài khoản" title="Hồ sơ & bảo mật" description="Quản lý thông tin hiển thị, mật khẩu và các thiết bị đang đăng nhập vào Wind EDU." actions={<Button loading={loading} onClick={() => void load()} variant="secondary"><RefreshCw size={16} />Làm mới</Button>} />
+  return (
+    <div className="workspace-enter mx-auto max-w-5xl px-4 py-5 sm:px-6 lg:px-8 space-y-6">
+      {/* Tiêu đề trang tài khoản */}
+      <PageHeader
+        eyebrow="Tài khoản cá nhân"
+        title={activeTab === "profile" ? "Thông tin cá nhân" : "Bảo mật tài khoản"}
+        description={
+          activeTab === "profile"
+            ? "Quản lý ảnh đại diện, họ tên và thông tin liên hệ hiển thị trong hệ thống."
+            : "Quản lý mật khẩu, phương thức xác thực hai bước (2FA) và các phiên đăng nhập."
+        }
+        actions={
+          <Button loading={loading} onClick={() => void load()} variant="secondary">
+            <RefreshCw size={15} />
+            Làm mới dữ liệu
+          </Button>
+        }
+      />
 
-    <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-      <form className="content-panel p-4 sm:p-5" onSubmit={saveProfile}>
-        <div className="flex items-start gap-3"><UserRound className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Thông tin cá nhân</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Thông tin dùng để nhận diện bạn trong lớp học, diễn đàn và báo cáo.</p></div></div>
-        <div className="mt-6 flex flex-col gap-5 border-y border-[var(--rule)] py-5 sm:flex-row sm:items-center">
-          <UserAvatar avatarUrl={avatarPreview || profile.avatarUrl} className="size-24 text-2xl" name={profile.displayName || "Người dùng"} priority />
-          <div className="min-w-0 flex-1"><h3 className="font-bold">Ảnh đại diện</h3><p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">PNG, JPEG hoặc WebP; tối đa 3 MB. Ảnh vuông sẽ hiển thị cân đối nhất.</p><div className="mt-3 flex flex-wrap gap-2"><label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--ink)] hover:border-[var(--action)]"><Camera size={16} />{profile.avatarUrl ? "Chọn ảnh khác" : "Chọn ảnh"}<input accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => selectAvatar(event.target.files?.[0] ?? null)} type="file" /></label>{avatarFile ? <Button loading={avatarSaving} onClick={() => void saveAvatar()} type="button"><Upload size={16} />Lưu ảnh</Button> : null}{profile.avatarUrl ? <Button disabled={avatarSaving} onClick={() => void removeAvatar()} type="button" variant="ghost"><Trash2 size={15} />Xóa ảnh</Button> : null}</div>{avatarFile ? <p className="mt-2 truncate text-xs font-semibold text-[var(--ink-soft)]">Đã chọn: {avatarFile.name}</p> : null}</div>
-        </div>
-        <div className="mt-6 grid gap-5 sm:grid-cols-2">
-          <Field label="Họ và tên"><input className={inputClass} disabled={loading} maxLength={150} onChange={(event) => setProfile({ ...profile, displayName: event.target.value })} required value={profile.displayName} /></Field>
-          <Field label="Tài khoản"><input className={inputClass} disabled readOnly value={profile.username} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[var(--ink-muted)]">Dùng để đăng nhập vào Wind EDU.</span></Field>
-          <Field label="Email"><input className={inputClass} disabled readOnly value={profile.email ?? ""} /><span className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-normal leading-5 text-[var(--ink-muted)]">{!profile.email ? "Chưa cập nhật email" : profile.emailVerifiedAt ? <><MailCheck size={14} className="text-[var(--success)]" />Đã xác minh</> : <>Chưa xác minh <button className="text-link font-bold" onClick={() => void resendVerification()} type="button">Gửi lại email</button></>}</span></Field>
-          <Field label="Số điện thoại"><input className={inputClass} disabled={loading} inputMode="tel" maxLength={30} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} placeholder="Ví dụ: 0901 234 567" value={profile.phone} /></Field>
-          <Field label="Múi giờ"><select className={inputClass} disabled={loading} onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} value={profile.timezone}><option value="Asia/Bangkok">Bangkok (UTC+7)</option><option value="Asia/Ho_Chi_Minh">Hồ Chí Minh (UTC+7)</option><option value="UTC">UTC</option></select></Field>
-          <Field label="Ngôn ngữ"><select className={inputClass} disabled={loading} onChange={(event) => { const nextLocale = event.target.value === "en-US" ? "en-US" : "vi-VN"; setProfile({ ...profile, locale: nextLocale }); setLocale(nextLocale); }} value={profile.locale || locale}><option value="vi-VN">Tiếng Việt</option><option value="en-US">English</option></select></Field>
-          <div><p className="text-sm font-bold">Trạng thái tài khoản</p><div className="mt-3"><StatusBadge status={profile.status} /></div><p className="mt-2 text-xs text-[var(--ink-muted)]">Tham gia từ {profile.createdAt ? formatDateTime(profile.createdAt) : "—"}</p></div>
-        </div>
-        <div className="mt-7 flex justify-end"><Button loading={saving} type="submit"><Save size={16} />Lưu thay đổi</Button></div>
-      </form>
+      {/* THANH CHUYỂN ĐỔI 2 PHÂN HỆ: THÔNG TIN CÁ NHÂN VÀ BẢO MẬT */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("profile")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === "profile"
+              ? "border-blue-600 text-blue-600 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+          }`}
+        >
+          <UserRound size={17} />
+          <span>Thông tin cá nhân</span>
+        </button>
 
-      <form className="content-panel p-5 md:p-7" onSubmit={(event) => void (passwordOtp ? changePassword(event) : submitPasswordEmail(event))}>
-        <div className="flex items-start gap-3"><KeyRound className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Đổi mật khẩu</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Sau khi đổi, các phiên khác sẽ được đóng để bảo vệ tài khoản.</p></div></div>
-        {loading ? null : !profile.email || !profile.emailVerifiedAt ? <p className="mt-6 text-sm leading-6 text-[var(--ink-soft)]">Tài khoản chưa có email đã xác thực nên chưa thể đổi mật khẩu.</p> : !passwordOtp ? <>
-          <div className="mt-6 space-y-5">
-            <Field label="Email đã xác thực"><input autoComplete="email" className={inputClass} maxLength={191} onChange={(event) => setPasswordEmail(event.target.value)} required type="email" value={passwordEmail} /></Field>
-          </div>
-          <div className="mt-7 flex justify-end"><Button disabled={passwordSaving || passwordResendSeconds > 0} loading={passwordSaving} type="submit"><MailCheck size={16} />Gửi mã OTP{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}</Button></div>
-        </> : <>
-          <p className="mt-6 border-y border-[var(--rule)] py-3 text-xs leading-5 text-[var(--ink-muted)]">Mã OTP đã được gửi tới<br /><strong className="text-sm text-[var(--ink)]">{passwordOtp.email}</strong></p>
-          <div className="mt-5 space-y-5">
-            <Field label="Mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} required type="password" value={passwords.newPassword} /><span className="mt-1.5 block text-xs font-normal leading-5 text-[var(--ink-muted)]">Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</span></Field>
-            <Field label="Nhập lại mật khẩu mới"><input autoComplete="new-password" className={inputClass} minLength={8} onChange={(event) => setPasswords({ ...passwords, confirmPassword: event.target.value })} required type="password" value={passwords.confirmPassword} /></Field>
-            <Field label="Mã OTP"><input autoComplete="one-time-code" className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setPasswordCode(event.target.value.replace(/\D/g, ""))} required value={passwordCode} /></Field>
-          </div>
-          <div className="mt-7 flex flex-wrap justify-end gap-2">
-            <Button disabled={passwordSaving} onClick={resetPasswordForm} type="button" variant="ghost">Hủy</Button>
-            <Button disabled={passwordSaving || passwordResendSeconds > 0} onClick={() => void resendPasswordOtp()} type="button" variant="ghost"><RefreshCw size={15} />Nhận mã OTP mới{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}</Button>
-            <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode)} loading={passwordSaving} type="submit"><ShieldCheck size={16} />Đổi mật khẩu</Button>
-          </div>
-        </>}
-      </form>
-    </div>
-
-    <section className="content-panel mt-7 p-5 md:p-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 text-[var(--accent)]" size={22} /><div><h2 className="section-title">Xác thực hai bước</h2><p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">Bảo vệ tài khoản bằng mã 6 chữ số từ ứng dụng xác thực.</p></div></div>{profile.mfaEnabled && mfaDisableStep === "idle" ? <Button onClick={() => setMfaDisableStep("password")} variant="danger">Tắt xác thực hai bước</Button> : null}</div>
-      {!profile.mfaEnabled && !mfaSetup ? <div className="mt-6 flex flex-col items-start gap-2 border-y border-[var(--rule)] py-5"><p className="text-sm font-semibold text-[var(--ink-soft)]">Mỗi lần đăng nhập, bạn sẽ cần thêm mã từ ứng dụng xác thực.</p><Button onClick={() => void startMfa()} variant="secondary"><KeyRound size={16} />Thiết lập xác thực hai bước</Button></div> : null}
-      {mfaSetup ? <div className="mt-6 border-y border-[var(--rule)] py-6">
-        <div className="grid gap-7 lg:grid-cols-[minmax(16rem,0.72fr)_minmax(0,1.28fr)]">
-          <div className="flex flex-col items-center border-b border-[var(--rule)] pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-7">
-            <p className="self-start text-sm font-bold">1. Quét mã QR</p>
-            <div className="mt-4 grid min-h-[232px] w-[232px] place-items-center rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-2">{mfaQrCode ? <Image alt="Mã QR thiết lập xác thực hai bước" height={232} priority src={mfaQrCode} unoptimized width={232} /> : <RefreshCw className="animate-spin text-[var(--ink-muted)]" size={22} />}</div>
-            <p className="mt-3 text-center text-xs leading-5 text-[var(--ink-muted)]">Mã QR chứa khóa TOTP dành riêng cho tài khoản. Không chia sẻ ảnh này.</p>
-          </div>
-          <div>
-            <p className="text-sm font-bold">2. Chọn ứng dụng bạn đang dùng</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">{authenticatorApps.map((app) => <button aria-pressed={authenticatorApp === app.id} className={`min-h-16 rounded-xl border px-4 py-3 text-left transition ${authenticatorApp === app.id ? "border-[var(--action)] bg-[var(--surface-muted)]" : "border-[var(--rule)] bg-[var(--surface)] hover:border-[var(--rule-strong)]"}`} key={app.id} onClick={() => setAuthenticatorApp(app.id)} type="button"><span className="block text-sm font-bold">{app.name}</span><span className="mt-1 block text-xs leading-5 text-[var(--ink-muted)]">{app.note}</span></button>)}</div>
-            <ol className="mt-4 space-y-2 text-sm leading-6 text-[var(--ink-soft)]"><li><strong className="text-[var(--ink)]">a.</strong> Mở {authenticatorApps.find((app) => app.id === authenticatorApp)?.name}.</li><li><strong className="text-[var(--ink)]">b.</strong> Chọn thêm tài khoản rồi quét mã QR bên trái.</li><li><strong className="text-[var(--ink)]">c.</strong> Nhập mã 6 số ứng dụng vừa tạo vào bước dưới.</li></ol>
-            <details className="mt-4 border-t border-[var(--rule)] pt-4"><summary className="cursor-pointer text-sm font-bold">Không quét được QR?</summary><div className="mt-3 flex items-center gap-2"><code className="min-w-0 break-all rounded-lg bg-[var(--surface-muted)] px-3 py-2 text-sm font-bold tracking-[0.08em]">{mfaSetup.secret}</code><Button aria-label="Sao chép khóa thiết lập" onClick={() => void navigator.clipboard.writeText(mfaSetup.secret)} variant="ghost"><Copy size={15} /></Button></div></details>
-            <div className="mt-5 max-w-sm"><Field label="3. Mã xác thực 6 số"><input autoComplete="one-time-code" className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} placeholder="000000" value={mfaCode} /></Field><div className="mt-3 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} onClick={() => void confirmMfa()}>Xác nhận và bật</Button><Button onClick={() => { setMfaSetup(null); setMfaQrCode(""); setMfaCode(""); }} variant="ghost">Hủy</Button></div></div>
-          </div>
-        </div>
-      </div> : null}
-      {profile.mfaEnabled && mfaDisableStep === "password" ? <form className="mt-6 max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-5 shadow-xs" onSubmit={(event) => void startDisableMfa(event)}><h3 className="font-bold text-slate-900 dark:text-slate-100">Xác nhận mật khẩu trước</h3><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Đây là bước 1/2. Mã xác thực chỉ được yêu cầu sau khi mật khẩu đúng.</p><div className="mt-4 max-w-sm"><Field label="Mật khẩu hiện tại"><input autoComplete="current-password" autoFocus className={inputClass} minLength={8} onChange={(event) => setMfaDisablePassword(event.target.value)} required type="password" value={mfaDisablePassword} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!mfaDisablePassword} type="submit">Tiếp tục</Button><Button onClick={cancelDisableMfa} variant="ghost">Hủy</Button></div></form> : null}
-      {profile.mfaEnabled && mfaDisableStep === "code" ? <form className="mt-6 max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-5 shadow-xs" onSubmit={(event) => void disableMfa(event)}><button className="mb-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-slate-600 dark:text-slate-400" onClick={() => { setMfaDisableStep("password"); setMfaCode(""); setMfaDisableChallenge(""); }} type="button"><ArrowLeft size={15} />Quay lại</button><h3 className="font-bold text-slate-900 dark:text-slate-100">Nhập mã xác thực</h3><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Bước 2/2. Mở ứng dụng xác thực và nhập mã 6 số hiện tại để tắt bảo vệ.</p><div className="mt-4 max-w-sm"><Field label="Mã xác thực 6 số"><input autoComplete="one-time-code" autoFocus className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`} inputMode="numeric" maxLength={6} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} value={mfaCode} /></Field></div><div className="mt-4 flex flex-wrap gap-2"><Button disabled={!/^\d{6}$/.test(mfaCode)} type="submit" variant="danger">Xác nhận tắt 2FA</Button><Button onClick={cancelDisableMfa} variant="ghost">Hủy</Button></div></form> : null}
-      {recoveryCodes.length ? <div className="mt-6 rounded-2xl border border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-950/20 p-5 shadow-xs"><h3 className="font-bold text-sky-900 dark:text-sky-100">Lưu mã khôi phục ngay</h3><p className="mt-1 text-xs leading-5 text-sky-700 dark:text-sky-300">Mỗi mã chỉ dùng được một lần và sẽ không hiển thị lại.</p><div className="mt-4 grid grid-cols-2 gap-2 font-mono text-sm font-bold sm:grid-cols-4">{recoveryCodes.map((code) => <code className="rounded-lg border border-sky-200 dark:border-sky-800 bg-white dark:bg-slate-900 p-2 text-center" key={code}>{code}</code>)}</div><Button className="mt-4" onClick={() => void navigator.clipboard.writeText(recoveryCodes.join("\n"))} variant="secondary"><Copy size={15} />Sao chép tất cả</Button></div> : null}
-    </section>
-
-    <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs mt-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-3"><Laptop className="mt-0.5 text-sky-600 dark:text-sky-400" size={22} /><div><h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Thiết bị đăng nhập</h2><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Kiểm tra và đóng ngay những phiên bạn không nhận ra.</p></div></div><Button disabled={!otherSessions.length} onClick={() => void revokeOthers()} variant="secondary"><Trash2 size={16} />Đóng mọi phiên khác</Button></div>
-      <div className="mt-6 space-y-3">
-        {sessions.map((item) => { const device = deviceName(item.userAgent); const Icon = device.mobile ? Smartphone : Laptop; return <div className="flex flex-col gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 p-4 sm:flex-row sm:items-center sm:justify-between" key={item.id}><div className="flex min-w-0 items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800"><Icon size={18} /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900 dark:text-slate-100">{device.label}</p>{item.current ? <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">Phiên hiện tại</span> : null}</div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">IP {item.ipAddress} · hoạt động {new Date(item.lastSeenAt).toLocaleString(activeLocale())}</p><p className="text-xs text-slate-400">Hết hạn {new Date(item.expiresAt).toLocaleString(activeLocale())}</p></div></div>{!item.current ? <Button aria-label={`Thu hồi phiên ${device.label}`} onClick={() => void revoke(item.id)} variant="ghost"><Trash2 size={15} />Thu hồi</Button> : null}</div>; })}
-        {!sessions.length && !loading ? <p className="py-6 text-center text-sm text-slate-500">Không có phiên đăng nhập đang hoạt động.</p> : null}
+        <button
+          type="button"
+          onClick={() => setActiveTab("security")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === "security"
+              ? "border-blue-600 text-blue-600 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+          }`}
+        >
+          <ShieldCheck size={17} />
+          <span>Bảo mật</span>
+        </button>
       </div>
-    </section>
-  </div>;
+
+      {/* ================= TAB 1: THÔNG TIN CÁ NHÂN ================= */}
+      {activeTab === "profile" && (
+        <form
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs space-y-6"
+          onSubmit={saveProfile}
+        >
+          {/* Khối Ảnh Đại Diện Người Dùng */}
+          <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/60">
+            <UserAvatar
+              avatarUrl={avatarPreview || profile.avatarUrl}
+              className="size-24 text-2xl ring-4 ring-blue-500/20"
+              name={profile.displayName || "Người dùng"}
+              priority
+            />
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Ảnh đại diện</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Hỗ trợ định dạng PNG, JPEG hoặc WebP; dung lượng tối đa 3 MB.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 text-xs font-bold text-slate-800 dark:text-slate-200 hover:border-blue-500 transition-colors shadow-2xs">
+                  <Camera size={15} />
+                  <span>{profile.avatarUrl ? "Chọn ảnh khác" : "Tải ảnh lên"}</span>
+                  <input
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={(event) => selectAvatar(event.target.files?.[0] ?? null)}
+                    type="file"
+                  />
+                </label>
+
+                {avatarFile && (
+                  <Button loading={avatarSaving} onClick={() => void saveAvatar()} type="button">
+                    <Upload size={15} />
+                    Lưu ảnh
+                  </Button>
+                )}
+
+                {profile.avatarUrl && (
+                  <Button
+                    disabled={avatarSaving}
+                    onClick={() => void removeAvatar()}
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 size={15} className="text-rose-500" />
+                    Xóa ảnh
+                  </Button>
+                )}
+              </div>
+              {avatarFile && (
+                <p className="mt-2 text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  Đã chọn: {avatarFile.name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Các trường nhập liệu thông tin cá nhân */}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Họ và tên">
+              <input
+                className={inputClass}
+                disabled={loading}
+                maxLength={150}
+                onChange={(event) => setProfile({ ...profile, displayName: event.target.value })}
+                required
+                value={profile.displayName}
+              />
+            </Field>
+
+            <Field label="Tên tài khoản đăng nhập">
+              <input className={inputClass} disabled readOnly value={profile.username} />
+              <span className="mt-1 block text-xs text-slate-400">Tên định danh cố định không thể sửa.</span>
+            </Field>
+
+            <Field label="Địa chỉ Email">
+              <input className={inputClass} disabled readOnly value={profile.email ?? ""} />
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+                {profile.emailVerifiedAt ? (
+                  <>
+                    <MailCheck size={14} className="text-emerald-500" />
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Đã xác minh</span>
+                  </>
+                ) : (
+                  <span>Chưa xác minh</span>
+                )}
+              </span>
+            </Field>
+
+            <Field label="Số điện thoại">
+              <input
+                className={inputClass}
+                disabled={loading}
+                inputMode="tel"
+                maxLength={30}
+                onChange={(event) => setProfile({ ...profile, phone: event.target.value })}
+                placeholder="Ví dụ: 0901 234 567"
+                value={profile.phone}
+              />
+            </Field>
+
+            <Field label="Múi giờ">
+              <select
+                className={inputClass}
+                disabled={loading}
+                onChange={(event) => setProfile({ ...profile, timezone: event.target.value })}
+                value={profile.timezone}
+              >
+                <option value="Asia/Bangkok">Hồ Chí Minh, Bangkok (UTC+7)</option>
+                <option value="UTC">Giờ Quốc tế (UTC)</option>
+              </select>
+            </Field>
+
+            <Field label="Ngôn ngữ hiển thị">
+              <select
+                className={inputClass}
+                disabled={loading}
+                onChange={(event) => {
+                  const nextLocale = event.target.value === "en-US" ? "en-US" : "vi-VN";
+                  setProfile({ ...profile, locale: nextLocale });
+                  setLocale(nextLocale);
+                }}
+                value={profile.locale || locale}
+              >
+                <option value="vi-VN">Tiếng Việt</option>
+                <option value="en-US">English</option>
+              </select>
+            </Field>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <div>
+              <p className="text-xs text-slate-400">
+                Tham gia hệ thống từ:{" "}
+                <strong className="text-slate-700 dark:text-slate-300">
+                  {profile.createdAt ? formatDateTime(profile.createdAt) : "—"}
+                </strong>
+              </p>
+            </div>
+            <Button loading={saving} type="submit">
+              <Save size={16} />
+              Lưu thay đổi
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* ================= TAB 2: BẢO MẬT ================= */}
+      {activeTab === "security" && (
+        <div className="space-y-6">
+          {/* Phân vùng 1: Đổi mật khẩu */}
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-start gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="size-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
+                <KeyRound size={20} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Đổi mật khẩu</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Sau khi đổi mật khẩu, các phiên đăng nhập khác sẽ được đóng để bảo vệ tài khoản.
+                </p>
+              </div>
+            </div>
+
+            <form
+              className="mt-5 space-y-4 max-w-xl"
+              onSubmit={(e) => void (passwordOtp ? changePassword(e) : submitPasswordEmail(e))}
+            >
+              {!passwordOtp ? (
+                <>
+                  <Field label="Email xác thực để nhận mã OTP">
+                    <input
+                      autoComplete="email"
+                      className={inputClass}
+                      maxLength={191}
+                      onChange={(e) => setPasswordEmail(e.target.value)}
+                      required
+                      type="email"
+                      value={passwordEmail}
+                    />
+                  </Field>
+                  <Button
+                    disabled={passwordSaving || passwordResendSeconds > 0}
+                    loading={passwordSaving}
+                    type="submit"
+                  >
+                    <MailCheck size={16} />
+                    Gửi mã OTP xác nhận{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}
+                  </Button>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-xs text-blue-900 dark:text-blue-200">
+                    Mã xác thực 6 số đã được gửi tới: <strong>{passwordOtp.email}</strong>
+                  </div>
+
+                  <Field label="Mật khẩu mới">
+                    <input
+                      autoComplete="new-password"
+                      className={inputClass}
+                      minLength={8}
+                      onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
+                      required
+                      type="password"
+                      value={passwords.newPassword}
+                    />
+                    <span className="mt-1 block text-[11px] text-slate-400">
+                      Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.
+                    </span>
+                  </Field>
+
+                  <Field label="Nhập lại mật khẩu mới">
+                    <input
+                      autoComplete="new-password"
+                      className={inputClass}
+                      minLength={8}
+                      onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
+                      required
+                      type="password"
+                      value={passwords.confirmPassword}
+                    />
+                  </Field>
+
+                  <Field label="Mã OTP 6 số">
+                    <input
+                      autoComplete="one-time-code"
+                      className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
+                      inputMode="numeric"
+                      maxLength={6}
+                      onChange={(e) => setPasswordCode(e.target.value.replace(/\D/g, ""))}
+                      placeholder="000000"
+                      required
+                      value={passwordCode}
+                    />
+                  </Field>
+
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode)} loading={passwordSaving} type="submit">
+                      <ShieldCheck size={16} />
+                      Xác nhận đổi mật khẩu
+                    </Button>
+                    <Button
+                      disabled={passwordSaving}
+                      onClick={() => {
+                        setPasswordOtp(null);
+                        setPasswordCode("");
+                      }}
+                      type="button"
+                      variant="ghost"
+                    >
+                      Hủy
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </form>
+          </section>
+
+          {/* Phân vùng 2: Xác thực hai bước (2FA) */}
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Xác thực hai bước (2FA)
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Bảo vệ tài khoản bằng mã bảo mật 6 số từ Google Authenticator hoặc ứng dụng TOTP.
+                  </p>
+                </div>
+              </div>
+
+              {profile.mfaEnabled && mfaDisableStep === "idle" && (
+                <Button onClick={() => setMfaDisableStep("password")} variant="danger">
+                  Tắt xác thực hai bước
+                </Button>
+              )}
+            </div>
+
+            {!profile.mfaEnabled && !mfaSetup && (
+              <div className="mt-5 flex flex-col items-start gap-3">
+                <p className="text-xs text-slate-500">
+                  Tăng cường an toàn tối đa cho dữ liệu học tập và thông tin cá nhân.
+                </p>
+                <Button onClick={() => void startMfa()} variant="secondary">
+                  <KeyRound size={15} />
+                  Kích hoạt xác thực 2 bước ngay
+                </Button>
+              </div>
+            )}
+
+            {/* Form cài đặt quét mã QR 2FA */}
+            {mfaSetup && (
+              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+                  <div className="flex flex-col items-center">
+                    <p className="self-start text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                      1. Quét mã QR
+                    </p>
+                    <div className="size-48 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white grid place-items-center">
+                      {mfaQrCode ? (
+                        <Image alt="Mã QR TOTP" height={180} src={mfaQrCode} unoptimized width={180} />
+                      ) : (
+                        <RefreshCw className="animate-spin text-slate-400" size={24} />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      2. Nhập mã từ ứng dụng xác thực
+                    </p>
+                    <div className="max-w-xs space-y-3">
+                      <Field label="Mã xác thực 6 số">
+                        <input
+                          autoComplete="one-time-code"
+                          className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
+                          inputMode="numeric"
+                          maxLength={6}
+                          onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                          placeholder="000000"
+                          value={mfaCode}
+                        />
+                      </Field>
+                      <div className="flex gap-2">
+                        <Button disabled={!/^\d{6}$/.test(mfaCode)} onClick={() => void confirmMfa()}>
+                          Xác nhận & Bật
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setMfaSetup(null);
+                            setMfaCode("");
+                          }}
+                          variant="ghost"
+                        >
+                          Hủy
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bước tắt 2FA */}
+            {profile.mfaEnabled && mfaDisableStep === "password" && (
+              <form className="mt-5 max-w-md space-y-4" onSubmit={(e) => void startDisableMfa(e)}>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Nhập mật khẩu hiện tại của bạn để tiến hành tắt 2FA:
+                </p>
+                <Field label="Mật khẩu hiện tại">
+                  <input
+                    autoComplete="current-password"
+                    autoFocus
+                    className={inputClass}
+                    minLength={8}
+                    onChange={(e) => setMfaDisablePassword(e.target.value)}
+                    required
+                    type="password"
+                    value={mfaDisablePassword}
+                  />
+                </Field>
+                <div className="flex gap-2">
+                  <Button disabled={!mfaDisablePassword} type="submit">
+                    Tiếp tục
+                  </Button>
+                  <Button onClick={() => setMfaDisableStep("idle")} variant="ghost">
+                    Hủy
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            {profile.mfaEnabled && mfaDisableStep === "code" && (
+              <form className="mt-5 max-w-md space-y-4" onSubmit={(e) => void disableMfa(e)}>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Nhập mã 6 số từ ứng dụng xác thực để hoàn tất:
+                </p>
+                <Field label="Mã xác thực 6 số">
+                  <input
+                    autoComplete="one-time-code"
+                    autoFocus
+                    className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                    value={mfaCode}
+                  />
+                </Field>
+                <div className="flex gap-2">
+                  <Button disabled={!/^\d{6}$/.test(mfaCode)} type="submit" variant="danger">
+                    Xác nhận tắt 2FA
+                  </Button>
+                  <Button onClick={() => setMfaDisableStep("idle")} variant="ghost">
+                    Hủy
+                  </Button>
+                </div>
+              </form>
+            )}
+          </section>
+
+          {/* Phân vùng 3: Thiết bị và Phiên đăng nhập */}
+          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="size-9 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 grid place-items-center shrink-0">
+                  <Laptop size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Thiết bị đăng nhập ({sessions.length})
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Kiểm tra và quản lý các thiết bị đang đăng nhập vào tài khoản của bạn.
+                  </p>
+                </div>
+              </div>
+
+              {otherSessions.length > 0 && (
+                <Button onClick={() => void revokeOthers()} variant="secondary">
+                  <Trash2 size={15} />
+                  Đóng mọi phiên khác
+                </Button>
+              )}
+            </div>
+
+            <div className="mt-4 space-y-2.5">
+              {sessions.map((item) => {
+                const device = deviceName(item.userAgent);
+                const Icon = device.mobile ? Smartphone : Laptop;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/60 gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="size-9 rounded-lg bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 grid place-items-center text-slate-600 dark:text-slate-200 shrink-0">
+                        <Icon size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {device.label}
+                          </strong>
+                          {item.current && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-300 dark:border-emerald-800">
+                              Phiên hiện tại
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          IP: {item.ipAddress} · Hoạt động {new Date(item.lastSeenAt).toLocaleString(activeLocale())}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!item.current && (
+                      <Button onClick={() => void revoke(item.id)} variant="ghost">
+                        <Trash2 size={14} className="text-rose-500" />
+                        Đăng xuất phiên này
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Component AccountPage bọc trong Suspense để hỗ trợ Next.js useSearchParams an toàn */
+export default function AccountPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-sm font-semibold text-slate-500">Đang tải hồ sơ tài khoản...</div>}>
+      <AccountContent />
+    </Suspense>
+  );
 }

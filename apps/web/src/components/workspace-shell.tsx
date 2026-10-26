@@ -26,6 +26,7 @@ import {
   Users,
   LogOut,
   UserRoundCog,
+  UserRound,
   ChevronDown,
   Compass,
   Sparkles,
@@ -705,7 +706,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     avatarUrl={session.user.avatarUrl}
                     name={session.user.name}
                     priority
-                    size="sm"
+                    className="size-7 rounded-full text-xs"
                   />
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-xs">
                     {session.user.name}
@@ -746,17 +747,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       role="menu"
                     >
                       <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-1.5">
-                        <div className="size-11 rounded-xl bg-slate-300 dark:bg-slate-700 grid place-items-center text-slate-600 dark:text-slate-300 font-extrabold text-sm shrink-0">
-                          {session.user.avatarUrl ? (
-                            <img
-                              src={session.user.avatarUrl}
-                              alt={session.user.name}
-                              className="size-full rounded-xl object-cover"
-                            />
-                          ) : (
-                            <span className="uppercase">{initials}</span>
-                          )}
-                        </div>
+                        <UserAvatar
+                          avatarUrl={session.user.avatarUrl}
+                          name={session.user.name}
+                          className="size-11 rounded-full ring-2 ring-blue-500/20"
+                          priority
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold shrink-0">
@@ -776,62 +772,49 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       </div>
 
                       <div className="space-y-0.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notify("Đang kết nối tài khoản Sở GD&ĐT...", "info");
-                            setProfileOpen(false);
-                          }}
+                        <Link
+                          aria-label={t("Thông tin")}
                           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                        >
-                          <div className="size-7 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 grid place-items-center shrink-0">
-                            <GraduationCap size={15} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                              Tạo liên kết tài khoản sở giáo dục
-                            </p>
-                            <p className="text-[10px] text-slate-400 truncate">
-                              Đăng nhập sử dụng tài khoản sở GDĐT - HCM
-                            </p>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            notify("Chức năng đổi liên kết Facebook đang mở...", "info");
-                            setProfileOpen(false);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                          href="/account"
+                          onClick={() => setProfileOpen(false)}
+                          role="menuitem"
                         >
                           <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
-                            <Users size={15} />
+                            <UserRound size={15} />
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                              Đổi liên kết facebook
+                              {t("Thông tin cá nhân")}
                             </p>
                             <p className="text-[10px] text-slate-400 truncate">
-                              Đăng nhập thuận tiện hơn
+                              Hồ sơ, ảnh đại diện và liên hệ
                             </p>
                           </div>
-                        </button>
+                        </Link>
+
+                        <Link
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                          href="/account?tab=security"
+                          onClick={() => setProfileOpen(false)}
+                          role="menuitem"
+                        >
+                          <div className="size-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
+                            <ShieldCheck size={15} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                              Bảo mật
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              Mật khẩu, xác thực 2 bước & phiên
+                            </p>
+                          </div>
+                        </Link>
                       </div>
 
                       <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                       <div className="space-y-0.5">
-                        <Link
-                          className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          href="/account"
-                          onClick={() => setProfileOpen(false)}
-                          role="menuitem"
-                        >
-                          <UserRoundCog size={15} className="text-slate-500" />
-                          <span>{t("Thông tin")}</span>
-                        </Link>
-
                         <button
                           className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                           onClick={() => {
@@ -870,7 +853,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     </section>
                   ) : (
                     <section
-                      className="w-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
+                      className="w-56 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
                       role="menu"
                     >
                       <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
@@ -882,14 +865,25 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         </p>
                       </div>
                       <Link
+                        aria-label={t("Thông tin")}
                         className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                         href="/account"
                         onClick={() => setProfileOpen(false)}
                         role="menuitem"
                       >
-                        <UserRoundCog size={14} />
-                        {t("Thông tin")}
+                        <UserRound size={14} className="text-slate-500" />
+                        <span>{t("Thông tin")}</span>
                       </Link>
+                      <Link
+                        className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        href="/account?tab=security"
+                        onClick={() => setProfileOpen(false)}
+                        role="menuitem"
+                      >
+                        <ShieldCheck size={14} className="text-slate-500" />
+                        <span>{t("Bảo mật")}</span>
+                      </Link>
+                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                       <button
                         className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
                         onClick={() => void signOut()}
@@ -897,7 +891,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         type="button"
                       >
                         <LogOut size={14} />
-                        {t("Đăng xuất")}
+                        <span>{t("Đăng xuất")}</span>
                       </button>
                     </section>
                   )}

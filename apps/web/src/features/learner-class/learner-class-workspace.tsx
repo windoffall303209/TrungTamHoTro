@@ -37,12 +37,20 @@ import {
   History,
 } from "lucide-react";
 import type { LearningClass, Course } from "@/lib/learning-types";
+import { UserAvatar } from "@/components/user-avatar";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 
 interface LearnerClassWorkspaceProps {
   item: LearningClass;
   course: Course | null;
   teacherName?: string;
+  instructors?: Array<{
+    instructorId: string;
+    role?: string;
+    displayName?: string;
+    email?: string;
+    avatarUrl?: string;
+  }>;
   onBack?: () => void;
 }
 
@@ -103,10 +111,32 @@ export function LearnerClassWorkspace({
   item,
   course,
   teacherName = "Wind Fall",
+  instructors,
   onBack,
 }: LearnerClassWorkspaceProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<SubTab>("feed");
+
+  // Danh sách giảng viên lớp học (hiển thị 1 hoặc 2 giáo viên kèm avatar thật)
+  const displayInstructors = useMemo(() => {
+    if (instructors && instructors.length > 0) {
+      return instructors.slice(0, 2).map((inst, index) => ({
+        id: inst.instructorId || `inst-${index}`,
+        name: inst.displayName || (index === 0 ? teacherName : "Thầy Vũ Thành Nam"),
+        role: inst.role === "PRIMARY" ? "Giáo viên chính" : "Giảng viên",
+        avatarUrl: inst.avatarUrl,
+      }));
+    }
+    if (item.instructorIds && item.instructorIds.length >= 2) {
+      return [
+        { id: item.instructorIds[0], name: teacherName, role: "Giáo viên chính", avatarUrl: null },
+        { id: item.instructorIds[1], name: "Thầy Vũ Thành Nam", role: "Giảng viên", avatarUrl: null },
+      ];
+    }
+    return [
+      { id: "inst-primary", name: teacherName, role: "Giáo viên", avatarUrl: null },
+    ];
+  }, [instructors, item.instructorIds, teacherName]);
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -649,16 +679,28 @@ export function LearnerClassWorkspace({
                 Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
               </p>
 
-              <div className="mt-2.5 flex items-center gap-2">
-                <div className="size-7 rounded-full bg-slate-200 dark:bg-slate-700 grid place-items-center text-[10px] font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                  {teacherName.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <span className="text-[9px] uppercase font-bold text-slate-400 block leading-tight">Giáo viên</span>
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                    {teacherName}
-                  </p>
-                </div>
+              {/* Danh sách giáo viên phụ trách (hỗ trợ hiển thị 2 giáo viên kèm avatar thật) */}
+              <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60 space-y-2">
+                <span className="text-[9px] uppercase font-bold text-slate-400 block leading-tight">
+                  {displayInstructors.length > 1 ? "Giảng viên phụ trách (2)" : "Giáo viên phụ trách"}
+                </span>
+                {displayInstructors.map((teacher) => (
+                  <div key={teacher.id} className="flex items-center gap-2">
+                    <UserAvatar
+                      avatarUrl={teacher.avatarUrl}
+                      name={teacher.name}
+                      className="size-7 rounded-full text-[10px]"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title={teacher.name}>
+                        {teacher.name}
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-medium block leading-tight">
+                        {teacher.role}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
