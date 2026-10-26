@@ -453,9 +453,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)] flex flex-col">
       {/* TẦNG 1: MASTER HEADER ĐIỀU HƯỚNG NGANG (Top Command Bar) */}
       <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#070b14]/90 backdrop-blur-md shadow-2xs">
-        <div className="flex h-16 w-full items-center justify-between px-5 sm:px-6 lg:px-8 gap-4">
+        <div className="relative flex h-16 w-full items-center justify-between px-5 sm:px-6 lg:px-8 gap-4">
           {/* Logo & Category Navigation */}
-          <div className="flex items-center gap-6 lg:gap-8 min-w-0">
+          <div className="flex items-center gap-6 lg:gap-8 shrink-0">
             <Link className="flex items-center gap-2.5 shrink-0" href="/dashboard">
               <span className="grid size-9.5 place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white shadow-sm shadow-sky-600/25">
                 <GraduationCap size={20} />
@@ -470,38 +470,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Category Navigation */}
-            {session.roleCode === "LEARNER" ? (
-              <nav className="hidden lg:flex items-center gap-1.5 ml-4">
-                {learnerNavItems.map(({ href, label, icon: Icon }) => {
-                  const isSelected =
-                    href === "/dashboard"
-                      ? pathname === "/dashboard"
-                      : pathname === href || pathname.startsWith(`${href}/`);
-                  return (
-                    <Link
-                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-150 ${
-                        isSelected
-                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
-                      }`}
-                      href={href}
-                      key={href}
-                    >
-                      <Icon
-                        className={`shrink-0 ${
-                          isSelected
-                            ? "text-sky-600 dark:text-sky-400"
-                            : "text-slate-400 dark:text-slate-500"
-                        }`}
-                        size={16}
-                      />
-                      <span>{t(label)}</span>
-                    </Link>
-                  );
-                })}
-              </nav>
-            ) : (
+            {/* Desktop Category Navigation dành cho Quản trị viên và Giảng viên */}
+            {session.roleCode !== "LEARNER" && (
               <nav className="hidden lg:flex items-center gap-1">
                 {sections.map((section) => {
                   const isSelected = currentSection?.id === section.id;
@@ -533,6 +503,41 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </nav>
             )}
           </div>
+
+          {/* 3 chức năng chính của Học sinh căn chính giữa 100% thanh header */}
+          {session.roleCode === "LEARNER" && (
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center pointer-events-auto">
+              <nav aria-label="Điều hướng chính học sinh" className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs">
+                {learnerNavItems.map(({ href, label, icon: Icon }) => {
+                  const isSelected =
+                    href === "/dashboard"
+                      ? pathname === "/dashboard"
+                      : pathname === href || pathname.startsWith(`${href}/`);
+                  return (
+                    <Link
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all duration-150 ${
+                        isSelected
+                          ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-extrabold border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
+                      }`}
+                      href={href}
+                      key={href}
+                    >
+                      <Icon
+                        className={`shrink-0 ${
+                          isSelected
+                            ? "text-sky-600 dark:text-sky-400"
+                            : "text-slate-400 dark:text-slate-500"
+                        }`}
+                        size={16}
+                      />
+                      <span>{t(label)}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          )}
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
