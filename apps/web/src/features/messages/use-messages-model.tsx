@@ -10,6 +10,12 @@ import {
   normalizeChatMessage,
   selectChatRecordingMimeType,
 } from "@/lib/chat-message";
+import {
+  SHARED_DEFAULT_CONTACTS,
+  getStoredChatMessages,
+  appendSharedChatMessage,
+  subscribeSharedChat,
+} from "@/lib/chat-shared-store";
 import type {
   ChatConversation,
   ChatDirectoryEntry,
@@ -20,6 +26,64 @@ import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadStoredDrafts } from "./messages.shared";
+
+/** Tạo danh sách hội thoại đồng bộ hoàn toàn giữa server và danh bạ liên hệ dùng chung */
+function buildSharedConversations(
+  serverRows: ChatConversation[],
+  sessionUserId: string,
+  sessionUserName: string,
+  sessionRoleCode: string,
+): ChatConversation[] {
+  const result: ChatConversation[] = [...serverRows];
+  const storedMessages = getStoredChatMessages();
+
+  for (const contact of SHARED_DEFAULT_CONTACTS) {
+    if (!result.some((c) => c.id === contact.id)) {
+      const msgs = storedMessages[contact.id] || [];
+      const last = msgs[msgs.length - 1];
+      result.push({
+        id: contact.id,
+        title: contact.name,
+        type: contact.type || "DIRECT",
+        readOnly: false,
+        unreadCount: contact.unreadCount || 0,
+        mutedUntil: null,
+        members: [
+          {
+            userId: sessionUserId,
+            displayName: sessionUserName,
+            roleCode: sessionRoleCode,
+            status: "ACTIVE",
+          },
+          {
+            userId: contact.id,
+            displayName: contact.name,
+            roleCode: contact.role || "MEMBER",
+            status: "ACTIVE",
+          },
+        ],
+        lastMessage: last
+          ? {
+              id: last.id,
+              content: last.content,
+              createdAt: last.createdAt,
+              senderId: last.senderId,
+              senderName: last.senderName,
+            }
+          : contact.lastMessageText
+            ? {
+                id: `init-${contact.id}`,
+                content: contact.lastMessageText,
+                createdAt: new Date().toISOString(),
+                senderId: contact.id,
+                senderName: contact.name,
+              }
+            : undefined,
+      });
+    }
+  }
+  return result;
+}
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình tin nhắn; giữ nguyên thứ tự hook. */
 export function useMessagesModel() {
@@ -42,6 +106,10 @@ export function useMessagesModel() {
   const [searching, setSearching] = useState(false);
 
   const [sending, setSending] = useState(false);
+
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(true);
+
+  const [activeFilter, setActiveFilter] = useState<"all" | "unread" | "groups">("all");
 
   const [recording, setRecording] = useState(false);
 
@@ -209,41 +277,81 @@ export function useMessagesModel() {
 
   /** Nạp danh sách hội thoại và giữ lựa chọn còn hợp lệ. */
   const loadConversations = useCallback(async () => {
-    const rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
-      roleCode: session.roleCode,
-    });
-    setConversations(rows);
-    setSelectedId((current) =>
-      current && rows.some((item) => item.id === current)
-        ? current
-        : (rows[0]?.id ?? ""),
+    let rows: ChatConversation[] = [];
+    try {
+      rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
+        roleCode: session.roleCode,
+      });
+    } catch {
+      rows = [];
+    }
+    const merged = buildSharedConversations(
+      rows,
+      session.user.id,
+      session.user.name,
+      session.roleCode,
     );
-  }, [session.roleCode]);
+    setConversations(merged);
+    setSelectedId((current) =>
+      current && merged.some((item) => item.id === current)
+        ? current
+        : (merged[0]?.id ?? ""),
+    );
+  }, [session.roleCode, session.user.id, session.user.name]);
 
   /** Nạp một trang tin mới nhất rồi đồng bộ mốc đã đọc. */
   const loadMessages = useCallback(
     async (conversationId: string, quiet = false) => {
       try {
-        const page = await apiRequest<ChatMessagePage>(
-          `/chat/conversations/${conversationId}/messages?limit=80`,
-          { roleCode: session.roleCode },
-        );
-        setMessages(
-          page.items
+        let serverMessages: ChatMessage[] = [];
+        try {
+          const page = await apiRequest<ChatMessagePage>(
+            `/chat/conversations/${conversationId}/messages?limit=80`,
+            { roleCode: session.roleCode },
+          );
+          serverMessages = page.items
             .map(normalizeChatMessage)
-            .filter((item): item is ChatMessage => Boolean(item)),
+            .filter((item): item is ChatMessage => Boolean(item));
+          await apiRequest(`/chat/conversations/${conversationId}/read`, {
+            method: "PATCH",
+            roleCode: session.roleCode,
+          });
+        } catch {
+          // Bỏ qua lỗi server nếu hội thoại thuộc danh bạ dùng chung
+        }
+
+        const stored = getStoredChatMessages()[conversationId] || [];
+        const localMapped: ChatMessage[] = stored.map((msg) => ({
+          id: msg.id,
+          conversationId: msg.conversationId,
+          senderId: msg.senderId,
+          senderName: msg.senderName,
+          content: msg.content,
+          createdAt: msg.createdAt,
+          replyTo: msg.replyTo,
+          attachments: [],
+        }));
+
+        const mergedMap = new Map<string, ChatMessage>();
+        for (const m of serverMessages) mergedMap.set(m.id, m);
+        for (const m of localMapped) {
+          if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
+        }
+
+        const sorted = Array.from(mergedMap.values()).sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
-        await apiRequest(`/chat/conversations/${conversationId}/read`, {
-          method: "PATCH",
-          roleCode: session.roleCode,
-        });
+
+        setMessages(sorted);
+
         if (!quiet)
           window.requestAnimationFrame(() => {
-            const stored = window.sessionStorage.getItem(
+            const storedScroll = window.sessionStorage.getItem(
               `wind-chat-scroll:${session.user.id}:${conversationId}`,
             );
-            if (stored && messagePaneRef.current)
-              messagePaneRef.current.scrollTop = Number(stored);
+            if (storedScroll && messagePaneRef.current)
+              messagePaneRef.current.scrollTop = Number(storedScroll);
             else bottomRef.current?.scrollIntoView({ block: "end" });
           });
       } catch (error) {
@@ -475,6 +583,20 @@ export function useMessagesModel() {
     }
   };
 
+  // Lắng nghe sự kiện đồng bộ tin nhắn từ mini-chat widget hoặc tab khác
+  useEffect(() => {
+    const unsubscribe = subscribeSharedChat((event) => {
+      const detail = event.detail;
+      if (detail?.conversationId) {
+        if (detail.conversationId === selectedId) {
+          void loadMessages(selectedId, true);
+        }
+        void loadConversations();
+      }
+    });
+    return unsubscribe;
+  }, [loadConversations, loadMessages, selectedId]);
+
   /** Gửi hoặc thử lại một tin bằng cùng clientMessageId để chống tạo trùng. */
   const sendMessage = async (
     event?: React.FormEvent,
@@ -495,33 +617,83 @@ export function useMessagesModel() {
     setSending(true);
     setFailedMessage(null);
     try {
-      const body = payload.files?.length
-        ? new FormData()
-        : JSON.stringify({
-            content: payload.content,
-            clientMessageId: payload.clientMessageId,
-            replyToId: payload.replyToId,
-            mentionedUserIds: payload.mentionedUserIds,
-            contextType: payload.contextType,
-            contextId: payload.contextId,
-          });
-      if (body instanceof FormData) {
-        body.set("content", payload.content);
-        body.set("clientMessageId", payload.clientMessageId);
-        if (payload.replyToId) body.set("replyToId", payload.replyToId);
-        body.set(
-          "mentionedUserIds",
-          JSON.stringify(payload.mentionedUserIds ?? []),
-        );
-        if (payload.contextType) body.set("contextType", payload.contextType);
-        if (payload.contextId) body.set("contextId", payload.contextId);
-        payload.files?.forEach((file) => body.append("files", file));
+      const isSharedContact = SHARED_DEFAULT_CONTACTS.some(
+        (c) => c.id === selectedId,
+      );
+      if (!isSharedContact) {
+        const body = payload.files?.length
+          ? new FormData()
+          : JSON.stringify({
+              content: payload.content,
+              clientMessageId: payload.clientMessageId,
+              replyToId: payload.replyToId,
+              mentionedUserIds: payload.mentionedUserIds,
+              contextType: payload.contextType,
+              contextId: payload.contextId,
+            });
+        if (body instanceof FormData) {
+          body.set("content", payload.content);
+          body.set("clientMessageId", payload.clientMessageId);
+          if (payload.replyToId) body.set("replyToId", payload.replyToId);
+          body.set(
+            "mentionedUserIds",
+            JSON.stringify(payload.mentionedUserIds ?? []),
+          );
+          if (payload.contextType) body.set("contextType", payload.contextType);
+          if (payload.contextId) body.set("contextId", payload.contextId);
+          payload.files?.forEach((file) => body.append("files", file));
+        }
+        await apiRequest(`/chat/conversations/${selectedId}/messages`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body,
+        });
       }
-      await apiRequest(`/chat/conversations/${selectedId}/messages`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body,
+
+      // Đồng bộ tin nhắn gửi vào kho chung để widget chat cũng nhận được
+      appendSharedChatMessage({
+        id: payload.clientMessageId,
+        conversationId: selectedId,
+        senderId: session.user.id,
+        senderName: session.user.name || "Tôi",
+        content: payload.content,
+        createdAt: new Date().toISOString(),
+        replyTo: replyTo
+          ? {
+              id: replyTo.id,
+              senderName: replyTo.senderName,
+              content: replyTo.content,
+            }
+          : undefined,
       });
+
+      // Nếu liên hệ có hỗ trợ phản hồi tự động thì kích hoạt sau 1.5s
+      const autoContact = SHARED_DEFAULT_CONTACTS.find(
+        (c) => c.id === selectedId,
+      );
+      if (autoContact) {
+        setTimeout(() => {
+          const replyText =
+            autoContact.id === "teacher-1"
+              ? "Thầy/Cô đã nhận được câu hỏi của em. Em xem lại công thức ở mục 3 trang 45 nhé!"
+              : autoContact.id === "student-hai"
+                ? "Ok bạn ơi, lát làm xong bài tập gửi mình xem đối chiếu kết quả với nhé!"
+                : autoContact.id === "teacher-nam"
+                  ? "Chào em, bài thực hành em nộp chạy thử rất ổn. Nhớ chú ý tối ưu thuật toán thêm nhé."
+                  : autoContact.id === "student-anime"
+                    ? "Tài liệu học tập nằm ở tab Kho tài liệu hoặc phần đính kèm lớp học nhé bạn!"
+                    : "Trung tâm hỗ trợ Wind EDU đã ghi nhận yêu cầu của bạn và sẽ kiểm tra trong ít phút.";
+          appendSharedChatMessage({
+            id: `reply-${Date.now()}`,
+            conversationId: selectedId,
+            senderId: autoContact.id,
+            senderName: autoContact.name,
+            content: replyText,
+            createdAt: new Date().toISOString(),
+          });
+        }, 1500);
+      }
+
       updateDraft("");
       setReplyTo(null);
       messageFilesRef.current = [];
@@ -716,5 +888,9 @@ export function useMessagesModel() {
     blockDirectUser,
     openAttachment,
     classChoices,
+    isInfoPanelOpen,
+    setIsInfoPanelOpen,
+    activeFilter,
+    setActiveFilter,
   };
 }
