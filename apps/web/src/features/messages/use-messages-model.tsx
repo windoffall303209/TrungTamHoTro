@@ -1,4 +1,5 @@
 "use client";
+
 import {
   apiRequest,
   downloadApiFile,
@@ -10,12 +11,6 @@ import {
   normalizeChatMessage,
   selectChatRecordingMimeType,
 } from "@/lib/chat-message";
-import {
-  SHARED_DEFAULT_CONTACTS,
-  getStoredChatMessages,
-  appendSharedChatMessage,
-  subscribeSharedChat,
-} from "@/lib/chat-shared-store";
 import type {
   ChatConversation,
   ChatDirectoryEntry,
@@ -24,95 +19,23 @@ import type {
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { loadStoredDrafts } from "./messages.shared";
 
-/** Tạo danh sách hội thoại đồng bộ hoàn toàn giữa server và danh bạ liên hệ dùng chung */
-function buildSharedConversations(
-  serverRows: ChatConversation[],
-  sessionUserId: string,
-  sessionUserName: string,
-  sessionRoleCode: string,
-): ChatConversation[] {
-  const result: ChatConversation[] = [...serverRows];
-  const storedMessages = getStoredChatMessages();
-
-  for (const contact of SHARED_DEFAULT_CONTACTS) {
-    if (!result.some((c) => c.id === contact.id)) {
-      const msgs = storedMessages[contact.id] || [];
-      const last = msgs[msgs.length - 1];
-      result.push({
-        id: contact.id,
-        title: contact.name,
-        type: contact.type || "DIRECT",
-        readOnly: false,
-        unreadCount: contact.unreadCount || 0,
-        mutedUntil: null,
-        members: [
-          {
-            userId: sessionUserId,
-            displayName: sessionUserName,
-            roleCode: sessionRoleCode,
-            status: "ACTIVE",
-          },
-          {
-            userId: contact.id,
-            displayName: contact.name,
-            roleCode: contact.role || "MEMBER",
-            status: "ACTIVE",
-          },
-        ],
-        lastMessage: last
-          ? {
-              id: last.id,
-              content: last.content,
-              createdAt: last.createdAt,
-              senderId: last.senderId,
-              senderName: last.senderName,
-            }
-          : contact.lastMessageText
-            ? {
-                id: `init-${contact.id}`,
-                content: contact.lastMessageText,
-                createdAt: new Date().toISOString(),
-                senderId: contact.id,
-                senderName: contact.name,
-              }
-            : undefined,
-      });
-    }
-  }
-  return result;
-}
-
-/** Quản lý trạng thái, tải dữ liệu và hành động của màn hình tin nhắn; giữ nguyên thứ tự hook. */
+/** Quản lý trạng thái, tải dữ liệu từ CSDL và điều khiển hành động của màn hình tin nhắn 1-1. */
 export function useMessagesModel() {
   const { session, notify } = useApp();
-
   const { locale } = useI18n();
 
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
-
   const [selectedId, setSelectedId] = useState("");
-
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-
   const [directory, setDirectory] = useState<ChatDirectoryEntry[]>([]);
-
   const [query, setQuery] = useState("");
-
   const [loading, setLoading] = useState(true);
-
   const [searching, setSearching] = useState(false);
-
   const [sending, setSending] = useState(false);
-
-  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(true);
-
-  const [activeFilter, setActiveFilter] = useState<"all" | "unread" | "groups">("all");
-
   const [recording, setRecording] = useState(false);
-
   const [activeActionMessageId, setActiveActionMessageId] = useState("");
 
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -120,31 +43,21 @@ export function useMessagesModel() {
   );
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
-
   const [failedMessage, setFailedMessage] = useState<{
     content: string;
     clientMessageId: string;
     replyToId?: string;
-    mentionedUserIds?: string[];
     files?: File[];
     contextType?: "ASSIGNMENT" | "EXAM" | "MATERIAL";
     contextId?: string;
   } | null>(null);
 
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
-
-  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
-
   const [messageQuery, setMessageQuery] = useState("");
-
   const [searchResults, setSearchResults] = useState<ChatMessage[]>([]);
-
   const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
-
   const [reportReason, setReportReason] = useState("");
-
   const [blockOpen, setBlockOpen] = useState(false);
-
   const [blockReason, setBlockReason] = useState("");
 
   const [pendingContext, setPendingContext] = useState<{
@@ -154,34 +67,25 @@ export function useMessagesModel() {
   } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-
   const messagePaneRef = useRef<HTMLDivElement>(null);
-
   const handledDeepLinkRef = useRef(false);
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-
   const recordingStreamRef = useRef<MediaStream | null>(null);
-
   const recordingChunksRef = useRef<Blob[]>([]);
-
   const discardRecordingRef = useRef(false);
-
   const selectedIdRef = useRef(selectedId);
-
   const messageFilesRef = useRef(messageFiles);
 
   const selected = conversations.find((item) => item.id === selectedId);
-
   const draft = selectedId ? (drafts[selectedId] ?? "") : "";
 
-  /** Dừng toàn bộ track micro để trình duyệt trả lại thiết bị ngay lập tức. */
+  /** Dừng toàn bộ track micro để giải phóng thiết bị ngay lập tức. */
   const releaseMicrophone = () => {
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     recordingStreamRef.current = null;
   };
 
-  /** Thêm tệp vào hàng chờ sau khi kiểm tra giới hạn dùng chung của chat. */
+  /** Thêm tệp vào hàng chờ sau khi kiểm tra dung lượng và số lượng. */
   const queueMessageFiles = (files: File[]) => {
     const current = messageFilesRef.current;
     if (
@@ -197,7 +101,7 @@ export function useMessagesModel() {
     return true;
   };
 
-  /** Bắt đầu hoặc kết thúc ghi âm và đưa bản ghi hợp lệ vào tệp đính kèm. */
+  /** Bắt đầu hoặc kết thúc ghi âm tin nhắn thoại. */
   const toggleRecording = async () => {
     const activeRecorder = mediaRecorderRef.current;
     if (activeRecorder?.state === "recording") {
@@ -275,83 +179,54 @@ export function useMessagesModel() {
     }
   };
 
-  /** Nạp danh sách hội thoại và giữ lựa chọn còn hợp lệ. */
+  /** Nạp danh sách hội thoại 1-1 từ CSDL thật, loại bỏ hoàn toàn các hội thoại nhóm. */
   const loadConversations = useCallback(async () => {
-    let rows: ChatConversation[] = [];
     try {
-      rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
+      const rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
         roleCode: session.roleCode,
       });
-    } catch {
-      rows = [];
+      // Chỉ nhận các hội thoại 1-1 (DIRECT)
+      const directOnly = rows.filter((item) => item.type === "DIRECT");
+      setConversations(directOnly);
+      setSelectedId((current) =>
+        current && directOnly.some((item) => item.id === current)
+          ? current
+          : (directOnly[0]?.id ?? ""),
+      );
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Không tải được danh sách tin nhắn từ CSDL.",
+        "error",
+      );
     }
-    const merged = buildSharedConversations(
-      rows,
-      session.user.id,
-      session.user.name,
-      session.roleCode,
-    );
-    setConversations(merged);
-    setSelectedId((current) =>
-      current && merged.some((item) => item.id === current)
-        ? current
-        : (merged[0]?.id ?? ""),
-    );
-  }, [session.roleCode, session.user.id, session.user.name]);
+  }, [notify, session.roleCode]);
 
-  /** Nạp một trang tin mới nhất rồi đồng bộ mốc đã đọc. */
+  /** Nạp lịch sử tin nhắn từ CSDL cho một hội thoại và cập nhật mốc đã đọc. */
   const loadMessages = useCallback(
     async (conversationId: string, quiet = false) => {
       try {
-        let serverMessages: ChatMessage[] = [];
-        try {
-          const page = await apiRequest<ChatMessagePage>(
-            `/chat/conversations/${conversationId}/messages?limit=80`,
-            { roleCode: session.roleCode },
-          );
-          serverMessages = page.items
-            .map(normalizeChatMessage)
-            .filter((item): item is ChatMessage => Boolean(item));
-          await apiRequest(`/chat/conversations/${conversationId}/read`, {
-            method: "PATCH",
-            roleCode: session.roleCode,
-          });
-        } catch {
-          // Bỏ qua lỗi server nếu hội thoại thuộc danh bạ dùng chung
-        }
-
-        const stored = getStoredChatMessages()[conversationId] || [];
-        const localMapped: ChatMessage[] = stored.map((msg) => ({
-          id: msg.id,
-          conversationId: msg.conversationId,
-          senderId: msg.senderId,
-          senderName: msg.senderName,
-          content: msg.content,
-          createdAt: msg.createdAt,
-          replyTo: msg.replyTo,
-          attachments: [],
-        }));
-
-        const mergedMap = new Map<string, ChatMessage>();
-        for (const m of serverMessages) mergedMap.set(m.id, m);
-        for (const m of localMapped) {
-          if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
-        }
-
-        const sorted = Array.from(mergedMap.values()).sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        const page = await apiRequest<ChatMessagePage>(
+          `/chat/conversations/${conversationId}/messages?limit=80`,
+          { roleCode: session.roleCode },
         );
-
-        setMessages(sorted);
-
+        setMessages(
+          page.items
+            .map(normalizeChatMessage)
+            .filter((item): item is ChatMessage => Boolean(item)),
+        );
+        await apiRequest(`/chat/conversations/${conversationId}/read`, {
+          method: "PATCH",
+          roleCode: session.roleCode,
+        });
         if (!quiet)
           window.requestAnimationFrame(() => {
-            const storedScroll = window.sessionStorage.getItem(
+            const stored = window.sessionStorage.getItem(
               `wind-chat-scroll:${session.user.id}:${conversationId}`,
             );
-            if (storedScroll && messagePaneRef.current)
-              messagePaneRef.current.scrollTop = Number(storedScroll);
+            if (stored && messagePaneRef.current)
+              messagePaneRef.current.scrollTop = Number(stored);
             else bottomRef.current?.scrollIntoView({ block: "end" });
           });
       } catch (error) {
@@ -365,30 +240,21 @@ export function useMessagesModel() {
     [notify, session.roleCode, session.user.id],
   );
 
-  // Khởi tạo danh sách hội thoại cho tài khoản hiện tại.
+  // Khởi tạo danh sách hội thoại từ CSDL khi tải trang
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadConversations()
-        .catch((error) =>
-          notify(
-            error instanceof Error
-              ? error.message
-              : "Không tải được hội thoại.",
-            "error",
-          ),
-        )
-        .finally(() => setLoading(false));
+      void loadConversations().finally(() => setLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadConversations, notify]);
+  }, [loadConversations]);
 
-  // Đồng bộ dữ liệu mới nhất cho callback bất đồng bộ của MediaRecorder.
+  // Đồng bộ id và file hiện tại cho recording
   useEffect(() => {
     selectedIdRef.current = selectedId;
     messageFilesRef.current = messageFiles;
   }, [messageFiles, selectedId]);
 
-  // Hủy bản ghi chưa hoàn tất khi đổi hội thoại hoặc rời khỏi trang.
+  // Hủy bản ghi âm nếu người dùng chuyển hội thoại
   useEffect(() => {
     return () => {
       const recorder = mediaRecorderRef.current;
@@ -401,54 +267,39 @@ export function useMessagesModel() {
     };
   }, [selectedId]);
 
-  // Mở điểm vào từ thành viên, bài tập, kết quả hoặc học liệu đúng một lần khi tải trang.
+  // Xử lý deep link query parameters từ các trang khác
   useEffect(() => {
     if (loading || handledDeepLinkRef.current) return;
     handledDeepLinkRef.current = true;
     const params = new URLSearchParams(window.location.search);
     const conversationId = params.get("conversationId");
     const userId = params.get("userId");
-    const classId = params.get("classId");
     const contextType = params.get("contextType");
     const contextId = params.get("contextId");
+
     if (
       ["ASSIGNMENT", "EXAM", "MATERIAL"].includes(contextType ?? "") &&
       contextId
     ) {
-      const linkedContext = {
+      setPendingContext({
         type: contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
         id: contextId,
         title: params.get("contextTitle") ?? "Nội dung được chia sẻ",
-      };
-      window.setTimeout(() => setPendingContext(linkedContext), 0);
+      });
     }
+
     if (conversationId) {
-      const available = conversations.some(
-        (item) => item.id === conversationId,
-      );
-      if (available) window.setTimeout(() => setSelectedId(conversationId), 0);
-      else
-        notify(
-          "Hội thoại không còn khả dụng hoặc bạn đã bị thu hồi quyền truy cập.",
-          "error",
-        );
+      const available = conversations.some((item) => item.id === conversationId);
+      if (available) setSelectedId(conversationId);
       return;
     }
-    const request = userId
-      ? apiRequest<ChatConversation>("/chat/conversations/direct", {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ userId }),
-        })
-      : classId
-        ? apiRequest<ChatConversation>("/chat/conversations/class", {
-            method: "POST",
-            roleCode: session.roleCode,
-            body: JSON.stringify({ classId }),
-          })
-        : null;
-    if (request)
-      void request
+
+    if (userId) {
+      void apiRequest<ChatConversation>("/chat/conversations/direct", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ userId }),
+      })
         .then(async (conversation) => {
           await loadConversations();
           setSelectedId(conversation.id);
@@ -461,9 +312,10 @@ export function useMessagesModel() {
             "error",
           ),
         );
+    }
   }, [conversations, loadConversations, loading, notify, session.roleCode]);
 
-  /** Nạp lịch sử một lần rồi dùng SSE cho tin mới và bộ đếm đa thiết bị. */
+  // Lắng nghe sự kiện Server-Sent Events (SSE) để nhận tin nhắn mới theo thời gian thực
   useEffect(() => {
     if (!selectedId) return;
     const initialTimer = window.setTimeout(() => {
@@ -494,7 +346,7 @@ export function useMessagesModel() {
           }),
         );
       } catch {
-        // EventSource tự nối lại; lịch sử ban đầu vẫn là nguồn phục hồi khi payload lỗi.
+        // Tự động kết nối lại
       }
     };
     return () => {
@@ -503,7 +355,7 @@ export function useMessagesModel() {
     };
   }, [loadConversations, loadMessages, selectedId, session.roleCode]);
 
-  /** Lưu bản nháp từng hội thoại để điều hướng không làm mất nội dung. */
+  /** Lưu bản nháp tin nhắn của từng hội thoại vào localStorage */
   const updateDraft = (value: string) => {
     if (!selectedId) return;
     const next = { ...drafts, [selectedId]: value };
@@ -514,7 +366,7 @@ export function useMessagesModel() {
     );
   };
 
-  /** Tìm danh bạ bằng tên có/không dấu, mã hoặc lớp chung. */
+  /** Tìm kiếm người dùng thật từ CSDL để bắt đầu nhắn tin 1-1 */
   const searchDirectory = async (event: React.FormEvent) => {
     event.preventDefault();
     setSearching(true);
@@ -527,7 +379,7 @@ export function useMessagesModel() {
       );
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "Không tìm được danh bạ.",
+        error instanceof Error ? error.message : "Không tìm được người dùng.",
         "error",
       );
     } finally {
@@ -535,7 +387,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Mở hội thoại riêng mà không gửi nội dung tự động. */
+  /** Mở hội thoại 1-1 với một người dùng từ CSDL */
   const openDirect = async (userId: string) => {
     try {
       const conversation = await apiRequest<ChatConversation>(
@@ -558,46 +410,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Mở nhóm lớp đã ghi danh/phân công. */
-  const openClass = async (classId: string) => {
-    try {
-      const conversation = await apiRequest<ChatConversation>(
-        "/chat/conversations/class",
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ classId }),
-        },
-      );
-      await loadConversations();
-      setSelectedId(conversation.id);
-      setDirectory([]);
-      setQuery("");
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không mở được trò chuyện lớp.",
-        "error",
-      );
-    }
-  };
-
-  // Lắng nghe sự kiện đồng bộ tin nhắn từ mini-chat widget hoặc tab khác
-  useEffect(() => {
-    const unsubscribe = subscribeSharedChat((event) => {
-      const detail = event.detail;
-      if (detail?.conversationId) {
-        if (detail.conversationId === selectedId) {
-          void loadMessages(selectedId, true);
-        }
-        void loadConversations();
-      }
-    });
-    return unsubscribe;
-  }, [loadConversations, loadMessages, selectedId]);
-
-  /** Gửi hoặc thử lại một tin bằng cùng clientMessageId để chống tạo trùng. */
+  /** Gửi tin nhắn thật vào CSDL qua API backend */
   const sendMessage = async (
     event?: React.FormEvent,
     retry = failedMessage,
@@ -608,7 +421,6 @@ export function useMessagesModel() {
       content: draft.trim(),
       clientMessageId: crypto.randomUUID(),
       replyToId: replyTo?.id,
-      mentionedUserIds,
       files: messageFiles,
       contextType: pendingContext?.type,
       contextId: pendingContext?.id,
@@ -617,88 +429,33 @@ export function useMessagesModel() {
     setSending(true);
     setFailedMessage(null);
     try {
-      const isSharedContact = SHARED_DEFAULT_CONTACTS.some(
-        (c) => c.id === selectedId,
-      );
-      if (!isSharedContact) {
-        const body = payload.files?.length
-          ? new FormData()
-          : JSON.stringify({
-              content: payload.content,
-              clientMessageId: payload.clientMessageId,
-              replyToId: payload.replyToId,
-              mentionedUserIds: payload.mentionedUserIds,
-              contextType: payload.contextType,
-              contextId: payload.contextId,
-            });
-        if (body instanceof FormData) {
-          body.set("content", payload.content);
-          body.set("clientMessageId", payload.clientMessageId);
-          if (payload.replyToId) body.set("replyToId", payload.replyToId);
-          body.set(
-            "mentionedUserIds",
-            JSON.stringify(payload.mentionedUserIds ?? []),
-          );
-          if (payload.contextType) body.set("contextType", payload.contextType);
-          if (payload.contextId) body.set("contextId", payload.contextId);
-          payload.files?.forEach((file) => body.append("files", file));
-        }
-        await apiRequest(`/chat/conversations/${selectedId}/messages`, {
-          method: "POST",
-          roleCode: session.roleCode,
-          body,
-        });
-      }
-
-      // Đồng bộ tin nhắn gửi vào kho chung để widget chat cũng nhận được
-      appendSharedChatMessage({
-        id: payload.clientMessageId,
-        conversationId: selectedId,
-        senderId: session.user.id,
-        senderName: session.user.name || "Tôi",
-        content: payload.content,
-        createdAt: new Date().toISOString(),
-        replyTo: replyTo
-          ? {
-              id: replyTo.id,
-              senderName: replyTo.senderName,
-              content: replyTo.content,
-            }
-          : undefined,
-      });
-
-      // Nếu liên hệ có hỗ trợ phản hồi tự động thì kích hoạt sau 1.5s
-      const autoContact = SHARED_DEFAULT_CONTACTS.find(
-        (c) => c.id === selectedId,
-      );
-      if (autoContact) {
-        setTimeout(() => {
-          const replyText =
-            autoContact.id === "teacher-1"
-              ? "Thầy/Cô đã nhận được câu hỏi của em. Em xem lại công thức ở mục 3 trang 45 nhé!"
-              : autoContact.id === "student-hai"
-                ? "Ok bạn ơi, lát làm xong bài tập gửi mình xem đối chiếu kết quả với nhé!"
-                : autoContact.id === "teacher-nam"
-                  ? "Chào em, bài thực hành em nộp chạy thử rất ổn. Nhớ chú ý tối ưu thuật toán thêm nhé."
-                  : autoContact.id === "student-anime"
-                    ? "Tài liệu học tập nằm ở tab Kho tài liệu hoặc phần đính kèm lớp học nhé bạn!"
-                    : "Trung tâm hỗ trợ Wind EDU đã ghi nhận yêu cầu của bạn và sẽ kiểm tra trong ít phút.";
-          appendSharedChatMessage({
-            id: `reply-${Date.now()}`,
-            conversationId: selectedId,
-            senderId: autoContact.id,
-            senderName: autoContact.name,
-            content: replyText,
-            createdAt: new Date().toISOString(),
+      const body = payload.files?.length
+        ? new FormData()
+        : JSON.stringify({
+            content: payload.content,
+            clientMessageId: payload.clientMessageId,
+            replyToId: payload.replyToId,
+            contextType: payload.contextType,
+            contextId: payload.contextId,
           });
-        }, 1500);
+      if (body instanceof FormData) {
+        body.set("content", payload.content);
+        body.set("clientMessageId", payload.clientMessageId);
+        if (payload.replyToId) body.set("replyToId", payload.replyToId);
+        if (payload.contextType) body.set("contextType", payload.contextType);
+        if (payload.contextId) body.set("contextId", payload.contextId);
+        payload.files?.forEach((file) => body.append("files", file));
       }
+      await apiRequest(`/chat/conversations/${selectedId}/messages`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body,
+      });
 
       updateDraft("");
       setReplyTo(null);
       messageFilesRef.current = [];
       setMessageFiles([]);
-      setMentionedUserIds([]);
       setPendingContext(null);
       await loadMessages(selectedId);
       await loadConversations();
@@ -713,7 +470,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Tìm tin trong hội thoại mà không thay đổi mốc đọc hoặc danh sách hiện tại. */
+  /** Tìm kiếm từ khóa trong các tin nhắn của hội thoại hiện tại */
   const searchConversation = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedId || messageQuery.trim().length < 2) return;
@@ -735,7 +492,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Bật hoặc tắt thông báo hội thoại trong 24 giờ. */
+  /** Bật hoặc tắt thông báo hội thoại trong 24 giờ */
   const toggleMute = async () => {
     if (!selected) return;
     try {
@@ -764,7 +521,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Gửi báo cáo nội dung tin nhắn với lý do có thể truy vết. */
+  /** Gửi báo cáo tin nhắn vi phạm */
   const reportMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!reportTarget) return;
@@ -785,7 +542,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Chặn người còn lại trong hội thoại riêng để dừng gửi tin hai chiều. */
+  /** Chặn liên hệ riêng với người đang chat 1-1 */
   const blockDirectUser = async (event: React.FormEvent) => {
     event.preventDefault();
     const target = selected?.members.find(
@@ -810,7 +567,7 @@ export function useMessagesModel() {
     }
   };
 
-  /** Xem trước hoặc tải tệp chat qua cổng kiểm tra membership. */
+  /** Xem trước hoặc tải tệp chat */
   const openAttachment = async (
     message: ChatMessage,
     attachmentId: string,
@@ -828,12 +585,6 @@ export function useMessagesModel() {
     }
   };
 
-  const classChoices = useMemo(() => {
-    const byId = new Map<string, { id: string; code: string; name: string }>();
-    for (const entry of directory)
-      for (const item of entry.sharedClasses) byId.set(item.id, item);
-    return [...byId.values()];
-  }, [directory]);
   return {
     session,
     locale,
@@ -855,8 +606,6 @@ export function useMessagesModel() {
     failedMessage,
     messageFiles,
     setMessageFiles,
-    mentionedUserIds,
-    setMentionedUserIds,
     messageQuery,
     setMessageQuery,
     searchResults,
@@ -880,17 +629,11 @@ export function useMessagesModel() {
     updateDraft,
     searchDirectory,
     openDirect,
-    openClass,
     sendMessage,
     searchConversation,
     toggleMute,
     reportMessage,
     blockDirectUser,
     openAttachment,
-    classChoices,
-    isInfoPanelOpen,
-    setIsInfoPanelOpen,
-    activeFilter,
-    setActiveFilter,
   };
 }
