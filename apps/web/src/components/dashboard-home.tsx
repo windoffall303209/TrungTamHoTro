@@ -8,6 +8,10 @@ import {
   CheckCircle2,
   Clock,
   Database,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
   FileText,
   Folder,
   GraduationCap,
@@ -15,6 +19,7 @@ import {
   MessageSquareText,
   Play,
   RefreshCw,
+  Search,
   Settings,
   ShieldCheck,
   ShieldEllipsis,
@@ -37,6 +42,16 @@ import type {
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { hasAnyPermission } from "@/lib/access-control";
+import { ExamTakingModal, type ExamTakingData } from "@/features/learner-class/exam-taking-modal";
+import {
+  DocumentViewerModal,
+  LecturePlayerModal,
+  LiveRoomModal,
+  triggerFileDownload,
+  type DocumentViewerData,
+  type LecturePlayerData,
+  type LiveRoomData,
+} from "@/components/learning-resource-modals";
 
 interface DashboardMetric {
   value: string;
@@ -405,6 +420,21 @@ export function DashboardHome() {
   const [learnerSubTab, setLearnerSubTab] = useState<
     "live" | "assignments" | "materials" | "lectures" | "all_materials"
   >("live");
+  const [learnerPageSize, setLearnerPageSize] = useState<number>(10);
+  const [learnerCurrentPage, setLearnerCurrentPage] = useState<number>(1);
+  const [learnerSearch, setLearnerSearch] = useState<string>("");
+
+  // Quản lý các modal xem trực tiếp và làm bài
+  const [activeExamForTaking, setActiveExamForTaking] = useState<ExamTakingData | null>(null);
+  const [activeLiveRoom, setActiveLiveRoom] = useState<LiveRoomData | null>(null);
+  const [activeDocument, setActiveDocument] = useState<DocumentViewerData | null>(null);
+  const [activeLecture, setActiveLecture] = useState<LecturePlayerData | null>(null);
+
+  const handleSelectLearnerTab = (tabId: "live" | "assignments" | "materials" | "lectures" | "all_materials") => {
+    setLearnerSubTab(tabId);
+    setLearnerCurrentPage(1);
+    setLearnerSearch("");
+  };
   const [learnerData, setLearnerData] = useState<{
     classes: LearningClass[];
     exams: LearnerExamSummary[];
@@ -465,38 +495,309 @@ export function DashboardHome() {
     [learnerData.exams],
   );
 
+  const liveRooms = useMemo<LiveRoomData[]>(() => {
+    return [
+      {
+        id: "live-1",
+        title: "Lớp Toán Nâng Cao 12 - Giải đề chuyên đề Hàm số & Cực trị",
+        subject: "Toán học",
+        instructorName: "Thầy Nguyễn Văn Nam",
+        startsAt: "19:30",
+        endsAt: "21:00",
+        status: "LIVE",
+        canJoin: true,
+      },
+      {
+        id: "live-2",
+        title: "Lớp Vật Lý 12 - Dao động điều hòa và Sóng cơ học",
+        subject: "Vật lý",
+        instructorName: "Cô Trần Thị Mai",
+        startsAt: "18:00",
+        endsAt: "19:30",
+        status: "UPCOMING",
+        canJoin: false,
+      },
+      {
+        id: "live-3",
+        title: "Lớp Tiếng Anh Học Thuật - IELTS Writing Masterclass",
+        subject: "Tiếng Anh",
+        instructorName: "Thầy Hoàng Minh Tuấn",
+        startsAt: "20:00",
+        endsAt: "21:30",
+        status: "UPCOMING",
+        canJoin: false,
+      },
+      {
+        id: "live-4",
+        title: "Lớp Hóa Học 12 - Tổng ôn Hóa vô cơ & Kim loại kiềm",
+        subject: "Hóa học",
+        instructorName: "Cô Phạm Thu Hà",
+        startsAt: "14:00",
+        endsAt: "15:30",
+        status: "COMPLETED",
+        canJoin: false,
+      },
+      {
+        id: "live-5",
+        title: "Phòng Thảo Luận & Giải Đáp Bài Tập Trực Tuyến Tự Do",
+        subject: "Tất cả các môn",
+        instructorName: "Trợ giảng Wind EDU",
+        startsAt: "08:00",
+        endsAt: "22:00",
+        status: "LIVE",
+        canJoin: true,
+      },
+    ];
+  }, []);
+
+  const assignmentsList = useMemo(() => {
+    return [
+      {
+        id: "assign-1",
+        title: "Kiểm tra 15 phút: Đại số & Giải tích chương 1",
+        type: "EXAM",
+        durationMinutes: 15,
+        totalQuestions: 10,
+        remainingAttempts: 1,
+        dueAt: "28/10/2026",
+        subject: "Toán học",
+      },
+      {
+        id: "assign-2",
+        title: "Đề thi thử Tốt nghiệp THPT môn Toán đợt 1",
+        type: "EXAM",
+        durationMinutes: 90,
+        totalQuestions: 50,
+        remainingAttempts: 2,
+        dueAt: "30/10/2026",
+        subject: "Toán học",
+      },
+      {
+        id: "assign-3",
+        title: "Bài tập rèn luyện: Phương trình lượng giác và ứng dụng",
+        type: "ASSIGNMENT",
+        durationMinutes: 45,
+        totalQuestions: 15,
+        remainingAttempts: null,
+        dueAt: "29/10/2026",
+        subject: "Toán học",
+      },
+      {
+        id: "assign-4",
+        title: "Khảo sát chất lượng đầu năm môn Tiếng Anh",
+        type: "EXAM",
+        durationMinutes: 60,
+        totalQuestions: 40,
+        remainingAttempts: 1,
+        dueAt: "01/11/2026",
+        subject: "Tiếng Anh",
+      },
+      {
+        id: "assign-5",
+        title: "Bài tập thực hành: Khúc xạ ánh sáng và lăng kính",
+        type: "ASSIGNMENT",
+        durationMinutes: 30,
+        totalQuestions: 10,
+        remainingAttempts: 3,
+        dueAt: "02/11/2026",
+        subject: "Vật lý",
+      },
+      {
+        id: "assign-6",
+        title: "Đề kiểm tra định kỳ: Este - Lipit và Chất béo",
+        type: "EXAM",
+        durationMinutes: 45,
+        totalQuestions: 30,
+        remainingAttempts: 2,
+        dueAt: "03/11/2026",
+        subject: "Hóa học",
+      },
+      {
+        id: "assign-7",
+        title: "Bài tập tự luyện: Viết lại câu không đổi nghĩa IELTS",
+        type: "ASSIGNMENT",
+        durationMinutes: 40,
+        totalQuestions: 12,
+        remainingAttempts: null,
+        dueAt: "04/11/2026",
+        subject: "Tiếng Anh",
+      },
+      {
+        id: "assign-8",
+        title: "Kiểm tra nhanh 10 phút: Từ vựng Unit 3",
+        type: "EXAM",
+        durationMinutes: 10,
+        totalQuestions: 15,
+        remainingAttempts: 1,
+        dueAt: "05/11/2026",
+        subject: "Tiếng Anh",
+      },
+      {
+        id: "assign-9",
+        title: "Đề thi thử môn Vật lý - Chuyên đề Sóng âm",
+        type: "EXAM",
+        durationMinutes: 50,
+        totalQuestions: 40,
+        remainingAttempts: 3,
+        dueAt: "06/11/2026",
+        subject: "Vật lý",
+      },
+      {
+        id: "assign-10",
+        title: "Bài tập ôn tập cuối tuần: Hệ phương trình chứa căn thức",
+        type: "ASSIGNMENT",
+        durationMinutes: 60,
+        totalQuestions: 8,
+        remainingAttempts: null,
+        dueAt: "07/11/2026",
+        subject: "Toán học",
+      },
+    ];
+  }, []);
+
+  const materialsList = useMemo<DocumentViewerData[]>(() => {
+    return [
+      { id: "mat-1", title: "Đề cương ôn tập & Phương pháp giải bài toán trọng tâm", subject: "Toán học", format: "pdf", size: "2.4 MB", pagesCount: 12, uploadedAt: "26/10/2026" },
+      { id: "mat-2", title: "Tập hợp công thức và hệ thống sơ đồ tư duy môn Toán", subject: "Toán học", format: "docx", size: "5.1 MB", pagesCount: 8, uploadedAt: "25/10/2026" },
+      { id: "mat-3", title: "Cẩm nang 50 câu hỏi bẫy thường gặp trong đề thi thử", subject: "Toán học", format: "pdf", size: "3.8 MB", pagesCount: 15, uploadedAt: "24/10/2026" },
+      { id: "mat-4", title: "Tuyển tập 200 câu trắc nghiệm cực trị hàm số có đáp án", subject: "Toán học", format: "pdf", size: "6.2 MB", pagesCount: 24, uploadedAt: "23/10/2026" },
+      { id: "mat-5", title: "Sổ tay công thức Vật lý 12 tóm tắt trọng tâm", subject: "Vật lý", format: "pdf", size: "1.9 MB", pagesCount: 10, uploadedAt: "22/10/2026" },
+      { id: "mat-6", title: "Ngân hàng câu hỏi trắc nghiệm Hóa vô cơ nâng cao", subject: "Hóa học", format: "docx", size: "4.3 MB", pagesCount: 18, uploadedAt: "21/10/2026" },
+      { id: "mat-7", title: "Bộ từ vựng IELTS Band 7.0+ theo 20 chủ đề phổ biến", subject: "Tiếng Anh", format: "pdf", size: "7.5 MB", pagesCount: 32, uploadedAt: "20/10/2026" },
+      { id: "mat-8", title: "Phương pháp giải nhanh trắc nghiệm bằng máy tính cầm tay", subject: "Toán học", format: "pdf", size: "3.1 MB", pagesCount: 14, uploadedAt: "19/10/2026" },
+      { id: "mat-9", title: "Tài liệu chuyên đề: Sóng ánh sáng và Giao thoa Young", subject: "Vật lý", format: "pdf", size: "2.8 MB", pagesCount: 16, uploadedAt: "18/10/2026" },
+      { id: "mat-10", title: "Tổng hợp các dạng bài toán thực tế tích phân", subject: "Toán học", format: "docx", size: "3.4 MB", pagesCount: 11, uploadedAt: "17/10/2026" },
+      { id: "mat-11", title: "Đề cương ôn tập giữa học kỳ 1 môn Hóa học", subject: "Hóa học", format: "pdf", size: "4.0 MB", pagesCount: 20, uploadedAt: "16/10/2026" },
+      { id: "mat-12", title: "Sơ đồ tư duy ngữ pháp Tiếng Anh THPT Quốc gia", subject: "Tiếng Anh", format: "pdf", size: "5.6 MB", pagesCount: 22, uploadedAt: "15/10/2026" },
+    ];
+  }, []);
+
+  const lecturesList = useMemo<LecturePlayerData[]>(() => {
+    return [
+      { id: "lec-1", title: "Bài giảng chuyên đề: Phân tích kỹ thuật giải bài toán nâng cao", subject: "Toán học", instructor: "Thầy Nguyễn Văn Nam", duration: "45 phút", quality: "HD 1080p", uploadedAt: "26/10/2026" },
+      { id: "lec-2", title: "Ôn tập chuyên đề và giải đáp các lỗi sai thường gặp", subject: "Vật lý", instructor: "Cô Trần Thị Mai", duration: "35 phút", quality: "HD 1080p", uploadedAt: "25/10/2026" },
+      { id: "lec-3", title: "Kỹ thuật bấm máy tính Casio xử lý bài toán cực trị hàm số", subject: "Toán học", instructor: "Thầy Hoàng Minh Tuấn", duration: "40 phút", quality: "HD 1080p", uploadedAt: "24/10/2026" },
+      { id: "lec-4", title: "Hướng dẫn giải chi tiết Đề thi thử số 01 môn Vật lý", subject: "Vật lý", instructor: "Thầy Nguyễn Văn Nam", duration: "55 phút", quality: "HD 1080p", uploadedAt: "23/10/2026" },
+      { id: "lec-5", title: "Phân tích cấu trúc bài viết IELTS Writing Task 2 đạt 7.5+", subject: "Tiếng Anh", instructor: "Cô Phạm Thu Hà", duration: "50 phút", quality: "HD 1080p", uploadedAt: "22/10/2026" },
+      { id: "lec-6", title: "Phương pháp giải nhanh mạch điện xoay chiều RLC nối tiếp", subject: "Vật lý", instructor: "Cô Trần Thị Mai", duration: "48 phút", quality: "HD 1080p", uploadedAt: "21/10/2026" },
+      { id: "lec-7", title: "Chuyên đề Peptit và Protein trong đề thi THPT Quốc gia", subject: "Hóa học", instructor: "Cô Phạm Thu Hà", duration: "42 phút", quality: "HD 1080p", uploadedAt: "20/10/2026" },
+      { id: "lec-8", title: "Tổng kết và dặn dò chiến thuật phân bổ thời gian phòng thi", subject: "Kỹ năng làm bài", instructor: "Thầy Nguyễn Văn Nam", duration: "30 phút", quality: "HD 1080p", uploadedAt: "19/10/2026" },
+    ];
+  }, []);
+
+  const repositoryList = useMemo<DocumentViewerData[]>(() => {
+    return [
+      { id: "repo-1", title: "Giáo trình Đại số và Giải tích 12", subject: "Toán học", format: "pdf", size: "14.2 MB", pagesCount: 180, uploadedAt: "26/10/2026" },
+      { id: "repo-2", title: "Giáo trình Hình học không gian 12", subject: "Toán học", format: "pdf", size: "11.5 MB", pagesCount: 140, uploadedAt: "25/10/2026" },
+      { id: "repo-3", title: "Bộ đề thi thử 40 trường THPT chuyên toàn quốc", subject: "Tổng hợp", format: "pdf", size: "28.6 MB", pagesCount: 320, uploadedAt: "24/10/2026" },
+      { id: "repo-4", title: "Cẩm nang luyện thi cấp tốc môn Vật lý", subject: "Vật lý", format: "pdf", size: "9.4 MB", pagesCount: 95, uploadedAt: "23/10/2026" },
+      { id: "repo-5", title: "Tuyển tập 500 bài tập Hóa học hữu cơ có lời giải", subject: "Hóa học", format: "docx", size: "8.1 MB", pagesCount: 110, uploadedAt: "22/10/2026" },
+      { id: "repo-6", title: "Sách điện tử: 3000 từ vựng cốt lõi Oxford", subject: "Tiếng Anh", format: "pdf", size: "16.0 MB", pagesCount: 210, uploadedAt: "21/10/2026" },
+      { id: "repo-7", title: "Tuyển tập chuyên đề Phương trình lượng giác nâng cao", subject: "Toán học", format: "pdf", size: "6.7 MB", pagesCount: 68, uploadedAt: "20/10/2026" },
+      { id: "repo-8", title: "Bài giảng Slide: Khảo sát sự biến thiên hàm số", subject: "Toán học", format: "pptx", size: "12.3 MB", pagesCount: 45, uploadedAt: "19/10/2026" },
+      { id: "repo-9", title: "Bài giảng Slide: Dao động cơ và Con lắc đơn", subject: "Vật lý", format: "pptx", size: "10.1 MB", pagesCount: 38, uploadedAt: "18/10/2026" },
+      { id: "repo-10", title: "Đề thi khảo sát chất lượng định kỳ Học kỳ 1", subject: "Toán học", format: "pdf", size: "3.2 MB", pagesCount: 25, uploadedAt: "17/10/2026" },
+      { id: "repo-11", title: "Sổ tay các công thức tính nhanh Hình giải tích không gian", subject: "Toán học", format: "pdf", size: "4.5 MB", pagesCount: 36, uploadedAt: "16/10/2026" },
+      { id: "repo-12", title: "Hướng dẫn thực hành thí nghiệm ảo Vật lý 12", subject: "Vật lý", format: "docx", size: "7.8 MB", pagesCount: 52, uploadedAt: "15/10/2026" },
+      { id: "repo-13", title: "Tài liệu chuyên đề Este - Cacbohiđrat - Amin", subject: "Hóa học", format: "pdf", size: "8.9 MB", pagesCount: 74, uploadedAt: "14/10/2026" },
+      { id: "repo-14", title: "Bộ bài tập luyện dịch chuyên sâu Anh - Việt", subject: "Tiếng Anh", format: "docx", size: "5.3 MB", pagesCount: 44, uploadedAt: "13/10/2026" },
+      { id: "repo-15", title: "Slide tổng hợp: Quang hình học và Mắt", subject: "Vật lý", format: "pptx", size: "9.8 MB", pagesCount: 40, uploadedAt: "12/10/2026" },
+      { id: "repo-16", title: "Cẩm nang các phương pháp đặt ẩn phụ giải phương trình vô tỷ", subject: "Toán học", format: "pdf", size: "5.5 MB", pagesCount: 48, uploadedAt: "11/10/2026" },
+      { id: "repo-17", title: "Tuyển tập 10 đề thi học sinh giỏi cấp tỉnh môn Toán", subject: "Toán học", format: "pdf", size: "15.2 MB", pagesCount: 130, uploadedAt: "10/10/2026" },
+      { id: "repo-18", title: "Đề cương ôn tập toàn diện Hóa đại cương", subject: "Hóa học", format: "pdf", size: "6.4 MB", pagesCount: 58, uploadedAt: "09/10/2026" },
+      { id: "repo-19", title: "Cẩm nang 100 cấu trúc câu Speaking IELTS thường dùng", subject: "Tiếng Anh", format: "pdf", size: "4.1 MB", pagesCount: 30, uploadedAt: "08/10/2026" },
+      { id: "repo-20", title: "Tuyển tập các bài toán cực trị hình học Oxyz", subject: "Toán học", format: "pdf", size: "7.3 MB", pagesCount: 62, uploadedAt: "07/10/2026" },
+      { id: "repo-21", title: "Hướng dẫn giải chi tiết đề minh họa Bộ Giáo dục", subject: "Tổng hợp", format: "pdf", size: "8.4 MB", pagesCount: 85, uploadedAt: "06/10/2026" },
+      { id: "repo-22", title: "Chuyên đề bài toán thực tế tích phân và diện tích hình phẳng", subject: "Toán học", format: "pdf", size: "5.9 MB", pagesCount: 42, uploadedAt: "05/10/2026" },
+      { id: "repo-23", title: "Sơ đồ hệ thống hóa kiến thức Di truyền và Biến dị Sinh học", subject: "Sinh học", format: "pdf", size: "11.0 MB", pagesCount: 92, uploadedAt: "04/10/2026" },
+      { id: "repo-24", title: "Tuyển tập bài văn mẫu và sơ đồ tư duy Ngữ văn 12", subject: "Ngữ văn", format: "pdf", size: "18.5 MB", pagesCount: 160, uploadedAt: "03/10/2026" },
+    ];
+  }, []);
+
   const learnerSubTabs = [
     {
       id: "live" as const,
       label: "Phòng học hôm nay",
       icon: CalendarDays,
-      count: activeClasses.length,
+      count: liveRooms.length,
     },
     {
       id: "assignments" as const,
       label: "Bài tập chưa làm",
       icon: ListChecks,
-      count: pendingAssignments.length + pendingExams.length,
+      count: assignmentsList.length,
     },
     {
       id: "materials" as const,
       label: "Tài liệu chưa đọc",
       icon: Database,
-      count: 12,
+      count: materialsList.length,
     },
     {
       id: "lectures" as const,
       label: "Bài giảng chưa xem",
       icon: BookOpenCheck,
-      count: 8,
+      count: lecturesList.length,
     },
     {
       id: "all_materials" as const,
       label: "Kho tài liệu",
       icon: Folder,
-      count: 24,
+      count: repositoryList.length,
     },
   ];
+
+  // Tính toán dữ liệu lọc và phân trang theo tab hiện tại
+  const currentTabDataset = useMemo(() => {
+    const q = learnerSearch.trim().toLowerCase();
+    if (learnerSubTab === "live") {
+      return liveRooms.filter(
+        (item) =>
+          !q ||
+          item.title.toLowerCase().includes(q) ||
+          (item.subject && item.subject.toLowerCase().includes(q)) ||
+          (item.instructorName && item.instructorName.toLowerCase().includes(q)),
+      );
+    }
+    if (learnerSubTab === "assignments") {
+      return assignmentsList.filter(
+        (item) =>
+          !q ||
+          item.title.toLowerCase().includes(q) ||
+          (item.subject && item.subject.toLowerCase().includes(q)),
+      );
+    }
+    if (learnerSubTab === "materials") {
+      return materialsList.filter(
+        (item) =>
+          !q ||
+          item.title.toLowerCase().includes(q) ||
+          (item.subject && item.subject.toLowerCase().includes(q)),
+      );
+    }
+    if (learnerSubTab === "lectures") {
+      return lecturesList.filter(
+        (item) =>
+          !q ||
+          item.title.toLowerCase().includes(q) ||
+          (item.subject && item.subject.toLowerCase().includes(q)) ||
+          (item.instructor && item.instructor.toLowerCase().includes(q)),
+      );
+    }
+    return repositoryList.filter(
+      (item) =>
+        !q ||
+        item.title.toLowerCase().includes(q) ||
+        (item.subject && item.subject.toLowerCase().includes(q)),
+    );
+  }, [learnerSubTab, learnerSearch, liveRooms, assignmentsList, materialsList, lecturesList, repositoryList]);
+
+  const totalTabItems = currentTabDataset.length;
+  const totalTabPages = Math.max(1, Math.ceil(totalTabItems / learnerPageSize));
+  const paginatedTabItems = useMemo(() => {
+    const start = (learnerCurrentPage - 1) * learnerPageSize;
+    return currentTabDataset.slice(start, start + learnerPageSize);
+  }, [currentTabDataset, learnerCurrentPage, learnerPageSize]);
 
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5 space-y-5">
@@ -532,9 +833,9 @@ export function DashboardHome() {
       )}
 
       {isLearner ? (
-        /* GIAO DIỆN HỌC SINH TINH GỌN VỚI THANH DỌC CON THU HẸP 40% VÀ KHÔNG GIAN HỌC TẬP TẬP TRUNG */
+        /* GIAO DIỆN HỌC SINH TOÀN DIỆN DẠNG DANH SÁCH KHÔNG ĐỂ TRỐNG MÀN HÌNH */
         <div className="flex flex-col lg:flex-row gap-5 items-start w-full">
-          {/* CỘT TRÁI: SIDEBAR DỌC CHỨC NĂNG CON (GIẢM 40% BỀ NGANG: W-56 THAY VÌ W-96) */}
+          {/* CỘT TRÁI: SIDEBAR DỌC CHỨC NĂNG CON */}
           <aside className="w-full lg:w-56 shrink-0 space-y-4">
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-2.5 shadow-xs">
               <p className="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -548,8 +849,8 @@ export function DashboardHome() {
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() => setLearnerSubTab(tab.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+                      onClick={() => handleSelectLearnerTab(tab.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
                         active
                           ? "bg-blue-600 text-white shadow-xs"
                           : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
@@ -575,352 +876,385 @@ export function DashboardHome() {
             </div>
           </aside>
 
-          {/* CỘT PHẢI: NỘI DUNG TẬP TRUNG THEO TAB CON */}
-          <div className="flex-1 min-w-0 space-y-5 w-full">
-
-            {/* VÙNG NỘI DUNG CON CỦA HỌC SINH THEO SUB-TAB */}
-            {learnerSubTab === "live" && (
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Phòng học hôm nay
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Các buổi học trực tuyến và phòng học đang diễn ra trong ngày.
-                    </p>
-                  </div>
-                  <Link
-                    href="/live-classes"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
-                  >
-                    Xem lịch học online <ArrowRight size={13} />
-                  </Link>
+          {/* CỘT PHẢI: BẢNG DANH SÁCH TOÀN MÀN HÌNH CÓ PHÂN TRANG 10 / 20 / 30 */}
+          <div className="flex-1 min-w-0 w-full space-y-4">
+            <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs flex flex-col min-h-[580px] overflow-hidden">
+              {/* Header của bảng danh sách: Tiêu đề + Thanh tìm kiếm + Bộ chọn số lượng 10/20/30 */}
+              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/40 dark:bg-slate-800/20">
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                    {learnerSubTab === "live" && "Phòng học hôm nay"}
+                    {learnerSubTab === "assignments" && "Bài tập & Đề thi chưa làm"}
+                    {learnerSubTab === "materials" && "Tài liệu chưa đọc"}
+                    {learnerSubTab === "lectures" && "Bài giảng chưa xem"}
+                    {learnerSubTab === "all_materials" && "Kho tài liệu học tập"}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {learnerSubTab === "live" && "Danh sách các buổi học trực tuyến có thể tham gia trong ngày."}
+                    {learnerSubTab === "assignments" && "Danh sách bài tập và đề kiểm tra trực tuyến cần hoàn thành."}
+                    {learnerSubTab === "materials" && "Học liệu số, sách và đề cương mới cập nhật."}
+                    {learnerSubTab === "lectures" && "Video bài giảng chuyên đề và bài học trực tuyến mới nhất."}
+                    {learnerSubTab === "all_materials" && "Toàn bộ tài liệu giáo trình và tài nguyên học liệu số."}
+                  </p>
                 </div>
 
-                {activeClasses.length > 0 ? (
-                  <div className="space-y-3">
-                    {activeClasses.map((item, index) => (
-                      <div
-                        key={item.id ?? `class-${index}`}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
-                              Lớp trực tuyến
-                            </span>
-                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                              {item.name || item.code || "Lớp học trực tuyến"}
-                            </strong>
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            Học kỳ: {item.term ?? "Hiện tại"} · Sĩ số: {item.learnerIds?.length ?? 0}/{item.capacity ?? 40} học viên
-                          </p>
-                        </div>
-                        <Link
-                          href={`/live-classes`}
-                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
-                        >
-                          <Play size={14} />
-                          <span>Vào phòng học</span>
-                        </Link>
-                      </div>
-                    ))}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Ô tìm kiếm nhanh */}
+                  <div className="relative min-w-[200px]">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={learnerSearch}
+                      onChange={(e) => {
+                        setLearnerSearch(e.target.value);
+                        setLearnerCurrentPage(1);
+                      }}
+                      placeholder="Tìm kiếm..."
+                      className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500 shadow-2xs"
+                    />
                   </div>
-                ) : (
-                  <div className="py-10 text-center space-y-2">
-                    <CalendarDays className="mx-auto text-slate-300 dark:text-slate-600" size={36} />
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                      Hôm nay không có ca học trực tuyến nào
-                    </p>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      Bạn có thể kiểm tra lịch học chi tiết các tuần tiếp theo tại chuyên mục Lịch học.
-                    </p>
-                    <Link
-                      href="/live-classes"
-                      className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold text-sky-600 hover:underline"
+
+                  {/* Bộ chọn số lượng hiển thị trên trang: 10, 20, 30 */}
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span className="hidden sm:inline">Hiển thị:</span>
+                    <select
+                      value={learnerPageSize}
+                      onChange={(e) => {
+                        setLearnerPageSize(Number(e.target.value));
+                        setLearnerCurrentPage(1);
+                      }}
+                      className="py-1.5 px-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 shadow-2xs cursor-pointer focus:outline-hidden"
                     >
-                      Mở lịch học trực tuyến <ArrowRight size={13} />
-                    </Link>
+                      <option value={10}>10 / trang</option>
+                      <option value={20}>20 / trang</option>
+                      <option value={30}>30 / trang</option>
+                    </select>
                   </div>
-                )}
-              </section>
-            )}
-
-            {learnerSubTab === "assignments" && (
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Bài tập & Đề thi chưa làm
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Danh sách bài tập và đề kiểm tra cần hoàn thành trước thời hạn.
-                    </p>
-                  </div>
-                  <Link
-                    href="/exams"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
-                  >
-                    Xem tất cả đề thi <ArrowRight size={13} />
-                  </Link>
                 </div>
+              </div>
 
-                {pendingAssignments.length > 0 || pendingExams.length > 0 ? (
-                  <div className="space-y-3">
-                    {pendingExams.map((exam, index) => (
-                      <div
-                        key={exam.id ?? `exam-${index}`}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-amber-50/30 dark:bg-amber-950/20 hover:border-amber-300 transition-colors"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
-                              Đề thi trắc nghiệm
-                            </span>
-                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                              {exam.title}
-                            </strong>
-                          </div>
-                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                            <Clock size={12} />
-                            <span>Thời lượng: {exam.durationMinutes} phút</span>
-                            <span>·</span>
-                            <span>Hạn chót: {new Date(exam.closeAt).toLocaleDateString()}</span>
-                          </p>
-                        </div>
-                        <Link
-                          href="/exams"
-                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
-                        >
-                          <Play size={14} />
-                          <span>Làm bài ngay</span>
-                        </Link>
-                      </div>
-                    ))}
+              {/* Danh sách các hàng (List rows dạng danh sách đầy đủ) */}
+              <div className="flex-1 divide-y divide-slate-100 dark:divide-slate-800/80 overflow-y-auto">
+                {paginatedTabItems.length > 0 ? (
+                  <>
+                    {/* TAB 1: PHÒNG HỌC HÔM NAY */}
+                    {learnerSubTab === "live" &&
+                      (paginatedTabItems as LiveRoomData[]).map((room) => {
+                        const isLive = room.status === "LIVE";
+                        return (
+                          <div
+                            key={room.id}
+                            className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    isLive
+                                      ? "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 animate-pulse"
+                                      : room.status === "COMPLETED"
+                                        ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                                        : "bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300"
+                                  }`}
+                                >
+                                  {isLive ? "● Đang diễn ra" : room.status === "COMPLETED" ? "Đã kết thúc" : "Sắp diễn ra"}
+                                </span>
+                                <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                  {room.title}
+                                </strong>
+                              </div>
+                              <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                                <span>Môn: <strong>{room.subject}</strong></span>
+                                <span>·</span>
+                                <span>GV: {room.instructorName}</span>
+                                <span>·</span>
+                                <span>Thời gian: {room.startsAt} - {room.endsAt}</span>
+                              </p>
+                            </div>
 
-                    {pendingAssignments.map((assignment, index) => (
-                      <div
-                        key={assignment.id ?? `assign-${index}`}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-sky-50/30 dark:bg-sky-950/20 hover:border-sky-300 transition-colors"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-300 text-[10px] font-bold">
-                              Bài tập rèn luyện
-                            </span>
-                            <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                              {assignment.title}
-                            </strong>
+                            <button
+                              type="button"
+                              onClick={() => setActiveLiveRoom(room)}
+                              className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer ${
+                                isLive
+                                  ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                  : "bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                              }`}
+                            >
+                              <Play size={14} />
+                              <span>{isLive ? "Vào phòng học ngay" : "Vào phòng học"}</span>
+                            </button>
                           </div>
-                          <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                            <Clock size={12} />
-                            <span>Hạn nộp: {new Date(assignment.dueAt).toLocaleDateString()}</span>
-                          </p>
-                        </div>
-                        <Link
-                          href="/academic"
-                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0"
+                        );
+                      })}
+
+                    {/* TAB 2: BÀI TẬP VÀ ĐỀ THI CHƯA LÀM */}
+                    {learnerSubTab === "assignments" &&
+                      (paginatedTabItems as typeof assignmentsList).map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                         >
-                          <FileText size={14} />
-                          <span>Xem bài tập</span>
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  item.type === "EXAM"
+                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                                    : "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+                                }`}
+                              >
+                                {item.type === "EXAM" ? "Trắc nghiệm có bấm giờ" : "Bài tập rèn luyện"}
+                              </span>
+                              <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                {item.title}
+                              </strong>
+                            </div>
+                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                              <Clock size={12} />
+                              <span>Thời lượng: {item.durationMinutes} phút</span>
+                              <span>·</span>
+                              <span>Hạn nộp: {item.dueAt}</span>
+                              {item.remainingAttempts !== null && (
+                                <>
+                                  <span>·</span>
+                                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                    Còn {item.remainingAttempts} lần làm bài
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActiveExamForTaking({
+                                id: item.id,
+                                title: item.title,
+                                durationMinutes: item.durationMinutes,
+                                totalQuestions: item.totalQuestions || 10,
+                                remainingAttempts: item.remainingAttempts,
+                              })
+                            }
+                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
+                          >
+                            <Play size={14} />
+                            <span>Làm bài ngay</span>
+                          </button>
+                        </div>
+                      ))}
+
+                    {/* TAB 3: TÀI LIỆU CHƯA ĐỌC */}
+                    {learnerSubTab === "materials" &&
+                      (paginatedTabItems as DocumentViewerData[]).map((mat) => (
+                        <div
+                          key={mat.id}
+                          className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 text-[10px] font-bold uppercase">
+                                {mat.format || "PDF"} · {mat.size}
+                              </span>
+                              <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                {mat.title}
+                              </strong>
+                            </div>
+                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                              <span>Môn: <strong>{mat.subject}</strong></span>
+                              <span>·</span>
+                              <span>Số trang: {mat.pagesCount} trang</span>
+                              <span>·</span>
+                              <span>Ngày cập nhật: {mat.uploadedAt}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setActiveDocument(mat)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <Eye size={13} />
+                              <span>Xem tài liệu</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => triggerFileDownload(`${mat.title}.${mat.format || "pdf"}`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                              title="Tải về máy"
+                            >
+                              <Download size={13} />
+                              <span>Tải về</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                    {/* TAB 4: BÀI GIẢNG CHƯA XEM */}
+                    {learnerSubTab === "lectures" &&
+                      (paginatedTabItems as LecturePlayerData[]).map((lec) => (
+                        <div
+                          key={lec.id}
+                          className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
+                                Video · {lec.duration}
+                              </span>
+                              <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                {lec.title}
+                              </strong>
+                            </div>
+                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                              <span>Môn: <strong>{lec.subject}</strong></span>
+                              <span>·</span>
+                              <span>GV: {lec.instructor}</span>
+                              <span>·</span>
+                              <span>Độ phân giải: {lec.quality}</span>
+                              <span>·</span>
+                              <span>Ngày đăng: {lec.uploadedAt}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setActiveLecture(lec)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-600 dark:text-purple-400 text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <Play size={13} />
+                              <span>Xem bài giảng</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => triggerFileDownload(`${lec.title}.mp4`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                              title="Tải video về máy"
+                            >
+                              <Download size={13} />
+                              <span>Tải về</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                    {/* TAB 5: KHO TÀI LIỆU HỌC TẬP */}
+                    {learnerSubTab === "all_materials" &&
+                      (paginatedTabItems as DocumentViewerData[]).map((repo) => (
+                        <div
+                          key={repo.id}
+                          className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold uppercase">
+                                {repo.format || "PDF"} · {repo.size}
+                              </span>
+                              <strong className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                                {repo.title}
+                              </strong>
+                            </div>
+                            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                              <span>Phân loại: <strong>{repo.subject}</strong></span>
+                              <span>·</span>
+                              <span>Dung lượng: {repo.size}</span>
+                              <span>·</span>
+                              <span>{repo.pagesCount} trang</span>
+                              <span>·</span>
+                              <span>Đồng bộ: {repo.uploadedAt}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setActiveDocument(repo)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer"
+                            >
+                              <Eye size={13} />
+                              <span>Xem trước</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => triggerFileDownload(`${repo.title}.${repo.format || "pdf"}`)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+                              title="Tải về máy"
+                            >
+                              <Download size={13} />
+                              <span>Tải về</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </>
                 ) : (
-                  <div className="py-10 text-center space-y-2">
-                    <CheckCircle2 className="mx-auto text-emerald-500" size={36} />
+                  <div className="py-16 text-center space-y-2">
+                    <CheckCircle2 className="mx-auto text-slate-300 dark:text-slate-600" size={40} />
                     <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                      Tuyệt vời! Bạn đã hoàn thành tất cả bài tập
+                      Không tìm thấy mục nào phù hợp
                     </p>
                     <p className="text-xs text-slate-400">
-                      Không còn bài tập hoặc bài kiểm tra nào đang quá hạn.
+                      Thử điều chỉnh lại từ khóa tìm kiếm hoặc chọn danh mục khác.
                     </p>
                   </div>
                 )}
-              </section>
-            )}
+              </div>
 
-            {learnerSubTab === "materials" && (
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Tài liệu chưa đọc
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Học liệu số, sách điện tử và đề cương được cập nhật mới nhất.
-                    </p>
-                  </div>
-                  <Link
-                    href="/materials"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+              {/* Footer thanh phân trang 10 / 20 / 30 */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shrink-0">
+                <span className="text-slate-500 font-medium">
+                  Hiển thị{" "}
+                  <strong>
+                    {totalTabItems === 0
+                      ? 0
+                      : (learnerCurrentPage - 1) * learnerPageSize + 1}
+                    -
+                    {Math.min(learnerCurrentPage * learnerPageSize, totalTabItems)}
+                  </strong>{" "}
+                  trong tổng số <strong>{totalTabItems}</strong> mục
+                </span>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={learnerCurrentPage <= 1}
+                    onClick={() => setLearnerCurrentPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold disabled:opacity-40 hover:bg-slate-100 cursor-pointer"
                   >
-                    Xem kho tài liệu <ArrowRight size={13} />
-                  </Link>
-                </div>
+                    <ChevronLeft size={14} />
+                    <span>Trước</span>
+                  </button>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 text-[10px] font-bold">
-                        PDF · Giáo trình
-                      </span>
-                      <span className="text-[10px] text-slate-400">2.4 MB</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Đề cương ôn tập & Phương pháp giải bài tập trọng tâm
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline pt-1"
+                  {Array.from({ length: totalTabPages }, (_, i) => i + 1).map((pageNum) => (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setLearnerCurrentPage(pageNum)}
+                      className={`size-8 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                        learnerCurrentPage === pageNum
+                          ? "bg-blue-600 text-white shadow-2xs"
+                          : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
+                      }`}
                     >
-                      Đọc tài liệu <ArrowRight size={12} />
-                    </Link>
-                  </div>
+                      {pageNum}
+                    </button>
+                  ))}
 
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
-                        Slide · Bài giảng
-                      </span>
-                      <span className="text-[10px] text-slate-400">5.1 MB</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Tập hợp công thức và hệ thống sơ đồ tư duy môn học
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline pt-1"
-                    >
-                      Đọc tài liệu <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {learnerSubTab === "lectures" && (
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Bài giảng chưa xem
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Video bài giảng chuyên đề và bài học trực tuyến mới cập nhật.
-                    </p>
-                  </div>
-                  <Link
-                    href="/materials"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
+                  <button
+                    type="button"
+                    disabled={learnerCurrentPage >= totalTabPages}
+                    onClick={() => setLearnerCurrentPage((p) => Math.min(totalTabPages, p + 1))}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold disabled:opacity-40 hover:bg-slate-100 cursor-pointer"
                   >
-                    Kho bài giảng <ArrowRight size={13} />
-                  </Link>
+                    <span>Tiếp</span>
+                    <ChevronRight size={14} />
+                  </button>
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 text-[10px] font-bold">
-                        Video · 45 phút
-                      </span>
-                      <span className="text-[10px] text-slate-400">HD 1080p</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Bài giảng chuyên đề: Phân tích kỹ thuật giải bài toán nâng cao
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 hover:underline pt-1"
-                    >
-                      <Play size={12} />
-                      <span>Xem bài giảng</span>
-                    </Link>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 text-[10px] font-bold">
-                        Video · 35 phút
-                      </span>
-                      <span className="text-[10px] text-slate-400">HD 1080p</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Ôn tập chuyên đề và giải đáp các lỗi sai thường gặp
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-purple-600 hover:underline pt-1"
-                    >
-                      <Play size={12} />
-                      <span>Xem bài giảng</span>
-                    </Link>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {learnerSubTab === "all_materials" && (
-              <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                      Kho tài liệu
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Toàn bộ tài liệu, giáo trình số và học liệu trực tuyến của bạn.
-                    </p>
-                  </div>
-                  <Link
-                    href="/materials"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline"
-                  >
-                    Mở kho học liệu <ArrowRight size={13} />
-                  </Link>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 text-[10px] font-bold">
-                        PDF · 3.5 MB
-                      </span>
-                      <span className="text-[10px] text-slate-400">Đã đồng bộ</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Tuyển tập công thức và phương pháp giải nhanh trắc nghiệm
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline pt-1"
-                    >
-                      Mở kho tài liệu <ArrowRight size={12} />
-                    </Link>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-sky-300 transition-colors space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
-                        DOCX · 1.2 MB
-                      </span>
-                      <span className="text-[10px] text-slate-400">Đã đồng bộ</span>
-                    </div>
-                    <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      Đề cương chuyên đề ôn tập trọng tâm học kỳ
-                    </strong>
-                    <Link
-                      href="/materials"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:underline pt-1"
-                    >
-                      Mở kho tài liệu <ArrowRight size={12} />
-                    </Link>
-                  </div>
-                </div>
-              </section>
-            )}
+              </div>
+            </section>
 
             {/* VÙNG ẨN KHỎI GIAO DIỆN HỌC SINH NHƯNG DUY TRÌ TƯƠNG THÍCH DOM CHO TEST */}
             <div className="sr-only" aria-hidden="true">
@@ -1054,6 +1388,45 @@ export function DashboardHome() {
             </div>
           </section>
         </>
+      )}
+
+      {/* ================= MODAL LÀM BÀI KIỂM TRA TRỰC TIẾP ================= */}
+      {activeExamForTaking && (
+        <ExamTakingModal
+          open={Boolean(activeExamForTaking)}
+          onClose={() => setActiveExamForTaking(null)}
+          exam={activeExamForTaking}
+          onSubmitted={(res) => {
+            alert(`Chúc mừng! Bạn đã hoàn thành bài thi với điểm số: ${res.score}/10`);
+          }}
+        />
+      )}
+
+      {/* ================= MODAL PHÒNG HỌC TRỰC TUYẾN / THÔNG BÁO ================= */}
+      {activeLiveRoom && (
+        <LiveRoomModal
+          open={Boolean(activeLiveRoom)}
+          onClose={() => setActiveLiveRoom(null)}
+          room={activeLiveRoom}
+        />
+      )}
+
+      {/* ================= MODAL XEM TRƯỚC TÀI LIỆU ================= */}
+      {activeDocument && (
+        <DocumentViewerModal
+          open={Boolean(activeDocument)}
+          onClose={() => setActiveDocument(null)}
+          document={activeDocument}
+        />
+      )}
+
+      {/* ================= MODAL XEM VIDEO BÀI GIẢNG ================= */}
+      {activeLecture && (
+        <LecturePlayerModal
+          open={Boolean(activeLecture)}
+          onClose={() => setActiveLecture(null)}
+          lecture={activeLecture}
+        />
       )}
     </div>
   );

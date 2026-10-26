@@ -39,6 +39,15 @@ import {
 import type { LearningClass, Course } from "@/lib/learning-types";
 import { UserAvatar } from "@/components/user-avatar";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
+import {
+  LiveRoomModal,
+  DocumentViewerModal,
+  LecturePlayerModal,
+  triggerFileDownload,
+  type LiveRoomData,
+  type DocumentViewerData,
+  type LecturePlayerData,
+} from "@/components/learning-resource-modals";
 
 interface LearnerClassWorkspaceProps {
   item: LearningClass;
@@ -230,6 +239,9 @@ export function LearnerClassWorkspace({
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [assignmentSort, setAssignmentSort] = useState<"alpha" | "newest" | "due">("alpha");
   const [activeExamForTaking, setActiveExamForTaking] = useState<ExamTakingData | null>(null);
+  const [activeLiveRoom, setActiveLiveRoom] = useState<LiveRoomData | null>(null);
+  const [activeDocument, setActiveDocument] = useState<DocumentViewerData | null>(null);
+  const [activeLecture, setActiveLecture] = useState<LecturePlayerData | null>(null);
 
   const assignmentsList: AssignmentItem[] = useMemo(
     () => [
@@ -1150,8 +1162,19 @@ export function LearnerClassWorkspace({
                       {col.hasClass && (
                         <button
                           type="button"
-                          onClick={() => router.push("/live-classes")}
-                          className="w-full mt-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors"
+                          onClick={() =>
+                            setActiveLiveRoom({
+                              id: `schedule-week-${col.day}`,
+                              title: `${item.name || "Lớp học trực tuyến"} - ${col.day}`,
+                              subject: course?.title || "Môn học",
+                              instructorName: displayInstructors[0]?.name || teacherName,
+                              startsAt: "19:30",
+                              endsAt: "21:00",
+                              status: col.isToday ? "LIVE" : "UPCOMING",
+                              canJoin: col.isToday,
+                            })
+                          }
+                          className="w-full mt-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
                         >
                           Vào phòng
                         </button>
@@ -1194,8 +1217,19 @@ export function LearnerClassWorkspace({
 
                       <button
                         type="button"
-                        onClick={() => router.push("/live-classes")}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shrink-0"
+                        onClick={() =>
+                          setActiveLiveRoom({
+                            id: `schedule-month-${i}`,
+                            title: row.title,
+                            subject: course?.title || "Môn học",
+                            instructorName: displayInstructors[0]?.name || teacherName,
+                            startsAt: row.time.split(" - ")[0] || "19:30",
+                            endsAt: row.time.split(" - ")[1] || "21:00",
+                            status: row.status === "Hôm nay" ? "LIVE" : "UPCOMING",
+                            canJoin: row.status === "Hôm nay",
+                          })
+                        }
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shrink-0 cursor-pointer"
                       >
                         <Play size={13} />
                         <span>Vào phòng học</span>
@@ -1411,14 +1445,34 @@ export function LearnerClassWorkspace({
 
                     <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                       <span className="text-xs text-slate-400">GV: {lec.teacher}</span>
-                      <button
-                        type="button"
-                        onClick={() => alert(`Đang mở xem bài giảng: ${lec.title}`)}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline"
-                      >
-                        <Play size={12} />
-                        <span>Xem bài giảng</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveLecture({
+                              id: lec.id,
+                              title: lec.title,
+                              instructor: lec.teacher,
+                              duration: lec.duration,
+                              quality: "HD 1080p",
+                              subject: course?.title || "Môn học",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline cursor-pointer"
+                        >
+                          <Play size={12} />
+                          <span>Xem bài giảng</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => triggerFileDownload(`${lec.title}.mp4`)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-[11px] font-bold cursor-pointer transition-colors"
+                          title="Tải video bài giảng"
+                        >
+                          <Download size={11} />
+                          <span>Tải về</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1503,8 +1557,25 @@ export function LearnerClassWorkspace({
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => alert(`Đang tải tài liệu: ${mat.title}`)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors"
+                          onClick={() =>
+                            setActiveDocument({
+                              id: mat.id,
+                              title: mat.title,
+                              subject: course?.title || "Tài liệu lớp học",
+                              format: mat.fileType,
+                              size: mat.size,
+                              pagesCount: 15,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          <Eye size={12} />
+                          <span>Xem trước</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => triggerFileDownload(`${mat.title}.${mat.fileType}`)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
                         >
                           <Download size={12} />
                           <span>Tải xuống</span>
@@ -1776,6 +1847,33 @@ export function LearnerClassWorkspace({
           onSubmitted={(result) => {
             alert(`Chúc mừng! Bạn đã hoàn thành bài thi với điểm số: ${result.score}/10`);
           }}
+        />
+      )}
+
+      {/* ================= MODAL PHÒNG HỌC TRỰC TUYẾN / THÔNG BÁO ================= */}
+      {activeLiveRoom && (
+        <LiveRoomModal
+          open={Boolean(activeLiveRoom)}
+          onClose={() => setActiveLiveRoom(null)}
+          room={activeLiveRoom}
+        />
+      )}
+
+      {/* ================= MODAL XEM TRƯỚC TÀI LIỆU ================= */}
+      {activeDocument && (
+        <DocumentViewerModal
+          open={Boolean(activeDocument)}
+          onClose={() => setActiveDocument(null)}
+          document={activeDocument}
+        />
+      )}
+
+      {/* ================= MODAL XEM VIDEO BÀI GIẢNG ================= */}
+      {activeLecture && (
+        <LecturePlayerModal
+          open={Boolean(activeLecture)}
+          onClose={() => setActiveLecture(null)}
+          lecture={activeLecture}
         />
       )}
     </div>
