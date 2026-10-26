@@ -28,6 +28,7 @@ import {
   UserRoundCog,
   ChevronDown,
   Compass,
+  Sparkles,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -274,6 +275,35 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     );
     return found ?? sections[0];
   }, [sections, pathname]);
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh
+  const learnerNavItems = useMemo(
+    () => [
+      { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
+      { href: "/courses", label: "Lớp học", icon: GraduationCap },
+      { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
+      { href: "/messages", label: "Chat", icon: MessageSquareText },
+    ],
+    [],
+  );
+
+  // Tính toán chữ cái đầu và tên hiển thị ngắn của học sinh
+  const initials = useMemo(() => {
+    const name = session.user.name?.trim() || "";
+    if (!name) return "TN";
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }, [session.user.name]);
+
+  const shortName = useMemo(() => {
+    const name = session.user.name?.trim() || "";
+    if (!name) return "Nam";
+    const parts = name.split(/\s+/).filter(Boolean);
+    return parts[parts.length - 1];
+  }, [session.user.name]);
+
 
   // Tải danh sách thông báo
   const loadNotifications = useCallback(async () => {
@@ -440,44 +470,89 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </Link>
 
             {/* Desktop Category Navigation */}
-            <nav className="hidden lg:flex items-center gap-1">
-              {sections.map((section) => {
-                const isSelected = currentSection?.id === section.id;
-                const targetHref = section.items[0]?.href ?? "/dashboard";
-                const Icon = section.icon;
-
-                return (
-                  <Link
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
-                      isSelected
-                        ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
-                    }`}
-                    href={targetHref}
-                    key={section.id}
-                  >
-                    <Icon
-                      className={`shrink-0 ${
+            {session.roleCode === "LEARNER" ? (
+              <nav className="hidden lg:flex items-center gap-1.5 ml-4">
+                {learnerNavItems.map(({ href, label, icon: Icon }) => {
+                  const isSelected =
+                    href === "/dashboard"
+                      ? pathname === "/dashboard"
+                      : pathname === href || pathname.startsWith(`${href}/`);
+                  return (
+                    <Link
+                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all duration-150 ${
                         isSelected
-                          ? "text-sky-600 dark:text-sky-400"
-                          : "text-slate-400 dark:text-slate-500"
+                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
                       }`}
-                      size={15}
-                    />
-                    <span>{t(section.title)}</span>
-                  </Link>
-                );
-              })}
-            </nav>
+                      href={href}
+                      key={href}
+                    >
+                      <Icon
+                        className={`shrink-0 ${
+                          isSelected
+                            ? "text-sky-600 dark:text-sky-400"
+                            : "text-slate-400 dark:text-slate-500"
+                        }`}
+                        size={16}
+                      />
+                      <span>{t(label)}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            ) : (
+              <nav className="hidden lg:flex items-center gap-1">
+                {sections.map((section) => {
+                  const isSelected = currentSection?.id === section.id;
+                  const targetHref = section.items[0]?.href ?? "/dashboard";
+                  const Icon = section.icon;
+
+                  return (
+                    <Link
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                        isSelected
+                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
+                      }`}
+                      href={targetHref}
+                      key={section.id}
+                    >
+                      <Icon
+                        className={`shrink-0 ${
+                          isSelected
+                            ? "text-sky-600 dark:text-sky-400"
+                            : "text-slate-400 dark:text-slate-500"
+                        }`}
+                        size={15}
+                      />
+                      <span>{t(section.title)}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            )}
           </div>
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Role indicator pill */}
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-2xs">
-              <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
-              {t(session.user.roleName)}
-            </div>
+            {/* Role indicator pill hoặc nút Hỏi đáp */}
+            {session.roleCode === "LEARNER" ? (
+              <Link
+                href="/forum"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors"
+              >
+                <Sparkles size={14} className="text-blue-200" />
+                <span>Hỏi đáp</span>
+                <span className="text-[11px] font-medium text-blue-100 hidden xl:inline">
+                  cùng SHub Share
+                </span>
+              </Link>
+            ) : (
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-xs font-semibold shadow-2xs">
+                <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
+                {t(session.user.roleName)}
+              </div>
+            )}
 
             {session.availableRoles.length > 1 ? (
               <select
@@ -629,59 +704,212 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onMouseEnter={() => setProfileOpen(true)}
               onMouseLeave={() => setProfileOpen(false)}
             >
-              <button
-                aria-expanded={profileOpen}
-                aria-label={t("Mở menu tài khoản")}
-                className="flex min-h-9 items-center gap-2 rounded-lg px-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2"
-                onClick={() => setProfileOpen((open) => !open)}
-                type="button"
-              >
-                <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
-                <span className="hidden sm:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
-                  {session.user.name}
-                </span>
-                <ChevronDown
-                  className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
-                    profileOpen ? "rotate-180" : ""
-                  }`}
-                  size={13}
-                />
-
-              </button>
+              {session.roleCode === "LEARNER" ? (
+                <button
+                  aria-expanded={profileOpen}
+                  aria-label={t("Mở menu tài khoản")}
+                  className="flex min-h-9 items-center gap-2 rounded-full pl-1 pr-2.5 py-0.5 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
+                  onClick={() => setProfileOpen((open) => !open)}
+                  type="button"
+                >
+                  <span className="size-7 rounded-full bg-slate-400 dark:bg-slate-600 text-white font-bold text-xs grid place-items-center uppercase shrink-0">
+                    {initials}
+                  </span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate max-w-28">
+                    {shortName}
+                  </span>
+                  <span className="sr-only">{session.user.name}</span>
+                  <ChevronDown
+                    className={`text-slate-500 transition-transform ${
+                      profileOpen ? "rotate-180" : ""
+                    }`}
+                    size={13}
+                  />
+                </button>
+              ) : (
+                <button
+                  aria-expanded={profileOpen}
+                  aria-label={t("Mở menu tài khoản")}
+                  className="flex min-h-9 items-center gap-2 rounded-lg px-1.5 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2"
+                  onClick={() => setProfileOpen((open) => !open)}
+                  type="button"
+                >
+                  <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority />
+                  <span className="hidden sm:inline-block text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
+                    {session.user.name}
+                  </span>
+                  <ChevronDown
+                    className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
+                      profileOpen ? "rotate-180" : ""
+                    }`}
+                    size={13}
+                  />
+                </button>
+              )}
 
               {profileOpen ? (
                 <div className="absolute right-0 top-full z-50 pt-1.5">
-                  <section
-                    className="w-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
-                    role="menu"
-                  >
-                    <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
-                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                        {session.user.name}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {t(session.user.roleName)}
-                      </p>
-                    </div>
-                    <Link
-                      className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      href="/account"
-                      onClick={() => setProfileOpen(false)}
-                      role="menuitem"
+                  {session.roleCode === "LEARNER" ? (
+                    <section
+                      className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
+                      role="menu"
                     >
-                      <UserRoundCog size={14} />
-                      {t("Thông tin")}
-                    </Link>
-                    <button
-                      className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                      onClick={() => void signOut()}
-                      role="menuitem"
-                      type="button"
+                      <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-1.5">
+                        <div className="size-11 rounded-xl bg-slate-300 dark:bg-slate-700 grid place-items-center text-slate-600 dark:text-slate-300 font-extrabold text-sm shrink-0">
+                          {session.user.avatarUrl ? (
+                            <img
+                              src={session.user.avatarUrl}
+                              alt={session.user.name}
+                              className="size-full rounded-xl object-cover"
+                            />
+                          ) : (
+                            <span className="uppercase">{initials}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold shrink-0">
+                              Học sinh
+                            </span>
+                            <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                              {session.user.name || "Vũ Thành Nam"}
+                            </strong>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                            {session.user.email || "nvuthanh4@gmail.com"}
+                          </p>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                            0358482955
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            notify("Đang kết nối tài khoản Sở GD&ĐT...", "info");
+                            setProfileOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                        >
+                          <div className="size-7 rounded-lg bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 grid place-items-center shrink-0">
+                            <GraduationCap size={15} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                              Tạo liên kết tài khoản sở giáo dục
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              Đăng nhập sử dụng tài khoản sở GDĐT - HCM
+                            </p>
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            notify("Chức năng đổi liên kết Facebook đang mở...", "info");
+                            setProfileOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                        >
+                          <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
+                            <Users size={15} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                              Đổi liên kết facebook
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              Đăng nhập thuận tiện hơn
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+
+                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                      <div className="space-y-0.5">
+                        <Link
+                          className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          href="/account"
+                          onClick={() => setProfileOpen(false)}
+                          role="menuitem"
+                        >
+                          <UserRoundCog size={15} className="text-slate-500" />
+                          <span>{t("Thông tin")}</span>
+                        </Link>
+
+                        <button
+                          className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          onClick={() => {
+                            notify("Đang mở tài liệu hướng dẫn sử dụng...", "info");
+                            setProfileOpen(false);
+                          }}
+                          role="menuitem"
+                          type="button"
+                        >
+                          <BookOpenCheck size={15} className="text-slate-500" />
+                          <span>Hướng dẫn sử dụng</span>
+                        </button>
+
+                        <Link
+                          className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          href="/support"
+                          onClick={() => setProfileOpen(false)}
+                          role="menuitem"
+                        >
+                          <Headphones size={15} className="text-slate-500" />
+                          <span>Hỗ trợ</span>
+                        </Link>
+                      </div>
+
+                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                      <button
+                        className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                        onClick={() => void signOut()}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <LogOut size={15} />
+                        <span>{t("Đăng xuất")}</span>
+                      </button>
+                    </section>
+                  ) : (
+                    <section
+                      className="w-48 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
+                      role="menu"
                     >
-                      <LogOut size={14} />
-                      {t("Đăng xuất")}
-                    </button>
-                  </section>
+                      <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
+                        <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {session.user.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {t(session.user.roleName)}
+                        </p>
+                      </div>
+                      <Link
+                        className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        href="/account"
+                        onClick={() => setProfileOpen(false)}
+                        role="menuitem"
+                      >
+                        <UserRoundCog size={14} />
+                        {t("Thông tin")}
+                      </Link>
+                      <button
+                        className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                        onClick={() => void signOut()}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <LogOut size={14} />
+                        {t("Đăng xuất")}
+                      </button>
+                    </section>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -698,8 +926,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Contextual App Bar) */}
-        {currentSection ? (
+        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Ẩn cho học sinh, chuyển sang sidebar dọc) */}
+        {currentSection && session.roleCode !== "LEARNER" ? (
           <div className="border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-[#090e1a]/80 backdrop-blur-sm overflow-x-auto">
             <div className="mx-auto flex h-11 max-w-7xl items-center px-4 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
@@ -774,31 +1002,60 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="flex-1 overflow-y-auto py-4 space-y-4">
-              {sections.map((section) => (
-                <div key={section.id} className="space-y-1">
+              {session.roleCode === "LEARNER" ? (
+                <div className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    {t(section.title)}
+                    Menu học sinh
                   </p>
-                  {section.items.map(({ href, label, icon: Icon }) => {
-                    const active = pathname === href || pathname.startsWith(`${href}/`);
+                  {learnerNavItems.map(({ href, label, icon: Icon }) => {
+                    const active =
+                      href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
                           active
-                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60"
+                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
                             : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                         }`}
                         href={href}
                         key={href}
                         onClick={() => setMenuOpen(false)}
                       >
-                        <Icon size={15} />
+                        <Icon size={16} />
                         <span>{t(label)}</span>
                       </Link>
                     );
                   })}
                 </div>
-              ))}
+              ) : (
+                sections.map((section) => (
+                  <div key={section.id} className="space-y-1">
+                    <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      {t(section.title)}
+                    </p>
+                    {section.items.map(({ href, label, icon: Icon }) => {
+                      const active = pathname === href || pathname.startsWith(`${href}/`);
+                      return (
+                        <Link
+                          className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                            active
+                              ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                          href={href}
+                          key={href}
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Icon size={15} />
+                          <span>{t(label)}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
             </nav>
           </div>
         </div>
