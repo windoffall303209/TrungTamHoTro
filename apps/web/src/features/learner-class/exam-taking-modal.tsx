@@ -145,6 +145,19 @@ export function ExamTakingModal({
           }
         }
 
+        // Tải câu hỏi dự phòng từ bộ nhớ lớp học nếu API rỗng
+        if (fetchedQuestions.length === 0 && typeof window !== "undefined" && exam?.id) {
+          try {
+            const localQuestions = localStorage.getItem(`wind_exam_questions_${exam.id}`);
+            if (localQuestions) {
+              const parsed = JSON.parse(localQuestions);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                fetchedQuestions = parsed;
+              }
+            }
+          } catch (e) {}
+        }
+
         if (isMounted) {
           if (Array.isArray(fetchedQuestions) && fetchedQuestions.length > 0) {
             const mapped: QuestionItem[] = fetchedQuestions.map((q, idx) => {

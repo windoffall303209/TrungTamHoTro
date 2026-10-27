@@ -208,13 +208,12 @@ export function AssignmentBuilderModal({
   const [gradingMethod, setGradingMethod] = useState("Lấy điểm lần làm bài đầu tiên");
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleAnswers, setShuffleAnswers] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Tính tổng điểm
   const totalScore = useMemo(() => {
     return questions.reduce((sum, q) => sum + (Number(q.score) || 0), 0);
   }, [questions]);
-
-  if (!open) return null;
 
   // Xử lý nạp tệp từ máy tính và giả lập tách câu tự động bằng AI
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,7 +242,35 @@ export function AssignmentBuilderModal({
     );
   };
 
-  const [isSaving, setIsSaving] = useState(false);
+  // Thêm câu hỏi mới vào danh sách bóc tách
+  const handleAddQuestion = () => {
+    const nextOrder = questions.length + 1;
+    const newQ: ParsedQuestionItem = {
+      id: `q-ai-new-${Date.now()}`,
+      order: nextOrder,
+      content: `Câu hỏi ${nextOrder}: Điền nội dung câu hỏi trắc nghiệm...`,
+      options: [
+        { key: "A", text: "Phương án A" },
+        { key: "B", text: "Phương án B" },
+        { key: "C", text: "Phương án C" },
+        { key: "D", text: "Phương án D" },
+      ],
+      correctAnswer: "A",
+      type: "Trắc nghiệm một đáp án",
+      score: 2,
+      hint: "Gợi ý làm bài cho câu hỏi này.",
+    };
+    setQuestions((prev) => [...prev, newQ]);
+    setEditingQuestionId(newQ.id);
+  };
+
+  // Xóa câu hỏi khỏi danh sách
+  const handleDeleteQuestion = (id: string) => {
+    setQuestions((prev) => {
+      const filtered = prev.filter((q) => q.id !== id);
+      return filtered.map((q, idx) => ({ ...q, order: idx + 1 }));
+    });
+  };
 
   // Toggle hình thức nộp bài
   const handleToggleSubmissionMethod = (method: string) => {
@@ -289,6 +316,8 @@ export function AssignmentBuilderModal({
       setIsSaving(false);
     }
   };
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto">
@@ -575,25 +604,54 @@ export function AssignmentBuilderModal({
             {/* ---------------------------------------------------------------------
                 CỘT TRÁI: DANH SÁCH CÂU HỎI ĐÃ ĐƯỢC TÁCH (PREVIEW NỘI DUNG VÀ ĐÁP ÁN)
                 --------------------------------------------------------------------- */}
-            <div className="w-full lg:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 p-4 sm:p-6 overflow-y-auto space-y-6 bg-slate-50/30 dark:bg-slate-900/40">
+            <div className="w-full lg:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 p-4 sm:p-6 overflow-y-auto space-y-4 bg-slate-50/30 dark:bg-slate-900/40">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    Câu hỏi được tách tự động ({questions.length})
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Kiểm tra và tinh chỉnh nội dung, đáp án từng câu
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddQuestion}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus size={14} />
+                  <span>Thêm câu hỏi</span>
+                </button>
+              </div>
+
               {questions.map((q) => (
                 <div
                   key={q.id}
                   className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-3"
                 >
-                  {/* Tiêu đề câu và nút Sửa */}
+                  {/* Tiêu đề câu và nút Sửa / Xóa */}
                   <div className="flex items-start justify-between gap-3">
                     <strong className="text-sm font-bold text-blue-600 dark:text-blue-400">
                       Câu {q.order}
                     </strong>
-                    <button
-                      type="button"
-                      onClick={() => setEditingQuestionId(editingQuestionId === q.id ? null : q.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
-                    >
-                      <Edit3 size={12} />
-                      <span>Sửa</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setEditingQuestionId(editingQuestionId === q.id ? null : q.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                      >
+                        <Edit3 size={12} />
+                        <span>{editingQuestionId === q.id ? "Xong" : "Sửa"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                        title="Xóa câu này"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Nội dung câu hỏi */}
