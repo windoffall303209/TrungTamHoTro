@@ -581,118 +581,128 @@ export function InstructorClassWorkspace({
   }, [learners, selectedAssignment]);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-5">
       {/* =========================================================================
-          CỘT 1: THANH HEADER DỌC CỦA LỚP HỌC (SIDEBAR CỦA GIÁO VIÊN)
+          KHUNG BỐ CỤC 2 CỘT ĐỒNG BỘ HOÀN TOÀN VỚI HỌC SINH
           ========================================================================= */}
-      <aside className="w-64 sm:w-72 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] flex flex-col justify-between select-none">
-        {/* Phần thông tin lớp và Menu điều hướng chính */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-none">
-          {/* Nút quay lại danh sách lớp */}
-          <button
-            type="button"
-            onClick={onBack || (() => router.push("/courses"))}
-            className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-sky-600 transition-colors cursor-pointer"
-          >
-            <ArrowLeft size={15} />
-            <span>Quay lại danh sách lớp</span>
-          </button>
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* =========================================================================
+            CỘT 1: THANH HEADER DỌC CỦA LỚP HỌC (SIDEBAR CỦA GIÁO VIÊN - CHUẨN DESIGN HỌC SINH)
+            ========================================================================= */}
+        <aside className="w-full lg:w-56 shrink-0 space-y-4">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs">
+            {/* Nút quay lại danh sách lớp */}
+            <button
+              type="button"
+              onClick={onBack || (() => router.push("/courses"))}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-blue-600 transition-colors mb-3 cursor-pointer"
+            >
+              <ArrowLeft size={14} />
+              <span>Quay lại danh sách lớp</span>
+            </button>
 
-          {/* Header tên lớp & mã lớp */}
-          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-sky-50 to-indigo-50/50 dark:from-sky-950/40 dark:to-indigo-950/30 border border-sky-100 dark:border-sky-900/60 shadow-2xs">
-            <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-              {item.grade ? (
-                <span className="rounded-full bg-indigo-100 dark:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 text-[10px] font-extrabold">
-                  Khối {item.grade}
+            {/* Thông tin lớp học */}
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
+                {item.name || item.code}
+              </h2>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
+              </p>
+
+              {/* Chia sẻ lớp học */}
+              <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[9px] uppercase font-bold text-slate-400 block leading-tight mb-1">
+                  Chia sẻ lớp học
                 </span>
-              ) : null}
-              {item.subject ? (
-                <span className="rounded-full bg-emerald-100 dark:bg-emerald-900/70 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-extrabold">
-                  {item.subject}
-                </span>
-              ) : null}
-              <span className="rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 text-[10px] font-bold">
-                {item.term || "2026-2027"}
-              </span>
+                <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-600 dark:text-slate-300 truncate flex-1 font-mono">
+                    {typeof window !== "undefined" ? window.location.href : `https://windedu.vn/c/${item.code}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        void navigator.clipboard.writeText(window.location.href);
+                        notify("Đã sao chép liên kết lớp học!");
+                      }
+                    }}
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
+                    title="Sao chép link"
+                  >
+                    <Share2 size={13} />
+                  </button>
+                </div>
+              </div>
             </div>
-            <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 line-clamp-1">
-              {item.name}
-            </h2>
-            <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-              <span>Mã lớp:</span>
-              <strong className="font-mono text-sky-600 dark:text-sky-400">{item.code}</strong>
+
+            {/* Danh sách 9 chức năng chính của lớp học */}
+            <nav className="space-y-1">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 py-1">
+                Danh mục
+              </p>
+              {[
+                { id: "feed" as const, label: "Bảng tin", icon: MessageSquare },
+                { id: "schedule" as const, label: "Lịch học", icon: CalendarDays },
+                { id: "members" as const, label: "Thành viên", icon: Users },
+                { id: "roles" as const, label: "Vai trò", icon: UserCheck },
+                { id: "assignments" as const, label: "Bài tập", icon: ListChecks },
+                { id: "gradebook" as const, label: "Bảng điểm", icon: Award },
+                { id: "lectures" as const, label: "Bài giảng", icon: Video },
+                { id: "materials" as const, label: "Tài liệu", icon: FolderOpen },
+                { id: "questions" as const, label: "Ngân hàng câu hỏi", icon: FileQuestion },
+              ].map(({ id, label, icon: Icon }) => {
+                const active = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActiveTab(id)}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                      active
+                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <Icon size={15} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* MỤC CÀI ĐẶT LỚP HỌC (NẰM DƯỚI ĐÁY SIDEBAR, TÁCH BIỆT HẲN RA) */}
+            <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setActiveTab("settings")}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                  activeTab === "settings"
+                    ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                }`}
+              >
+                <Settings size={15} className={activeTab === "settings" ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
+                <span className="truncate">Cài đặt lớp học</span>
+              </button>
             </div>
           </div>
-
-          {/* Danh sách 9 chức năng chính của lớp học */}
-          <nav className="space-y-1">
-            <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
-              Quản lý lớp học
-            </p>
-            {[
-              { id: "feed" as const, label: "Bảng tin", icon: MessageSquare },
-              { id: "schedule" as const, label: "Lịch học", icon: CalendarDays },
-              { id: "members" as const, label: "Thành viên", icon: Users },
-              { id: "roles" as const, label: "Vai trò", icon: UserCheck },
-              { id: "assignments" as const, label: "Bài tập", icon: ListChecks },
-              { id: "gradebook" as const, label: "Bảng điểm", icon: Award },
-              { id: "lectures" as const, label: "Bài giảng", icon: Video },
-              { id: "materials" as const, label: "Tài liệu", icon: FolderOpen },
-              { id: "questions" as const, label: "Ngân hàng câu hỏi", icon: FileQuestion },
-            ].map(({ id, label, icon: Icon }) => {
-              const active = activeTab === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActiveTab(id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
-                    active
-                      ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                  }`}
-                >
-                  <Icon size={16} className={active ? "text-white" : "text-slate-400"} />
-                  <span className="truncate">{label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+        </aside>
 
         {/* =========================================================================
-            MỤC CÀI ĐẶT LỚP HỌC (NẰM DƯỚI ĐÁY SIDEBAR, TÁCH BIỆT HẲN RA)
+            NỘI DUNG CHÍNH (THAY ĐỔI THEO TAB ĐANG CHỌN)
             ========================================================================= */}
-        <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#0a0f1d]">
-          <button
-            type="button"
-            onClick={() => setActiveTab("settings")}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border ${
-              activeTab === "settings"
-                ? "bg-sky-600 text-white border-sky-600 shadow-sm"
-                : "border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800"
-            }`}
-          >
-            <Settings size={16} className={activeTab === "settings" ? "text-white" : "text-slate-400"} />
-            <span className="truncate">Cài đặt lớp học</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* =========================================================================
-          NỘI DUNG CHÍNH (THAY ĐỔI THEO TAB ĐANG CHỌN)
-          ========================================================================= */}
-      <main className="flex-1 flex overflow-hidden">
+        <main className="flex-1 min-w-0 space-y-4">
         {/* TAB 1: BẢNG TIN */}
         {activeTab === "feed" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto space-y-5">
+          <div className="space-y-4">
             {/* Thanh tìm kiếm & đăng bài */}
             <div className="flex items-center justify-between gap-4">
               <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                 Bảng tin & Diễn đàn lớp học
               </h1>
               <div className="relative w-64">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Tìm kiếm bài viết..."
@@ -704,18 +714,18 @@ export function InstructorClassWorkspace({
             </div>
 
             {/* Form đăng bài mới */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs space-y-3">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
               <textarea
                 rows={3}
                 placeholder="Đăng thông báo, chủ đề thảo luận hoặc tài liệu tới học sinh trong lớp..."
                 value={newPostContent}
                 onChange={(e) => setNewPostContent(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-sky-600"
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 cursor-pointer"
                 >
                   <Paperclip size={14} />
                   <span>Đính kèm ảnh / tệp</span>
@@ -739,7 +749,7 @@ export function InstructorClassWorkspace({
                     setNewPostContent("");
                     notify("Đã đăng thông báo lên bảng tin!", "success");
                   }}
-                  className="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
                 >
                   Đăng bài
                 </button>
@@ -751,17 +761,17 @@ export function InstructorClassWorkspace({
               {posts.map((post) => (
                 <div
                   key={post.id}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="size-9 rounded-full bg-sky-600 text-white font-bold grid place-items-center text-xs">
+                      <div className="size-9 rounded-full bg-blue-600 text-white font-bold grid place-items-center text-xs">
                         {post.authorName.charAt(0)}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <strong className="text-xs font-bold">{post.authorName}</strong>
-                          <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950 text-sky-600 text-[10px] font-bold">
+                          <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
                             {post.authorRole}
                           </span>
                         </div>
@@ -771,7 +781,7 @@ export function InstructorClassWorkspace({
                   </div>
                   <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">{post.content}</p>
                   <div className="flex items-center gap-4 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-                    <button type="button" className="inline-flex items-center gap-1.5 hover:text-sky-600">
+                    <button type="button" className="inline-flex items-center gap-1.5 hover:text-blue-600 cursor-pointer">
                       <ThumbsUp size={14} />
                       <span>{post.likes} Thích</span>
                     </button>
@@ -788,7 +798,7 @@ export function InstructorClassWorkspace({
 
         {/* TAB 2: LỊCH HỌC */}
         {activeTab === "schedule" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
@@ -798,7 +808,7 @@ export function InstructorClassWorkspace({
               </div>
               <button
                 type="button"
-                className="px-3.5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition inline-flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Plus size={15} />
                 <span>Thêm buổi học mới</span>
@@ -813,10 +823,10 @@ export function InstructorClassWorkspace({
               ].map((s, idx) => (
                 <div
                   key={idx}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs space-y-3"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 dark:bg-sky-950 text-sky-600">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
                       {s.status === "COMPLETED" ? "Đã diễn ra" : "Sắp tới"}
                     </span>
                     <Clock size={14} className="text-slate-400" />
@@ -829,13 +839,13 @@ export function InstructorClassWorkspace({
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <button
                       type="button"
-                      className="flex-1 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700"
+                      className="flex-1 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
                     >
                       Vào phòng
                     </button>
                     <button
                       type="button"
-                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300"
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 cursor-pointer"
                     >
                       Điểm danh
                     </button>
@@ -848,7 +858,7 @@ export function InstructorClassWorkspace({
 
         {/* TAB 3: THÀNH VIÊN */}
         {activeTab === "members" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
@@ -857,7 +867,7 @@ export function InstructorClassWorkspace({
                 <p className="text-xs text-slate-500">Danh sách học sinh và giáo viên phụ trách trong lớp</p>
               </div>
               <div className="relative w-64">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Tìm học sinh theo tên/email..."
@@ -868,7 +878,7 @@ export function InstructorClassWorkspace({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-hidden shadow-xs">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 uppercase font-extrabold text-[10px]">
                   <tr>
@@ -880,14 +890,14 @@ export function InstructorClassWorkspace({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {/* Giáo viên */}
-                  <tr className="bg-sky-50/30 dark:bg-sky-950/20">
+                  <tr className="bg-blue-50/40 dark:bg-blue-950/20">
                     <td className="px-4 py-3 font-bold flex items-center gap-2">
                       <UserAvatar name={session.user.name} className="size-6 text-[10px]" />
                       <span>{session.user.name}</span>
                     </td>
                     <td className="px-4 py-3 text-slate-500">{session.user.email}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 font-bold text-[10px]">
+                      <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-[10px]">
                         Giảng viên chính
                       </span>
                     </td>
@@ -916,7 +926,7 @@ export function InstructorClassWorkspace({
 
         {/* TAB 4: VAI TRÒ (THÊM ĐỒNG GIÁO VIÊN ĐỂ CHẤM ĐIỂM) */}
         {activeTab === "roles" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
@@ -929,7 +939,7 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => setAddCoInstructorOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition inline-flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <UserPlus size={15} />
                 <span>Thêm đồng giáo viên</span>
@@ -938,20 +948,20 @@ export function InstructorClassWorkspace({
 
             <div className="space-y-3">
               {/* Giảng viên chính */}
-              <div className="rounded-2xl border border-sky-200 dark:border-sky-800/60 bg-sky-50/40 dark:bg-sky-950/20 p-4 flex items-center justify-between">
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/40 dark:bg-blue-950/20 p-4 flex items-center justify-between shadow-xs">
                 <div className="flex items-center gap-3">
                   <UserAvatar name={session.user.name} className="size-10" />
                   <div>
                     <div className="flex items-center gap-2">
                       <strong className="text-xs font-bold">{session.user.name}</strong>
-                      <span className="px-2 py-0.5 rounded-full bg-sky-600 text-white text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold">
                         Giảng viên chính (Primary)
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500">{session.user.email}</p>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-sky-600">Toàn quyền</span>
+                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Toàn quyền</span>
               </div>
 
               {/* Các đồng giáo viên hiện có */}
@@ -960,7 +970,7 @@ export function InstructorClassWorkspace({
                 .map((ins, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 flex items-center justify-between"
+                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 flex items-center justify-between shadow-xs"
                   >
                     <div className="flex items-center gap-3">
                       <UserAvatar name={ins.displayName || "Đồng giáo viên"} className="size-10" />
@@ -977,7 +987,7 @@ export function InstructorClassWorkspace({
                     <button
                       type="button"
                       onClick={() => notify("Đã gỡ quyền đồng giáo viên!", "success")}
-                      className="text-xs text-rose-600 hover:underline font-bold"
+                      className="text-xs text-rose-600 hover:underline font-bold cursor-pointer"
                     >
                       Gỡ quyền
                     </button>
@@ -987,193 +997,208 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 5: BÀI TẬP (CẤU TRÚC 3 CỘT) */}
+        {/* TAB 5: BÀI TẬP (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
         {activeTab === "assignments" && (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Cột 1: Cây thư mục */}
-            <div className="w-60 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] p-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                    Thư mục bài tập
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFolderModal(true)}
-                    className="text-sky-600 hover:underline text-xs font-bold"
-                  >
-                    + Tạo
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {customFolders.map((f) => (
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+            {/* Header tiêu đề danh mục */}
+            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Bài tập ({assignments.length})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Danh sách bài tập và đề kiểm tra phân bổ theo cấu trúc thư mục môn học.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddAssignmentModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus size={14} />
+                <span>Thêm bài tập</span>
+              </button>
+            </div>
+
+            {/* Khung 3 cột Master-Detail */}
+            <div className="flex flex-col lg:flex-row min-h-[580px]">
+              {/* Cột 1: Cây thư mục */}
+              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Thư mục
+                    </span>
                     <button
-                      key={f}
                       type="button"
-                      onClick={() => setSelectedFolder(f)}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left ${
-                        selectedFolder === f
-                          ? "bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => setShowNewFolderModal(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
+                    >
+                      + Tạo thư mục
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {customFolders.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setSelectedFolder(f)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                          selectedFolder === f
+                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
+                        <span className="truncate">{f}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Cột 2: Danh sách bài tập */}
+              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
+                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Danh sách bài tập ({assignments.length})
+                </div>
+
+                <div className="flex-1 space-y-2">
+                  {assignments.map((assign) => (
+                    <div
+                      key={assign.id}
+                      onClick={() => setSelectedAssignment(assign)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
+                        selectedAssignment?.id === assign.id
+                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
+                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
                       }`}
                     >
-                      <Folder size={15} className={selectedFolder === f ? "text-sky-600" : "text-slate-400"} />
-                      <span className="truncate">{f}</span>
-                    </button>
+                      <strong className="block text-xs font-bold truncate">{assign.title}</strong>
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+                        <span>Điểm: {assign.maxScore}đ</span>
+                        <span className="text-emerald-600 font-bold">Đang mở</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* Cột 2: Danh sách bài tập */}
-            <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-extrabold">Bài tập ({assignments.length})</h3>
-                <button
-                  type="button"
-                  onClick={() => setAddAssignmentModalOpen(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Thêm bài tập</span>
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {assignments.map((assign) => (
-                  <div
-                    key={assign.id}
-                    onClick={() => setSelectedAssignment(assign)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                      selectedAssignment?.id === assign.id
-                        ? "border-sky-500 bg-sky-50/40 dark:bg-sky-950/40 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <strong className="block text-xs font-bold truncate">{assign.title}</strong>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-                      <span>Điểm: {assign.maxScore}đ</span>
-                      <span className="text-emerald-600 font-bold">Đang mở</span>
+              {/* Cột 3: Chi tiết bài tập & Thống kê lượt làm */}
+              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
+                {selectedAssignment ? (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                      <div>
+                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                          {selectedAssignment.title}
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Hạn nộp: {new Date(selectedAssignment.dueAt).toLocaleDateString("vi-VN")} · Điểm tối đa:{" "}
+                          {selectedAssignment.maxScore}đ
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShareModalOpen(true)}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Share2 size={13} />
+                          <span>Chia sẻ</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => notify("Đang mở bản xem trước đề bài...", "info")}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Eye size={13} />
+                          <span>Làm thử / xem đề</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStatsModalOpen(true)}
+                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Award size={13} />
+                          <span>Thống kê bài nộp</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Cột 3: Chi tiết bài tập & Thống kê lượt làm */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-[#070b14] space-y-5">
-              {selectedAssignment ? (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
-                  <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <div>
-                      <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">
-                        {selectedAssignment.title}
-                      </h2>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Hạn nộp: {new Date(selectedAssignment.dueAt).toLocaleDateString("vi-VN")} · Điểm tối đa:{" "}
-                        {selectedAssignment.maxScore}
+                    {/* Mô tả bài tập */}
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
+                        Mô tả & Hướng dẫn
+                      </h4>
+                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                        {selectedAssignment.description || "Học sinh hoàn thành các bài tập và nộp lại trước hạn."}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShareModalOpen(true)}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
-                      >
-                        <Share2 size={14} />
-                        <span>Chia sẻ</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => notify("Đang mở bản xem trước đề bài...", "info")}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
-                      >
-                        <Eye size={14} />
-                        <span>Làm thử / xem đề</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStatsModalOpen(true)}
-                        className="px-3.5 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 flex items-center gap-1.5"
-                      >
-                        <Award size={14} />
-                        <span>Thống kê bài nộp</span>
-                      </button>
-                    </div>
-                  </div>
 
-                  {/* Mô tả bài tập */}
-                  <div className="space-y-2">
-                    <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
-                      Mô tả & Hướng dẫn
-                    </h3>
-                    <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                      {selectedAssignment.description || "Học sinh hoàn thành các bài tập và nộp lại trước hạn."}
-                    </p>
-                  </div>
+                    {/* Danh sách lượt nộp bài tóm tắt */}
+                    <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                          Danh sách nộp bài gần nhất
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => setStatsModalOpen(true)}
+                          className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          Xem tất cả ({studentAttemptStats.length}) lượt làm
+                        </button>
+                      </div>
 
-                  {/* Danh sách lượt nộp bài tóm tắt */}
-                  <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                        Danh sách nộp bài gần nhất
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => setStatsModalOpen(true)}
-                        className="text-xs font-bold text-sky-600 hover:underline"
-                      >
-                        Xem tất cả ({studentAttemptStats.length}) lượt làm
-                      </button>
-                    </div>
-
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-100 dark:border-slate-800">
-                      {studentAttemptStats.slice(0, 4).map((stat) => (
-                        <div key={stat.id} className="p-3 flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <UserAvatar name={stat.learnerName} className="size-7 text-[10px]" />
-                            <div>
-                              <strong className="block text-slate-900 dark:text-slate-100">{stat.learnerName}</strong>
-                              <span className="text-[10px] text-slate-400">Đã nộp {stat.submittedAt}</span>
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        {studentAttemptStats.slice(0, 4).map((stat) => (
+                          <div key={stat.id} className="p-3 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2.5">
+                              <UserAvatar name={stat.learnerName} className="size-7 text-[10px]" />
+                              <div>
+                                <strong className="block text-slate-900 dark:text-slate-100">{stat.learnerName}</strong>
+                                <span className="text-[10px] text-slate-400">Đã nộp {stat.submittedAt}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(
+                                  stat.bestScore,
+                                  stat.maxScore,
+                                )}`}
+                              >
+                                {stat.bestScore} / {stat.maxScore}đ
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedStudentAttempt(stat);
+                                  setStatsModalOpen(true);
+                                }}
+                                className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                              >
+                                Chi tiết
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(
-                                stat.bestScore,
-                                stat.maxScore,
-                              )}`}
-                            >
-                              {stat.bestScore} / {stat.maxScore}đ
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedStudentAttempt(stat);
-                                setStatsModalOpen(true);
-                              }}
-                              className="text-xs font-bold text-sky-600 hover:underline"
-                            >
-                              Chi tiết
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400">
-                  Chọn một bài tập từ cột bên trái để xem chi tiết.
-                </div>
-              )}
+                ) : (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    Chọn một bài tập từ cột bên trái để xem chi tiết.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
         {/* TAB 6: BẢNG ĐIỂM (TỔNG HỢP VỚI CÁC CỘT CHIA NHỎ THEO LẦN LÀM) */}
         {activeTab === "gradebook" && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
@@ -1185,7 +1210,7 @@ export function InstructorClassWorkspace({
               </div>
               <div className="flex items-center gap-3">
                 <div className="relative w-64">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     placeholder="Tìm theo tên học sinh..."
@@ -1197,7 +1222,7 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={() => notify("Đang xuất bảng điểm ra file CSV...", "info")}
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Download size={14} />
                   <span>Xuất Excel</span>
@@ -1206,14 +1231,14 @@ export function InstructorClassWorkspace({
             </div>
 
             {/* Bảng điểm chi tiết */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto shadow-xs">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-x-auto shadow-xs">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-extrabold text-[10px] border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     <th className="px-4 py-3 sticky left-0 bg-slate-50 dark:bg-slate-800 z-10 min-w-44 border-r border-slate-200 dark:border-slate-800">
                       Cột 1: Tên học sinh
                     </th>
-                    <th className="px-4 py-3 text-center min-w-28 border-r border-slate-200 dark:border-slate-800 bg-sky-50/50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300">
+                    <th className="px-4 py-3 text-center min-w-28 border-r border-slate-200 dark:border-slate-800 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">
                       Cột 2: Điểm TB
                     </th>
                     {/* Cột bài kiểm tra 1 (có 2 lần làm bài) */}
@@ -1252,7 +1277,7 @@ export function InstructorClassWorkspace({
                           </td>
 
                           {/* Cột 2: Điểm trung bình */}
-                          <td className="px-4 py-3 text-center font-extrabold border-r border-slate-200 dark:border-slate-800 bg-sky-50/20 dark:bg-sky-950/20">
+                          <td className="px-4 py-3 text-center font-extrabold border-r border-slate-200 dark:border-slate-800 bg-blue-50/30 dark:bg-blue-950/20">
                             <span
                               className={`px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColorClass(
                                 Number(avg),
@@ -1331,307 +1356,339 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 7: BÀI GIẢNG (CẤU TRÚC 3 CỘT) */}
+        {/* TAB 7: BÀI GIẢNG (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
         {activeTab === "lectures" && (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Cột 1: Thư mục bài giảng */}
-            <div className="w-60 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] p-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                    Thư mục bài giảng
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFolderModal(true)}
-                    className="text-sky-600 hover:underline text-xs font-bold"
-                  >
-                    + Tạo
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {customFolders.map((f) => (
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+            {/* Header tiêu đề danh mục */}
+            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Bài giảng ({lectures.length})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Kho lưu trữ bài giảng số, bài học video và tài liệu chuyên đề theo lớp.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddLectureModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus size={14} />
+                <span>Thêm bài giảng</span>
+              </button>
+            </div>
+
+            {/* Khung 3 cột Master-Detail */}
+            <div className="flex flex-col lg:flex-row min-h-[580px]">
+              {/* Cột 1: Thư mục bài giảng */}
+              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Thư mục
+                    </span>
                     <button
-                      key={f}
                       type="button"
-                      onClick={() => setSelectedFolder(f)}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left ${
-                        selectedFolder === f
-                          ? "bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => setShowNewFolderModal(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
+                    >
+                      + Tạo thư mục
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {customFolders.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setSelectedFolder(f)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                          selectedFolder === f
+                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
+                        <span className="truncate">{f}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Cột 2: Danh sách bài giảng */}
+              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
+                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Danh sách bài giảng ({lectures.length})
+                </div>
+
+                <div className="flex-1 space-y-2">
+                  {lectures.map((lec) => (
+                    <div
+                      key={lec.id}
+                      onClick={() => setSelectedLecture(lec)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
+                        selectedLecture?.id === lec.id
+                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
+                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
                       }`}
                     >
-                      <Folder size={15} className={selectedFolder === f ? "text-sky-600" : "text-slate-400"} />
-                      <span className="truncate">{f}</span>
-                    </button>
+                      <strong className="block text-xs font-bold truncate">{lec.title}</strong>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                        <span>{lec.platform || "Video"}</span>
+                        <span>{lec.uploadedAt}</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* Cột 2: Danh sách bài giảng */}
-            <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-extrabold">Bài giảng ({lectures.length})</h3>
-                <button
-                  type="button"
-                  onClick={() => setAddLectureModalOpen(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>Thêm bài giảng</span>
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {lectures.map((lec) => (
-                  <div
-                    key={lec.id}
-                    onClick={() => setSelectedLecture(lec)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                      selectedLecture?.id === lec.id
-                        ? "border-sky-500 bg-sky-50/40 dark:bg-sky-950/40 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <strong className="block text-xs font-bold truncate">{lec.title}</strong>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                      <span>{lec.platform || "Video"}</span>
-                      <span>{lec.uploadedAt}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Cột 3: Chi tiết bài giảng */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-[#070b14] space-y-5">
-              {selectedLecture ? (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
-                  <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <div>
-                      <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">
-                        {selectedLecture.title}
-                      </h2>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Người đăng: {selectedLecture.authorName} · Ngày thêm: {selectedLecture.uploadedAt} · Nguồn:{" "}
-                        {selectedLecture.platform || "Tệp tải lên"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => notify("Chế độ chỉnh sửa bài giảng", "info")}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
-                      >
-                        Chỉnh sửa
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLectures(lectures.filter((l) => l.id !== selectedLecture.id));
-                          setSelectedLecture(null);
-                          notify("Đã xóa bài giảng!", "success");
-                        }}
-                        className="px-3 py-1.5 rounded-xl text-rose-600 border border-rose-200 dark:border-rose-900/60 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Trình phát Video / Nhúng link */}
-                  {selectedLecture.sourceType === "LINK" && (
-                    <div className="space-y-2">
-                      <div className="w-full aspect-video rounded-xl bg-black overflow-hidden shadow-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center">
-                        {selectedLecture.platform === "YOUTUBE" ? (
-                          <iframe
-                            className="w-full h-full"
-                            src="https://www.youtube.com/embed/dQw4w9WgXcQ"
-                            title={selectedLecture.title}
-                            allowFullScreen
-                          />
-                        ) : (
-                          <div className="text-center text-white p-4">
-                            <Video size={40} className="mx-auto mb-2 text-sky-400" />
-                            <p className="text-sm font-bold">Trình phát bài giảng ({selectedLecture.platform})</p>
-                          </div>
-                        )}
+              {/* Cột 3: Chi tiết bài giảng */}
+              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
+                {selectedLecture ? (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                      <div>
+                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                          {selectedLecture.title}
+                        </h2>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Người đăng: {selectedLecture.authorName} · Ngày thêm: {selectedLecture.uploadedAt} · Nguồn:{" "}
+                          {selectedLecture.platform || "Tệp tải lên"}
+                        </p>
                       </div>
-                      {/* Dòng chữ chuyển hướng bắt buộc */}
-                      <p className="text-xs text-slate-500 italic">
-                        Nếu bài giảng không khả dụng,{" "}
-                        <a
-                          href={selectedLecture.sourceUrl || "#"}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sky-600 dark:text-sky-400 font-bold hover:underline inline-flex items-center gap-1"
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => notify("Chế độ chỉnh sửa bài giảng", "info")}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
-                          bấm vào đây để chuyển tới liên kết {selectedLecture.platform || "nguồn"}
-                          <ExternalLink size={12} />
-                        </a>
+                          Chỉnh sửa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLectures(lectures.filter((l) => l.id !== selectedLecture.id));
+                            setSelectedLecture(null);
+                            notify("Đã xóa bài giảng!", "success");
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-rose-600 border border-rose-200 dark:border-rose-900/60 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Trình phát Video / Nhúng link */}
+                    {selectedLecture.sourceType === "LINK" && (
+                      <div className="space-y-2">
+                        <div className="w-full aspect-video rounded-xl bg-black overflow-hidden shadow-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center">
+                          {selectedLecture.platform === "YOUTUBE" ? (
+                            <iframe
+                              className="w-full h-full"
+                              src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                              title={selectedLecture.title}
+                              allowFullScreen
+                            />
+                          ) : (
+                            <div className="text-center text-white p-4">
+                              <Video size={40} className="mx-auto mb-2 text-blue-400" />
+                              <p className="text-sm font-bold">Trình phát bài giảng ({selectedLecture.platform})</p>
+                            </div>
+                          )}
+                        </div>
+                        {/* Dòng chữ chuyển hướng bắt buộc */}
+                        <p className="text-xs text-slate-500 italic">
+                          Nếu bài giảng không khả dụng,{" "}
+                          <a
+                            href={selectedLecture.sourceUrl || "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 dark:text-blue-400 font-bold hover:underline inline-flex items-center gap-1"
+                          >
+                            bấm vào đây để chuyển tới liên kết {selectedLecture.platform || "nguồn"}
+                            <ExternalLink size={12} />
+                          </a>
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Mô tả */}
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-extrabold uppercase text-slate-400">Mô tả bài giảng</h4>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                        {selectedLecture.description || "Chưa có mô tả chi tiết cho bài giảng này."}
                       </p>
                     </div>
-                  )}
 
-                  {/* Mô tả */}
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-extrabold uppercase text-slate-400">Mô tả bài giảng</h3>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                      {selectedLecture.description || "Chưa có mô tả chi tiết cho bài giảng này."}
-                    </p>
-                  </div>
+                    {/* Bài tập và tài liệu đi kèm */}
+                    <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                        <h4 className="text-xs font-bold flex items-center gap-1.5 text-blue-600">
+                          <ListChecks size={15} />
+                          <span>Bài tập đi kèm</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">Bài tập ôn luyện chương 1</p>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("assignments")}
+                          className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          Chuyển tới bài tập →
+                        </button>
+                      </div>
 
-                  {/* Bài tập và tài liệu đi kèm */}
-                  <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                    <div className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-2">
-                      <h4 className="text-xs font-bold flex items-center gap-1.5 text-sky-600">
-                        <ListChecks size={15} />
-                        <span>Bài tập đi kèm</span>
-                      </h4>
-                      <p className="text-xs text-slate-500">Bài tập ôn luyện chương 1</p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("assignments")}
-                        className="text-[11px] font-bold text-sky-600 hover:underline"
-                      >
-                        Chuyển tới bài tập →
-                      </button>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-2">
-                      <h4 className="text-xs font-bold flex items-center gap-1.5 text-emerald-600">
-                        <FolderOpen size={15} />
-                        <span>Tài liệu đính kèm</span>
-                      </h4>
-                      <p className="text-xs text-slate-500">Phiếu tóm tắt công thức.pdf</p>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("materials")}
-                        className="text-[11px] font-bold text-emerald-600 hover:underline"
-                      >
-                        Chuyển tới tài liệu →
-                      </button>
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                        <h4 className="text-xs font-bold flex items-center gap-1.5 text-emerald-600">
+                          <FolderOpen size={15} />
+                          <span>Tài liệu đính kèm</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">Phiếu tóm tắt công thức.pdf</p>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("materials")}
+                          className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                        >
+                          Chuyển tới tài liệu →
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400">Chọn một bài giảng để xem chi tiết.</div>
-              )}
+                ) : (
+                  <div className="p-8 text-center text-xs text-slate-400">Chọn một bài giảng để xem chi tiết.</div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {/* TAB 8: TÀI LIỆU */}
+        {/* TAB 8: TÀI LIỆU (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
         {activeTab === "materials" && (
-          <div className="flex-1 flex overflow-hidden">
-            {/* Cột 1: Thư mục tài liệu */}
-            <div className="w-60 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1220] p-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">Thư mục tài liệu</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFolderModal(true)}
-                    className="text-sky-600 hover:underline text-xs font-bold"
-                  >
-                    + Tạo
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {customFolders.map((f) => (
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+            {/* Header tiêu đề danh mục */}
+            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Tài liệu học tập ({materials.length})
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Tài liệu tham khảo, giáo trình và phiếu bài tập đính kèm lớp học.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => notify("Đang mở trình tải tài liệu...", "info")}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <UploadCloud size={14} />
+                <span>Tải tài liệu</span>
+              </button>
+            </div>
+
+            {/* Khung 3 cột Master-Detail */}
+            <div className="flex flex-col lg:flex-row min-h-[580px]">
+              {/* Cột 1: Thư mục tài liệu */}
+              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Thư mục
+                    </span>
                     <button
-                      key={f}
                       type="button"
-                      onClick={() => setSelectedFolder(f)}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left ${
-                        selectedFolder === f
-                          ? "bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800"
-                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => setShowNewFolderModal(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
+                    >
+                      + Tạo thư mục
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {customFolders.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setSelectedFolder(f)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                          selectedFolder === f
+                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
+                        <span className="truncate">{f}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Cột 2: Danh sách tài liệu */}
+              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
+                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Danh sách tài liệu ({materials.length})
+                </div>
+
+                <div className="flex-1 space-y-2">
+                  {materials.map((mat) => (
+                    <div
+                      key={mat.id}
+                      onClick={() => setSelectedMaterial(mat)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
+                        selectedMaterial?.id === mat.id
+                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
+                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
                       }`}
                     >
-                      <Folder size={15} className={selectedFolder === f ? "text-sky-600" : "text-slate-400"} />
-                      <span className="truncate">{f}</span>
-                    </button>
+                      <strong className="block text-xs font-bold truncate">{mat.name}</strong>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                        <span>{mat.mimeType || "PDF"}</span>
+                        <span>{(mat.sizeBytes / 1024).toFixed(1)} KB</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            </div>
 
-            {/* Cột 2: Danh sách tài liệu */}
-            <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 p-4 flex flex-col">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-extrabold">Tài liệu ({materials.length})</h3>
-                <button
-                  type="button"
-                  onClick={() => notify("Đang mở trình tải tài liệu...", "info")}
-                  className="px-2.5 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 flex items-center gap-1"
-                >
-                  <UploadCloud size={14} />
-                  <span>Tải tài liệu</span>
-                </button>
+              {/* Cột 3: Chi tiết tài liệu */}
+              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
+                {selectedMaterial ? (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                      <div>
+                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                          {selectedMaterial.name}
+                        </h2>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Kích thước: {(selectedMaterial.sizeBytes / 1024).toFixed(1)} KB · Định dạng:{" "}
+                          {selectedMaterial.mimeType}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => notify("Đang tải tệp về máy...", "success")}
+                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Download size={13} />
+                          <span>Tải về</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-12 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-center text-slate-400 text-xs bg-white dark:bg-slate-900">
+                      Xem trước trực quan tài liệu học tập
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-xs text-slate-400">Chọn một tài liệu để xem chi tiết.</div>
+                )}
               </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {materials.map((mat) => (
-                  <div
-                    key={mat.id}
-                    onClick={() => setSelectedMaterial(mat)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                      selectedMaterial?.id === mat.id
-                        ? "border-sky-500 bg-sky-50/40 dark:bg-sky-950/40 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <strong className="block text-xs font-bold truncate">{mat.name}</strong>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                      <span>{mat.mimeType || "PDF"}</span>
-                      <span>{(mat.sizeBytes / 1024).toFixed(1)} KB</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Cột 3: Chi tiết tài liệu */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50 dark:bg-[#070b14] space-y-5">
-              {selectedMaterial ? (
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
-                  <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <div>
-                      <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">
-                        {selectedMaterial.name}
-                      </h2>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Kích thước: {(selectedMaterial.sizeBytes / 1024).toFixed(1)} KB · Định dạng:{" "}
-                        {selectedMaterial.mimeType}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => notify("Đang tải tệp về máy...", "success")}
-                        className="px-3.5 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 flex items-center gap-1.5"
-                      >
-                        <Download size={14} />
-                        <span>Tải về</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-center text-slate-400 text-xs">
-                    Xem trước trực quan tài liệu học tập
-                  </div>
-                </div>
-              ) : (
-                <div className="p-8 text-center text-xs text-slate-400">Chọn một tài liệu để xem chi tiết.</div>
-              )}
             </div>
           </div>
         )}
 
         {/* TAB 9: NGÂN HÀNG CÂU HỎI LỚP HỌC */}
         {activeTab === "questions" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-5xl mx-auto space-y-5">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
@@ -1644,7 +1701,7 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => notify("Chức năng soạn câu hỏi mới cho lớp", "info")}
-                className="px-3.5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 inline-flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Plus size={15} />
                 <span>Soạn câu hỏi mới</span>
@@ -1659,10 +1716,10 @@ export function InstructorClassWorkspace({
               ].map((q, idx) => (
                 <div
                   key={idx}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-xs space-y-2"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-2"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 dark:bg-sky-950 text-sky-600">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
                       {q.type}
                     </span>
                     <span className="text-[11px] text-slate-400 font-medium">Nguồn: {q.source}</span>
@@ -1678,7 +1735,7 @@ export function InstructorClassWorkspace({
             TAB 10: CÀI ĐẶT LỚP HỌC (TÁCH BIỆT)
             ========================================================================= */}
         {activeTab === "settings" && (
-          <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto space-y-6">
+          <div className="space-y-4">
             <div>
               <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                 Cài đặt lớp học ({item.name})
@@ -1688,7 +1745,7 @@ export function InstructorClassWorkspace({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs space-y-5">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs space-y-5">
               {/* Thông tin lớp học */}
               <div className="space-y-4">
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
@@ -1759,7 +1816,7 @@ export function InstructorClassWorkspace({
                     type="checkbox"
                     checked={classSettings.allowStudentPost}
                     onChange={(e) => setClassSettings({ ...classSettings, allowStudentPost: e.target.checked })}
-                    className="size-4 text-sky-600 rounded cursor-pointer"
+                    className="size-4 text-blue-600 rounded cursor-pointer"
                   />
                 </div>
 
@@ -1776,7 +1833,7 @@ export function InstructorClassWorkspace({
                     type="checkbox"
                     checked={classSettings.allowLateSubmission}
                     onChange={(e) => setClassSettings({ ...classSettings, allowLateSubmission: e.target.checked })}
-                    className="size-4 text-sky-600 rounded cursor-pointer"
+                    className="size-4 text-blue-600 rounded cursor-pointer"
                   />
                 </div>
 
@@ -1802,7 +1859,7 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={() => notify("Đã hủy các thay đổi", "info")}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Hủy thay đổi
                 </button>
@@ -1816,7 +1873,7 @@ export function InstructorClassWorkspace({
                     }, 500);
                   }}
                   disabled={settingsSaving}
-                  className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
                 >
                   {settingsSaving ? "Đang lưu..." : "Lưu cài đặt"}
                 </button>
@@ -1825,6 +1882,7 @@ export function InstructorClassWorkspace({
           </div>
         )}
       </main>
+      </div>
 
       {/* =========================================================================
           MODAL THÊM BÀI GIẢNG HAI VÙNG (TWO-PANE LECTURE CREATOR)

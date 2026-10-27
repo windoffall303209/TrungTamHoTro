@@ -284,7 +284,7 @@ export default function CoursesPage() {
   return <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
     <PageHeader
       title={session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : "Khóa học & lớp"}
-      description={manager ? "Quản lý danh mục đào tạo, kỳ học, phân cấp Khối - Môn và vòng đời lớp." : "Theo dõi các lớp được phân công hoặc đã ghi danh theo đúng phạm vi truy cập."}
+      description={manager ? "Quản lý danh mục đào tạo, kỳ học, phân cấp Khối - Môn và vòng đời lớp." : session.roleCode === "INSTRUCTOR" ? "Danh sách các lớp học bạn được phân công giảng dạy." : "Danh sách các lớp học bạn đã ghi danh tham gia."}
       actions={manager ? (
         <div className="flex gap-2">
           <Button onClick={() => setMode("course")} variant="secondary">
@@ -312,8 +312,8 @@ export default function CoursesPage() {
       />
     ) : null}
 
-    {/* THANH BỘ LỌC PHÂN CẤP CHUẨN K-12: KHỐI -> MÔN -> LỚP */}
-    {(!isLearner || !displayClasses.length) && (
+    {/* THANH BỘ LỌC PHÂN CẤP CHUẨN K-12: KHỐI -> MÔN (CHỈ CHO QUẢN LÝ / ADMIN) */}
+    {manager && (
       <div className="mb-4 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center gap-3">
         {/* Lọc Khối */}
         <div className="w-48 shrink-0">
@@ -480,7 +480,7 @@ export default function CoursesPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4 mb-4">
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                  {manager ? "Lớp đang quản lý" : session.roleCode === "INSTRUCTOR" ? "Lớp được phân công" : "Lớp đã ghi danh"}
+                  {manager ? "Lớp đang quản lý" : session.roleCode === "INSTRUCTOR" ? "Lớp đang dạy" : "Lớp đã ghi danh"}
                 </span>
                 <span className="shrink-0 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 rounded-full border border-blue-200/80 dark:border-blue-800/60 tabular-nums">
                   {displayClasses.length} lớp
@@ -529,8 +529,8 @@ export default function CoursesPage() {
               <p className="my-4 text-xs text-slate-500">Không có lớp nào thuộc khóa học này.</p>
             ) : null}
 
-            {isLearner ? (
-              /* GIAO DIỆN DẠNG DANH SÁCH (LIST ROWS) CHO HỌC SINH - CLICK VÀO HÀNG ĐỂ VÀO LỚP */
+            {isLearner || session.roleCode === "INSTRUCTOR" ? (
+              /* GIAO DIỆN DẠNG DANH SÁCH (LIST ROWS) CHO HỌC SINH VÀ GIÁO VIÊN - CLICK VÀO HÀNG ĐỂ VÀO LỚP */
               displayClasses.length === 0 ? (
                 <div className="py-16 text-center space-y-3 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8">
                   <GraduationCap className="mx-auto text-slate-300 dark:text-slate-600" size={48} />
