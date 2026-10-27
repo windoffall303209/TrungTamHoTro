@@ -40,6 +40,8 @@ import {
   Bell,
   Flag,
   History,
+  AlertCircle,
+  Info,
 } from "lucide-react";
 import type {
   LearningClass,
@@ -391,6 +393,44 @@ export function LearnerClassWorkspace({
   const [selectedLectureForPage, setSelectedLectureForPage] = useState<LectureItem | null>(null);
   const [lecturePageFolder, setLecturePageFolder] = useState<string>("__ALL__");
 
+  // State thông báo toast hiện đại (thay thế hoàn toàn alert popup của trình duyệt)
+  const [toast, setToast] = useState<{
+    id: string;
+    message: string;
+    type?: "info" | "warning" | "success";
+    actionLabel?: string;
+    onAction?: () => void;
+  } | null>(null);
+
+  /** Kích hoạt hiển thị thông báo toast mềm mại góc màn hình */
+  const showToast = useCallback(
+    (
+      message: string,
+      options?: {
+        type?: "info" | "warning" | "success";
+        actionLabel?: string;
+        onAction?: () => void;
+      },
+    ) => {
+      setToast({
+        id: `toast-${Date.now()}`,
+        message,
+        type: options?.type || "info",
+        actionLabel: options?.actionLabel,
+        onAction: options?.onAction,
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   // Danh sách bài tập & đề thi: 100% LẤY DỮ LIỆU THẬT TỪ DATABASE CỦA LỚP
   const assignmentsList: AssignmentItem[] = useMemo(() => {
     const dbExams: AssignmentItem[] = classExams.map((exam, idx) => {
@@ -517,6 +557,24 @@ export function LearnerClassWorkspace({
               feedback: "Em cần rèn luyện thêm phần giải phương trình bậc hai.",
             },
           ],
+          folder: "Toán 1",
+          subtypeText: "Trắc nghiệm tách câu",
+          scoringMethod: "Lần đầu tiên",
+          createdAt: "27 tháng 10",
+        },
+        {
+          id: "test-exam-02",
+          title: "Bài tập đại số chưa làm",
+          type: "EXAM",
+          durationMinutes: 30,
+          dueAt: "2026-11-30T22:00:00Z",
+          status: "PENDING",
+          maxScore: 10,
+          totalQuestions: 5,
+          remainingAttempts: 1,
+          attemptLimit: 1,
+          completedAttempts: 0,
+          attempts: [],
           folder: "Toán 1",
           subtypeText: "Trắc nghiệm tách câu",
           scoringMethod: "Lần đầu tiên",
@@ -817,7 +875,7 @@ export function LearnerClassWorkspace({
 
     const remainingSlots = 5 - newPostImages.length;
     if (remainingSlots <= 0) {
-      alert("Chỉ được đính kèm tối đa 5 hình ảnh trong một bài viết.");
+      showToast("Chỉ được đính kèm tối đa 5 hình ảnh trong một bài viết.", { type: "warning" });
       return;
     }
 
@@ -1452,6 +1510,52 @@ export function LearnerClassWorkspace({
               void loadClassData();
             }}
           />
+        )}
+
+        {/* THÔNG BÁO TOAST NỘI BỘ THAY THẾ TOÀN BỘ POPUP NATIVE */}
+        {toast && (
+          <aside
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 dark:bg-slate-800/95 text-white shadow-2xl border border-slate-700/80 backdrop-blur-md max-w-md">
+              <div
+                className={`size-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  toast.type === "warning"
+                    ? "bg-amber-500/20 text-amber-400"
+                    : toast.type === "success"
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}
+              >
+                {toast.type === "warning" ? <AlertCircle size={18} /> : <Info size={18} />}
+              </div>
+              <p className="text-xs font-semibold text-slate-100 leading-snug flex-1">
+                {toast.message}
+              </p>
+              {toast.actionLabel && toast.onAction && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.onAction?.();
+                    setToast(null);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+                >
+                  {toast.actionLabel}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setToast(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                aria-label="Đóng thông báo"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </aside>
         )}
       </div>
     );
@@ -2390,7 +2494,19 @@ export function LearnerClassWorkspace({
                               setHistoryAssignment(activeAssignment);
                               setIsHistoryModalOpen(true);
                             } else {
-                              alert("Bạn chưa nộp lượt làm bài nào cho bài tập này. Vui lòng bấm 'Làm bài' để bắt đầu!");
+                              showToast("Bạn chưa nộp lượt làm bài nào cho bài tập này.", {
+                                type: "info",
+                                actionLabel: "Làm bài ngay",
+                                onAction: () => {
+                                  setActiveExamForTaking({
+                                    id: activeAssignment.id,
+                                    title: activeAssignment.title,
+                                    durationMinutes: activeAssignment.durationMinutes,
+                                    totalQuestions: activeAssignment.totalQuestions || 10,
+                                    remainingAttempts: activeAssignment.remainingAttempts,
+                                  });
+                                },
+                              });
                             }
                           }}
                           className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
@@ -3282,6 +3398,52 @@ export function LearnerClassWorkspace({
             });
           }}
         />
+      )}
+
+      {/* THÔNG BÁO TOAST NỘI BỘ THAY THẾ TOÀN BỘ POPUP NATIVE */}
+      {toast && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200"
+        >
+          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 dark:bg-slate-800/95 text-white shadow-2xl border border-slate-700/80 backdrop-blur-md max-w-md">
+            <div
+              className={`size-8 rounded-xl flex items-center justify-center shrink-0 ${
+                toast.type === "warning"
+                  ? "bg-amber-500/20 text-amber-400"
+                  : toast.type === "success"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : "bg-blue-500/20 text-blue-400"
+              }`}
+            >
+              {toast.type === "warning" ? <AlertCircle size={18} /> : <Info size={18} />}
+            </div>
+            <p className="text-xs font-semibold text-slate-100 leading-snug flex-1">
+              {toast.message}
+            </p>
+            {toast.actionLabel && toast.onAction && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.onAction?.();
+                  setToast(null);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+              >
+                {toast.actionLabel}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+              aria-label="Đóng thông báo"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        </aside>
       )}
     </div>
   );
