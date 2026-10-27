@@ -53,6 +53,7 @@ import {
   Share2,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   ThumbsUp,
   Trash2,
@@ -133,13 +134,33 @@ interface LectureItem {
   sourceUrl?: string;
   youtubeId?: string;
   platform?: "YOUTUBE" | "FACEBOOK" | "DRIVE" | "DIRECT" | "INVALID";
+  fileType?: "mp4" | "mp3" | "pptx";
+  duration?: string;
+  teacher?: string;
   fileName?: string;
   fileSize?: string;
   folder: string;
   uploadedAt: string;
   authorName: string;
+  progressPercent?: number;
+  viewsCount?: number;
   assignmentIds?: string[];
   materialIds?: string[];
+  attachedExamId?: string;
+  attachedExamTitle?: string;
+}
+
+interface MaterialDisplayItem {
+  id: string;
+  title: string;
+  fileType: "pdf" | "doc" | "word" | "xlsx";
+  size: string;
+  uploadedAt: string;
+  folder: string;
+  pageCount?: number;
+  downloadsCount?: number;
+  description?: string;
+  url?: string;
 }
 
 interface StudentAttemptStat {
@@ -296,35 +317,107 @@ export function InstructorClassWorkspace({
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<StudentAttemptStat | null>(null);
 
-  // Bài giảng
-  const [lectures, setLectures] = useState<LectureItem[]>([
-    {
-      id: "lec-1",
-      title: "Bài giảng 1: Giới thiệu tổng quan chương trình",
-      description: "Nắm vững khung kiến thức và chuẩn đầu ra của môn học.",
-      sourceType: "LINK",
-      sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      platform: "YOUTUBE",
-      folder: "Tuần 1 - Nhập môn",
-      uploadedAt: "25/10/2026",
-      authorName: session.user.name || "Giảng viên",
-    },
-    {
-      id: "lec-2",
-      title: "Bài giảng 2: Các khái niệm cơ bản và ví dụ thực tế",
-      description: "Phân tích các dạng bài điển hình có trong đề kiểm tra.",
-      sourceType: "LINK",
-      sourceUrl: "https://drive.google.com/file/d/sample",
-      platform: "DRIVE",
-      folder: "Tuần 2 - Cơ bản",
-      uploadedAt: "26/10/2026",
-      authorName: session.user.name || "Giảng viên",
-    },
-  ]);
-  const [selectedLecture, setSelectedLecture] = useState<LectureItem | null>(lectures[0] || null);
+  // Danh sách Bài giảng phong phú đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý qua localStorage)
+  const [lectures, setLectures] = useState<LectureItem[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`wind_lectures_${item.id}`);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [
+      {
+        id: "lec-03",
+        title: "Bài giảng 03: Hình học không gian - Thể tích khối đa diện",
+        fileType: "mp4",
+        duration: "45 phút",
+        teacher: session.user.name || "Wind Fall",
+        uploadedAt: "27 tháng 10 lúc 16:58",
+        folder: "Hình học",
+        progressPercent: 75,
+        viewsCount: 38,
+        description: "Nắm vững lý thuyết tính thể tích lăng trụ, chóp cụt và ứng dụng phân chia khối đa diện.",
+        youtubeId: "jfKfPfyJRdk",
+        sourceType: "LINK",
+        sourceUrl: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
+        platform: "YOUTUBE",
+        authorName: session.user.name || "Wind Fall",
+      },
+      {
+        id: "lec-pptx",
+        title: "Phiếu bài tập trắc nghiệm toán học tách câu & slide tóm tắt",
+        fileType: "pptx",
+        duration: "45 phút",
+        teacher: session.user.name || "Wind Fall",
+        uploadedAt: "27 tháng 10 lúc 16:58",
+        folder: "Toán 1",
+        progressPercent: 75,
+        viewsCount: 42,
+        description: "Phiếu bài tập trắc nghiệm phân loại chi tiết và tổng hợp công thức toán học trọng tâm.",
+        sourceType: "FILE",
+        platform: "DIRECT",
+        authorName: session.user.name || "Wind Fall",
+      },
+      {
+        id: "lec-02",
+        title: "Bài giảng 02: Kỹ thuật phân tích đồ thị và tương giao hàm số",
+        fileType: "mp4",
+        duration: "45 phút",
+        teacher: session.user.name || "Wind Fall",
+        uploadedAt: "27 tháng 10 lúc 16:33",
+        folder: "Toán 1",
+        progressPercent: 75,
+        viewsCount: 32,
+        description: "Phương pháp tương giao đồ thị và các bài toán biện luận tham số nâng cao.",
+        youtubeId: "kJQP7kiw5Fk",
+        sourceType: "LINK",
+        sourceUrl: "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
+        platform: "YOUTUBE",
+        authorName: session.user.name || "Wind Fall",
+      },
+      {
+        id: "lec-01",
+        title: "Bài giảng 01: Đại cương về Hàm số bậc nhất và bậc hai",
+        fileType: "mp4",
+        duration: "45 phút",
+        teacher: session.user.name || "Wind Fall",
+        uploadedAt: "27 tháng 10 lúc 15:34",
+        folder: "Toán 1",
+        progressPercent: 75,
+        viewsCount: 50,
+        description: "Khái niệm hàm số, tập xác định, tính đơn điệu và vẽ bảng biến thiên hàm số.",
+        youtubeId: "dQw4w9WgXcQ",
+        sourceType: "LINK",
+        sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        platform: "YOUTUBE",
+        authorName: session.user.name || "Wind Fall",
+      },
+    ];
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`wind_lectures_${item.id}`, JSON.stringify(lectures));
+      } catch (e) {}
+    }
+  }, [lectures, item.id]);
+
+  const [selectedLecture, setSelectedLecture] = useState<LectureItem | null>(null);
+  const [selectedLectureForPage, setSelectedLectureForPage] = useState<LectureItem | null>(null);
+  const [selectedLectureId, setSelectedLectureId] = useState<string>("lec-pptx");
+  const [lectureSearch, setLectureSearch] = useState("");
+  const [lectureSort, setLectureSort] = useState<"alpha" | "newest" | "type">("newest");
+  const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
+  const [lectureFolderExpanded, setLectureFolderExpanded] = useState<Record<string, boolean>>({
+    "Hình học": true,
+    "Toán 1": true,
+  });
 
   // Modal tạo Bài giảng 2 vùng (Two-Pane Creator)
   const [addLectureModalOpen, setAddLectureModalOpen] = useState(false);
+  const [editLectureModalOpen, setEditLectureModalOpen] = useState(false);
+  const [editingLecture, setEditingLecture] = useState<LectureItem | null>(null);
   const [lectureMethod, setLectureMethod] = useState<"LINK" | "FILE">("LINK");
   const [lectureInputUrl, setLectureInputUrl] = useState("");
   const [lectureUrlError, setLectureUrlError] = useState("");
@@ -337,7 +430,7 @@ export function InstructorClassWorkspace({
   const [lectureFileObj, setLectureFileObj] = useState<File | null>(null);
   const [lectureFormTitle, setLectureFormTitle] = useState("");
   const [lectureFormDesc, setLectureFormDesc] = useState("");
-  const [lectureFormFolder, setLectureFormFolder] = useState("Tuần 1 - Nhập môn");
+  const [lectureFormFolder, setLectureFormFolder] = useState("Toán 1");
   const [lectureAttachedAssignments, setLectureAttachedAssignments] = useState<string[]>([]);
   const [lectureAttachedMaterials, setLectureAttachedMaterials] = useState<string[]>([]);
 
@@ -349,8 +442,83 @@ export function InstructorClassWorkspace({
   const [assignmentFormMaxScore, setAssignmentFormMaxScore] = useState(10);
   const [assignmentFormFolder, setAssignmentFormFolder] = useState("Tuần 1 - Nhập môn");
 
-  // Tài liệu được chọn
+  // Danh sách Tài liệu đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý qua localStorage)
+  const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([
+    {
+      id: "mat-01",
+      title: "Đề cương ôn tập kiểm tra giữa học kỳ 1 Toán học.pdf",
+      fileType: "pdf",
+      size: "3.2 MB",
+      uploadedAt: "27 tháng 10 lúc 16:58",
+      folder: "Toán 1",
+      pageCount: 15,
+      downloadsCount: 42,
+      description: "Tóm tắt toàn bộ công thức và dạng bài trọng tâm kiểm tra giữa kỳ 1.",
+    },
+    {
+      id: "mat-02",
+      title: "Phiếu bài tập nâng cao đại số và hình học.pdf",
+      fileType: "pdf",
+      size: "2.4 MB",
+      uploadedAt: "26 tháng 10 lúc 14:15",
+      folder: "Hình học",
+      pageCount: 12,
+      downloadsCount: 35,
+      description: "Tuyển chọn các bài toán vận dụng cao phân loại học sinh khá giỏi.",
+    },
+    {
+      id: "mat-03",
+      title: "Bảng công thức lượng giác và đạo hàm.xlsx",
+      fileType: "xlsx",
+      size: "1.1 MB",
+      uploadedAt: "25 tháng 10 lúc 09:30",
+      folder: "Toán 1",
+      pageCount: 5,
+      downloadsCount: 58,
+      description: "Bảng tra cứu nhanh công thức lượng giác, đạo hàm và nguyên hàm cơ bản.",
+    },
+    {
+      id: "mat-04",
+      title: "Tài liệu chuyên đề hình học không gian.doc",
+      fileType: "doc",
+      size: "1.8 MB",
+      uploadedAt: "24 tháng 10 lúc 11:20",
+      folder: "Hình học",
+      pageCount: 18,
+      downloadsCount: 29,
+      description: "Hệ thống bài tập thể tích và khoảng cách trong không gian toán học.",
+    },
+  ]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`wind_materials_${item.id}`, JSON.stringify(materialsList));
+      } catch (e) {}
+    }
+  }, [materialsList, item.id]);
+
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string>("mat-01");
+  const [materialSearch, setMaterialSearch] = useState("");
+  const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
+  const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
+  const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({
+    "Hình học": true,
+    "Toán 1": true,
+  });
+
+  // Modal tải & chỉnh sửa tài liệu
+  const [addMaterialModalOpen, setAddMaterialModalOpen] = useState(false);
+  const [editMaterialModalOpen, setEditMaterialModalOpen] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<MaterialDisplayItem | null>(null);
+
+  const [materialFormTitle, setMaterialFormTitle] = useState("");
+  const [materialFormFolder, setMaterialFormFolder] = useState("Toán 1");
+  const [materialFormFileType, setMaterialFormFileType] = useState<"pdf" | "xlsx" | "doc">("pdf");
+  const [materialFormSize, setMaterialFormSize] = useState("2.5 MB");
+  const [materialFormPageCount, setMaterialFormPageCount] = useState(10);
+  const [materialFormDesc, setMaterialFormDesc] = useState("");
 
   // Cài đặt lớp học (Settings)
   const [classSettings, setClassSettings] = useState({
@@ -829,6 +997,495 @@ export function InstructorClassWorkspace({
       };
     });
   }, [learners, selectedAssignment]);
+
+  // Thư mục bài giảng
+  const lectureFolders = useMemo(() => {
+    const folders = new Set<string>();
+    lectures.forEach((l) => {
+      if (l.folder) folders.add(l.folder);
+    });
+    return Array.from(folders);
+  }, [lectures]);
+
+  // Danh sách bài giảng lọc
+  const filteredLectures = useMemo(() => {
+    let result = [...lectures];
+    if (selectedLectureFolder !== "__ALL__") {
+      result = result.filter((l) => l.folder === selectedLectureFolder);
+    }
+    if (lectureSearch.trim()) {
+      const q = lectureSearch.toLowerCase();
+      result = result.filter(
+        (l) => l.title.toLowerCase().includes(q) || (l.description && l.description.toLowerCase().includes(q))
+      );
+    }
+    if (lectureSort === "alpha") {
+      result.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (lectureSort === "type") {
+      result.sort((a, b) => (a.fileType || "").localeCompare(b.fileType || ""));
+    }
+    return result;
+  }, [lectures, selectedLectureFolder, lectureSearch, lectureSort]);
+
+  // Bài giảng đang được chọn ở Cột 3
+  const activeLectureItem = useMemo(() => {
+    if (filteredLectures.length === 0) return null;
+    return filteredLectures.find((l) => l.id === selectedLectureId) || filteredLectures[0] || null;
+  }, [filteredLectures, selectedLectureId]);
+
+  // Thư mục tài liệu
+  const materialFolders = useMemo(() => {
+    const folders = new Set<string>();
+    materialsList.forEach((m) => {
+      if (m.folder) folders.add(m.folder);
+    });
+    return Array.from(folders);
+  }, [materialsList]);
+
+  // Danh sách tài liệu lọc
+  const filteredMaterials = useMemo(() => {
+    let result = [...materialsList];
+    if (selectedMaterialFolder !== "__ALL__") {
+      result = result.filter((m) => m.folder === selectedMaterialFolder);
+    }
+    if (materialSearch.trim()) {
+      const q = materialSearch.toLowerCase();
+      result = result.filter(
+        (m) => m.title.toLowerCase().includes(q) || (m.description && m.description.toLowerCase().includes(q))
+      );
+    }
+    if (materialSort === "alpha") {
+      result.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (materialSort === "type") {
+      result.sort((a, b) => (a.fileType || "").localeCompare(b.fileType || ""));
+    } else if (materialSort === "newest") {
+      result.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+    }
+    return result;
+  }, [materialsList, selectedMaterialFolder, materialSearch, materialSort]);
+
+  // Tài liệu đang được chọn ở Cột 3
+  const activeMaterialItem = useMemo(() => {
+    if (filteredMaterials.length === 0) return null;
+    return filteredMaterials.find((m) => m.id === selectedMaterialId) || filteredMaterials[0] || null;
+  }, [filteredMaterials, selectedMaterialId]);
+
+  // Xóa bài giảng
+  const handleDeleteLecture = (lectureId: string, lectureTitle: string) => {
+    if (window.confirm(`Bạn có chắc muốn xóa bài giảng "${lectureTitle}" không?`)) {
+      setLectures((prev) => prev.filter((l) => l.id !== lectureId));
+      if (selectedLectureForPage?.id === lectureId) {
+        setSelectedLectureForPage(null);
+      }
+      notify("Đã xóa bài giảng thành công!", "success");
+    }
+  };
+
+  // Mở modal sửa bài giảng
+  const handleOpenEditLecture = (lec: LectureItem) => {
+    setEditingLecture({ ...lec });
+    setEditLectureModalOpen(true);
+  };
+
+  // Lưu chỉnh sửa bài giảng
+  const handleSaveEditLecture = () => {
+    if (!editingLecture || !editingLecture.title.trim()) {
+      notify("Vui lòng nhập tên bài giảng!", "error");
+      return;
+    }
+    setLectures((prev) =>
+      prev.map((l) => (l.id === editingLecture.id ? { ...editingLecture, title: editingLecture.title.trim() } : l))
+    );
+    if (selectedLectureForPage?.id === editingLecture.id) {
+      setSelectedLectureForPage({ ...editingLecture });
+    }
+    setEditLectureModalOpen(false);
+    setEditingLecture(null);
+    notify("Đã cập nhật bài giảng thành công!", "success");
+  };
+
+  // Xóa tài liệu
+  const handleDeleteMaterial = (materialId: string, materialTitle: string) => {
+    if (window.confirm(`Bạn có chắc muốn xóa tài liệu "${materialTitle}" không?`)) {
+      setMaterialsList((prev) => prev.filter((m) => m.id !== materialId));
+      notify("Đã xóa tài liệu thành công!", "success");
+    }
+  };
+
+  // Mở modal sửa tài liệu
+  const handleOpenEditMaterial = (mat: MaterialDisplayItem) => {
+    setEditingMaterial({ ...mat });
+    setEditMaterialModalOpen(true);
+  };
+
+  // Lưu chỉnh sửa tài liệu
+  const handleSaveEditMaterial = () => {
+    if (!editingMaterial || !editingMaterial.title.trim()) {
+      notify("Vui lòng nhập tên tài liệu!", "error");
+      return;
+    }
+    setMaterialsList((prev) =>
+      prev.map((m) => (m.id === editingMaterial.id ? { ...editingMaterial, title: editingMaterial.title.trim() } : m))
+    );
+    setEditMaterialModalOpen(false);
+    setEditingMaterial(null);
+    notify("Đã cập nhật tài liệu thành công!", "success");
+  };
+
+  // Lưu thêm tài liệu mới
+  const handleSaveNewMaterial = () => {
+    if (!materialFormTitle.trim()) {
+      notify("Vui lòng nhập tên tài liệu!", "error");
+      return;
+    }
+    const newMat: MaterialDisplayItem = {
+      id: `mat-${Date.now()}`,
+      title: materialFormTitle.trim(),
+      folder: materialFormFolder,
+      fileType: materialFormFileType,
+      size: materialFormSize || "2.0 MB",
+      pageCount: Number(materialFormPageCount) || 10,
+      downloadsCount: 0,
+      uploadedAt: new Date().toLocaleDateString("vi-VN"),
+      description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
+    };
+    setMaterialsList((prev) => [newMat, ...prev]);
+    setSelectedMaterialId(newMat.id);
+    setAddMaterialModalOpen(false);
+    setMaterialFormTitle("");
+    setMaterialFormDesc("");
+    notify("Đã thêm tài liệu mới thành công!", "success");
+  };
+
+  // =========================================================================
+  // TRANG CHI TIẾT XEM BÀI GIẢNG (THEO ẢNH 2 CHUẨN CỦA HỌC SINH VÀ GIẢNG VIÊN)
+  // =========================================================================
+  if (selectedLectureForPage) {
+    const lecturePlaylist = lectures.filter(
+      (l) => selectedLectureFolder === "__ALL__" || l.folder === selectedLectureFolder
+    );
+
+    return (
+      <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
+          {/* CỘT 1: HEADER DỌC LỚP HỌC (CHUẨN ẢNH 2) */}
+          <aside className="w-full lg:w-56 shrink-0 space-y-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-4">
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLectureForPage(null)}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-blue-600 transition-colors mb-3 cursor-pointer"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Quay lại bài giảng</span>
+                </button>
+                <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
+                  {item.name || "Lớp học"}
+                </h2>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code || "OPS-K01"}</strong>
+                </p>
+              </div>
+
+              {/* Chia sẻ lớp học */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Chia sẻ lớp học
+                </span>
+                <div className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate flex-1 font-mono">
+                    {typeof window !== "undefined" ? window.location.href : `https://windedu.vn/c/${item.code}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        void navigator.clipboard.writeText(window.location.href);
+                        notify("Đã sao chép link lớp học!", "success");
+                      }
+                    }}
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
+                    title="Sao chép link"
+                  >
+                    <Share2 size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Mô tả cho lớp học */}
+              <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                <span>Mô tả cho lớp học</span>
+                <span className="text-blue-600 font-bold cursor-pointer hover:underline">+ Thêm</span>
+              </div>
+
+              {/* Danh mục các chức năng con */}
+              <nav className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 py-1">
+                  Danh mục
+                </p>
+                {[
+                  { id: "feed" as const, label: "Bảng tin", icon: MessageSquare },
+                  { id: "schedule" as const, label: "Lịch học", icon: CalendarDays },
+                  { id: "members" as const, label: "Thành viên", icon: Users },
+                  { id: "assignments" as const, label: "Bài tập", icon: FileText },
+                  { id: "lectures" as const, label: "Bài giảng", icon: Video, active: true },
+                  { id: "materials" as const, label: "Tài liệu", icon: Folder },
+                ].map(({ id, label, icon: Icon, active }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedLectureForPage(null);
+                      handleSelectTab(id);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                      active
+                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    }`}
+                  >
+                    <Icon size={15} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
+                    <span className="truncate">{label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </aside>
+
+          {/* CỘT 2: Ở GIỮA - NỘI DUNG BÀI GIẢNG / PHIẾU BÀI TẬP & BÀI TẬP ĐÍNH KÈM */}
+          <main className="flex-1 min-w-0 space-y-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+              {/* Header: Nút quay lại + Tên bài giảng + Nút chức năng Giảng viên (Chỉnh sửa, Xóa) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLectureForPage(null)}
+                  className="inline-flex items-center gap-2 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 transition-colors cursor-pointer min-w-0"
+                >
+                  <ArrowLeft size={18} className="shrink-0 text-slate-500" />
+                  <span className="truncate">{selectedLectureForPage.title}</span>
+                </button>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-slate-400 font-medium mr-2">
+                    {selectedLectureForPage.uploadedAt}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditLecture(selectedLectureForPage)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/80 cursor-pointer transition-colors"
+                  >
+                    <Edit3 size={13} />
+                    <span>Chỉnh sửa</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteLecture(selectedLectureForPage.id, selectedLectureForPage.title)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/80 cursor-pointer transition-colors"
+                  >
+                    <Trash2 size={13} />
+                    <span>Xóa</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Khung phát bài giảng (Player 16:9 YouTube/Video hoặc Phiếu bài tập trắc nghiệm toán học chuẩn Ảnh 2) */}
+              {selectedLectureForPage.youtubeId ? (
+                <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${selectedLectureForPage.youtubeId}?autoplay=0&rel=0&modestbranding=1`}
+                    className="w-full h-full border-0"
+                    title={selectedLectureForPage.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+              ) : selectedLectureForPage.fileType === "pptx" || selectedLectureForPage.title.includes("Phiếu") ? (
+                /* Giao diện Phiếu bài tập / Slide trình chiếu (chuẩn Ảnh 2 của người dùng) */
+                <div className="w-full min-h-[420px] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-6 shadow-sm space-y-5">
+                  <div className="text-center space-y-1 pb-4 border-b border-slate-100 dark:border-slate-800">
+                    <h3 className="text-base sm:text-lg font-extrabold uppercase text-slate-900 dark:text-slate-100 tracking-wide">
+                      PHIẾU BÀI TẬP TRẮC NGHIỆM TOÁN HỌC
+                    </h3>
+                    <p className="text-xs text-slate-500">Thời gian gợi ý: 15 phút</p>
+                    <div className="flex justify-center gap-8 text-xs text-slate-500 pt-2">
+                      <span>Họ và tên: ........................................................</span>
+                      <span>Lớp: .......................................</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
+                    <p className="font-semibold italic text-slate-600 dark:text-slate-400">
+                      Khoanh tròn vào chữ cái trước đáp án đúng.
+                    </p>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
+                      <p className="font-bold">Câu 1. Kết quả của phép tính 3 475 + 2 618 là:</p>
+                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
+                        <span>A. 6 083</span>
+                        <span>B. 6 093</span>
+                        <span>C. 6 193</span>
+                        <span>D. 5 093</span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
+                      <p className="font-bold">Câu 2. Kết quả của phép chia 864 : 8 là:</p>
+                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
+                        <span>A. 108</span>
+                        <span>B. 118</span>
+                        <span>C. 106</span>
+                        <span>D. 98</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full aspect-video rounded-2xl bg-slate-900 flex flex-col items-center justify-center text-white p-6 shadow-md">
+                  <Video size={48} className="text-purple-400 mb-3" />
+                  <p className="text-sm font-bold">{selectedLectureForPage.title}</p>
+                  <p className="text-xs text-slate-400 mt-1">Trình phát video bài học chuyên đề</p>
+                </div>
+              )}
+
+              {/* Phần Mô tả bài giảng */}
+              <div className="space-y-1.5 pt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Mô tả
+                </h4>
+                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {selectedLectureForPage.description || "Bài giảng không có mô tả nào."}
+                </p>
+              </div>
+
+              {/* Phần Bài tập & Tài liệu đính kèm (chuẩn Ảnh 2) */}
+              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                  Bài tập & tài liệu đính kèm
+                </span>
+
+                <div
+                  onClick={() => {
+                    setSelectedLectureForPage(null);
+                    handleSelectTab("assignments");
+                    if (assignments.length > 0) {
+                      setSelectedAssignment(assignments[0]!);
+                      setAssignmentViewMode("detail");
+                    }
+                  }}
+                  className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="size-9 rounded-lg bg-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
+                      W
+                    </div>
+                    <div className="min-w-0">
+                      <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition-colors block truncate">
+                        {assignments[0]?.title || "Kiểm tra giữa kỳ Web Full-stack"}
+                      </strong>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Trắc nghiệm tách câu
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* CỘT 3: CỘT PHẢI - THƯ MỤC & PLAYLIST BÀI GIẢNG (CHUẨN ẢNH 2) */}
+          <aside className="w-full lg:w-80 shrink-0 space-y-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+              {/* Bên trên: Thư mục */}
+              <div className="space-y-1.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <Folder size={15} className="text-blue-600 fill-blue-500/20" />
+                  <span>Thư mục bài giảng</span>
+                </div>
+                <select
+                  value={selectedLectureFolder}
+                  onChange={(e) => setSelectedLectureFolder(e.target.value)}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer"
+                >
+                  <option value="__ALL__">Tất cả bài giảng</option>
+                  {lectureFolders.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Bên dưới: Các bài giảng của thư mục đã chọn (Playlist) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                    {selectedLectureFolder === "__ALL__" ? "Tất cả bài giảng" : selectedLectureFolder}
+                  </span>
+                  <span>{lecturePlaylist.length} bài giảng</span>
+                </div>
+
+                <div className="space-y-2 max-h-[520px] overflow-y-auto pr-0.5">
+                  {lecturePlaylist.map((lec) => {
+                    const isPlaying = lec.id === selectedLectureForPage.id;
+                    const ytId = lec.youtubeId || getLectureYoutubeId(lec.sourceUrl);
+                    return (
+                      <div
+                        key={lec.id}
+                        onClick={() => setSelectedLectureForPage(lec)}
+                        className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                          isPlaying
+                            ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-400 shadow-2xs"
+                            : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        {/* Thumbnail */}
+                        <div className="relative w-20 h-12 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-200 dark:border-slate-800">
+                          {ytId ? (
+                            <img
+                              src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                              alt={lec.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-purple-900/60 text-purple-300">
+                              <Video size={16} />
+                            </div>
+                          )}
+                          {isPlaying && (
+                            <div className="absolute inset-0 bg-blue-600/40 grid place-items-center">
+                              <Play size={14} className="text-white fill-white animate-pulse" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Thông tin bài giảng */}
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <strong
+                            className={`text-xs font-bold block truncate ${
+                              isPlaying
+                                ? "text-blue-700 dark:text-blue-400"
+                                : "text-slate-900 dark:text-slate-100"
+                            }`}
+                          >
+                            {lec.title}
+                          </strong>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            {lec.fileType === "mp4" ? "Video bài giảng" : "Tài liệu học tập"}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-5">
@@ -1666,86 +2323,6 @@ export function InstructorClassWorkspace({
                           </h3>
                         </div>
 
-                        {/* Khối Chia sẻ bài tập kèm Badge Mới đỏ cam */}
-                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2.5 shadow-2xs">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
-                              <span>Chia sẻ bài tập</span>
-                              <span className="px-1.5 py-0.2 rounded bg-rose-500 text-white font-extrabold text-[10px]">
-                                Mới
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
-                            <span className="flex items-center gap-1">
-                              Chia sẻ cho <Info size={12} className="text-slate-400" />
-                            </span>
-                            <div className="relative">
-                              <select className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-transparent pr-4 cursor-pointer focus:outline-hidden">
-                                <option value="class">Học sinh lớp</option>
-                                <option value="public">Công khai</option>
-                              </select>
-                              <ChevronDown size={12} className="absolute right-0 top-1/2 -translate-y-1/2 text-blue-600 pointer-events-none" />
-                            </div>
-                          </div>
-
-                          {/* Link copy */}
-                          <div className="flex items-center gap-1.5 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
-                            <input
-                              type="text"
-                              readOnly
-                              value={`https://shub.edu.vn/shared/assignment/${selectedAssignment.id}`}
-                              className="bg-transparent text-[11px] text-slate-600 dark:text-slate-300 w-full truncate focus:outline-hidden"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(`https://shub.edu.vn/shared/assignment/${selectedAssignment.id}`);
-                                notify("Đã sao chép liên kết chia sẻ!", "success");
-                              }}
-                              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-blue-600 transition cursor-pointer shrink-0"
-                              title="Sao chép liên kết"
-                            >
-                              <Copy size={13} />
-                            </button>
-                          </div>
-
-                          {/* Icon chia sẻ lên Facebook, Messenger, Zalo */}
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                            <span>Chia sẻ lên</span>
-                            <div className="flex items-center gap-2">
-                              {/* Facebook */}
-                              <button
-                                type="button"
-                                onClick={() => notify("Đang mở chia sẻ Facebook...", "info")}
-                                className="size-6 rounded-full bg-blue-600 text-white font-bold text-xs grid place-items-center cursor-pointer hover:opacity-90"
-                                title="Facebook"
-                              >
-                                f
-                              </button>
-                              {/* Messenger */}
-                              <button
-                                type="button"
-                                onClick={() => notify("Đang mở chia sẻ Messenger...", "info")}
-                                className="size-6 rounded-full bg-blue-500 text-white text-[11px] grid place-items-center cursor-pointer hover:opacity-90"
-                                title="Messenger"
-                              >
-                                ⚡
-                              </button>
-                              {/* Zalo */}
-                              <button
-                                type="button"
-                                onClick={() => notify("Đang mở chia sẻ Zalo...", "info")}
-                                className="px-1.5 h-6 rounded-full bg-sky-500 text-white font-bold text-[10px] grid place-items-center cursor-pointer hover:opacity-90"
-                                title="Zalo"
-                              >
-                                Zalo
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
                         {/* Khối thông số chi tiết của bài tập */}
                         <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800/80 pt-1">
                           <div className="flex items-center justify-between pt-1">
@@ -2022,292 +2599,302 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 7: BÀI GIẢNG (ĐỒNG BỘ 100% GIAO DIỆN CHUẨN CARD VỚI HỌC SINH) */}
+        {/* TAB 7: BÀI GIẢNG (GIAO DIỆN 3 CỘT MASTER-DETAIL CHUẨN ẢNH 1 ĐỒNG BỘ VỚI HỌC SINH + TÍNH NĂNG GIẢNG VIÊN) */}
         {activeTab === "lectures" && (
-          <div className="flex flex-col lg:flex-row gap-5 items-start">
-            {/* CỘT TRÁI & GIỮA: TRÌNH PHÁT BÀI GIẢNG 16:9, MÔ TẢ & BÀI TẬP ĐÍNH KÈM */}
-            <div className="flex-1 w-full min-w-0 space-y-4">
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-                {selectedLecture ? (
-                  <>
-                    {/* Header: Tên bài giảng + Ngày đăng + Cụm nút thao tác của giảng viên */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-3">
-                      <div className="min-w-0 flex-1">
-                        <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 truncate">
-                          {selectedLecture.title}
-                        </h2>
-                        <p className="text-xs text-slate-400 mt-0.5 font-medium">
-                          Người đăng: {selectedLecture.authorName || "Giảng viên"} · Ngày thêm: {selectedLecture.uploadedAt}
-                        </p>
-                      </div>
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+            {/* Header tiêu đề danh mục */}
+            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Bài giảng
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Video bài học chuyên đề, slide trình chiếu và audio ghi âm theo chương mục.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddLectureModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus size={14} />
+                <span>Thêm bài giảng</span>
+              </button>
+            </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => notify("Chỉnh sửa thông tin bài giảng", "info")}
-                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
-                        >
-                          Chỉnh sửa
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Bạn có chắc muốn xóa bài giảng "${selectedLecture.title}"?`)) {
-                              const remaining = lectures.filter((l) => l.id !== selectedLecture.id);
-                              setLectures(remaining);
-                              setSelectedLecture(remaining[0] || null);
-                              notify("Đã xóa bài giảng thành công!", "success");
-                            }
-                          }}
-                          className="px-3 py-1.5 rounded-xl text-rose-600 border border-rose-200 dark:border-rose-900/60 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-                        >
-                          Xóa
-                        </button>
-                      </div>
-                    </div>
+            {/* Khung 3 cột Master-Detail chuẩn Ảnh 1 */}
+            <div className="flex flex-col lg:flex-row min-h-[580px]">
+              {/* CỘT 1: CÂY THƯ MỤC (~220px) */}
+              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                  <span>Thư mục</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewFolderModal(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
+                      title="Tạo thư mục mới"
+                    >
+                      + Tạo
+                    </button>
+                    <SlidersHorizontal size={14} className="text-slate-400" />
+                  </div>
+                </div>
 
-                    {/* Khung phát bài giảng (Player 16:9 YouTube/Video thực thụ) */}
-                    {(() => {
-                      const ytId =
-                        selectedLecture.youtubeId ||
-                        getLectureYoutubeId(selectedLecture.sourceUrl);
-
-                      if (ytId) {
-                        return (
-                          <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
-                            <iframe
-                              src={`https://www.youtube.com/embed/${ytId}?autoplay=0&rel=0&modestbranding=1`}
-                              className="w-full h-full border-0"
-                              title={selectedLecture.title}
-                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                              allowFullScreen
-                            />
-                          </div>
-                        );
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLectureFolder("__ALL__")}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                      selectedLectureFolder === "__ALL__"
+                        ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
+                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <Folder
+                      size={16}
+                      className={
+                        selectedLectureFolder === "__ALL__"
+                          ? "text-blue-600 fill-blue-500/20"
+                          : "text-slate-400"
                       }
+                    />
+                    <span className="truncate">Tất cả bài giảng</span>
+                  </button>
 
-                      if (selectedLecture.sourceUrl && (selectedLecture.sourceUrl.endsWith(".mp4") || selectedLecture.sourceUrl.endsWith(".webm"))) {
-                        return (
-                          <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
-                            <video
-                              controls
-                              src={selectedLecture.sourceUrl}
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="w-full aspect-video rounded-2xl bg-slate-900 flex flex-col items-center justify-center text-white p-6 shadow-md border border-slate-800">
-                          <Video size={48} className="text-purple-400 mb-3" />
-                          <p className="text-sm font-bold">{selectedLecture.title}</p>
-                          <p className="text-xs text-slate-400 mt-1">
-                            Bài học chuyên đề · {selectedLecture.platform || "Video tài liệu"}
-                          </p>
-                          {selectedLecture.sourceUrl && (
-                            <a
-                              href={selectedLecture.sourceUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-3 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
-                            >
-                              <span>Mở liên kết gốc</span>
-                              <ExternalLink size={12} />
-                            </a>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Phần Mô tả bài giảng */}
-                    <div className="space-y-1.5 pt-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        Mô tả
-                      </h4>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                        {selectedLecture.description || "Bài giảng không có mô tả nào."}
-                      </p>
-                    </div>
-
-                    {/* Phần Bài tập & Tài liệu đính kèm (Chuẩn bên học sinh với Icon chữ W nền xanh) */}
-                    <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                        Bài tập & tài liệu đính kèm
-                      </span>
-
-                      {assignments.length > 0 && assignments[0] ? (
+                  {lectureFolders.map((folderName) => {
+                    const isExpanded = lectureFolderExpanded[folderName] ?? true;
+                    const isSelected = selectedLectureFolder === folderName;
+                    return (
+                      <div key={folderName} className="space-y-0.5">
                         <div
-                          onClick={() => {
-                            if (assignments[0]) {
-                              setSelectedAssignment(assignments[0]);
-                              setAssignmentViewMode("detail");
-                              handleSelectTab("assignments");
-                            }
-                          }}
-                          className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all cursor-pointer group"
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                            isSelected
+                              ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
+                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                          }`}
+                          onClick={() => setSelectedLectureFolder(folderName)}
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="size-9 rounded-lg bg-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
-                              W
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLectureFolderExpanded((prev) => ({
+                                  ...prev,
+                                  [folderName]: !isExpanded,
+                                }));
+                              }}
+                              className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                            >
+                              <ChevronRight
+                                size={13}
+                                className={`transition-transform duration-150 ${
+                                  isExpanded ? "rotate-90" : ""
+                                }`}
+                              />
+                            </button>
+                            <Folder
+                              size={15}
+                              className={
+                                isSelected
+                                  ? "text-blue-600 fill-blue-500/20"
+                                  : "text-slate-500"
+                              }
+                            />
+                            <span className="truncate">{folderName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* CỘT 2: DANH SÁCH BÀI GIẢNG (FLEX-1 CHUẨN ẢNH 1) */}
+              <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={lectureSearch}
+                      onChange={(e) => setLectureSearch(e.target.value)}
+                      placeholder="Tìm kiếm bài giảng..."
+                      className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
+                    />
+                    <Search
+                      size={14}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <select
+                      value={lectureSort}
+                      onChange={(e) => setLectureSort(e.target.value as any)}
+                      className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      <option value="newest">Mới nhất</option>
+                      <option value="alpha">Tên A-Z</option>
+                      <option value="type">Loại tệp</option>
+                    </select>
+                    <ChevronDown
+                      size={13}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {filteredLectures.length === 0 ? (
+                    <div className="py-12 text-center space-y-2">
+                      <Video size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
+                      <p className="text-xs text-slate-400">Không có bài giảng nào trong thư mục này</p>
+                    </div>
+                  ) : (
+                    filteredLectures.map((lec) => {
+                      const isSelected = (activeLectureItem?.id || filteredLectures[0]?.id) === lec.id;
+                      return (
+                        <div
+                          key={lec.id}
+                          onClick={() => setSelectedLectureId(lec.id)}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-purple-50/70 dark:bg-purple-950/30 border-purple-400 dark:border-purple-500 shadow-2xs"
+                              : "bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-purple-300 dark:hover:border-purple-800"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
+                            <div className={`size-8 rounded-lg text-white font-bold text-xs uppercase flex items-center justify-center shrink-0 shadow-xs ${
+                              lec.fileType === "mp4"
+                                ? "bg-purple-600"
+                                : lec.fileType === "mp3"
+                                  ? "bg-amber-600"
+                                  : "bg-rose-600"
+                            }`}>
+                              {lec.fileType}
                             </div>
-                            <div className="min-w-0">
-                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition-colors block truncate">
-                                {assignments[0].title}
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                {lec.title}
                               </strong>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                Trắc nghiệm tách câu
+                              <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-purple-500 rounded-full"
+                                  style={{ width: `${lec.progressPercent || 0}%` }}
+                                />
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {lec.duration} · GV: {lec.teacher}
                               </p>
                             </div>
                           </div>
-                          <ChevronRight size={16} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+
+                          <div className="shrink-0 text-right">
+                            <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                              {lec.progressPercent ?? 0}% đã xem
+                            </span>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="p-3.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-                          Chưa có bài tập nào được gắn kèm với bài giảng này.
-                        </div>
-                      )}
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* CỘT 3: CHI TIẾT BÀI GIẢNG (~320px CHUẨN ẢNH 1 + NÚT CHỈNH SỬA / XÓA BÀI GIẢNG) */}
+              <div className="w-full lg:w-80 shrink-0 p-5 space-y-4 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col justify-between">
+                {activeLectureItem ? (
+                  <div className="space-y-4">
+                    {/* Tiêu đề bài giảng */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 block">
+                        Bài giảng
+                      </span>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                        {activeLectureItem.title}
+                      </h4>
                     </div>
-                  </>
+
+                    {/* Mô tả (hiển thị ngắn gọn) */}
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
+                        Mô tả
+                      </span>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-3 leading-relaxed">
+                        {activeLectureItem.description || "Bài giảng không có mô tả nào."}
+                      </p>
+                    </div>
+
+                    {/* Ngày đăng */}
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 py-1.5 border-t border-b border-slate-200/60 dark:border-slate-800/60">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar size={13} className="text-slate-400" />
+                        <span>Ngày đăng</span>
+                      </span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {activeLectureItem.uploadedAt}
+                      </span>
+                    </div>
+
+                    {/* Nút Xem bài giảng: Mở trang chi tiết xem bài giảng chuẩn Ảnh 2 */}
+                    <div className="pt-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLectureForPage(activeLectureItem)}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Play size={14} />
+                        <span>Xem bài giảng</span>
+                      </button>
+
+                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa và Xóa bài giảng */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditLecture(activeLectureItem)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Edit3 size={13} />
+                          <span>Chỉnh sửa</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Trash2 size={13} />
+                          <span>Xóa</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="p-12 text-center text-xs text-slate-400">
-                    Chọn một bài giảng từ danh sách playlist bên phải để bắt đầu xem.
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Chọn một bài giảng để xem thông tin
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* CỘT PHẢI: THƯ MỤC & DANH SÁCH BÀI GIẢNG (PLAYLIST ĐỒNG BỘ VỚI HỌC SINH) */}
-            <div className="w-full lg:w-80 shrink-0 space-y-4">
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
-                {/* Bên trên: Thư mục & Nút Thêm bài giảng */}
-                <div className="space-y-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
-                      <Folder size={15} className="text-blue-600 fill-blue-500/20" />
-                      <span>Thư mục bài giảng</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setAddLectureModalOpen(true)}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
-                    >
-                      <Plus size={13} />
-                      <span>Thêm bài giảng</span>
-                    </button>
-                  </div>
-
-                  <select
-                    value={selectedFolder}
-                    onChange={(e) => setSelectedFolder(e.target.value)}
-                    className="w-full py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer"
-                  >
-                    <option value="__ALL__">Tất cả bài giảng</option>
-                    {customFolders.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Bên dưới: Các bài giảng của thư mục đã chọn (Playlist) */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập"
-                        ? "Tất cả bài giảng"
-                        : selectedFolder}
-                    </span>
-                    <span>{lectures.length} bài giảng</span>
-                  </div>
-
-                  <div className="space-y-2 max-h-[520px] overflow-y-auto pr-0.5">
-                    {lectures.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400">
-                        Chưa có bài giảng nào trong thư mục này.
-                      </div>
-                    ) : (
-                      lectures
-                        .filter((lec) => {
-                          if (selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập") return true;
-                          return lec.folder === selectedFolder;
-                        })
-                        .map((lec) => {
-                          const isPlaying = selectedLecture?.id === lec.id;
-                          const ytId = lec.youtubeId || getLectureYoutubeId(lec.sourceUrl);
-
-                          return (
-                            <div
-                              key={lec.id}
-                              onClick={() => setSelectedLecture(lec)}
-                              className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
-                                isPlaying
-                                  ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-400 shadow-2xs"
-                                  : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700"
-                              }`}
-                            >
-                              {/* Thumbnail YouTube / Video thật */}
-                              <div className="relative w-20 h-12 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-200 dark:border-slate-800">
-                                {ytId ? (
-                                  <img
-                                    src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
-                                    alt={lec.title}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-purple-900/60 text-purple-300">
-                                    <Video size={16} />
-                                  </div>
-                                )}
-                                {isPlaying && (
-                                  <div className="absolute inset-0 bg-blue-600/40 grid place-items-center">
-                                    <Play size={14} className="text-white fill-white animate-pulse" />
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Thông tin bài giảng */}
-                              <div className="min-w-0 flex-1">
-                                <strong
-                                  className={`block text-xs font-bold truncate ${
-                                    isPlaying ? "text-blue-600 dark:text-blue-400" : "text-slate-800 dark:text-slate-200"
-                                  }`}
-                                >
-                                  {lec.title}
-                                </strong>
-                                <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-                                  <span>{lec.uploadedAt}</span>
-                                  <span className="font-semibold text-slate-500">{lec.platform || "Video"}</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 8: TÀI LIỆU (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
+        {/* TAB 8: TÀI LIỆU (CẤU TRÚC 3 CỘT ĐỒNG BỘ 100% VỚI HỌC SINH + TÍNH NĂNG GIẢNG VIÊN) */}
         {activeTab === "materials" && (
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
             {/* Header tiêu đề danh mục */}
             <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Tài liệu học tập ({materials.length})
+                  Tài liệu ({materialsList.length})
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Tài liệu tham khảo, giáo trình và phiếu bài tập đính kèm lớp học.
+                  Học liệu số, giáo trình và tài liệu tham khảo phân loại theo thư mục chuyên đề.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => notify("Đang mở trình tải tài liệu...", "info")}
+                onClick={() => setAddMaterialModalOpen(true)}
                 className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <UploadCloud size={14} />
@@ -2317,99 +2904,265 @@ export function InstructorClassWorkspace({
 
             {/* Khung 3 cột Master-Detail */}
             <div className="flex flex-col lg:flex-row min-h-[580px]">
-              {/* Cột 1: Thư mục tài liệu */}
-              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      Thư mục
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowNewFolderModal(true)}
-                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
-                    >
-                      + Tạo thư mục
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {customFolders.map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => setSelectedFolder(f)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
-                          selectedFolder === f
-                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
-                        <span className="truncate">{f}</span>
-                      </button>
-                    ))}
-                  </div>
+              {/* CỘT 1: CÂY THƯ MỤC (~220px) */}
+              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                  <span>Thư mục</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewFolderModal(true)}
+                    className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
+                  >
+                    + Tạo
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMaterialFolder("__ALL__")}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                      selectedMaterialFolder === "__ALL__"
+                        ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
+                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <Folder
+                      size={16}
+                      className={
+                        selectedMaterialFolder === "__ALL__"
+                          ? "text-blue-600 fill-blue-500/20"
+                          : "text-slate-400"
+                      }
+                    />
+                    <span className="truncate">Tất cả tài liệu</span>
+                  </button>
+
+                  {materialFolders.map((folderName) => {
+                    const isExpanded = materialFolderExpanded[folderName] ?? true;
+                    const isSelected = selectedMaterialFolder === folderName;
+                    return (
+                      <div key={folderName} className="space-y-0.5">
+                        <div
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                            isSelected
+                              ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
+                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                          }`}
+                          onClick={() => setSelectedMaterialFolder(folderName)}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMaterialFolderExpanded((prev) => ({
+                                  ...prev,
+                                  [folderName]: !isExpanded,
+                                }));
+                              }}
+                              className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                            >
+                              <ChevronRight
+                                size={13}
+                                className={`transition-transform duration-150 ${
+                                  isExpanded ? "rotate-90" : ""
+                                }`}
+                              />
+                            </button>
+                            <Folder
+                              size={15}
+                              className={
+                                isSelected
+                                  ? "text-blue-600 fill-blue-500/20"
+                                  : "text-slate-500"
+                              }
+                            />
+                            <span className="truncate">{folderName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Cột 2: Danh sách tài liệu */}
-              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
-                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  Danh sách tài liệu ({materials.length})
+              {/* CỘT 2: DANH SÁCH TÀI LIỆU (FLEX-1) */}
+              <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={materialSearch}
+                      onChange={(e) => setMaterialSearch(e.target.value)}
+                      placeholder="Tìm kiếm tài liệu..."
+                      className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
+                    />
+                    <Search
+                      size={14}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <select
+                      value={materialSort}
+                      onChange={(e) => setMaterialSort(e.target.value as any)}
+                      className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
+                    >
+                      <option value="alpha">Tên A-Z</option>
+                      <option value="type">Theo loại tệp</option>
+                      <option value="newest">Mới nhất</option>
+                    </select>
+                    <ChevronDown
+                      size={13}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex-1 space-y-2">
-                  {materials.map((mat) => (
-                    <div
-                      key={mat.id}
-                      onClick={() => setSelectedMaterial(mat)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                        selectedMaterial?.id === mat.id
-                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
-                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                      }`}
-                    >
-                      <strong className="block text-xs font-bold truncate">{mat.name}</strong>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                        <span>{mat.mimeType || "PDF"}</span>
-                        <span>{(mat.sizeBytes / 1024).toFixed(1)} KB</span>
+                <div className="space-y-2">
+                  {filteredMaterials.length === 0 ? (
+                    <div className="py-12 text-center space-y-2">
+                      <Folder size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
+                      <p className="text-xs text-slate-400">Không có tài liệu nào trong thư mục này</p>
+                    </div>
+                  ) : (
+                    filteredMaterials.map((mat) => {
+                      const isSelected = (activeMaterialItem?.id || filteredMaterials[0]?.id) === mat.id;
+                      return (
+                        <div
+                          key={mat.id}
+                          onClick={() => setSelectedMaterialId(mat.id)}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-500 shadow-2xs"
+                              : "bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-800"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
+                            <div className={`size-8 rounded-lg text-white font-bold text-xs uppercase flex items-center justify-center shrink-0 shadow-xs ${
+                              mat.fileType === "pdf"
+                                ? "bg-rose-600"
+                                : mat.fileType === "xlsx"
+                                  ? "bg-emerald-600"
+                                  : "bg-blue-600"
+                            }`}>
+                              {mat.fileType}
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                {mat.title}
+                              </strong>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {mat.size} · {mat.pageCount || 10} trang · Tải lên {mat.uploadedAt}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 text-right">
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                              {mat.downloadsCount || 20} lượt tải
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* CỘT 3: CHI TIẾT TÀI LIỆU (~320px + NÚT CHỈNH SỬA / XÓA TÀI LIỆU) */}
+              <div className="w-full lg:w-80 shrink-0 p-4 space-y-4 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col justify-between">
+                {activeMaterialItem ? (
+                  <div className="space-y-4">
+                    {/* Banner đen bo góc */}
+                    <div className="rounded-xl bg-slate-800 text-white py-2.5 px-4 flex items-center justify-center gap-2 shadow-sm">
+                      <FileText size={16} className="text-emerald-400" />
+                      <span className="text-sm font-bold">
+                        {activeMaterialItem.fileType.toUpperCase()} · {activeMaterialItem.size}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        {activeMaterialItem.title}
+                      </h4>
+                      {activeMaterialItem.description && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {activeMaterialItem.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Định dạng</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">
+                          {activeMaterialItem.fileType}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Dung lượng</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activeMaterialItem.size}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Số trang</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activeMaterialItem.pageCount || 15} trang
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Lượt tải</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activeMaterialItem.downloadsCount || 35} lượt
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Ngày tải lên</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activeMaterialItem.uploadedAt}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              {/* Cột 3: Chi tiết tài liệu */}
-              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
-                {selectedMaterial ? (
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                      <div>
-                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                          {selectedMaterial.name}
-                        </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Kích thước: {(selectedMaterial.sizeBytes / 1024).toFixed(1)} KB · Định dạng:{" "}
-                          {selectedMaterial.mimeType}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
+                    <div className="pt-2 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => notify(`Đang tải xuống tệp ${activeMaterialItem.title}...`, "success")}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Download size={14} />
+                        <span>Tải xuống tài liệu</span>
+                      </button>
+
+                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa và Xóa tài liệu */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
                         <button
                           type="button"
-                          onClick={() => notify("Đang tải tệp về máy...", "success")}
-                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          onClick={() => handleOpenEditMaterial(activeMaterialItem)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                         >
-                          <Download size={13} />
-                          <span>Tải về</span>
+                          <Edit3 size={13} />
+                          <span>Chỉnh sửa</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Trash2 size={13} />
+                          <span>Xóa</span>
                         </button>
                       </div>
                     </div>
-                    <div className="p-12 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-center text-slate-400 text-xs bg-white dark:bg-slate-900">
-                      Xem trước trực quan tài liệu học tập
-                    </div>
                   </div>
                 ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">Chọn một tài liệu để xem chi tiết.</div>
+                  <div className="py-12 text-center text-xs text-slate-400">
+                    Chọn một tài liệu để xem chi tiết
+                  </div>
                 )}
               </div>
             </div>
@@ -3155,6 +3908,346 @@ export function InstructorClassWorkspace({
         exam={previewExam}
         isInstructorPreview={true}
       />
+
+      {/* =========================================================================
+          MODAL CHỈNH SỬA BÀI GIẢNG DÀNH CHO GIẢNG VIÊN
+          ========================================================================= */}
+      {editLectureModalOpen && editingLecture && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                Chỉnh sửa bài giảng
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditLectureModalOpen(false);
+                  setEditingLecture(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên bài giảng:
+                </label>
+                <input
+                  type="text"
+                  value={editingLecture.title}
+                  onChange={(e) => setEditingLecture({ ...editingLecture, title: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Thư mục:
+                </label>
+                <select
+                  value={editingLecture.folder}
+                  onChange={(e) => setEditingLecture({ ...editingLecture, folder: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                >
+                  <option value="Toán 1">Toán 1</option>
+                  <option value="Hình học">Hình học</option>
+                  {customFolders.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mô tả bài giảng:
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingLecture.description || ""}
+                  onChange={(e) => setEditingLecture({ ...editingLecture, description: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
+                />
+              </div>
+
+              {editingLecture.sourceUrl && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Liên kết nguồn:
+                  </label>
+                  <input
+                    type="url"
+                    value={editingLecture.sourceUrl}
+                    onChange={(e) => setEditingLecture({ ...editingLecture, sourceUrl: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditLectureModalOpen(false);
+                  setEditingLecture(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditLecture}
+                className="px-5 py-2 rounded-xl bg-purple-600 text-white text-xs font-bold hover:bg-purple-700 shadow-xs"
+              >
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL THÊM TÀI LIỆU MỚI DÀNH CHO GIẢNG VIÊN
+          ========================================================================= */}
+      {addMaterialModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                Tải lên tài liệu mới
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAddMaterialModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên tài liệu:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Đề cương ôn tập Toán học 12.pdf"
+                  value={materialFormTitle}
+                  onChange={(e) => setMaterialFormTitle(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Thư mục:
+                  </label>
+                  <select
+                    value={materialFormFolder}
+                    onChange={(e) => setMaterialFormFolder(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Toán 1">Toán 1</option>
+                    <option value="Hình học">Hình học</option>
+                    {customFolders.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Loại tệp:
+                  </label>
+                  <select
+                    value={materialFormFileType}
+                    onChange={(e) => setMaterialFormFileType(e.target.value as any)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="pdf">PDF</option>
+                    <option value="xlsx">Excel (XLSX)</option>
+                    <option value="doc">Word (DOC/DOCX)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Dung lượng hiển thị:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: 3.2 MB"
+                    value={materialFormSize}
+                    onChange={(e) => setMaterialFormSize(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Số trang:
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={materialFormPageCount}
+                    onChange={(e) => setMaterialFormPageCount(Number(e.target.value) || 1)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mô tả tài liệu:
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Mô tả tóm tắt nội dung tài liệu..."
+                  value={materialFormDesc}
+                  onChange={(e) => setMaterialFormDesc(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setAddMaterialModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNewMaterial}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
+              >
+                Tải lên & Lưu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL CHỈNH SỬA TÀI LIỆU DÀNH CHO GIẢNG VIÊN
+          ========================================================================= */}
+      {editMaterialModalOpen && editingMaterial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                Chỉnh sửa tài liệu
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditMaterialModalOpen(false);
+                  setEditingMaterial(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên tài liệu:
+                </label>
+                <input
+                  type="text"
+                  value={editingMaterial.title}
+                  onChange={(e) => setEditingMaterial({ ...editingMaterial, title: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Thư mục:
+                  </label>
+                  <select
+                    value={editingMaterial.folder}
+                    onChange={(e) => setEditingMaterial({ ...editingMaterial, folder: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Toán 1">Toán 1</option>
+                    <option value="Hình học">Hình học</option>
+                    {customFolders.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Dung lượng:
+                  </label>
+                  <input
+                    type="text"
+                    value={editingMaterial.size}
+                    onChange={(e) => setEditingMaterial({ ...editingMaterial, size: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mô tả tài liệu:
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingMaterial.description || ""}
+                  onChange={(e) => setEditingMaterial({ ...editingMaterial, description: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditMaterialModalOpen(false);
+                  setEditingMaterial(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditMaterial}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
+              >
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
