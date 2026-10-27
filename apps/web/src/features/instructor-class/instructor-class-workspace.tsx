@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import {
   AlertCircle,
   ArrowLeft,
@@ -187,8 +188,46 @@ export function InstructorClassWorkspace({
   const router = useRouter();
   const { session, notify } = useApp();
 
-  // Tab điều hướng dọc của giáo viên
-  const [activeTab, setActiveTab] = useState<InstructorSubTab>("assignments");
+  // Tab điều hướng dọc của giáo viên: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
+  const [activeTab, setActiveTab] = useState<InstructorSubTab>(() => {
+    if (typeof window !== "undefined") {
+      const tabParam = new URLSearchParams(window.location.search).get("tab") as InstructorSubTab | null;
+      const validTabs: InstructorSubTab[] = [
+        "feed",
+        "schedule",
+        "members",
+        "assignments",
+        "gradebook",
+        "lectures",
+        "materials",
+        "questions",
+        "settings",
+      ];
+      if (tabParam && validTabs.includes(tabParam)) return tabParam;
+
+      const stored = sessionStorage.getItem(`class_tab_instructor_${item.id}`) as InstructorSubTab | null;
+      if (stored && validTabs.includes(stored)) return stored;
+    }
+    return "feed";
+  });
+
+  /** Chuyển tab và đồng bộ vào URL query params cùng sessionStorage để khi F5 không bị mất trang */
+  const handleSelectTab = useCallback(
+    (tab: InstructorSubTab) => {
+      setActiveTab(tab);
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(`class_tab_instructor_${item.id}`, tab);
+          const url = new URL(window.location.href);
+          url.searchParams.set("tab", tab);
+          window.history.replaceState({}, "", url.toString());
+        } catch (e) {
+          console.error("Lỗi cập nhật query param tab:", e);
+        }
+      }
+    },
+    [item.id],
+  );
 
   // Dữ liệu lớp học
   const [learners, setLearners] = useState<DirectoryUser[]>([]);
@@ -681,7 +720,7 @@ export function InstructorClassWorkspace({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => setActiveTab(id)}
+                    onClick={() => handleSelectTab(id)}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
                       active
                         ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
@@ -699,7 +738,7 @@ export function InstructorClassWorkspace({
             <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setActiveTab("settings")}
+                onClick={() => handleSelectTab("settings")}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
                   activeTab === "settings"
                     ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
@@ -717,107 +756,13 @@ export function InstructorClassWorkspace({
             NỘI DUNG CHÍNH (THAY ĐỔI THEO TAB ĐANG CHỌN)
             ========================================================================= */}
         <main className="flex-1 min-w-0 space-y-4">
-        {/* TAB 1: BẢNG TIN */}
+        {/* TAB 1: BẢNG TIN LỚP HỌC (ĐỒNG BỘ GIAO DIỆN & TÍNH NĂNG VỚI HỌC SINH) */}
         {activeTab === "feed" && (
-          <div className="space-y-4">
-            {/* Thanh tìm kiếm & đăng bài */}
-            <div className="flex items-center justify-between gap-4">
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                Bảng tin & Diễn đàn lớp học
-              </h1>
-              <div className="relative w-64">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm bài viết..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200"
-                />
-              </div>
-            </div>
-
-            {/* Form đăng bài mới */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
-              <textarea
-                rows={3}
-                placeholder="Đăng thông báo, chủ đề thảo luận hoặc tài liệu tới học sinh trong lớp..."
-                value={newPostContent}
-                onChange={(e) => setNewPostContent(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              />
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-blue-600 cursor-pointer"
-                >
-                  <Paperclip size={14} />
-                  <span>Đính kèm ảnh / tệp</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!newPostContent.trim()) return;
-                    setPosts([
-                      {
-                        id: `post-${Date.now()}`,
-                        authorName: session.user.name || "Giáo viên",
-                        authorRole: "Giảng viên",
-                        createdAt: "Vừa xong",
-                        content: newPostContent.trim(),
-                        likes: 0,
-                        comments: [],
-                      },
-                      ...posts,
-                    ]);
-                    setNewPostContent("");
-                    notify("Đã đăng thông báo lên bảng tin!", "success");
-                  }}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
-                >
-                  Đăng bài
-                </button>
-              </div>
-            </div>
-
-            {/* Danh sách bài đăng */}
-            <div className="space-y-4">
-              {posts.map((post) => (
-                <div
-                  key={post.id}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="size-9 rounded-full bg-blue-600 text-white font-bold grid place-items-center text-xs">
-                        {post.authorName.charAt(0)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <strong className="text-xs font-bold">{post.authorName}</strong>
-                          <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
-                            {post.authorRole}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400">{post.createdAt}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">{post.content}</p>
-                  <div className="flex items-center gap-4 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-                    <button type="button" className="inline-flex items-center gap-1.5 hover:text-blue-600 cursor-pointer">
-                      <ThumbsUp size={14} />
-                      <span>{post.likes} Thích</span>
-                    </button>
-                    <span className="inline-flex items-center gap-1.5">
-                      <MessageCircle size={14} />
-                      <span>{post.comments.length} Bình luận</span>
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ClassFeedView
+            classItem={item}
+            courseName={course?.name}
+            teacherName={session.user.name || "Wind Fall"}
+          />
         )}
 
         {/* TAB 2: LỊCH HỌC */}
@@ -1555,7 +1500,7 @@ export function InstructorClassWorkspace({
                         <p className="text-xs text-slate-500">Bài tập ôn luyện chương 1</p>
                         <button
                           type="button"
-                          onClick={() => setActiveTab("assignments")}
+                          onClick={() => handleSelectTab("assignments")}
                           className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
                         >
                           Chuyển tới bài tập →
@@ -1570,7 +1515,7 @@ export function InstructorClassWorkspace({
                         <p className="text-xs text-slate-500">Phiếu tóm tắt công thức.pdf</p>
                         <button
                           type="button"
-                          onClick={() => setActiveTab("materials")}
+                          onClick={() => handleSelectTab("materials")}
                           className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
                         >
                           Chuyển tới tài liệu →

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import {
   ArrowLeft,
   Calendar,
@@ -218,7 +219,44 @@ export function LearnerClassWorkspace({
   onBack,
 }: LearnerClassWorkspaceProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<SubTab>("feed");
+
+  // Tab điều hướng dọc của học sinh: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
+  const [activeTab, setActiveTab] = useState<SubTab>(() => {
+    if (typeof window !== "undefined") {
+      const tabParam = new URLSearchParams(window.location.search).get("tab") as SubTab | null;
+      const validTabs: SubTab[] = [
+        "feed",
+        "schedule",
+        "members",
+        "assignments",
+        "lectures",
+        "materials",
+      ];
+      if (tabParam && validTabs.includes(tabParam)) return tabParam;
+
+      const stored = sessionStorage.getItem(`class_tab_learner_${item.id}`) as SubTab | null;
+      if (stored && validTabs.includes(stored)) return stored;
+    }
+    return "feed";
+  });
+
+  /** Chuyển tab và đồng bộ vào URL query params cùng sessionStorage để khi F5 không bị mất trang */
+  const handleSelectTab = useCallback(
+    (tab: SubTab) => {
+      setActiveTab(tab);
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(`class_tab_learner_${item.id}`, tab);
+          const url = new URL(window.location.href);
+          url.searchParams.set("tab", tab);
+          window.history.replaceState({}, "", url.toString());
+        } catch (e) {
+          console.error("Lỗi cập nhật query param tab:", e);
+        }
+      }
+    },
+    [item.id],
+  );
 
   // Dữ liệu thật nạp từ cơ sở dữ liệu backend
   const [classExams, setClassExams] = useState<LearnerExamSummary[]>([]);
@@ -1260,7 +1298,7 @@ export function LearnerClassWorkspace({
                     type="button"
                     onClick={() => {
                       setSelectedLectureForPage(null);
-                      setActiveTab(id);
+                      handleSelectTab(id);
                     }}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
                       active
@@ -1630,7 +1668,7 @@ export function LearnerClassWorkspace({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => setActiveTab(id)}
+                    onClick={() => handleSelectTab(id)}
                     className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left ${
                       active
                         ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
@@ -1649,332 +1687,13 @@ export function LearnerClassWorkspace({
         {/* CỘT NỘI DUNG CHÍNH BÊN PHẢI (THEO TỪNG TAB CON) */}
         <main className="flex-1 min-w-0 space-y-5">
           {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE) ================= */}
+          {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE VỚI BÌNH LUẬN ĐA TẦNG) ================= */}
           {activeTab === "feed" && (
-            <div className="space-y-4">
-              {/* Form đăng bài tối giản có đính kèm ảnh (tối đa 5 ảnh) */}
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="size-9 rounded-full bg-blue-600 grid place-items-center text-white text-xs font-bold shrink-0">
-                    TN
-                  </div>
-                  <div className="flex-1">
-                    <textarea
-                      value={newPostContent}
-                      onChange={(e) => setNewPostContent(e.target.value)}
-                      placeholder="Chia sẻ bài viết, câu hỏi hoặc tài liệu với lớp học..."
-                      rows={2}
-                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500 resize-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Danh sách ảnh đính kèm xem trước */}
-                {newPostImages.length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    {newPostImages.map((imgUrl, i) => (
-                      <div key={i} className="relative size-16 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 group">
-                        <img src={imgUrl} alt={`Ảnh đính kèm ${i + 1}`} className="size-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => setNewPostImages(newPostImages.filter((_, idx) => idx !== i))}
-                          className="absolute top-0.5 right-0.5 size-4 rounded-full bg-black/60 text-white flex items-center justify-center text-[10px]"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                    {newPostImages.length < 5 && (
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="size-16 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400 hover:text-blue-500 text-[10px]"
-                      >
-                        <span>+ Thêm ảnh</span>
-                        <span>({newPostImages.length}/5)</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
-                  {/* Input ẩn để chọn file ảnh thật từ máy */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleImageFileSelect}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <ImageIcon size={15} className="text-emerald-500" />
-                    <span>Đính kèm ảnh ({newPostImages.length}/5)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCreatePost}
-                    disabled={!newPostContent.trim() && newPostImages.length === 0}
-                    className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-40"
-                  >
-                    Đăng bài
-                  </button>
-                </div>
-              </div>
-
-              {/* Danh sách các bài đăng trong lớp (lọc bỏ các bài đã ẩn) */}
-              <div className="space-y-4">
-                {posts.filter((p) => !hiddenPostIds[p.id]).length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center text-slate-400">
-                    <MessageSquare className="mx-auto mb-2 text-slate-300 dark:text-slate-600" size={32} />
-                    <p className="text-xs font-semibold">Chưa có bài đăng nào trong lớp học này</p>
-                    <p className="text-[11px] text-slate-400 mt-1">Hãy là người đầu tiên chia sẻ bài viết hoặc câu hỏi lên bảng tin lớp!</p>
-                  </div>
-                )}
-                {posts.filter((p) => !hiddenPostIds[p.id]).map((post) => {
-                  const isExpanded = Boolean(expandedPostIds[post.id]);
-                  const isLongText = post.content.length > 180;
-                  const displayContent = isLongText && !isExpanded
-                    ? `${post.content.slice(0, 180)}...`
-                    : post.content;
-                  const isOwner = post.authorName === "Vũ Thành Nam" || post.authorRole === "Học sinh";
-
-                  return (
-                    <article
-                      key={post.id}
-                      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs space-y-3"
-                    >
-                      {/* Header bài viết */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="size-9 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 grid place-items-center text-white text-xs font-bold">
-                            {post.authorAvatar || post.authorName.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <strong className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                                {post.authorName}
-                              </strong>
-                              <span className="px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
-                                {post.authorRole}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-400">{post.createdAt}</span>
-                          </div>
-                        </div>
-
-                        {/* Dropdown Menu Chức Năng Bài Viết (Xóa, Sửa, Ẩn, Theo dõi, Báo cáo, Lịch sử) */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setActivePostMenuId(activePostMenuId === post.id ? null : post.id)}
-                            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            <MoreHorizontal size={16} />
-                          </button>
-
-                          {activePostMenuId === post.id && (
-                            <div
-                              className="absolute right-0 top-8 z-30 w-52 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl py-1 text-xs text-slate-700 dark:text-slate-200"
-                              onMouseLeave={() => setActivePostMenuId(null)}
-                            >
-                              {/* 1. Xóa bài viết (dành cho chủ tus) */}
-                              {isOwner && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeletePost(post.id)}
-                                  className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold text-left transition-colors"
-                                >
-                                  <Trash2 size={14} />
-                                  <span>Xóa bài viết</span>
-                                </button>
-                              )}
-
-                              {/* 2. Sửa bài viết (chủ tus) */}
-                              {isOwner && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEditPost(post)}
-                                  className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
-                                >
-                                  <Edit3 size={14} />
-                                  <span>Sửa bài viết</span>
-                                </button>
-                              )}
-
-                              {/* 3. Ẩn bài viết */}
-                              <button
-                                type="button"
-                                onClick={() => handleHidePost(post.id)}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
-                              >
-                                <EyeOff size={14} />
-                                <span>Ẩn bài viết</span>
-                              </button>
-
-                              {/* 4. Theo dõi bài viết */}
-                              <button
-                                type="button"
-                                onClick={() => handleToggleFollowPost(post.id)}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
-                              >
-                                <Bell size={14} className={followingPostIds[post.id] ? "text-blue-600" : ""} />
-                                <span>{followingPostIds[post.id] ? "Tắt thông báo bài viết" : "Theo dõi bài viết"}</span>
-                              </button>
-
-                              {/* 5. Lịch sử chỉnh sửa */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenHistoryPost(post)}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-left transition-colors"
-                              >
-                                <History size={14} />
-                                <span>Lịch sử chỉnh sửa</span>
-                              </button>
-
-                              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                              {/* 6. Báo cáo bài viết */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReportPost(post)}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-semibold text-left transition-colors"
-                              >
-                                <Flag size={14} />
-                                <span>Báo cáo bài viết</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Nội dung text bài viết hoặc Form sửa bài viết */}
-                      {editingPostId === post.id ? (
-                        <div className="space-y-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-blue-400">
-                          <textarea
-                            value={editingPostContent}
-                            onChange={(e) => setEditingPostContent(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100 focus:outline-hidden resize-none"
-                            rows={3}
-                          />
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingPostId(null)}
-                              className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100"
-                            >
-                              Hủy
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditPost(post.id)}
-                              className="px-3.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold"
-                            >
-                              Lưu thay đổi
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
-                          <p>{displayContent}</p>
-                          {isLongText && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedPostIds({
-                                  ...expandedPostIds,
-                                  [post.id]: !isExpanded,
-                                })
-                              }
-                              className="text-xs font-bold text-blue-600 hover:underline mt-1"
-                            >
-                              {isExpanded ? "Ẩn bớt" : "Xem thêm"}
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Hình ảnh bài viết: Tối đa 2 ảnh ngoài feed, click ảnh mở modal xem nổi */}
-                      {post.images && post.images.length > 0 && (
-                        <div
-                          onClick={() => setSelectedPostForModal(post)}
-                          className={`grid gap-2 cursor-pointer rounded-xl overflow-hidden ${
-                            post.images.length === 1 ? "grid-cols-1" : "grid-cols-2"
-                          }`}
-                        >
-                          <div className="h-56 sm:h-64 overflow-hidden rounded-xl bg-slate-100">
-                            <img
-                              src={post.images[0]}
-                              alt="Ảnh bài đăng"
-                              className="size-full object-cover hover:scale-102 transition-transform duration-200"
-                            />
-                          </div>
-
-                          {post.images.length >= 2 && (
-                            <div className="relative h-56 sm:h-64 overflow-hidden rounded-xl bg-slate-100">
-                              <img
-                                src={post.images[1]}
-                                alt="Ảnh bài đăng 2"
-                                className="size-full object-cover hover:scale-102 transition-transform duration-200"
-                              />
-                              {post.images.length > 2 && (
-                                <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center text-white text-2xl font-bold">
-                                  +{post.images.length - 2}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Thống kê và Nút tương tác Like / Comment */}
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-                        <div className="flex items-center gap-1">
-                          <span className="size-4 rounded-full bg-blue-600 grid place-items-center text-white text-[9px]">
-                            👍
-                          </span>
-                          <span>{post.likes}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPostForModal(post)}
-                          className="hover:underline"
-                        >
-                          {post.comments.length} bình luận
-                        </button>
-                      </div>
-
-                      <div className="pt-1 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleLike(post.id)}
-                          className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
-                            post.isLiked ? "text-blue-600 dark:text-blue-400" : ""
-                          }`}
-                        >
-                          <ThumbsUp size={15} fill={post.isLiked ? "currentColor" : "none"} />
-                          <span>Thích</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPostForModal(post)}
-                          className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        >
-                          <MessageCircle size={15} />
-                          <span>Bình luận</span>
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
+            <ClassFeedView
+              classItem={item}
+              courseName={course?.name}
+              teacherName={teacherName}
+            />
           )}
 
           {/* ================= TAB 2: LỊCH HỌC LỚP NÀY (DẠNG TUẦN & DẠNG THÁNG) ================= */}
@@ -3085,129 +2804,6 @@ export function LearnerClassWorkspace({
         </main>
       </div>
 
-      {/* ================= MODAL BÀI VIẾT NỔI GIỐNG FACEBOOK (THEO ĐÚNG ẢNH 2 CỦA NGƯỜI DÙNG) ================= */}
-      {selectedPostForModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 sm:p-5">
-          <div className="relative flex flex-col w-full max-w-2xl max-h-[90vh] rounded-2xl bg-[#1c1d22] border border-slate-700 text-slate-100 shadow-2xl overflow-hidden">
-            {/* Header Modal */}
-            <div className="flex items-center justify-between px-4 py-3 bg-[#26272e] border-b border-slate-700/80">
-              <div className="w-8" />
-              <h3 className="text-sm sm:text-base font-bold text-white text-center">
-                Bài viết của {selectedPostForModal.authorName}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setSelectedPostForModal(null)}
-                className="size-8 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white grid place-items-center transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Nội dung chi tiết bài viết và danh sách bình luận */}
-            <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-4">
-              {/* Tác giả */}
-              <div className="flex items-center gap-3">
-                <div className="size-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 grid place-items-center text-white text-xs font-bold">
-                  {selectedPostForModal.authorAvatar || selectedPostForModal.authorName.slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <strong className="text-sm font-bold text-white">
-                      {selectedPostForModal.authorName}
-                    </strong>
-                    <span className="text-slate-400 text-xs">trong {item.name || item.code}</span>
-                  </div>
-                  <span className="text-[11px] text-slate-400">{selectedPostForModal.createdAt}</span>
-                </div>
-              </div>
-
-              {/* Text bài viết */}
-              <p className="text-sm text-slate-100 leading-relaxed font-normal">
-                {selectedPostForModal.content}
-              </p>
-
-              {/* Toàn bộ hình ảnh trong modal bài viết nổi */}
-              {selectedPostForModal.images && selectedPostForModal.images.length > 0 && (
-                <div className="space-y-2">
-                  {selectedPostForModal.images.map((img, idx) => (
-                    <div key={idx} className="rounded-xl overflow-hidden border border-slate-700 bg-black/40">
-                      <img src={img} alt={`Ảnh ${idx + 1}`} className="w-full max-h-96 object-contain" />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Lượt tương tác */}
-              <div className="pt-3 border-t border-slate-700/80 flex items-center justify-between text-xs text-slate-400">
-                <div className="flex items-center gap-1">
-                  <span>👍</span>
-                  <span>{selectedPostForModal.likes}</span>
-                </div>
-                <span>{selectedPostForModal.comments.length} bình luận</span>
-              </div>
-
-              {/* Danh sách bình luận */}
-              <div className="pt-2 border-t border-slate-700/80 space-y-3">
-                {selectedPostForModal.comments.map((cmt) => (
-                  <div key={cmt.id} className="flex items-start gap-2.5">
-                    <div className="size-8 rounded-full bg-slate-700 grid place-items-center text-xs font-bold text-white shrink-0">
-                      {cmt.authorAvatar || cmt.authorName.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="flex-1">
-                      <div className="p-2.5 rounded-2xl bg-[#2a2b33] border border-slate-700/60 text-xs inline-block">
-                        <strong className="font-bold text-white block mb-0.5">{cmt.authorName}</strong>
-                        <p className="text-slate-200 leading-relaxed">{cmt.content}</p>
-                      </div>
-                      <div className="flex items-center gap-3 text-[10px] text-slate-400 mt-1 pl-2">
-                        <span>{cmt.createdAt}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModalCommentText(`@${cmt.authorName} `);
-                            modalCommentInputRef.current?.focus();
-                          }}
-                          className="hover:underline font-bold text-blue-400 transition-colors"
-                        >
-                          Trả lời
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Thanh nhập bình luận dưới cùng */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleAddModalComment();
-              }}
-              className="p-3 bg-[#26272e] border-t border-slate-700 flex items-center gap-2"
-            >
-              <div className="size-8 rounded-full bg-blue-600 grid place-items-center text-white text-xs font-bold shrink-0">
-                TN
-              </div>
-              <input
-                ref={modalCommentInputRef}
-                type="text"
-                value={modalCommentText}
-                onChange={(e) => setModalCommentText(e.target.value)}
-                placeholder="Viết câu trả lời..."
-                className="flex-1 py-2 px-3 rounded-full bg-[#18191e] border border-slate-700 text-xs text-white placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
-              />
-              <button
-                type="submit"
-                disabled={!modalCommentText.trim()}
-                className="p-2 rounded-full text-blue-400 hover:text-blue-300 disabled:opacity-40 transition-colors"
-              >
-                <Send size={16} />
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ================= MODAL LỊCH SỬ CHỈNH SỬA BÀI VIẾT ================= */}
       {historyModalPost && (
