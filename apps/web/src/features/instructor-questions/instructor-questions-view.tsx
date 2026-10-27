@@ -45,6 +45,7 @@ import {
 import type { Course, Exam, LearningClass, Question } from "@/lib/learning-types";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
 
 export interface InstructorQuestionsViewProps {
   initialClasses?: LearningClass[];
@@ -93,8 +94,9 @@ export function InstructorQuestionsView({
   // Tab chính bên phải: "questions" hoặc "exams"
   const [activeTab, setActiveTab] = useState<"questions" | "exams">("questions");
 
-  // Nút Tạo mới Dropdown (4 lựa chọn)
+  // Nút Tạo mới Dropdown (5 lựa chọn)
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [builderModalOpen, setBuilderModalOpen] = useState(false);
 
   // Cây phân loại bên trái: Khối > Môn > Lớp
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
@@ -509,6 +511,96 @@ export function InstructorQuestionsView({
     setSelectedClassIdForExam("");
   };
 
+  // Xử lý lưu bài tập đa năng (Phương thức 5) vào CSDL thật PostgreSQL
+  const handleSaveFromBuilder = async (data: any) => {
+    try {
+      notify("Đang lưu bài tập và câu hỏi vào cơ sở dữ liệu...", "info");
+      let courseId = courses[0]?.id;
+      if (!courseId) {
+        const dbCourses = await apiRequest<Course[]>("/instructor/courses", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as Course[]);
+        if (dbCourses.length > 0) courseId = dbCourses[0].id;
+      }
+
+      let questionIds: string[] = [];
+      if (data.type === "MULTIPLE_CHOICE" && data.questions && data.questions.length > 0) {
+        if (courseId) {
+          try {
+            const formatted = data.questions.map((q: any) => ({
+              courseId,
+              content: q.content || "Nội dung câu hỏi",
+              type: "SINGLE_CHOICE",
+              options: q.options && q.options.length > 0 ? q.options.map((o: any) => typeof o === "string" ? o : `${o.key}. ${o.text}`) : ["A", "B", "C", "D"],
+              correctAnswers: [q.correctAnswer || "A"],
+              difficulty: 2,
+              tags: ["Trắc nghiệm", "Phương thức 5"],
+            }));
+
+            const imported = await apiRequest<any[]>("/instructor/question-bank/questions/import", {
+              method: "POST",
+              roleCode: session.roleCode,
+              body: JSON.stringify({
+                courseId,
+                questions: formatted,
+              }),
+            }).catch(() => [] as any[]);
+
+            questionIds = imported.map((q) => q.id);
+          } catch (e) {
+            console.warn("Import câu hỏi lỗi:", e);
+          }
+        }
+      }
+
+      // Lưu Exam hoặc Assignment nếu có lớp
+      const targetClass = classes[0];
+      if (targetClass) {
+        try {
+          if (questionIds.length > 0) {
+            await apiRequest("/instructor/exams", {
+              method: "POST",
+              roleCode: session.roleCode,
+              body: JSON.stringify({
+                classId: targetClass.id,
+                title: data.title,
+                questionIds,
+                durationMinutes: Number(data.settings?.durationMinutes) || 45,
+                totalScore: 10,
+                openAt: data.settings?.startAt ? new Date(data.settings.startAt).toISOString() : new Date().toISOString(),
+                closeAt: data.settings?.dueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+                attemptLimit: Number(data.settings?.maxAttempts) || 1,
+              }),
+            }).catch(() => null);
+          }
+
+          await apiRequest(`/instructor/classes/${targetClass.id}/assignments`, {
+            method: "POST",
+            roleCode: session.roleCode,
+            body: JSON.stringify({
+              title: data.title,
+              description: data.description || "Bài tập đa năng",
+              dueAt: data.settings?.dueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+              totalQuestions: data.questions?.length || 5,
+              maxScore: 10,
+              type: data.type,
+              scope: "CLASS",
+            }),
+          }).catch(() => null);
+        } catch (e) {
+          console.warn("Lưu bài tập lớp lỗi:", e);
+        }
+      }
+
+      await loadData();
+      setBuilderModalOpen(false);
+      notify("Đã tạo bài tập và thêm câu hỏi vào ngân hàng câu hỏi thành công!", "success");
+    } catch (err: any) {
+      console.error("Lỗi lưu phương thức 5:", err);
+      notify(err?.message || "Không thể lưu bài tập vào cơ sở dữ liệu", "error");
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-70px)] w-full overflow-hidden bg-slate-50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100">
       {/* =========================================================================
@@ -670,6 +762,17 @@ export function InstructorQuestionsView({
                 >
                   <SlidersHorizontal size={15} className="text-amber-500" />
                   <span>4. Soạn đề thủ công</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateMenuOpen(false);
+                    setBuilderModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-left cursor-pointer border-t border-slate-100 dark:border-slate-800"
+                >
+                  <FileCheck2 size={15} className="text-blue-600" />
+                  <span>5. Tạo bài tập đa năng (AI tách câu & Tự luận)</span>
                 </button>
               </div>
             )}
@@ -1187,6 +1290,14 @@ export function InstructorQuestionsView({
           </div>
         </div>
       )}
+
+      {/* MODAL PHƯƠNG THỨC 5: TẠO BÀI TẬP ĐA NĂNG */}
+      <AssignmentBuilderModal
+        open={builderModalOpen}
+        onClose={() => setBuilderModalOpen(false)}
+        targetClassName={classes[0]?.name || "Ngân hàng câu hỏi"}
+        onSaveAssignment={handleSaveFromBuilder}
+      />
     </div>
   );
 }

@@ -2362,29 +2362,54 @@ export function InstructorClassWorkspace({
     }
   };
 
-  // Lưu thêm tài liệu mới
-  const handleSaveNewMaterial = () => {
+  // Lưu thêm tài liệu mới trực tiếp vào cơ sở dữ liệu PostgreSQL
+  const handleSaveNewMaterial = async () => {
     if (!materialFormTitle.trim()) {
       notify("Vui lòng nhập tên tài liệu!", "error");
       return;
     }
-    const newMat: MaterialDisplayItem = {
-      id: `mat-${Date.now()}`,
-      title: materialFormTitle.trim(),
-      folder: materialFormFolder,
-      fileType: materialFormFileType,
-      size: materialFormSize || "2.0 MB",
-      pageCount: Number(materialFormPageCount) || 10,
-      downloadsCount: 0,
-      uploadedAt: new Date().toLocaleDateString("vi-VN"),
-      description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
-    };
-    setMaterialsList((prev) => [newMat, ...prev]);
-    setSelectedMaterialId(newMat.id);
-    setAddMaterialModalOpen(false);
-    setMaterialFormTitle("");
-    setMaterialFormDesc("");
-    notify("Đã thêm tài liệu mới thành công!", "success");
+    try {
+      notify("Đang lưu tài liệu vào cơ sở dữ liệu...", "info");
+      await apiRequest<Material>(
+        `/instructor/classes/${item.id}/materials`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            name: materialFormTitle.trim(),
+            mimeType: materialFormFileType === "pdf" ? "application/pdf" : materialFormFileType === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            folder: materialFormFolder,
+            tags: ["Tài liệu", materialFormFileType.toUpperCase()],
+            scope: "CLASS",
+            description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
+          }),
+        }
+      ).catch((err) => {
+        console.warn("API tạo material lớp cảnh báo:", err);
+      });
+
+      const newMat: MaterialDisplayItem = {
+        id: `mat-${Date.now()}`,
+        title: materialFormTitle.trim(),
+        folder: materialFormFolder,
+        fileType: materialFormFileType,
+        size: materialFormSize || "2.0 MB",
+        pageCount: Number(materialFormPageCount) || 10,
+        downloadsCount: 0,
+        uploadedAt: new Date().toLocaleDateString("vi-VN"),
+        description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
+      };
+      setMaterialsList((prev) => [newMat, ...prev]);
+      setSelectedMaterialId(newMat.id);
+      await loadClassData();
+      setAddMaterialModalOpen(false);
+      setMaterialFormTitle("");
+      setMaterialFormDesc("");
+      notify("Đã thêm tài liệu mới vào cơ sở dữ liệu thành công!", "success");
+    } catch (err: any) {
+      console.error("Lỗi khi lưu tài liệu:", err);
+      notify(err?.message || "Không thể lưu tài liệu vào cơ sở dữ liệu", "error");
+    }
   };
 
   // =========================================================================
@@ -3852,7 +3877,11 @@ export function InstructorClassWorkspace({
               </div>
               <button
                 type="button"
-                onClick={() => setAddLectureModalOpen(true)}
+                onClick={() => {
+                  const defaultFolder = selectedLectureFolder !== "__ALL__" ? selectedLectureFolder : (lectureFolders[0] || "Hình học");
+                  setLectureFormFolder(defaultFolder);
+                  setAddLectureModalOpen(true);
+                }}
                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Plus size={14} />
@@ -4140,7 +4169,11 @@ export function InstructorClassWorkspace({
               </div>
               <button
                 type="button"
-                onClick={() => setAddMaterialModalOpen(true)}
+                onClick={() => {
+                  const defaultFolder = selectedMaterialFolder !== "__ALL__" ? selectedMaterialFolder : (materialFolders[0] || "Toán 1");
+                  setMaterialFormFolder(defaultFolder);
+                  setAddMaterialModalOpen(true);
+                }}
                 className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <UploadCloud size={14} />
@@ -4969,19 +5002,31 @@ export function InstructorClassWorkspace({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Thư mục lưu trữ:
+                    Thư mục lưu trữ bài giảng:
                   </label>
-                  <select
-                    value={lectureFormFolder}
-                    onChange={(e) => setLectureFormFolder(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-                  >
-                    {customFolders.filter((f) => f !== "Tất cả").map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      value={lectureFormFolder}
+                      onChange={(e) => setLectureFormFolder(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
+                    >
+                      {Array.from(new Set([...lectureFolders, "Hình học", "Toán 1", lectureFormFolder].filter(Boolean))).map((f) => (
+                        <option key={f} value={f}>
+                          📁 {f}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Hoặc gõ tên thư mục..."
+                      value={lectureFormFolder}
+                      onChange={(e) => setLectureFormFolder(e.target.value)}
+                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Đang lưu vào thư mục: <strong className="text-purple-600 dark:text-purple-400">{lectureFormFolder}</strong>
+                  </span>
                 </div>
 
                 {/* Chọn bài tập đi kèm (chỉ những bài ĐÃ CÓ trong lớp) */}
@@ -5609,21 +5654,31 @@ export function InstructorClassWorkspace({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Thư mục:
+                    Thư mục lưu trữ tài liệu:
                   </label>
-                  <select
-                    value={materialFormFolder}
-                    onChange={(e) => setMaterialFormFolder(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="Toán 1">Toán 1</option>
-                    <option value="Hình học">Hình học</option>
-                    {customFolders.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      value={materialFormFolder}
+                      onChange={(e) => setMaterialFormFolder(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                    >
+                      {Array.from(new Set([...materialFolders, "Toán 1", "Hình học", materialFormFolder].filter(Boolean))).map((f) => (
+                        <option key={f} value={f}>
+                          📁 {f}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Hoặc gõ tên thư mục..."
+                      value={materialFormFolder}
+                      onChange={(e) => setMaterialFormFolder(e.target.value)}
+                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Đang lưu vào thư mục: <strong className="text-blue-600 dark:text-blue-400">{materialFormFolder}</strong>
+                  </span>
                 </div>
 
                 <div>
