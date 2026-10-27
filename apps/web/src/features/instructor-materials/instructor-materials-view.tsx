@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
+import { apiRequest } from "@/lib/api-client";
+import type { LearningClass } from "@/lib/learning-types";
 
 export interface MaterialFileItem {
   id: string;
@@ -73,258 +75,133 @@ export interface GradeFolderItem {
   subjects: SubjectFolderItem[];
 }
 
-// Dữ liệu học liệu phân cấp hoàn chỉnh theo Khối -> Môn -> Lớp và các tệp bên trong
-const INITIAL_GRADES_DATA: GradeFolderItem[] = [
-  {
-    id: "grade-6",
-    name: "6",
-    label: "Khối 6",
-    itemsCount: 1,
-    updatedAt: "26 tháng 10 lúc 17:45",
-    subjects: [
-      {
-        id: "sub-6-toan",
-        name: "Toán",
-        itemsCount: 2,
-        updatedAt: "26 tháng 10 lúc 17:45",
-        classes: [
-          {
-            id: "cls-6A1",
-            name: "Lớp 6A1",
-            code: "TOAN-6A1",
-            itemsCount: 3,
-            updatedAt: "26 tháng 10 lúc 17:45",
-            files: [
-              {
-                id: "f-1",
-                name: "Test bài tập ôn tập số học chương 1.docx",
-                type: "word",
-                size: "1.4 MB",
-                updatedAt: "26 tháng 10 lúc 17:45",
-                tag: "Tách câu",
-              },
-              {
-                id: "f-2",
-                name: "Trac_nghiem_Toan_lop_6_Phep_cong_tru.docx",
-                type: "word",
-                size: "1.2 MB",
-                updatedAt: "25 tháng 10 lúc 11:15",
-                tag: "Tách câu",
-              },
-              {
-                id: "f-3",
-                name: "Phieu_bai_tap_hinh_hoc_truc_quan.pdf",
-                type: "pdf",
-                size: "2.8 MB",
-                updatedAt: "24 tháng 10 lúc 09:30",
-                tag: "Tự luận",
-              },
-            ],
-          },
-          {
-            id: "cls-6A2",
-            name: "Lớp 6A2",
-            code: "TOAN-6A2",
-            itemsCount: 2,
-            updatedAt: "25 tháng 10 lúc 14:20",
-            files: [
-              {
-                id: "f-4",
-                name: "De_kiem_tra_15_phut_phan_so.docx",
-                type: "word",
-                size: "950 KB",
-                updatedAt: "25 tháng 10 lúc 14:20",
-                tag: "Tách câu",
-              },
-              {
-                id: "f-5",
-                name: "Bai_tap_tu_luan_hinh_chu_nhat.pdf",
-                type: "pdf",
-                size: "1.6 MB",
-                updatedAt: "22 tháng 10 lúc 16:00",
-                tag: "Tự luận",
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "sub-6-van",
-        name: "Ngữ văn",
-        itemsCount: 1,
-        updatedAt: "25 tháng 10 lúc 10:20",
-        classes: [
-          {
-            id: "cls-6A1-van",
-            name: "Lớp 6A1",
-            code: "VAN-6A1",
-            itemsCount: 2,
-            updatedAt: "25 tháng 10 lúc 10:20",
-            files: [
-              {
-                id: "f-6",
-                name: "De_kiem_tra_giua_ky_Ngu_van_6.docx",
-                type: "word",
-                size: "1.1 MB",
-                updatedAt: "25 tháng 10 lúc 10:20",
-                tag: "Tự luận",
-              },
-              {
-                id: "f-7",
-                name: "Tai_lieu_doc_hieu_van_ban_co_tich.pdf",
-                type: "pdf",
-                size: "3.2 MB",
-                updatedAt: "23 tháng 10 lúc 15:40",
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "grade-7",
-    name: "7",
-    label: "Khối 7",
-    itemsCount: 0,
-    updatedAt: "27 tháng 10 lúc 19:43",
-    subjects: [
-      {
-        id: "sub-7-toan",
-        name: "Toán",
-        itemsCount: 1,
-        updatedAt: "27 tháng 10 lúc 19:43",
-        classes: [
-          {
-            id: "cls-7A1",
-            name: "Lớp 7A1",
-            code: "TOAN-7A1",
-            itemsCount: 1,
-            updatedAt: "27 tháng 10 lúc 19:43",
-            files: [
-              {
-                id: "f-8",
-                name: "Chuyen_de_so_huu_ti_va_so_thuc.docx",
-                type: "word",
-                size: "1.3 MB",
-                updatedAt: "27 tháng 10 lúc 19:43",
-                tag: "Tách câu",
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "grade-daihoc",
-    name: "Đại học",
-    label: "Đại học",
-    itemsCount: 0,
-    updatedAt: "27 tháng 10 lúc 19:43",
-    subjects: [],
-  },
-  {
-    id: "grade-8",
-    name: "8",
-    label: "Khối 8",
-    itemsCount: 2,
-    updatedAt: "26 tháng 10 lúc 14:10",
-    subjects: [],
-  },
-  {
-    id: "grade-9",
-    name: "9",
-    label: "Khối 9",
-    itemsCount: 3,
-    updatedAt: "25 tháng 10 lúc 09:15",
-    subjects: [],
-  },
-  {
-    id: "grade-10",
-    name: "10",
-    label: "Khối 10",
-    itemsCount: 4,
-    updatedAt: "27 tháng 10 lúc 16:30",
-    subjects: [
-      {
-        id: "sub-10-toan",
-        name: "Toán",
-        itemsCount: 2,
-        updatedAt: "27 tháng 10 lúc 16:30",
-        classes: [
-          {
-            id: "cls-10A1",
-            name: "Lớp 10A1",
-            code: "TOAN-10A1",
-            itemsCount: 2,
-            updatedAt: "27 tháng 10 lúc 16:30",
-            files: [
-              {
-                id: "f-9",
-                name: "Trac_nghiem_Menh_de_va_Tap_hop.docx",
-                type: "word",
-                size: "1.5 MB",
-                updatedAt: "27 tháng 10 lúc 16:30",
-                tag: "Tách câu",
-              },
-              {
-                id: "f-10",
-                name: "Bat_phuong_trinh_bac_hai_mot_an.pdf",
-                type: "pdf",
-                size: "2.0 MB",
-                updatedAt: "26 tháng 10 lúc 10:00",
-                tag: "Tự luận",
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "grade-11",
-    name: "11",
-    label: "Khối 11",
-    itemsCount: 1,
-    updatedAt: "22 tháng 10 lúc 11:00",
-    subjects: [],
-  },
-  {
-    id: "grade-12",
-    name: "12",
-    label: "Khối 12",
-    itemsCount: 5,
-    updatedAt: "27 tháng 10 lúc 18:20",
-    subjects: [],
-  },
-];
-
-// Danh sách đề chưa phân loại ở cột trái (Ảnh 1)
-const INITIAL_UNCLASSIFIED_EXAMS: MaterialFileItem[] = [
-  {
-    id: "unc-1",
-    name: "Test bài tập",
-    type: "word",
-    size: "1.4 MB",
-    updatedAt: "27 tháng 10 lúc 18:00",
-    tag: "Tách câu",
-  },
-  {
-    id: "unc-2",
-    name: "Trac_nghiem_Toan_lop_4_...",
-    type: "word",
-    size: "1.8 MB",
-    updatedAt: "26 tháng 10 lúc 15:30",
-    tag: "Tách câu",
-  },
-];
-
-// Giao diện học liệu chuẩn xác theo Ảnh 1 với phân cấp Khối -> Môn -> Lớp
+// Giao diện học liệu chuẩn xác với phân cấp Khối -> Môn -> Lớp nạp trực tiếp từ CSDL PostgreSQL
 export function InstructorMaterialsView() {
-  const { notify } = useApp();
-  const [gradesData, setGradesData] = useState<GradeFolderItem[]>(INITIAL_GRADES_DATA);
-  const [unclassifiedExams, setUnclassifiedExams] = useState<MaterialFileItem[]>(INITIAL_UNCLASSIFIED_EXAMS);
+  const { session, notify } = useApp();
+  const [gradesData, setGradesData] = useState<GradeFolderItem[]>([]);
+  const [unclassifiedExams, setUnclassifiedExams] = useState<MaterialFileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Nạp tài liệu và cấu trúc lớp học thật từ CSDL PostgreSQL
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [classesData, materialsData] = await Promise.all([
+        apiRequest<LearningClass[]>("/instructor/classes", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as LearningClass[]),
+        apiRequest<any[]>("/materials", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as any[]),
+      ]);
+
+      const unclassified: MaterialFileItem[] = [];
+      const classMap: Record<string, MaterialFileItem[]> = {};
+
+      if (Array.isArray(materialsData)) {
+        materialsData.forEach((m: any) => {
+          const rawName = m.name || m.title || "Tài liệu học tập";
+          const ext = rawName.split(".").pop()?.toLowerCase() || "pdf";
+          const fType = ext.includes("doc") ? "word" : ext.includes("pdf") ? "pdf" : ext.includes("jpg") || ext.includes("png") ? "image" : ext.includes("mp4") ? "video" : ext.includes("ppt") ? "slide" : "pdf";
+          const sizeMb = m.sizeBytes ? `${(m.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "1.5 MB";
+
+          const fileItem: MaterialFileItem = {
+            id: m.id,
+            name: rawName,
+            type: fType,
+            size: sizeMb,
+            updatedAt: m.createdAt ? new Date(m.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+            folderCategory: m.folder || "Tài liệu chung",
+            description: m.tags?.join(", ") || "",
+            tag: m.folder || (ext.includes("doc") ? "Tách câu" : "Tài liệu"),
+          };
+
+          if (m.classId) {
+            const arr = classMap[m.classId] || [];
+            arr.push(fileItem);
+            classMap[m.classId] = arr;
+          } else {
+            unclassified.push(fileItem);
+          }
+        });
+      }
+
+      setUnclassifiedExams(unclassified);
+
+      // Dựng cây phân cấp Khối -> Môn -> Lớp từ danh sách lớp CSDL
+      const gradesDict: Record<string, Record<string, ClassFolderItem[]>> = {};
+
+      if (Array.isArray(classesData)) {
+        classesData.forEach((c) => {
+          let gradeName = "10";
+          let subjectName = "Toán";
+          const cCode = c.code || "";
+          const cName = c.name || "";
+
+          if (cCode.includes("6") || cName.includes("6")) gradeName = "6";
+          else if (cCode.includes("7") || cName.includes("7")) gradeName = "7";
+          else if (cCode.includes("8") || cName.includes("8")) gradeName = "8";
+          else if (cCode.includes("9") || cName.includes("9")) gradeName = "9";
+          else if (cCode.includes("11") || cName.includes("11")) gradeName = "11";
+          else if (cCode.includes("12") || cName.includes("12")) gradeName = "12";
+
+          if (cName.includes("Văn") || cCode.includes("VAN")) subjectName = "Ngữ văn";
+          else if (cName.includes("Lý") || cCode.includes("PHY") || cCode.includes("LY")) subjectName = "Vật lí";
+          else if (cName.includes("Hóa") || cCode.includes("CHE")) subjectName = "Hóa học";
+          else if (cName.includes("Anh") || cCode.includes("ENG")) subjectName = "Tiếng Anh";
+
+          const currentGrade = gradesDict[gradeName] || {};
+          gradesDict[gradeName] = currentGrade;
+          const currentSubject = currentGrade[subjectName] || [];
+          currentGrade[subjectName] = currentSubject;
+
+          const classFiles = classMap[c.id] || [];
+          currentSubject.push({
+            id: c.id,
+            name: c.name,
+            code: c.code,
+            itemsCount: classFiles.length,
+            updatedAt: "Hôm nay",
+            files: classFiles,
+          });
+        });
+      }
+
+      const builtGrades: GradeFolderItem[] = Object.keys(gradesDict).map((gName) => {
+        const subjectsObj = gradesDict[gName] || {};
+        const subjects: SubjectFolderItem[] = Object.keys(subjectsObj).map((sName) => {
+          const classes = subjectsObj[sName] || [];
+          const totalFiles = classes.reduce((sum, cl) => sum + cl.itemsCount, 0);
+          return {
+            id: `sub-${gName}-${sName}`,
+            name: sName,
+            itemsCount: totalFiles,
+            updatedAt: "Hôm nay",
+            classes,
+          };
+        });
+        const totalItemsInGrade = subjects.reduce((sum, s) => sum + s.itemsCount, 0);
+        return {
+          id: `grade-${gName}`,
+          name: gName,
+          label: `Khối ${gName}`,
+          itemsCount: totalItemsInGrade,
+          updatedAt: "Hôm nay",
+          subjects,
+        };
+      });
+
+      setGradesData(builtGrades);
+    } catch (err) {
+      console.warn("Lỗi nạp tài liệu từ CSDL:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [session.roleCode]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   // Điều hướng phân cấp (Breadcrumb: Khối -> Môn -> Lớp)
   const [selectedGradeId, setSelectedGradeId] = useState<string | null>(null);

@@ -21,6 +21,7 @@ import {
 import { useApp } from "@/providers/app-provider";
 import type { ClassPost, PostComment, ClassFeedViewProps } from "./class-feed-types";
 import { loadClassFeedPosts, saveClassFeedPosts } from "./class-feed-storage";
+import { UserAvatar } from "@/components/user-avatar";
 
 /**
  * Component Bảng tin & Diễn đàn lớp học dùng chung cho cả Học sinh và Giáo viên
@@ -110,29 +111,12 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
     sizeClass = "size-8",
     textClass = "text-xs"
   ) => {
-    if (avatarUrl) {
-      return (
-        <img
-          src={avatarUrl}
-          alt={name}
-          className={`${sizeClass} rounded-full object-cover shrink-0 border border-slate-700/60`}
-        />
-      );
-    }
-    const initials = name
-      .split(" ")
-      .filter(Boolean)
-      .slice(-2)
-      .map((w) => w[0])
-      .join("")
-      .toUpperCase() || name.slice(0, 2).toUpperCase();
-
     return (
-      <div
-        className={`${sizeClass} rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold grid place-items-center ${textClass} shrink-0 border border-slate-700/60 shadow-xs select-none`}
-      >
-        {initials}
-      </div>
+      <UserAvatar
+        name={name}
+        avatarUrl={avatarUrl}
+        className={`${sizeClass} ${textClass}`}
+      />
     );
   };
 
