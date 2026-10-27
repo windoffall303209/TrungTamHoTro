@@ -40,13 +40,21 @@ interface ExamTakingModalProps {
   open: boolean;
   onClose: () => void;
   exam: ExamTakingData | null;
+  isInstructorPreview?: boolean;
   onSubmitted?: (result: { score: number; total: number }) => void;
 }
 
-/** Component Giao diện làm bài kiểm tra trực tuyến toàn màn hình dành cho Học sinh kết nối trực tiếp DB */
-export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTakingModalProps) {
+/** Component Giao diện làm bài kiểm tra trực tuyến toàn màn hình kết nối trực tiếp CSDL PostgreSQL */
+export function ExamTakingModal({
+  open,
+  onClose,
+  exam,
+  isInstructorPreview = false,
+  onSubmitted,
+}: ExamTakingModalProps) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [essayTextAnswers, setEssayTextAnswers] = useState<Record<number, string>>({});
   const [flagged, setFlagged] = useState<Record<number, boolean>>({});
   const [remainingSeconds, setRemainingSeconds] = useState(15 * 60);
   const [initialDurationSeconds, setInitialDurationSeconds] = useState(15 * 60);
@@ -60,10 +68,11 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
     completedSeconds: number;
   } | null>(null);
 
-  // Dữ liệu câu hỏi thực tế tải từ database
+  // Dữ liệu câu hỏi thực tế tải từ database PostgreSQL
   const [dbQuestions, setDbQuestions] = useState<QuestionItem[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Trạng thái modal xác nhận
   const [startConfirmed, setStartConfirmed] = useState(false);
@@ -73,71 +82,105 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Tạo danh sách câu hỏi dự phòng chuẩn mực nếu đề thi chưa nạp câu hỏi từ DB
-  const fallbackQuestions: QuestionItem[] = useMemo(() => {
-    const total = exam?.totalQuestions || 10;
-    return Array.from({ length: total }, (_, i) => ({
-      id: `fb-${i + 1}`,
-      question: `Câu hỏi số ${i + 1}: Cho hàm số y = f(x) liên tục và xác định trên đoạn [-2; 3]. Tìm giá trị cực trị và tính đơn điệu của hàm số trong khoảng khảo sát?`,
-      options: [
-        { key: "A", text: `Phương án A: Hàm số đồng biến trên khoảng (-2; 0) và đạt cực đại tại x = 0` },
-        { key: "B", text: `Phương án B: Hàm số nghịch biến trên toàn bộ tập xác định` },
-        { key: "C", text: `Phương án C: Giá trị lớn nhất bằng ${i + 4}, giá trị nhỏ nhất bằng -${i + 1}` },
-        { key: "D", text: `Phương án D: Không tồn tại điểm cực trị trên miền khảo sát` },
-      ],
-      correctAnswer: i % 2 === 0 ? "A" : "C",
-      explanation: `Dựa vào đạo hàm f'(x) và bảng biến thiên, ta xác định được hàm số đổi dấu tại điểm khảo sát.`,
-    }));
-  }, [exam?.totalQuestions]);
+  const questions = dbQuestions;
 
-  const questions = dbQuestions.length > 0 ? dbQuestions : fallbackQuestions;
-
-  // Tải danh sách câu hỏi thật từ API Database khi mở bài thi
+  // Tải danh sách câu hỏi THẬT từ PostgreSQL Database khi mở bài thi
   useEffect(() => {
     if (!open || !exam) return;
 
     let isMounted = true;
     setIsLoadingQuestions(true);
+    setLoadError(null);
 
     async function loadExamContent() {
       try {
-        // Tải câu hỏi từ database backend
-        const fetchedQuestions = await apiRequest<any[]>(`/learner/exams/${exam?.id}/questions`);
-        if (isMounted && Array.isArray(fetchedQuestions) && fetchedQuestions.length > 0) {
-          const mapped: QuestionItem[] = fetchedQuestions.map((q, idx) => {
-            const rawOptions: string[] = Array.isArray(q.options) ? q.options : [];
-            const keys = ["A", "B", "C", "D", "E", "F"];
-            return {
-              id: q.id || `q-${idx + 1}`,
-              question: q.content || `Câu hỏi số ${idx + 1}`,
-              options: rawOptions.map((optText, optIdx) => ({
-                key: keys[optIdx] || String(optIdx + 1),
-                text: typeof optText === "string" ? optText : JSON.stringify(optText),
-              })),
-              correctAnswer: Array.isArray(q.correctAnswers) ? q.correctAnswers[0] : "A",
-              explanation: q.explanation || "Đối chiếu theo tài liệu giáo trình và bài giảng lý thuyết.",
-            };
-          });
-          setDbQuestions(mapped);
+        let fetchedQuestions: any[] = [];
+
+        if (isInstructorPreview) {
+          // 1. Chế độ Giáo viên làm thử / xem đề: Tải trực tiếp câu hỏi thật từ database qua preview API
+          try {
+            fetchedQuestions = await apiRequest<any[]>(`/instructor/exams/${exam?.id}/preview`);
+          } catch {
+            // Thử nạp nếu là assignment tự luận
+            try {
+              const assign = await apiRequest<any>(`/academic/assignments?classId=${exam?.id}`);
+              const target = Array.isArray(assign) ? assign.find((a: any) => a.id === exam?.id) : null;
+              if (target) {
+                fetchedQuestions = [
+                  {
+                    id: target.id,
+                    content: target.description || target.instructions || target.title,
+                    options: [],
+                    type: "ESSAY",
+                  },
+                ];
+              }
+            } catch {
+              // Bỏ qua
+            }
+          }
+        } else {
+          // 2. Chế độ Học sinh làm bài:
+          // BƯỚC 1: Mở hoặc kích hoạt lượt làm bài trong Database trước
+          let currentAttemptId: string | null = null;
+          if (exam?.remainingAttempts === undefined || exam?.remainingAttempts === null || exam?.remainingAttempts > 0) {
+            try {
+              const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam?.id}/attempts`, {
+                method: "POST",
+              });
+              if (isMounted && attempt?.id) {
+                currentAttemptId = attempt.id;
+                setAttemptId(attempt.id);
+              }
+            } catch (err: any) {
+              console.warn("Lượt thi đã mở hoặc kiểm tra lượt:", err);
+            }
+          }
+
+          // BƯỚC 2: Tải danh sách câu hỏi thật từ Database của đề thi
+          try {
+            fetchedQuestions = await apiRequest<any[]>(`/learner/exams/${exam?.id}/questions`);
+          } catch (err: any) {
+            console.warn("Lỗi tải câu hỏi từ /learner/exams/:id/questions:", err);
+          }
         }
-      } catch {
-        // Nếu không tải được qua id database hoặc là đề thử nghiệm, giữ danh sách câu hỏi chuẩn
+
+        if (isMounted) {
+          if (Array.isArray(fetchedQuestions) && fetchedQuestions.length > 0) {
+            const mapped: QuestionItem[] = fetchedQuestions.map((q, idx) => {
+              const rawOptions: any[] = Array.isArray(q.options) ? q.options : [];
+              const keys = ["A", "B", "C", "D", "E", "F"];
+              return {
+                id: q.id || `q-${idx + 1}`,
+                question: q.content || `Câu hỏi số ${idx + 1}`,
+                options: rawOptions.map((optText, optIdx) => {
+                  if (typeof optText === "string") {
+                    const match = optText.match(/^([A-F])[\.\:\s]+(.*)$/i);
+                    if (match && match[1] && match[2]) {
+                      return { key: match[1].toUpperCase(), text: match[2].trim() };
+                    }
+                    return { key: keys[optIdx] || String(optIdx + 1), text: optText };
+                  }
+                  return {
+                    key: optText.key || keys[optIdx] || String(optIdx + 1),
+                    text: typeof optText.text === "string" ? optText.text : JSON.stringify(optText),
+                  };
+                }),
+                correctAnswer: Array.isArray(q.correctAnswers) ? q.correctAnswers[0] : q.correctAnswer || undefined,
+                explanation: q.explanation || "Đối chiếu theo tài liệu giáo trình và bài giảng lý thuyết.",
+              };
+            });
+            setDbQuestions(mapped);
+          } else {
+            setLoadError("Đề bài này chưa có câu hỏi nào được lưu trong cơ sở dữ liệu.");
+          }
+        }
+      } catch (error: any) {
+        if (isMounted) {
+          setLoadError(error?.message || "Không thể tải câu hỏi từ cơ sở dữ liệu.");
+        }
       } finally {
         if (isMounted) setIsLoadingQuestions(false);
-      }
-
-      // Mở lượt làm bài chính thức trong database nếu còn lượt làm bài
-      if (exam && !(exam.remainingAttempts !== undefined && exam.remainingAttempts !== null && exam.remainingAttempts <= 0)) {
-        try {
-          const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam.id}/attempts`, {
-            method: "POST",
-          });
-          if (isMounted && attempt?.id) {
-            setAttemptId(attempt.id);
-          }
-        } catch {
-          // Lượt làm bài dự phòng nếu offline
-        }
       }
     }
 
@@ -146,7 +189,7 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
     return () => {
       isMounted = false;
     };
-  }, [open, exam]);
+  }, [open, exam, isInstructorPreview]);
 
   // Khởi động đồng hồ đếm ngược chỉ khi đã xác nhận bắt đầu và chưa nộp bài
   useEffect(() => {
@@ -688,42 +731,69 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
                   </p>
                 </div>
 
-                {/* Danh sách các phương án A, B, C, D */}
-                <div className="space-y-3 flex-1">
-                  {currentQ.options.map((opt) => {
-                    const selected = answers[currentIdx] === opt.key;
-                    return (
-                      <div
-                        key={opt.key}
-                        onClick={() => handleSelectOption(opt.key)}
-                        className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
-                          selected
-                            ? "bg-blue-50/70 dark:bg-blue-950/30 border-blue-500 shadow-2xs"
-                            : "bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                        }`}
-                      >
+                {/* Danh sách các phương án A, B, C, D hoặc ô nhập tự luận */}
+                {currentQ.options && currentQ.options.length > 0 ? (
+                  <div className="space-y-3 flex-1">
+                    {currentQ.options.map((opt) => {
+                      const selected = answers[currentIdx] === opt.key;
+                      return (
                         <div
-                          className={`size-7 rounded-full grid place-items-center text-xs font-bold shrink-0 transition-colors ${
+                          key={opt.key}
+                          onClick={() => handleSelectOption(opt.key)}
+                          className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
                             selected
-                              ? "bg-blue-600 text-white"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                              ? "bg-blue-50/70 dark:bg-blue-950/30 border-blue-500 shadow-2xs"
+                              : "bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
                           }`}
                         >
-                          {opt.key}
+                          <div
+                            className={`size-7 rounded-full grid place-items-center text-xs font-bold shrink-0 transition-colors ${
+                              selected
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                            }`}
+                          >
+                            {opt.key}
+                          </div>
+                          <p
+                            className={`text-xs sm:text-sm pt-0.5 leading-relaxed ${
+                              selected
+                                ? "font-bold text-blue-900 dark:text-blue-200"
+                                : "text-slate-700 dark:text-slate-300"
+                            }`}
+                          >
+                            {opt.text}
+                          </p>
                         </div>
-                        <p
-                          className={`text-xs sm:text-sm pt-0.5 leading-relaxed ${
-                            selected
-                              ? "font-bold text-blue-900 dark:text-blue-200"
-                              : "text-slate-700 dark:text-slate-300"
-                          }`}
-                        >
-                          {opt.text}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-3 flex-1">
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">
+                      Nội dung bài làm tự luận của bạn:
+                    </label>
+                    <textarea
+                      value={essayTextAnswers[currentIdx] || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEssayTextAnswers((prev) => ({ ...prev, [currentIdx]: val }));
+                        if (val.trim()) {
+                          setAnswers((prev) => ({ ...prev, [currentIdx]: "COMPLETED" }));
+                        } else {
+                          setAnswers((prev) => {
+                            const next = { ...prev };
+                            delete next[currentIdx];
+                            return next;
+                          });
+                        }
+                      }}
+                      rows={8}
+                      placeholder="Gõ nội dung câu trả lời hoặc trình bày các bước giải chi tiết tại đây..."
+                      className="w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
 
                 {/* Thanh điều hướng câu trước / câu sau */}
                 <div className="pt-5 mt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -816,7 +886,42 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
       {!startConfirmed && !isSubmitted && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1a1b22] border border-slate-200 dark:border-slate-800 p-6 shadow-2xl text-center space-y-4">
-            {isOutOfAttempts ? (
+            {isLoadingQuestions ? (
+              <div className="py-8 space-y-4">
+                <div className="size-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Đang tải đề thi từ cơ sở dữ liệu...
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Vui lòng đợi trong giây lát trong khi hệ thống nạp dữ liệu câu hỏi.
+                </p>
+              </div>
+            ) : questions.length === 0 ? (
+              <>
+                <div className="size-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 grid place-items-center mx-auto">
+                  <AlertTriangle size={32} />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                    Chưa có câu hỏi trong cơ sở dữ liệu
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                    {loadError || "Bài kiểm tra này hiện chưa có nội dung câu hỏi nào được lưu trữ trong cơ sở dữ liệu."}
+                  </p>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </>
+            ) : isOutOfAttempts && !isInstructorPreview ? (
               <>
                 <div className="size-14 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 grid place-items-center mx-auto">
                   <AlertTriangle size={32} />
@@ -852,12 +957,15 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
 
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    Xác nhận bắt đầu làm bài
+                    {isInstructorPreview ? "Xem trước đề bài (Chế độ giáo viên)" : "Xác nhận bắt đầu làm bài"}
                   </h3>
                   <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    Bạn xác định sẽ làm bài này chứ?
+                    {isInstructorPreview
+                      ? "Bạn đang ở chế độ xem trước và làm thử đề thi với tư cách giáo viên."
+                      : "Bạn xác định sẽ bắt đầu làm bài này chứ?"}
                   </p>
-                  {exam.remainingAttempts !== undefined &&
+                  {!isInstructorPreview &&
+                    exam.remainingAttempts !== undefined &&
                     exam.remainingAttempts !== null &&
                     exam.remainingAttempts > 0 && (
                       <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs font-bold text-amber-800 dark:text-amber-300">
@@ -868,7 +976,7 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
 
                 <div className="text-xs text-slate-500 space-y-1 py-1">
                   <p>Thời lượng làm bài: <strong>{exam.durationMinutes} phút</strong></p>
-                  <p>Số lượng câu hỏi: <strong>{questions.length} câu trắc nghiệm</strong></p>
+                  <p>Số lượng câu hỏi: <strong>{questions.length} câu</strong></p>
                 </div>
 
                 <div className="flex gap-2.5 pt-2">
@@ -877,7 +985,7 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
                     onClick={() => setStartConfirmed(true)}
                     className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer"
                   >
-                    Bắt đầu làm bài
+                    {isInstructorPreview ? "Bắt đầu xem thử" : "Bắt đầu làm bài"}
                   </button>
                   <button
                     type="button"
