@@ -684,6 +684,129 @@ export function InstructorMaterialsView() {
     setActiveMenuFileId(null);
   };
 
+  // Xử lý khi thả tệp vào một Khối (Tự động khởi tạo môn/lớp nếu chưa có để đảm bảo luôn nhận tệp thành công)
+  const handleDropOnTargetGrade = (gradeId: string) => {
+    if (!draggedFile) return;
+    const targetGrade = gradesData.find((g) => g.id === gradeId);
+    if (!targetGrade) return;
+
+    if (targetGrade.subjects.length === 0) {
+      const newClassId = `cls-${gradeId}-auto-${Date.now()}`;
+      const newSubjectId = `sub-${gradeId}-auto-${Date.now()}`;
+      const newClass: ClassFolderItem = {
+        id: newClassId,
+        name: `Lớp ${targetGrade.name}A1`,
+        code: `K${targetGrade.name}-01`,
+        itemsCount: 1,
+        updatedAt: "Vừa xong",
+        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
+      };
+      const newSub: SubjectFolderItem = {
+        id: newSubjectId,
+        name: "Tài liệu chung",
+        itemsCount: 1,
+        updatedAt: "Vừa xong",
+        classes: [newClass],
+      };
+
+      setGradesData((prev) =>
+        prev.map((g) => (g.id === gradeId ? { ...g, itemsCount: g.itemsCount + 1, subjects: [newSub, ...g.subjects] } : g))
+      );
+      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
+      notify(`Đã di chuyển '${draggedFile.name}' vào Khối ${targetGrade.label} thành công!`, "success");
+      setDraggedFile(null);
+      setDragOverTargetId(null);
+      return;
+    }
+
+    const firstSubject = targetGrade.subjects[0];
+    if (!firstSubject || firstSubject.classes.length === 0) {
+      const newClassId = `cls-${gradeId}-sub-auto-${Date.now()}`;
+      const newClass: ClassFolderItem = {
+        id: newClassId,
+        name: `Lớp ${targetGrade.name}A1`,
+        code: `K${targetGrade.name}-01`,
+        itemsCount: 1,
+        updatedAt: "Vừa xong",
+        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
+      };
+      setGradesData((prev) =>
+        prev.map((g) => {
+          if (g.id !== gradeId) return g;
+          return {
+            ...g,
+            itemsCount: g.itemsCount + 1,
+            subjects: g.subjects.map((s, idx) => (idx === 0 ? { ...s, itemsCount: s.itemsCount + 1, classes: [newClass, ...s.classes] } : s)),
+          };
+        })
+      );
+      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
+      notify(`Đã di chuyển '${draggedFile.name}' vào Khối ${targetGrade.label} thành công!`, "success");
+      setDraggedFile(null);
+      setDragOverTargetId(null);
+      return;
+    }
+
+    const targetClass = firstSubject.classes[0];
+    if (targetClass) {
+      handleMoveFileToTargetClass(draggedFile, targetClass.id);
+    }
+  };
+
+  // Xử lý khi thả tệp vào một Môn (Tự động khởi tạo lớp nếu môn chưa có lớp)
+  const handleDropOnTargetSubject = (subjectId: string) => {
+    if (!draggedFile) return;
+    let foundClassId: string | null = null;
+    let parentGradeId: string | null = null;
+    let targetSubjectName = "môn học";
+
+    gradesData.forEach((g) => {
+      g.subjects.forEach((s) => {
+        if (s.id === subjectId) {
+          parentGradeId = g.id;
+          targetSubjectName = s.name;
+          if (s.classes.length > 0 && s.classes[0]) {
+            foundClassId = s.classes[0].id;
+          }
+        }
+      });
+    });
+
+    if (foundClassId) {
+      handleMoveFileToTargetClass(draggedFile, foundClassId);
+      return;
+    }
+
+    if (parentGradeId) {
+      const newClassId = `cls-sub-auto-${Date.now()}`;
+      const newClass: ClassFolderItem = {
+        id: newClassId,
+        name: `Lớp ${targetSubjectName} 1`,
+        code: `L-${Date.now().toString().slice(-4)}`,
+        itemsCount: 1,
+        updatedAt: "Vừa xong",
+        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
+      };
+      setGradesData((prev) =>
+        prev.map((g) => {
+          if (g.id !== parentGradeId) return g;
+          return {
+            ...g,
+            itemsCount: g.itemsCount + 1,
+            subjects: g.subjects.map((s) => (s.id === subjectId ? { ...s, itemsCount: s.itemsCount + 1, classes: [newClass, ...s.classes] } : s)),
+          };
+        })
+      );
+      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
+      notify(`Đã di chuyển '${draggedFile.name}' vào môn ${targetSubjectName} thành công!`, "success");
+      setDraggedFile(null);
+      setDragOverTargetId(null);
+      return;
+    }
+
+    notify("Không tìm thấy thông tin môn học để lưu tệp!", "error");
+  };
+
   // Xử lý khi thả tệp vào một Thư mục hoặc Lớp
   const handleDropOnTargetClass = (classId: string) => {
     if (!draggedFile) return;
@@ -1058,49 +1181,97 @@ export function InstructorMaterialsView() {
 
           {/* DANH SÁCH NỘI DUNG THEO TỪNG CẤP ĐỘ */}
           <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
-            {/* CẤP 1: DANH SÁCH KHỐI (6, 7, Đại học...) NẾU CHƯA CHỌN KHỐI */}
+            {/* CẤP 1: DANH SÁCH KHỐI (6, 7, Đại học...) NẾU CHƯA CHỌN KHỐI (HỖ TRỢ NHẬN THẢ FILE) */}
             {!selectedGradeId &&
               gradesData
                 .filter((g) => !searchQuery || g.label.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map((grade) => (
-                  <div
-                    key={grade.id}
-                    onClick={() => setSelectedGradeId(grade.id)}
-                    className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group"
-                  >
-                    <div className="col-span-6 flex items-center gap-3">
-                      <Folder size={18} className="text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" />
-                      <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                        {grade.name}
-                      </strong>
-                    </div>
-                    <div className="col-span-3 text-slate-500">{grade.itemsCount} mục</div>
-                    <div className="col-span-2 text-slate-500">{grade.updatedAt}</div>
-                    <div className="col-span-1 text-right text-slate-400">...</div>
-                  </div>
-                ))}
-
-            {/* CẤP 2: DANH SÁCH MÔN HỌC (NẾU ĐÃ CHỌN KHỐI) */}
-            {selectedGradeId && !selectedSubjectId && currentGrade && (
-              <>
-                {currentGrade.subjects.length > 0 ? (
-                  currentGrade.subjects.map((sub) => (
+                .map((grade) => {
+                  const isDragOver = dragOverTargetId === grade.id;
+                  return (
                     <div
-                      key={sub.id}
-                      onClick={() => setSelectedSubjectId(sub.id)}
-                      className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group"
+                      key={grade.id}
+                      onClick={() => setSelectedGradeId(grade.id)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDragOverTargetId(grade.id);
+                      }}
+                      onDragLeave={() => setDragOverTargetId(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        handleDropOnTargetGrade(grade.id);
+                      }}
+                      className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
+                        isDragOver
+                          ? "bg-blue-100/80 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
+                          : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                      }`}
                     >
                       <div className="col-span-6 flex items-center gap-3">
                         <Folder size={18} className="text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" />
-                        <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                          Môn {sub.name}
-                        </strong>
+                        <div>
+                          <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
+                            {grade.name}
+                          </strong>
+                          {isDragOver && (
+                            <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
+                              Thả tệp vào đây để chuyển vào khối {grade.label}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="col-span-3 text-slate-500">{sub.classes.length} lớp</div>
-                      <div className="col-span-2 text-slate-500">{sub.updatedAt}</div>
+                      <div className="col-span-3 text-slate-500">{grade.itemsCount} mục</div>
+                      <div className="col-span-2 text-slate-500">{grade.updatedAt}</div>
                       <div className="col-span-1 text-right text-slate-400">...</div>
                     </div>
-                  ))
+                  );
+                })}
+
+            {/* CẤP 2: DANH SÁCH MÔN HỌC (NẾU ĐÃ CHỌN KHỐI - HỖ TRỢ NHẬN THẢ FILE) */}
+            {selectedGradeId && !selectedSubjectId && currentGrade && (
+              <>
+                {currentGrade.subjects.length > 0 ? (
+                  currentGrade.subjects.map((sub) => {
+                    const isDragOver = dragOverTargetId === sub.id;
+                    return (
+                      <div
+                        key={sub.id}
+                        onClick={() => setSelectedSubjectId(sub.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDragOverTargetId(sub.id);
+                        }}
+                        onDragLeave={() => setDragOverTargetId(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          handleDropOnTargetSubject(sub.id);
+                        }}
+                        className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
+                          isDragOver
+                            ? "bg-blue-100/80 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
+                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                        }`}
+                      >
+                        <div className="col-span-6 flex items-center gap-3">
+                          <Folder size={18} className="text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" />
+                          <div>
+                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
+                              Môn {sub.name}
+                            </strong>
+                            {isDragOver && (
+                              <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
+                                Thả tệp vào đây để chuyển vào môn {sub.name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-span-3 text-slate-500">{sub.classes.length} lớp</div>
+                        <div className="col-span-2 text-slate-500">{sub.updatedAt}</div>
+                        <div className="col-span-1 text-right text-slate-400">...</div>
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="p-8 text-center text-xs text-slate-400">
                     Khối này chưa có môn học nào. Hãy bấm "+ Tạo môn mới" ở trên để bổ sung.
