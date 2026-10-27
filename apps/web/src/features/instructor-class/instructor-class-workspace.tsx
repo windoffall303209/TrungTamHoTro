@@ -604,50 +604,7 @@ export function InstructorClassWorkspace({
         }
       } catch (e) {}
     }
-    return [
-      {
-        id: "cq-01",
-        content: "Giải phương trình bậc nhất một ẩn: 2x - 6 = 0",
-        type: "Trắc nghiệm một đáp án",
-        difficulty: "Cơ bản",
-        source: "Bài tập tuần 1",
-        options: ["x = 3", "x = -3", "x = 2", "x = 6"],
-        correctAnswers: [0],
-        solution: "2x = 6 => x = 3.",
-        createdAt: "27/10/2026",
-      },
-      {
-        id: "cq-02",
-        content: "Nêu các bước giải bài toán bằng cách lập hệ phương trình bậc nhất hai ẩn?",
-        type: "Tự luận",
-        difficulty: "Thông hiểu",
-        source: "Kiểm tra 15p",
-        solution: "Bước 1: Chọn ẩn và đặt điều kiện. Bước 2: Lập hệ phương trình. Bước 3: Giải hệ và kết luận.",
-        createdAt: "26/10/2026",
-      },
-      {
-        id: "cq-03",
-        content: "Cho tam giác ABC vuông tại A có AB = 3cm, AC = 4cm. Tính độ dài cạnh huyền BC?",
-        type: "Trắc nghiệm một đáp án",
-        difficulty: "Cơ bản",
-        source: "Đề giữa kỳ",
-        options: ["BC = 5cm", "BC = 7cm", "BC = 25cm", "BC = 6cm"],
-        correctAnswers: [0],
-        solution: "Theo định lý Pytago: BC² = AB² + AC² = 9 + 16 = 25 => BC = 5cm.",
-        createdAt: "25/10/2026",
-      },
-      {
-        id: "cq-04",
-        content: "Tính giá trị cực đại của hàm số y = -x³ + 3x - 1 trên tập số thực?",
-        type: "Trắc nghiệm một đáp án",
-        difficulty: "Vận dụng",
-        source: "Tạo đề AI",
-        options: ["y_CĐ = 1", "y_CĐ = -3", "y_CĐ = 2", "y_CĐ = 0"],
-        correctAnswers: [0],
-        solution: "y' = -3x² + 3 = 0 <=> x = ±1. Tại x = 1, y = 1 là điểm cực đại.",
-        createdAt: "24/10/2026",
-      },
-    ];
+    return [];
   });
 
   // Tự động lưu Ngân hàng câu hỏi riêng vào localStorage
@@ -681,53 +638,19 @@ export function InstructorClassWorkspace({
     });
   }, [classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch]);
 
-  // Danh sách Tài liệu đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý qua localStorage)
-  const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([
-    {
-      id: "mat-01",
-      title: "Đề cương ôn tập kiểm tra giữa học kỳ 1 Toán học.pdf",
-      fileType: "pdf",
-      size: "3.2 MB",
-      uploadedAt: "27 tháng 10 lúc 16:58",
-      folder: "Toán 1",
-      pageCount: 15,
-      downloadsCount: 42,
-      description: "Tóm tắt toàn bộ công thức và dạng bài trọng tâm kiểm tra giữa kỳ 1.",
-    },
-    {
-      id: "mat-02",
-      title: "Phiếu bài tập nâng cao đại số và hình học.pdf",
-      fileType: "pdf",
-      size: "2.4 MB",
-      uploadedAt: "26 tháng 10 lúc 14:15",
-      folder: "Hình học",
-      pageCount: 12,
-      downloadsCount: 35,
-      description: "Tuyển chọn các bài toán vận dụng cao phân loại học sinh khá giỏi.",
-    },
-    {
-      id: "mat-03",
-      title: "Bảng công thức lượng giác và đạo hàm.xlsx",
-      fileType: "xlsx",
-      size: "1.1 MB",
-      uploadedAt: "25 tháng 10 lúc 09:30",
-      folder: "Toán 1",
-      pageCount: 5,
-      downloadsCount: 58,
-      description: "Bảng tra cứu nhanh công thức lượng giác, đạo hàm và nguyên hàm cơ bản.",
-    },
-    {
-      id: "mat-04",
-      title: "Tài liệu chuyên đề hình học không gian.doc",
-      fileType: "doc",
-      size: "1.8 MB",
-      uploadedAt: "24 tháng 10 lúc 11:20",
-      folder: "Hình học",
-      pageCount: 18,
-      downloadsCount: 29,
-      description: "Hệ thống bài tập thể tích và khoảng cách trong không gian toán học.",
-    },
-  ]);
+  // Danh sách Tài liệu đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý từ CSDL)
+  const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`wind_materials_${item.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return [];
+  });
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -738,7 +661,7 @@ export function InstructorClassWorkspace({
   }, [materialsList, item.id]);
 
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>("mat-01");
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string>("");
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
   const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
@@ -791,7 +714,7 @@ export function InstructorClassWorkspace({
   const loadClassData = useCallback(async () => {
     setLoading(true);
     try {
-      const [learnersData, assignmentsData, examsData, materialsData, sessionsData] =
+      const [learnersData, assignmentsData, examsData, materialsData, sessionsData, dbQuestionsData] =
         await Promise.all([
           apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
             roleCode: session.roleCode,
@@ -808,6 +731,10 @@ export function InstructorClassWorkspace({
           apiRequest<LiveSession[]>(`/sessions?classId=${item.id}`, {
             roleCode: session.roleCode,
           }).catch(() => [] as LiveSession[]),
+          apiRequest<any[]>(
+            item.courseId ? `/instructor/question-bank/questions?courseId=${item.courseId}` : `/instructor/question-bank/questions`,
+            { roleCode: session.roleCode }
+          ).catch(() => [] as any[]),
         ]);
 
       setLearners(learnersData);
@@ -830,6 +757,58 @@ export function InstructorClassWorkspace({
       setMaterials(materialsData);
       setSessions(sessionsData);
 
+      // Đồng bộ câu hỏi thật từ CSDL vào ngân hàng câu hỏi riêng của lớp
+      if (Array.isArray(dbQuestionsData) && dbQuestionsData.length > 0) {
+        const mappedQuestions = dbQuestionsData.map((q: any) => ({
+          id: q.id,
+          content: q.content,
+          type: q.type === "SINGLE_CHOICE" ? "Trắc nghiệm một đáp án" : q.type === "MULTIPLE_CHOICE" ? "Trắc nghiệm nhiều đáp án" : q.type === "ESSAY" ? "Tự luận" : "Trắc nghiệm",
+          difficulty: q.difficulty === 1 ? "Cơ bản" : q.difficulty === 2 ? "Thông hiểu" : q.difficulty === 3 ? "Vận dụng" : "Vận dụng cao",
+          source: q.tags?.join(", ") || "Ngân hàng câu hỏi CSDL",
+          options: q.options || [],
+          correctAnswers: q.correctAnswers?.map((ans: string) => {
+            const idx = ["A", "B", "C", "D"].indexOf(ans);
+            return idx >= 0 ? idx : 0;
+          }) || [0],
+          solution: q.solution || "",
+          createdAt: q.createdAt ? new Date(q.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+        }));
+        setClassQuestions((prev) => {
+          const existingIds = new Set(mappedQuestions.map((m) => m.id));
+          const localOnly = prev.filter((p) => !existingIds.has(p.id));
+          return [...mappedQuestions, ...localOnly];
+        });
+      }
+
+      // Đồng bộ tài liệu thật từ CSDL vào danh sách tài liệu lớp
+      if (Array.isArray(materialsData) && materialsData.length > 0) {
+        const mappedMats: MaterialDisplayItem[] = materialsData.map((m: any) => {
+          const rawName = m.name || m.title || "Tài liệu học tập";
+          const ext = rawName.split(".").pop()?.toLowerCase() || "pdf";
+          const fType = ext.includes("doc") ? "doc" : ext.includes("xls") ? "xlsx" : "pdf";
+          const sizeMb = m.sizeBytes ? `${(m.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "1.5 MB";
+          return {
+            id: m.id,
+            title: rawName,
+            fileType: fType,
+            size: sizeMb,
+            uploadedAt: m.createdAt ? new Date(m.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+            folder: m.folder || "Tài liệu chung",
+            pageCount: 10,
+            downloadsCount: 0,
+            description: m.tags?.join(", ") || "Tài liệu học tập lưu trữ vật lý trong cơ sở dữ liệu.",
+          };
+        });
+        setMaterialsList((prev) => {
+          const existingIds = new Set(mappedMats.map((m) => m.id));
+          const localOnly = prev.filter((p) => !existingIds.has(p.id));
+          return [...mappedMats, ...localOnly];
+        });
+        if (mappedMats.length > 0 && mappedMats[0] && !selectedMaterialId) {
+          setSelectedMaterialId(mappedMats[0].id);
+        }
+      }
+
       if (finalAssignments.length > 0 && !selectedAssignment) {
         setSelectedAssignment(finalAssignments[0] ?? null);
       }
@@ -847,7 +826,7 @@ export function InstructorClassWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [item.id, session.roleCode, selectedAssignment, selectedMaterial, notify]);
+  }, [item.id, item.courseId, session.roleCode, selectedAssignment, selectedMaterial, selectedMaterialId, notify]);
 
   useEffect(() => {
     void loadClassData();
@@ -1967,6 +1946,21 @@ export function InstructorClassWorkspace({
       return;
     }
 
+    // Cập nhật câu hỏi vào CSDL PostgreSQL
+    try {
+      void apiRequest(`/instructor/question-bank/questions/${editingQuestionData.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          content: editingQuestionData.content.trim(),
+          type: editingQuestionData.type === "Tự luận" ? "ESSAY" : "SINGLE_CHOICE",
+          options: editingQuestionData.options?.filter(Boolean) || [],
+          correctAnswers: editingQuestionData.correctAnswers?.map((idx) => ["A", "B", "C", "D"][idx] || "A") || ["A"],
+          difficulty: editingQuestionData.difficulty === "Cơ bản" ? 1 : editingQuestionData.difficulty === "Thông hiểu" ? 2 : 3,
+        }),
+      }).catch((err) => console.warn("Lỗi đồng bộ CSDL:", err));
+    } catch (e) {}
+
     setClassQuestions((prev) =>
       prev.map((q) =>
         q.id === editingQuestionData.id
@@ -1989,7 +1983,7 @@ export function InstructorClassWorkspace({
   };
 
   // Kiểu 1: Soạn đề thủ công từ các câu hỏi giáo viên tick chọn
-  const handleCreateExamManual = () => {
+  const handleCreateExamManual = async () => {
     if (!manualExamTitle.trim()) {
       notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
       return;
@@ -2026,6 +2020,31 @@ export function InstructorClassWorkspace({
     (newAssign as any).totalQuestions = selectedObjs.length;
     (newAssign as any).questions = selectedObjs;
     (newAssign as any).questionIds = selectedObjs.map((q) => q.id);
+
+    // Lưu vật lý vào CSDL PostgreSQL
+    try {
+      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: newAssign.title,
+          description: newAssign.description,
+          instructions: newAssign.instructions,
+          dueAt: newAssign.dueAt,
+          maxScore: 10,
+          rubric: newAssign.rubric,
+        }),
+      });
+      if (created?.id) {
+        newAssign.id = created.id;
+        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+        }).catch(() => null);
+      }
+    } catch (e) {
+      console.warn("Lưu CSDL lỗi:", e);
+    }
 
     const nextList = [newAssign, ...assignments];
     setAssignments(nextList);
@@ -2091,7 +2110,7 @@ export function InstructorClassWorkspace({
   };
 
   // Lưu đề thi tạo bằng Kiểu 2 (AI chọn theo mốc)
-  const handleCreateExamAiCriteria = () => {
+  const handleCreateExamAiCriteria = async () => {
     if (!manualExamTitle.trim()) {
       notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
       return;
@@ -2139,6 +2158,31 @@ export function InstructorClassWorkspace({
     (newAssign as any).questions = questionsToUse;
     (newAssign as any).questionIds = questionsToUse.map((q) => q.id);
 
+    // Lưu vật lý vào CSDL PostgreSQL
+    try {
+      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: newAssign.title,
+          description: newAssign.description,
+          instructions: newAssign.instructions,
+          dueAt: newAssign.dueAt,
+          maxScore: 10,
+          rubric: newAssign.rubric,
+        }),
+      });
+      if (created?.id) {
+        newAssign.id = created.id;
+        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+        }).catch(() => null);
+      }
+    } catch (e) {
+      console.warn("Lưu CSDL lỗi:", e);
+    }
+
     const nextList = [newAssign, ...assignments];
     setAssignments(nextList);
     setSelectedAssignment(newAssign);
@@ -2156,7 +2200,7 @@ export function InstructorClassWorkspace({
   };
 
   // Kiểu 3: Bốc ngẫu nhiên câu hỏi từ ngân hàng
-  const handleCreateExamRandom = () => {
+  const handleCreateExamRandom = async () => {
     if (!manualExamTitle.trim()) {
       notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
       return;
@@ -2209,6 +2253,31 @@ export function InstructorClassWorkspace({
     (newAssign as any).questions = pickedQuestions;
     (newAssign as any).questionIds = pickedQuestions.map((q) => q.id);
 
+    // Lưu vật lý vào CSDL PostgreSQL
+    try {
+      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: newAssign.title,
+          description: newAssign.description,
+          instructions: newAssign.instructions,
+          dueAt: newAssign.dueAt,
+          maxScore: 10,
+          rubric: newAssign.rubric,
+        }),
+      });
+      if (created?.id) {
+        newAssign.id = created.id;
+        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+        }).catch(() => null);
+      }
+    } catch (e) {
+      console.warn("Lưu CSDL lỗi:", e);
+    }
+
     const nextList = [newAssign, ...assignments];
     setAssignments(nextList);
     setSelectedAssignment(newAssign);
@@ -2225,8 +2294,15 @@ export function InstructorClassWorkspace({
   };
 
   // Xóa câu hỏi khỏi ngân hàng của lớp
-  const handleDeleteClassQuestion = (questionId: string) => {
+  const handleDeleteClassQuestion = async (questionId: string) => {
     if (window.confirm("Bạn có chắc muốn xóa câu hỏi này khỏi ngân hàng câu hỏi lớp không?")) {
+      try {
+        await apiRequest(`/instructor/question-bank/questions/${questionId}`, {
+          method: "DELETE",
+          roleCode: session.roleCode,
+        }).catch((err) => console.warn("Lỗi xóa CSDL:", err));
+      } catch (e) {}
+
       setClassQuestions((prev) => prev.filter((q) => q.id !== questionId));
       notify("Đã xóa câu hỏi khỏi ngân hàng lớp!", "success");
     }

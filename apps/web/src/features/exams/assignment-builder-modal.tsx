@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
+import { apiRequest } from "@/lib/api-client";
 
 export interface ParsedQuestionItem {
   id: string;
@@ -70,89 +71,84 @@ export interface AssignmentBuilderModalProps {
   }) => void | Promise<void>;
 }
 
-// Mẫu câu hỏi phân tích bằng AI trắc nghiệm theo chuẩn K-12 trong Ảnh 3
-const INITIAL_AI_PARSED_QUESTIONS: ParsedQuestionItem[] = [
-  {
-    id: "q-ai-1",
-    order: 1,
-    content: "Kết quả của phép tính 3 475 + 2 618 là:",
-    options: [
-      { key: "A", text: "6 083" },
-      { key: "B", text: "6 093" },
-      { key: "C", text: "6 193" },
-      { key: "D", text: "5 093" },
-    ],
-    correctAnswer: "B",
-    type: "Điền khuyết",
-    score: 2,
-    solutionVideoUrl: "",
-    hint: "Thực hiện phép cộng lần lượt từ hàng đơn vị sang hàng nghìn.",
-  },
-  {
-    id: "q-ai-2",
-    order: 2,
-    content: "Kết quả của phép chia 864 : 8 là:",
-    options: [
-      { key: "A", text: "108" },
-      { key: "B", text: "118" },
-      { key: "C", text: "106" },
-      { key: "D", text: "98" },
-    ],
-    correctAnswer: "A",
-    type: "Điền khuyết",
-    score: 2,
-    solutionVideoUrl: "",
-    hint: "8 chia 8 được 1, hạ 6; 6 chia 8 được 0, hạ 4; 64 chia 8 được 8.",
-  },
-  {
-    id: "q-ai-3",
-    order: 3,
-    content: "Phân số thích hợp điền vào chỗ chấm: 3/8 + 2/8 = ...",
-    options: [
-      { key: "A", text: "5/16" },
-      { key: "B", text: "1/8" },
-      { key: "C", text: "5/8" },
-      { key: "D", text: "6/8" },
-    ],
-    correctAnswer: "C",
-    type: "Điền khuyết",
-    score: 2,
-    solutionVideoUrl: "",
-    hint: "Hai phân số cùng mẫu: cộng tử với tử, giữ nguyên mẫu.",
-  },
-  {
-    id: "q-ai-4",
-    order: 4,
-    content: "Một hình chữ nhật có chiều dài 12 cm, chiều rộng 8 cm. Chu vi của hình chữ nhật đó là:",
-    options: [
-      { key: "A", text: "20 cm" },
-      { key: "B", text: "40 cm" },
-      { key: "C", text: "96 cm²" },
-      { key: "D", text: "24 cm" },
-    ],
-    correctAnswer: "B",
-    type: "Điền khuyết",
-    score: 2,
-    solutionVideoUrl: "",
-    hint: "Chu vi hình chữ nhật = (chiều dài + chiều rộng) x 2.",
-  },
-  {
-    id: "q-ai-5",
-    order: 5,
-    content: "Giá trị của biểu thức 45 - 5 x (12 - 9) là:",
-    options: [
-      { key: "A", text: "120" },
-      { key: "B", text: "40" },
-      { key: "C", text: "30" },
-      { key: "D", text: "15" },
-    ],
-    correctAnswer: "C",
-    type: "Điền khuyết",
-    score: 2,
-    solutionVideoUrl: "",
-    hint: "Tính trong ngoặc trước: 12 - 9 = 3, sau đó 5 x 3 = 15, cuối cùng 45 - 15 = 30.",
-  },
-];
+/** Trích xuất câu hỏi và các phương án thực tế từ nội dung văn bản tệp tải lên */
+function parseQuestionsFromRawText(text: string): ParsedQuestionItem[] {
+  if (!text || text.trim().length < 10) return [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const items: ParsedQuestionItem[] = [];
+
+  let currentQuestion: Partial<ParsedQuestionItem> | null = null;
+  let order = 1;
+
+  for (const line of lines) {
+    const qMatch = line.match(/^(?:Câu\s*(\d+)[:.]|Bài\s*(\d+)[:.]|(\d+)[:.]|\*\*(?:Câu|Bài)\s*(\d+)[:.]?\*\*)\s*(.+)/i);
+    if (qMatch) {
+      if (currentQuestion && currentQuestion.content) {
+        items.push({
+          id: `q-parsed-${Date.now()}-${order}`,
+          order: order++,
+          content: currentQuestion.content,
+          options: currentQuestion.options && currentQuestion.options.length > 0 ? currentQuestion.options : [
+            { key: "A", text: "Phương án A" },
+            { key: "B", text: "Phương án B" },
+            { key: "C", text: "Phương án C" },
+            { key: "D", text: "Phương án D" },
+          ],
+          correctAnswer: currentQuestion.correctAnswer || "A",
+          type: "Trắc nghiệm một đáp án",
+          score: 2,
+          hint: currentQuestion.hint || "",
+        });
+      }
+      const content = qMatch[5] || line;
+      currentQuestion = {
+        content: content.trim(),
+        options: [],
+        correctAnswer: "A",
+      };
+      continue;
+    }
+
+    const optMatch = line.match(/^([A-D])[\.:)]\s*(.+)/i);
+    if (optMatch && currentQuestion && optMatch[1] && optMatch[2]) {
+      const key = optMatch[1].toUpperCase();
+      const optText = optMatch[2].trim();
+      currentQuestion.options = currentQuestion.options || [];
+      currentQuestion.options.push({ key, text: optText });
+      continue;
+    }
+
+    const ansMatch = line.match(/^(?:Đáp án|ĐA|Hướng dẫn giải|Lời giải)[:.]?\s*([A-D])/i);
+    if (ansMatch && currentQuestion && ansMatch[1]) {
+      currentQuestion.correctAnswer = ansMatch[1].toUpperCase();
+      continue;
+    }
+
+    if (currentQuestion && !currentQuestion.options?.length) {
+      currentQuestion.content += " " + line;
+    }
+  }
+
+  if (currentQuestion && currentQuestion.content) {
+    items.push({
+      id: `q-parsed-${Date.now()}-${order}`,
+      order: order,
+      content: currentQuestion.content,
+      options: currentQuestion.options && currentQuestion.options.length > 0 ? currentQuestion.options : [
+        { key: "A", text: "Phương án A" },
+        { key: "B", text: "Phương án B" },
+        { key: "C", text: "Phương án C" },
+        { key: "D", text: "Phương án D" },
+      ],
+      correctAnswer: currentQuestion.correctAnswer || "A",
+      type: "Trắc nghiệm một đáp án",
+      score: 2,
+      hint: currentQuestion.hint || "",
+    });
+  }
+
+  return items;
+}
 
 // Trình tạo bài tập và đề kiểm tra toàn diện hỗ trợ AI tách câu và tùy chọn nộp bài
 export function AssignmentBuilderModal({
@@ -170,19 +166,15 @@ export function AssignmentBuilderModal({
   const [assignmentType, setAssignmentType] = useState<"MULTIPLE_CHOICE" | "ESSAY">("MULTIPLE_CHOICE");
 
   // Thông tin cơ bản
-  const [title, setTitle] = useState("Bài tập ôn tập trắc nghiệm số 1");
-  const [description, setDescription] = useState("Học sinh hoàn thành các câu hỏi trắc nghiệm dưới đây để củng cố kiến thức.");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
 
-  // Tệp tải lên
-  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; type: string } | null>({
-    name: "Trac_nghiem_Toan_lop_6_Chuong1.docx",
-    size: "1.4 MB",
-    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  });
+  // Tệp tải lên thực tế
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; type: string; fileObj?: File } | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
 
-  // Danh sách câu hỏi đã tách (Ảnh 3)
-  const [questions, setQuestions] = useState<ParsedQuestionItem[]>(INITIAL_AI_PARSED_QUESTIONS);
+  // Danh sách câu hỏi đã tách (Khởi tạo rỗng, nạp từ tệp tải lên hoặc soạn thảo)
+  const [questions, setQuestions] = useState<ParsedQuestionItem[]>([]);
   const [activeTabRight, setActiveTabRight] = useState<"1. Đáp án" | "2. Mở rộng" | "3. Thông tin phần">("1. Đáp án");
   const [isRandomQuestions, setIsRandomQuestions] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
@@ -215,8 +207,8 @@ export function AssignmentBuilderModal({
     return questions.reduce((sum, q) => sum + (Number(q.score) || 0), 0);
   }, [questions]);
 
-  // Xử lý nạp tệp từ máy tính và giả lập tách câu tự động bằng AI
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Xử lý nạp tệp từ máy tính và thực hiện bóc tách câu hỏi thật qua API / OCR
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -224,15 +216,62 @@ export function AssignmentBuilderModal({
       name: file.name,
       size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
       type: file.type || "file",
+      fileObj: file,
     });
-    setTitle(file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "));
+    const detectedTitle = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+    setTitle((prev) => prev.trim() ? prev : detectedTitle);
+    setDescription((prev) => prev.trim() ? prev : `Bài tập được tạo từ tệp đính kèm ${file.name}`);
 
-    // Kích hoạt mô phỏng AI tách câu
-    setIsAiProcessing(true);
-    setTimeout(() => {
-      setIsAiProcessing(false);
-      notify("Trí tuệ nhân tạo (AI) đã tách thành công 5 câu hỏi từ tệp!", "success");
-    }, 900);
+    // Nếu là trắc nghiệm, tiến hành bóc tách câu hỏi thật
+    if (assignmentType === "MULTIPLE_CHOICE") {
+      setIsAiProcessing(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await apiRequest<{ questions: any[] }>("/instructor/question-bank/scan-image", {
+          method: "POST",
+          body: formData,
+        }).catch(() => null);
+
+        if (res?.questions && Array.isArray(res.questions) && res.questions.length > 0) {
+          const mapped: ParsedQuestionItem[] = res.questions.map((q, idx) => ({
+            id: `q-parsed-${Date.now()}-${idx + 1}`,
+            order: idx + 1,
+            content: q.content,
+            options: (q.options || []).map((opt: string, oIdx: number) => ({
+              key: String.fromCharCode(65 + oIdx),
+              text: opt,
+            })),
+            correctAnswer: q.correctAnswers?.[0] || "A",
+            type: q.type === "ESSAY" ? "Trắc nghiệm một đáp án" : "Trắc nghiệm một đáp án",
+            score: Number((10 / Math.max(1, res.questions.length)).toFixed(1)),
+            hint: q.warnings?.join(" ") || "",
+          }));
+          setQuestions(mapped);
+          notify(`Hệ thống đã trích xuất thành công ${mapped.length} câu hỏi thực tế từ tệp ${file.name}!`, "success");
+        } else {
+          // Thử bóc tách trực tiếp nếu là tệp văn bản/word
+          const text = await file.text().catch(() => "");
+          if (text) {
+            const parsed = parseQuestionsFromRawText(text);
+            if (parsed.length > 0) {
+              setQuestions(parsed);
+              notify(`Đã trích xuất ${parsed.length} câu hỏi từ tệp văn bản!`, "success");
+            } else {
+              notify(`Đã nhận tệp '${file.name}'. Hãy bấm '+ Thêm câu hỏi' để hoàn thiện đề thi.`, "info");
+            }
+          } else {
+            notify(`Đã nhận tệp '${file.name}'. Hãy bấm '+ Thêm câu hỏi' để hoàn thiện đề thi.`, "info");
+          }
+        }
+      } catch (err) {
+        notify("Không thể trích xuất tự động từ tệp. Bạn có thể thêm câu hỏi thủ công.", "info");
+      } finally {
+        setIsAiProcessing(false);
+      }
+    } else {
+      notify(`Đã tải lên tệp đề bài tự luận: '${file.name}'. Tệp này sẽ được hiển thị nguyên bản cho học sinh làm bài!`, "success");
+    }
   };
 
   // Cập nhật đáp án hoặc điểm của câu hỏi
@@ -624,7 +663,26 @@ export function AssignmentBuilderModal({
                 </button>
               </div>
 
-              {questions.map((q) => (
+              {questions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center space-y-3">
+                  <FileText size={32} className="mx-auto text-slate-400" />
+                  <p className="text-xs text-slate-700 dark:text-slate-200 font-bold">
+                    Chưa có câu hỏi nào trong đề thi.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Bạn có thể quay lại Bước 1 để tải tệp Word/PDF/Ảnh có chứa câu hỏi, hoặc bấm nút bên dưới để tự soạn câu hỏi.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleAddQuestion}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus size={14} />
+                    <span>+ Soạn câu hỏi đầu tiên</span>
+                  </button>
+                </div>
+              ) : (
+                questions.map((q) => (
                 <div
                   key={q.id}
                   className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-2xs space-y-3"
@@ -701,7 +759,7 @@ export function AssignmentBuilderModal({
                     </div>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
 
             {/* ---------------------------------------------------------------------

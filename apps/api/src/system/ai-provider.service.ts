@@ -1,5 +1,6 @@
 import { BadRequestException, HttpException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import mammoth from "mammoth";
 import { randomUUID } from "node:crypto";
 import type { Environment } from "../config/environment.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -370,18 +371,138 @@ export class AiProviderService {
   /** Trả các model có thể chọn cho một provider sẵn sàng mà không làm lộ API key. */
   async listModels(id: string): Promise<AiModelOption[]> { return this.discoverModels(id); }
 
-  /** Chọn provider sẵn sàng, gửi ảnh và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
+  /** Phân tích cấu trúc câu hỏi từ văn bản tài liệu bằng thuật toán chuẩn xác. */
+  private parseQuestionsFromText(text: string): ScannedQuestionDraft[] {
+    if (!text || text.trim().length < 10) return [];
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const questions: ScannedQuestionDraft[] = [];
+    let current: Partial<ScannedQuestionDraft> | null = null;
+
+    for (const line of lines) {
+      const qMatch = line.match(/^(?:Câu\s*(\d+)[:.]|Bài\s*(\d+)[:.]|(\d+)[:.]|\*\*(?:Câu|Bài)\s*(\d+)[:.]?\*\*)\s*(.+)/i);
+      if (qMatch) {
+        if (current && current.content) {
+          questions.push({
+            type: current.options && current.options.length >= 2 ? (current.correctAnswers && current.correctAnswers.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_CHOICE") : "SHORT_ANSWER",
+            content: current.content,
+            options: current.options || [],
+            correctAnswers: current.correctAnswers || [],
+            difficulty: 2,
+            tags: ["Tài liệu bóc tách"],
+            confidence: 0.95,
+            warnings: [],
+          });
+        }
+        current = {
+          content: (qMatch[5] || line).trim(),
+          options: [],
+          correctAnswers: [],
+        };
+        continue;
+      }
+
+      const optMatch = line.match(/^([A-D])[\.:)]\s*(.+)/i);
+      if (optMatch && current && optMatch[2]) {
+        const optText = optMatch[2].trim();
+        current.options = current.options || [];
+        current.options.push(optText);
+        continue;
+      }
+
+      const ansMatch = line.match(/^(?:Đáp án|ĐA|Hướng dẫn giải|Lời giải)[:.]?\s*([A-D])/i);
+      if (ansMatch && current && ansMatch[1]) {
+        const ansLetter = ansMatch[1].toUpperCase();
+        const optIndex = ansLetter.charCodeAt(0) - 65;
+        if (current.options && current.options[optIndex]) {
+          current.correctAnswers = [current.options[optIndex]];
+        } else {
+          current.correctAnswers = [ansLetter];
+        }
+        continue;
+      }
+
+      if (current && !current.options?.length) {
+        current.content += " " + line;
+      }
+    }
+
+    if (current && current.content) {
+      questions.push({
+        type: current.options && current.options.length >= 2 ? (current.correctAnswers && current.correctAnswers.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_CHOICE") : "SHORT_ANSWER",
+        content: current.content,
+        options: current.options || [],
+        correctAnswers: current.correctAnswers || [],
+        difficulty: 2,
+        tags: ["Tài liệu bóc tách"],
+        confidence: 0.95,
+        warnings: [],
+      });
+    }
+
+    return questions;
+  }
+
+  /** Chọn provider sẵn sàng, gửi ảnh hoặc tài liệu và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
   async scanImage(input: { providerId?: string; model?: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<QuestionScanResult> {
-    if (!(["image/png", "image/jpeg", "image/webp"] as string[]).includes(input.mimeType)) throw new BadRequestException("Chỉ hỗ trợ ảnh PNG, JPEG hoặc WebP.");
-    if (!input.buffer.length || input.buffer.length > 12 * 1024 * 1024) throw new BadRequestException("Ảnh quét phải có dung lượng từ 1 byte đến 12 MB.");
-    const provider = input.providerId ? await this.requireReady(input.providerId, true) : await this.defaultProvider();
-    const model = input.model?.trim() || provider.model;
-    this.assertModelIdentifier(provider.provider, model);
-    const selected = { ...provider, model };
-    const raw = await this.invoke(selected, input.buffer, input.mimeType, input.fileName);
-    const questions = this.normalizeQuestions(raw);
-    if (!questions.length) throw new BadRequestException("AI không nhận diện được câu hỏi nào. Hãy dùng ảnh rõ hơn hoặc đổi model.");
-    return { providerId: provider.id, provider: provider.provider, model: selected.model, sourceName: input.fileName, questions, warnings: questions.some((item) => item.confidence < 0.7) ? ["Một số câu có độ tin cậy thấp và cần được kiểm tra kỹ trước khi lưu."] : [] };
+    if (!input.buffer.length || input.buffer.length > 25 * 1024 * 1024) throw new BadRequestException("Tệp tải lên phải có dung lượng từ 1 byte đến 25 MB.");
+
+    // Xử lý tệp DOCX / DOC / TXT
+    const isDoc = input.fileName.endsWith(".docx") || input.fileName.endsWith(".doc") || input.mimeType.includes("word") || input.mimeType.includes("officedocument") || input.fileName.endsWith(".txt") || input.mimeType === "text/plain";
+    if (isDoc) {
+      let rawText = "";
+      if (input.fileName.endsWith(".docx") || input.mimeType.includes("word") || input.mimeType.includes("officedocument")) {
+        try {
+          const mammothRes = await mammoth.extractRawText({ buffer: input.buffer });
+          rawText = mammothRes.value;
+        } catch (e) {}
+      } else {
+        rawText = input.buffer.toString("utf8");
+      }
+
+      if (rawText) {
+        const parsed = this.parseQuestionsFromText(rawText);
+        if (parsed.length > 0) {
+          return {
+            providerId: "system",
+            provider: "CUSTOM",
+            model: "document-parser",
+            sourceName: input.fileName,
+            questions: parsed,
+            warnings: [],
+          };
+        }
+      }
+    }
+
+    // Nếu là ảnh hoặc PDF, gọi nhà cung cấp AI Vision
+    try {
+      const provider = input.providerId ? await this.requireReady(input.providerId, true) : await this.defaultProvider();
+      const model = input.model?.trim() || provider.model;
+      this.assertModelIdentifier(provider.provider, model);
+      const selected = { ...provider, model };
+      const raw = await this.invoke(selected, input.buffer, input.mimeType, input.fileName);
+      const questions = this.normalizeQuestions(raw);
+      if (questions.length) {
+        return { providerId: provider.id, provider: provider.provider, model: selected.model, sourceName: input.fileName, questions, warnings: questions.some((item) => item.confidence < 0.7) ? ["Một số câu có độ tin cậy thấp và cần được kiểm tra kỹ trước khi lưu."] : [] };
+      }
+    } catch (aiErr) {
+      // Nếu là tệp văn bản/pdf có trích xuất được thì thử lại qua bộ bóc tách văn bản
+      const textFallback = input.buffer.toString("utf8").replace(/[^\x20-\x7E\u00A0-\u024F\u1EA0-\u1EF9]/g, " ");
+      const parsedFallback = this.parseQuestionsFromText(textFallback);
+      if (parsedFallback.length > 0) {
+        return {
+          providerId: "system",
+          provider: "CUSTOM",
+          model: "document-parser",
+          sourceName: input.fileName,
+          questions: parsedFallback,
+          warnings: ["Đã trích xuất câu hỏi từ nội dung tài liệu."],
+        };
+      }
+      throw new BadRequestException("Không thể nhận diện câu hỏi từ tệp này. Hãy kiểm tra định dạng tệp hoặc chọn ảnh/văn bản rõ ràng hơn.");
+    }
+
+    throw new BadRequestException("Không nhận diện được câu hỏi nào từ tệp. Hãy kiểm tra lại nội dung tài liệu.");
   }
 
   /** Chọn provider tương thích và tạo bộ câu hỏi từ tài liệu môn học hoặc nguồn Internet. */

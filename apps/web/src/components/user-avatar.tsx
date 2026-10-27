@@ -63,15 +63,8 @@ function AvatarImageOverlay({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    // Timeout an toàn 2.5s: Nếu mạng chậm hoặc stream pending, hủy tải để không tốn tài nguyên
-    const timeout = setTimeout(() => {
-      setLoaded((curr) => {
-        if (!curr) setFailed(true);
-        return curr;
-      });
-    }, 2500);
-
-    return () => clearTimeout(timeout);
+    setLoaded(false);
+    setFailed(false);
   }, [source]);
 
   if (failed) return null;
@@ -83,7 +76,6 @@ function AvatarImageOverlay({
       alt=""
       aria-hidden="true"
       loading={priority ? "eager" : "lazy"}
-      crossOrigin="use-credentials"
       className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ${
         loaded ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}

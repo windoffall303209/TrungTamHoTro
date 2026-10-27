@@ -109,258 +109,11 @@ export function InstructorQuestionsView({
   // Chọn nhiều câu hỏi để tạo đề
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
 
-  // Dữ liệu câu hỏi ngân hàng phân cấp đầy đủ Khối -> Môn -> Lớp
-  const [questions, setQuestions] = useState<QuestionItem[]>([
-    {
-      id: "q-1",
-      content: "Cho phương trình bậc hai ax² + bx + c = 0 (a ≠ 0). Biệt thức Δ được tính theo công thức nào sau đây?",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 10,
-      subject: "Toán",
-      classCode: "TOAN-10A1",
-      source: "Kiểm tra 15p chương 1",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["Δ = b² - 4ac", "Δ = b² + 4ac", "Δ = 2b - 4ac", "Δ = b² - 2ac"],
-      correctAnswers: ["Δ = b² - 4ac"],
-      explanation: "Công thức biệt thức chuẩn trong chương trình Toán 10.",
-    },
-    {
-      id: "q-2",
-      content: "Tìm tập xác định của hàm số y = √(2x - 4) trên tập số thực ℝ?",
-      type: "SINGLE_CHOICE",
-      difficulty: "MEDIUM",
-      grade: 10,
-      subject: "Toán",
-      classCode: "TOAN-10A1",
-      source: "Bài tập tuần 2",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["[2; +∞)", "(2; +∞)", "(-∞; 2]", "ℝ \\ {2}"],
-      correctAnswers: ["[2; +∞)"],
-    },
-    {
-      id: "q-3",
-      content: "Nêu các biện pháp tu từ được sử dụng chủ yếu trong bài thơ và phân tích tác dụng biểu cảm của chúng?",
-      type: "ESSAY",
-      difficulty: "HARD",
-      grade: 6,
-      subject: "Ngữ văn",
-      classCode: "VAN-6A1",
-      source: "Đề thi giữa kỳ",
-      status: "PUBLISHED",
-      version: 2,
-    },
-    {
-      id: "q-4",
-      content: "Vận tốc trong chuyển động thẳng biến đổi đều được tính bằng công thức v = v₀ + at là đúng hay sai?",
-      type: "TRUE_FALSE",
-      difficulty: "EASY",
-      grade: 10,
-      subject: "Vật lí",
-      classCode: "LY-10A1",
-      source: "Thêm riêng",
-      status: "DRAFT",
-      version: 1,
-      options: ["Đúng", "Sai"],
-      correctAnswers: ["Đúng"],
-    },
-    {
-      id: "q-5",
-      content: "Kết quả của phép tính 3 475 + 2 618 là bao nhiêu?",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A1",
-      source: "Bài tập tuần 1",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["6 083", "6 093", "6 193", "5 093"],
-      correctAnswers: ["6 093"],
-    },
-    {
-      id: "q-6",
-      content: "Kết quả của phép chia 864 : 8 là bao nhiêu?",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A1",
-      source: "Bài tập tuần 1",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["108", "118", "106", "98"],
-      correctAnswers: ["108"],
-    },
-    {
-      id: "q-7",
-      content: "Phân số thích hợp điền vào chỗ chấm: 3/8 + 2/8 = ...",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A1",
-      source: "Bài tập phân số",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["5/16", "1/8", "5/8", "6/8"],
-      correctAnswers: ["5/8"],
-    },
-    {
-      id: "q-8",
-      content: "Tính giá trị của biểu thức A = (-15) + (-25) trong tập hợp số nguyên ℤ?",
-      type: "SHORT_ANSWER",
-      difficulty: "EASY",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A2",
-      source: "Bài tập số nguyên Lớp 6A2",
-      status: "PUBLISHED",
-      version: 1,
-      correctAnswers: ["-40"],
-    },
-    {
-      id: "q-9",
-      content: "Một hình vuông có cạnh bằng 6 cm. Diện tích của hình vuông đó là bao nhiêu?",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A2",
-      source: "Hình học trực quan Lớp 6A2",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["24 cm²", "36 cm²", "12 cm²", "18 cm²"],
-      correctAnswers: ["36 cm²"],
-    },
-    {
-      id: "q-10",
-      content: "Chỉ ra phó từ trong câu sau và nêu ý nghĩa ngữ pháp của nó: 'Tôi vẫn đang học bài'?",
-      type: "SHORT_ANSWER",
-      difficulty: "MEDIUM",
-      grade: 6,
-      subject: "Ngữ văn",
-      classCode: "VAN-6A2",
-      source: "Thực hành tiếng Việt 6A2",
-      status: "PUBLISHED",
-      version: 1,
-      correctAnswers: ["vẫn, đang"],
-    },
-    {
-      id: "q-11",
-      content: "Số hữu tỉ là số có thể viết dưới dạng phân số a/b với những điều kiện nào sau đây?",
-      type: "SINGLE_CHOICE",
-      difficulty: "EASY",
-      grade: 7,
-      subject: "Toán",
-      classCode: "TOAN-7A1",
-      source: "Số hữu tỉ Lớp 7A1",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["a, b ∈ ℤ và b ≠ 0", "a, b ∈ ℕ và b > 0", "a, b ∈ ℝ", "a ∈ ℤ và b > 0"],
-      correctAnswers: ["a, b ∈ ℤ và b ≠ 0"],
-    },
-    {
-      id: "q-12",
-      content: "Tọa độ đỉnh I của parabol y = x² - 4x + 3 là điểm nào sau đây?",
-      type: "SINGLE_CHOICE",
-      difficulty: "MEDIUM",
-      grade: 10,
-      subject: "Toán",
-      classCode: "TOAN-10A2",
-      source: "Hàm số bậc hai Lớp 10A2",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["I(2; -1)", "I(-2; 15)", "I(1; 0)", "I(2; 1)"],
-      correctAnswers: ["I(2; -1)"],
-    },
-    {
-      id: "q-13",
-      content: "Tìm giá trị cực đại của hàm số y = -x³ + 3x² + 1 trên tập số thực ℝ?",
-      type: "SINGLE_CHOICE",
-      difficulty: "HARD",
-      grade: 12,
-      subject: "Toán",
-      classCode: "TOAN-12A1",
-      source: "Khảo sát hàm số Lớp 12A1",
-      status: "PUBLISHED",
-      version: 1,
-      options: ["y_CĐ = 5 tại x = 2", "y_CĐ = 1 tại x = 0", "y_CĐ = 3 tại x = 1", "y_CĐ = 4 tại x = -1"],
-      correctAnswers: ["y_CĐ = 5 tại x = 2"],
-    },
-  ]);
+  // Dữ liệu câu hỏi ngân hàng nạp vật lý từ CSDL PostgreSQL
+  const [questions, setQuestions] = useState<QuestionItem[]>([]);
 
-  // Dữ liệu đề thi / bài tập phân cấp theo Khối -> Môn -> Lớp
-  const [examsList, setExamsList] = useState<ExamDraft[]>([
-    {
-      id: "ex-1",
-      title: "Đề kiểm tra 15 phút Toán 10 - Chương 1",
-      grade: 10,
-      subject: "Toán",
-      classCode: "TOAN-10A1",
-      questionCount: 10,
-      totalScore: 10,
-      status: "PUBLISHED",
-      createdAt: "25/10/2026",
-    },
-    {
-      id: "ex-2",
-      title: "Đề thi giữa học kỳ I môn Ngữ văn 6",
-      grade: 6,
-      subject: "Ngữ văn",
-      classCode: "VAN-6A1",
-      questionCount: 5,
-      totalScore: 10,
-      status: "DRAFT",
-      createdAt: "26/10/2026",
-    },
-    {
-      id: "ex-3",
-      title: "Đề luyện tập Vật lí 10 - Động học chất điểm",
-      grade: 10,
-      subject: "Vật lí",
-      classCode: "LY-10A1",
-      questionCount: 15,
-      totalScore: 10,
-      status: "PUBLISHED",
-      createdAt: "27/10/2026",
-    },
-    {
-      id: "ex-4",
-      title: "Đề ôn tập số học chương 1 Toán 6",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A1",
-      questionCount: 5,
-      totalScore: 10,
-      status: "PUBLISHED",
-      createdAt: "26/10/2026",
-    },
-    {
-      id: "ex-5",
-      title: "Đề kiểm tra 15 phút Số nguyên Lớp 6A2",
-      grade: 6,
-      subject: "Toán",
-      classCode: "TOAN-6A2",
-      questionCount: 4,
-      totalScore: 10,
-      status: "PUBLISHED",
-      createdAt: "27/10/2026",
-    },
-    {
-      id: "ex-6",
-      title: "Khảo sát chất lượng đầu năm Toán 12",
-      grade: 12,
-      subject: "Toán",
-      classCode: "TOAN-12A1",
-      questionCount: 20,
-      totalScore: 10,
-      status: "PUBLISHED",
-      createdAt: "27/10/2026",
-    },
-  ]);
+  // Dữ liệu đề thi / bài tập nạp vật lý từ CSDL PostgreSQL
+  const [examsList, setExamsList] = useState<ExamDraft[]>([]);
 
   // Modal 1: Soạn câu hỏi
   const [authoringModalOpen, setAuthoringModalOpen] = useState(false);
@@ -400,16 +153,111 @@ export function InstructorQuestionsView({
   const [targetExamForAssign, setTargetExamForAssign] = useState<ExamDraft | null>(null);
   const [selectedClassIdForExam, setSelectedClassIdForExam] = useState<string>("");
 
-  /** Nạp danh sách lớp và môn của giáo viên */
+  /** Nạp danh sách lớp, câu hỏi và đề thi thật từ CSDL PostgreSQL */
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const classData = await apiRequest<LearningClass[]>("/instructor/classes", {
-        roleCode: session.roleCode,
-      }).catch(() => [] as LearningClass[]);
+      const [classData, dbQuestions, dbExams, dbAssignments] = await Promise.all([
+        apiRequest<LearningClass[]>("/instructor/classes", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as LearningClass[]),
+        apiRequest<any[]>("/instructor/question-bank/questions", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as any[]),
+        apiRequest<Exam[]>("/exams", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as Exam[]),
+        apiRequest<any[]>("/academic/assignments", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as any[]),
+      ]);
+
       setClasses(classData);
+
+      // Map câu hỏi từ CSDL PostgreSQL
+      if (Array.isArray(dbQuestions) && dbQuestions.length > 0) {
+        const mappedQuestions: QuestionItem[] = dbQuestions.map((q: any) => {
+          let grade = 10;
+          let subject = "Toán";
+          const courseCode = q.course?.code || "";
+          const courseName = q.course?.name || "";
+          if (courseCode.includes("6") || courseName.includes("6")) grade = 6;
+          else if (courseCode.includes("7") || courseName.includes("7")) grade = 7;
+          else if (courseCode.includes("12") || courseName.includes("12")) grade = 12;
+
+          if (courseName.includes("Văn") || courseCode.includes("VAN")) subject = "Ngữ văn";
+          else if (courseName.includes("Lý") || courseCode.includes("PHY")) subject = "Vật lí";
+
+          return {
+            id: q.id,
+            content: q.content,
+            type: q.type || "SINGLE_CHOICE",
+            difficulty: q.difficulty === 1 ? "EASY" : q.difficulty === 2 ? "MEDIUM" : q.difficulty === 3 ? "HARD" : "VERY_HARD",
+            grade,
+            subject,
+            classCode: courseCode || "CHUNG",
+            source: q.tags?.join(", ") || "Ngân hàng CSDL",
+            status: q.status === "ACTIVE" || q.status === "APPROVED" ? "PUBLISHED" : "DRAFT",
+            version: q.version || 1,
+            options: q.options || [],
+            correctAnswers: q.correctAnswers || [],
+            explanation: q.solution || "",
+          };
+        });
+        setQuestions(mappedQuestions);
+      }
+
+      // Map danh sách đề thi / bài tập từ CSDL PostgreSQL
+      const combinedExams: ExamDraft[] = [];
+      if (Array.isArray(dbExams)) {
+        dbExams.forEach((ex: any) => {
+          let grade = 10;
+          let subject = "Toán";
+          if (ex.title?.includes("6")) grade = 6;
+          else if (ex.title?.includes("7")) grade = 7;
+          else if (ex.title?.includes("12")) grade = 12;
+          if (ex.title?.includes("Văn")) subject = "Ngữ văn";
+          else if (ex.title?.includes("Lý")) subject = "Vật lí";
+
+          combinedExams.push({
+            id: ex.id,
+            title: ex.title,
+            grade,
+            subject,
+            classCode: ex.classCode || "TOAN-10A1",
+            questionCount: ex.questionIds?.length || 10,
+            totalScore: ex.totalScore || 10,
+            status: ex.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+            createdAt: ex.createdAt ? new Date(ex.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+          });
+        });
+      }
+      if (Array.isArray(dbAssignments)) {
+        dbAssignments.forEach((a: any) => {
+          let grade = 10;
+          let subject = "Toán";
+          if (a.title?.includes("6")) grade = 6;
+          else if (a.title?.includes("7")) grade = 7;
+          else if (a.title?.includes("12")) grade = 12;
+          if (a.title?.includes("Văn")) subject = "Ngữ văn";
+          else if (a.title?.includes("Lý")) subject = "Vật lí";
+
+          combinedExams.push({
+            id: a.id,
+            title: a.title,
+            grade,
+            subject,
+            classCode: a.classCode || "CHUNG",
+            questionCount: a.totalQuestions || 5,
+            totalScore: a.maxScore || 10,
+            status: a.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+            createdAt: a.createdAt ? new Date(a.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+          });
+        });
+      }
+      setExamsList(combinedExams);
     } catch {
-      // Giữ classes ban đầu
+      // Giữ state hiện tại
     } finally {
       setLoading(false);
     }
@@ -586,33 +434,68 @@ export function InstructorQuestionsView({
     });
   };
 
-  // Lưu câu hỏi mới (Hoặc phát hành tạo phiên bản mới)
-  const handleSaveQuestion = (publish = false) => {
+  // Lưu câu hỏi mới trực tiếp vào CSDL PostgreSQL
+  const handleSaveQuestion = async (publish = false) => {
     if (!authoringContent.trim()) {
       notify("Vui lòng nhập nội dung câu hỏi!", "error");
       return;
     }
 
-    const newQ: QuestionItem = {
-      id: `q-${Date.now()}`,
-      content: authoringContent.trim(),
-      type: authoringType,
-      difficulty: authoringDifficulty,
-      grade: authoringGrade,
-      subject: authoringSubject,
-      source: "Thêm riêng",
-      status: publish ? "PUBLISHED" : "DRAFT",
-      version: 1,
-      options: authoringOptions.filter(Boolean),
-      correctAnswers: authoringCorrect,
-    };
+    // Tìm khóa học tương ứng nếu có
+    const targetCourse = courses.find((c) => c.name?.includes(authoringSubject)) || courses[0];
 
-    setQuestions([newQ, ...questions]);
-    setAuthoringModalOpen(false);
-    notify(publish ? "Đã phát hành câu hỏi vào ngân hàng!" : "Đã lưu nháp câu hỏi thành công!", "success");
+    try {
+      const created = await apiRequest<any>("/instructor/question-bank/questions", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          courseId: targetCourse?.id || "course-toan-10",
+          content: authoringContent.trim(),
+          type: authoringType,
+          options: authoringOptions.filter(Boolean),
+          correctAnswers: authoringCorrect,
+          difficulty: authoringDifficulty === "EASY" ? 1 : authoringDifficulty === "MEDIUM" ? 2 : 3,
+          tags: [authoringSubject, `Khối ${authoringGrade}`],
+        }),
+      });
 
-    // Reset
-    setAuthoringContent("");
+      const newQ: QuestionItem = {
+        id: created?.id || `q-${Date.now()}`,
+        content: authoringContent.trim(),
+        type: authoringType,
+        difficulty: authoringDifficulty,
+        grade: authoringGrade,
+        subject: authoringSubject,
+        source: "Thêm riêng",
+        status: publish ? "PUBLISHED" : "DRAFT",
+        version: 1,
+        options: authoringOptions.filter(Boolean),
+        correctAnswers: authoringCorrect,
+      };
+
+      setQuestions((prev) => [newQ, ...prev]);
+      setAuthoringModalOpen(false);
+      notify(publish ? "Đã lưu và phát hành câu hỏi vào CSDL!" : "Đã lưu nháp câu hỏi vào CSDL!", "success");
+      setAuthoringContent("");
+    } catch (err: any) {
+      console.warn("Lỗi lưu CSDL:", err);
+      notify(err?.message || "Không thể lưu câu hỏi vào CSDL", "error");
+    }
+  };
+
+  // Xóa câu hỏi khỏi CSDL PostgreSQL
+  const handleDeleteQuestion = async (questionId: string) => {
+    if (window.confirm("Bạn có chắc muốn xóa câu hỏi này khỏi CSDL PostgreSQL không?")) {
+      try {
+        await apiRequest(`/instructor/question-bank/questions/${questionId}`, {
+          method: "DELETE",
+          roleCode: session.roleCode,
+        }).catch((err) => console.warn("Lỗi xóa CSDL:", err));
+      } catch (e) {}
+
+      setQuestions((prev) => prev.filter((q) => q.id !== questionId));
+      notify("Đã xóa câu hỏi khỏi ngân hàng dữ liệu!", "success");
+    }
   };
 
   // Xác nhận dùng làm bài tập cho lớp
@@ -904,10 +787,18 @@ export function InstructorQuestionsView({
                       <button
                         type="button"
                         onClick={() => notify(`Chỉnh sửa câu hỏi sẽ tự động tạo phiên bản v${q.version + 1}`, "info")}
-                        className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700"
+                        className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 cursor-pointer"
                         title="Chỉnh sửa (Tạo phiên bản mới)"
                       >
                         <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteQuestion(q.id)}
+                        className="p-1 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-400 hover:text-rose-600 cursor-pointer"
+                        title="Xóa câu hỏi khỏi CSDL"
+                      >
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </div>

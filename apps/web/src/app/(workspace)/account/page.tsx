@@ -221,7 +221,7 @@ function AccountContent() {
     setAvatarSaving(true);
     try {
       const formData = new FormData();
-      formData.append("avatar", avatarFile);
+      formData.append("file", avatarFile);
       const result = await apiRequest<{ avatarUrl: string }>("/account/avatar", {
         method: "POST",
         body: formData,
