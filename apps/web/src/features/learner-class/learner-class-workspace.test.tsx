@@ -225,4 +225,36 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Định dạng")).toBeInTheDocument();
     expect(screen.getByText("Dung lượng")).toBeInTheDocument();
   });
+
+  it("không sử dụng window.alert khi bấm Chi tiết bài tập chưa làm mà hiển thị Toast mềm mại kèm nút Làm bài ngay", () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Bài tập"));
+
+    // Chọn bài tập chưa làm "Bài tập đại số chưa làm"
+    const unsubmittedItem = screen.getByText("Bài tập đại số chưa làm");
+    fireEvent.click(unsubmittedItem);
+
+    // Bấm nút Chi tiết ở cột 3
+    const detailButtons = screen.getAllByText("Chi tiết");
+    fireEvent.click(detailButtons[detailButtons.length - 1]!);
+
+    // Tuyệt đối không gọi window.alert popup của trình duyệt
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    // Hiển thị Toast thông báo nội bộ
+    expect(screen.getByText("Bạn chưa nộp lượt làm bài nào cho bài tập này.")).toBeInTheDocument();
+    expect(screen.getByText("Làm bài ngay")).toBeInTheDocument();
+
+    alertSpy.mockRestore();
+  });
 });
+
