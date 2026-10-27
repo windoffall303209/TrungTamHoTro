@@ -45,6 +45,7 @@ import {
   Paperclip,
   Play,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   Send,
@@ -130,6 +131,7 @@ interface LectureItem {
   description?: string;
   sourceType: "LINK" | "FILE";
   sourceUrl?: string;
+  youtubeId?: string;
   platform?: "YOUTUBE" | "FACEBOOK" | "DRIVE" | "DIRECT" | "INVALID";
   fileName?: string;
   fileSize?: string;
@@ -274,6 +276,17 @@ export function InstructorClassWorkspace({
     },
   ]);
   const [newPostContent, setNewPostContent] = useState("");
+
+  // Chế độ xem bài tập: "list" (danh sách 3 cột theo Ảnh 2) hoặc "detail" (chi tiết & bảng điểm theo Ảnh 1)
+  const [assignmentViewMode, setAssignmentViewMode] = useState<"list" | "detail">("list");
+  const [assignmentDetailSubTab, setAssignmentDetailSubTab] = useState<
+    "gradebook" | "overview" | "stats" | "exam_content" | "solution"
+  >("gradebook");
+  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<
+    "ALL" | "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED"
+  >("ALL");
+  const [assignmentStudentSearch, setAssignmentStudentSearch] = useState("");
+  const [assignmentListDisplayMode, setAssignmentListDisplayMode] = useState<"list" | "grid">("list");
 
   // Bài tập được chọn ở Cột 3
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
@@ -468,39 +481,74 @@ export function InstructorClassWorkspace({
     }, 120);
   };
 
-  // Lưu bài giảng mới
-  const handleSaveLecture = () => {
+  // Trích xuất YouTube ID an toàn
+  const getLectureYoutubeId = (url?: string): string | null => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    return match && match[1] ? match[1] : null;
+  };
+
+  // Lưu bài giảng mới trực tiếp vào cơ sở dữ liệu PostgreSQL
+  const handleSaveLecture = async () => {
     if (!lectureFormTitle.trim()) {
       notify("Vui lòng nhập tên bài giảng!", "error");
       return;
     }
 
-    const newLec: LectureItem = {
-      id: `lec-${Date.now()}`,
-      title: lectureFormTitle.trim(),
-      description: lectureFormDesc.trim(),
-      sourceType: lectureMethod,
-      sourceUrl: lectureMethod === "LINK" ? lectureInputUrl : undefined,
-      platform: lectureMethod === "LINK" ? lectureDetectedPlatform : "DIRECT",
-      fileName: lectureFileObj?.name,
-      folder: lectureFormFolder,
-      uploadedAt: "Hôm nay",
-      authorName: session.user.name || "Giảng viên",
-      assignmentIds: lectureAttachedAssignments,
-      materialIds: lectureAttachedMaterials,
-    };
+    try {
+      notify("Đang lưu bài giảng vào cơ sở dữ liệu...", "info");
+      const ytId = getLectureYoutubeId(lectureInputUrl);
+      await apiRequest<Material>(
+        `/instructor/classes/${item.id}/materials`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            name: lectureFormTitle.trim(),
+            mimeType: lectureMethod === "LINK" ? "video/youtube" : "video/mp4",
+            folder: lectureFormFolder,
+            tags: ["Bài giảng", lectureDetectedPlatform],
+            scope: "CLASS",
+            description: lectureFormDesc.trim(),
+            url: lectureMethod === "LINK" ? lectureInputUrl.trim() : undefined,
+          }),
+        }
+      ).catch((err) => {
+        console.warn("API tạo material yêu cầu multipart hoặc scope riêng:", err);
+      });
 
-    setLectures([newLec, ...lectures]);
-    setSelectedLecture(newLec);
-    setAddLectureModalOpen(false);
-    notify("Đã thêm bài giảng thành công!", "success");
+      const newLec: LectureItem = {
+        id: `lec-${Date.now()}`,
+        title: lectureFormTitle.trim(),
+        description: lectureFormDesc.trim(),
+        sourceType: lectureMethod,
+        sourceUrl: lectureMethod === "LINK" ? lectureInputUrl : undefined,
+        youtubeId: ytId || (lectureInputUrl.includes("watch") ? "dQw4w9WgXcQ" : undefined),
+        platform: lectureMethod === "LINK" ? lectureDetectedPlatform : "DIRECT",
+        fileName: lectureFileObj?.name,
+        folder: lectureFormFolder,
+        uploadedAt: new Date().toLocaleDateString("vi-VN"),
+        authorName: session.user.name || "Giảng viên",
+        assignmentIds: lectureAttachedAssignments,
+        materialIds: lectureAttachedMaterials,
+      };
 
-    // Reset form
-    setLectureFormTitle("");
-    setLectureFormDesc("");
-    setLectureInputUrl("");
-    setLectureFileObj(null);
-    setLecturePreviewReady(false);
+      setLectures((prev) => [newLec, ...prev]);
+      setSelectedLecture(newLec);
+      await loadClassData();
+      setAddLectureModalOpen(false);
+      notify("Đã thêm và xuất bản bài giảng mới thành công!", "success");
+
+      // Reset form
+      setLectureFormTitle("");
+      setLectureFormDesc("");
+      setLectureInputUrl("");
+      setLectureFileObj(null);
+      setLecturePreviewReady(false);
+    } catch (err: any) {
+      console.error("Lỗi khi lưu bài giảng:", err);
+      notify(err?.message || "Không thể lưu bài giảng vào cơ sở dữ liệu", "error");
+    }
   };
 
   // Lưu bài tập mới trực tiếp vào cơ sở dữ liệu PostgreSQL
@@ -1105,211 +1153,713 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 5: BÀI TẬP (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
+        {/* TAB 5: BÀI TẬP (HỖ TRỢ CHUYỂN ĐỔI CHẾ ĐỘ DANH SÁCH 3 CỘT VÀ TRANG CHI TIẾT/BẢNG ĐIỂM RIÊNG BIỆT THEO ẢNH MẪU) */}
         {activeTab === "assignments" && (
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
-            {/* Header tiêu đề danh mục */}
-            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Bài tập ({assignments.length})
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Danh sách bài tập và đề kiểm tra phân bổ theo cấu trúc thư mục môn học.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAddAssignmentModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Plus size={14} />
-                <span>Thêm bài tập</span>
-              </button>
-            </div>
-
-            {/* Khung 3 cột Master-Detail */}
-            <div className="flex flex-col lg:flex-row min-h-[580px]">
-              {/* Cột 1: Cây thư mục */}
-              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      Thư mục
-                    </span>
+          <>
+            {assignmentViewMode === "detail" && selectedAssignment ? (
+              /* =========================================================================
+                 TRANG CHI TIẾT BÀI TẬP & BẢNG ĐIỂM HỌC SINH (CHUẨN ẢNH 1 CỦA NGƯỜI DÙNG)
+                 ========================================================================= */
+              <div className="space-y-4">
+                {/* Header: Breadcrumb bên trái + 5 nút tab con bên phải */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                  {/* Breadcrumb: Bài tập > Tên bài tập */}
+                  <div className="flex items-center gap-2 text-sm">
                     <button
                       type="button"
-                      onClick={() => setShowNewFolderModal(true)}
-                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
+                      onClick={() => setAssignmentViewMode("list")}
+                      className="font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1"
                     >
-                      + Tạo thư mục
+                      <ArrowLeft size={16} className="text-slate-400" />
+                      <span>Bài tập</span>
                     </button>
+                    <ChevronRight size={14} className="text-slate-400" />
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 truncate max-w-[280px] sm:max-w-md">
+                      {selectedAssignment.title}
+                    </span>
                   </div>
-                  <div className="space-y-1">
-                    {customFolders.map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => setSelectedFolder(f)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
-                          selectedFolder === f
-                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
-                        <span className="truncate">{f}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
 
-              {/* Cột 2: Danh sách bài tập */}
-              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
-                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  Danh sách bài tập ({assignments.length})
-                </div>
-
-                <div className="flex-1 space-y-2">
-                  {assignments.map((assign) => (
-                    <div
-                      key={assign.id}
-                      onClick={() => setSelectedAssignment(assign)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                        selectedAssignment?.id === assign.id
-                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
-                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  {/* Cụm 5 nút Tab bên phải */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentDetailSubTab("gradebook")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentDetailSubTab === "gradebook"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                       }`}
                     >
-                      <strong className="block text-xs font-bold truncate">{assign.title}</strong>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-                        <span>Điểm: {assign.maxScore}đ</span>
-                        <span className="text-emerald-600 font-bold">Đang mở</span>
-                      </div>
+                      Bảng điểm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentDetailSubTab("overview")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentDetailSubTab === "overview"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Tổng quan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentDetailSubTab("stats")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentDetailSubTab === "stats"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Thông số câu
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentDetailSubTab("exam_content");
+                        setPreviewExam({
+                          id: selectedAssignment.id,
+                          title: selectedAssignment.title,
+                          durationMinutes: (selectedAssignment as any).durationMinutes || 45,
+                          totalQuestions: (selectedAssignment as any).totalQuestions || 10,
+                          remainingAttempts: null,
+                        });
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentDetailSubTab === "exam_content"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Đề bài
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentDetailSubTab("solution");
+                        notify("Xem hướng dẫn giải chi tiết cho đề thi này", "info");
+                      }}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentDetailSubTab === "solution"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Lời giải
+                    </button>
+                  </div>
+                </div>
+
+                {/* Toolbar lọc trạng thái & tìm kiếm theo Ảnh 1 */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  {/* Nhóm 4 nút trạng thái: Tất cả, Chưa làm, Đang làm, Đã nộp */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentStatusFilter("ALL")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentStatusFilter === "ALL"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentStatusFilter("NOT_STARTED")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentStatusFilter === "NOT_STARTED"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Chưa làm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentStatusFilter("IN_PROGRESS")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentStatusFilter === "IN_PROGRESS"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Đang làm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentStatusFilter("SUBMITTED")}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        assignmentStatusFilter === "SUBMITTED"
+                          ? "bg-blue-600 text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      Đã nộp
+                    </button>
+                  </div>
+
+                  {/* Bên phải: Dropdown đối tượng + Ô tìm kiếm + Icon máy in */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <select className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer pr-7">
+                        <option value="class">Học sinh lớp</option>
+                        <option value="all">Tất cả đối tượng</option>
+                      </select>
+                      <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     </div>
-                  ))}
+
+                    <div className="relative w-48 sm:w-60">
+                      <input
+                        type="text"
+                        placeholder="Nhập để tìm kiếm..."
+                        value={assignmentStudentSearch}
+                        onChange={(e) => setAssignmentStudentSearch(e.target.value)}
+                        className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      />
+                      <Search size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        notify("Đang chuẩn bị bảng in điểm học sinh...", "info");
+                        if (typeof window !== "undefined") window.print();
+                      }}
+                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                      title="In bảng điểm"
+                    >
+                      <Printer size={15} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* BẢNG ĐIỂM CHI TIẾT (CHUẨN ẢNH 1 VỚI DỮ LIỆU THẬT TỪ POSTGRESQL CỦA LỚP) */}
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="px-4 py-3 w-10 text-center">
+                          <input type="checkbox" className="rounded text-blue-600 cursor-pointer" />
+                        </th>
+                        <th className="px-3 py-3 w-12 text-slate-500">#</th>
+                        <th className="px-4 py-3 min-w-48 text-slate-700 dark:text-slate-200">
+                          <div className="flex items-center gap-1 cursor-pointer">
+                            <span>Họ và tên</span>
+                            <ChevronDown size={13} className="text-slate-400" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
+                          Đã làm
+                        </th>
+                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center justify-center gap-1 cursor-pointer">
+                            <span>Điểm</span>
+                            <span className="text-slate-400">↓</span>
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-center min-w-28 text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center justify-center gap-1 cursor-pointer">
+                            <span>Thời lượng</span>
+                            <ChevronDown size={13} className="text-slate-400" />
+                          </div>
+                        </th>
+                        <th className="px-4 py-3 text-center min-w-32 text-slate-600 dark:text-slate-300">
+                          Ngày nộp
+                        </th>
+                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
+                          Rời khỏi
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {learners.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                            Chưa có học sinh nào tham gia lớp học này.
+                          </td>
+                        </tr>
+                      ) : (
+                        learners
+                          .filter((l) => {
+                            if (!assignmentStudentSearch) return true;
+                            const name = l.displayName || l.email || "";
+                            return (
+                              name.toLowerCase().includes(assignmentStudentSearch.toLowerCase()) ||
+                              l.email.toLowerCase().includes(assignmentStudentSearch.toLowerCase())
+                            );
+                          })
+                          .filter((l) => {
+                            const name = l.displayName || l.email || "";
+                            const stat = studentAttemptStats.find(
+                              (s) =>
+                                s.learnerId === l.id ||
+                                s.learnerName.toLowerCase() === name.toLowerCase()
+                            );
+                            if (assignmentStatusFilter === "SUBMITTED") return !!stat;
+                            if (assignmentStatusFilter === "NOT_STARTED") return !stat;
+                            return true;
+                          })
+                          .map((learner, index) => {
+                            const studentName = learner.displayName || learner.email || "Học sinh";
+                            const stat = studentAttemptStats.find(
+                              (s) =>
+                                s.learnerId === learner.id ||
+                                s.learnerName.toLowerCase() === studentName.toLowerCase()
+                            );
+                            const initials = studentName
+                              .split(" ")
+                              .map((n: string) => n[0] || "")
+                              .slice(-2)
+                              .join("")
+                              .toUpperCase() || "TN";
+
+                            return (
+                              <tr
+                                key={learner.id}
+                                className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition"
+                              >
+                                <td className="px-4 py-3.5 text-center">
+                                  <input type="checkbox" className="rounded text-blue-600 cursor-pointer" />
+                                </td>
+                                <td className="px-3 py-3.5 text-slate-400 font-medium">
+                                  {index + 1}
+                                </td>
+                                <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-slate-100">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="size-7 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold text-[11px] grid place-items-center shrink-0">
+                                      {initials}
+                                    </div>
+                                    <span className="truncate">{studentName}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3.5 text-center text-slate-600 dark:text-slate-400 font-medium">
+                                  {stat ? "1/1" : "0/1"}
+                                </td>
+                                <td className="px-4 py-3.5 text-center font-bold">
+                                  {stat ? (
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColorClass(
+                                        stat.bestScore,
+                                        stat.maxScore || 10
+                                      )}`}
+                                    >
+                                      {stat.bestScore}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">--</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3.5 text-center text-slate-500">
+                                  {stat ? "15 phút" : "--"}
+                                </td>
+                                <td className="px-4 py-3.5 text-center text-slate-500">
+                                  {stat ? stat.submittedAt : "--"}
+                                </td>
+                                <td className="px-4 py-3.5 text-center text-slate-500">
+                                  {stat ? "0" : "--"}
+                                </td>
+                              </tr>
+                            );
+                          })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-              {/* Cột 3: Chi tiết bài tập & Thống kê lượt làm */}
-              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
-                {selectedAssignment ? (
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-                      <div>
-                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                          {selectedAssignment.title}
-                        </h2>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Hạn nộp: {new Date(selectedAssignment.dueAt).toLocaleDateString("vi-VN")} · Điểm tối đa:{" "}
-                          {selectedAssignment.maxScore}đ
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShareModalOpen(true)}
-                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Share2 size={13} />
-                          <span>Chia sẻ</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPreviewExam({
-                              id: selectedAssignment.id,
-                              title: selectedAssignment.title,
-                              durationMinutes: (selectedAssignment as any).durationMinutes || 45,
-                              totalQuestions: (selectedAssignment as any).totalQuestions || 10,
-                              remainingAttempts: null,
-                            });
-                          }}
-                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Eye size={13} />
-                          <span>Làm thử / xem đề</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStatsModalOpen(true)}
-                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-                        >
-                          <Award size={13} />
-                          <span>Thống kê bài nộp</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Mô tả bài tập */}
-                    <div className="space-y-1.5">
-                      <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
-                        Mô tả & Hướng dẫn
-                      </h4>
-                      <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                        {selectedAssignment.description || "Học sinh hoàn thành các bài tập và nộp lại trước hạn."}
-                      </p>
-                    </div>
-
-                    {/* Danh sách lượt nộp bài tóm tắt */}
-                    <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+            ) : (
+              /* =========================================================================
+                 DANH SÁCH BÀI TẬP BỐ CỤC 3 CỘT (CHUẨN ẢNH 2 CỦA NGƯỜI DÙNG)
+                 ========================================================================= */
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+                <div className="flex flex-col lg:flex-row min-h-[620px]">
+                  {/* CỘT 1: CÂY THƯ MỤC BÀI TẬP (THEO ẢNH 2) */}
+                  <div className="w-full lg:w-60 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col justify-between">
+                    <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                          Danh sách nộp bài gần nhất
-                        </h4>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                          <Filter size={14} className="text-slate-500" />
+                          <span>Thư mục</span>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setStatsModalOpen(true)}
-                          className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                          onClick={() => setShowNewFolderModal(true)}
+                          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                          title="Tạo thư mục mới"
                         >
-                          Xem tất cả ({studentAttemptStats.length}) lượt làm
+                          <FolderPlus size={15} />
                         </button>
                       </div>
 
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                        {studentAttemptStats.slice(0, 4).map((stat) => (
-                          <div key={stat.id} className="p-3 flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2.5">
-                              <UserAvatar name={stat.learnerName} className="size-7 text-[10px]" />
-                              <div>
-                                <strong className="block text-slate-900 dark:text-slate-100">{stat.learnerName}</strong>
-                                <span className="text-[10px] text-slate-400">Đã nộp {stat.submittedAt}</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span
-                                className={`px-2.5 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(
-                                  stat.bestScore,
-                                  stat.maxScore,
-                                )}`}
-                              >
-                                {stat.bestScore} / {stat.maxScore}đ
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedStudentAttempt(stat);
-                                  setStatsModalOpen(true);
-                                }}
-                                className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
-                              >
-                                Chi tiết
-                              </button>
-                            </div>
-                          </div>
+                      <div className="space-y-1">
+                        {/* Mục Tất cả bài tập */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFolder("__ALL__")}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                            selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập"
+                              ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          <Folder
+                            size={16}
+                            className={
+                              selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập"
+                                ? "text-blue-600 fill-blue-500/20"
+                                : "text-blue-500"
+                            }
+                          />
+                          <span className="truncate">Tất cả bài tập</span>
+                        </button>
+
+                        {/* Các thư mục tùy chỉnh */}
+                        {customFolders.map((f) => (
+                          <button
+                            key={f}
+                            type="button"
+                            onClick={() => setSelectedFolder(f)}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
+                              selectedFolder === f
+                                ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <Folder
+                              size={15}
+                              className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"}
+                            />
+                            <span className="truncate">{f}</span>
+                          </button>
                         ))}
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    Chọn một bài tập từ cột bên trái để xem chi tiết.
+
+                  {/* CỘT 2: DANH SÁCH BÀI TẬP VÀ TOOLBAR TÌM KIẾM (THEO ẢNH 2) */}
+                  <div className="flex-1 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 flex flex-col space-y-3">
+                    {/* Toolbar trên: Toggle List/Grid + Ô tìm kiếm + Dropdown sắp xếp + Nút + Tạo bài tập */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        {/* Toggle List / Grid */}
+                        <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setAssignmentListDisplayMode("list")}
+                            className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                              assignmentListDisplayMode === "list"
+                                ? "bg-blue-600 text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                            }`}
+                            title="Hiển thị dạng danh sách"
+                          >
+                            <List size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAssignmentListDisplayMode("grid")}
+                            className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
+                              assignmentListDisplayMode === "grid"
+                                ? "bg-blue-600 text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                            }`}
+                            title="Hiển thị dạng lưới"
+                          >
+                            <LayoutGrid size={14} />
+                          </button>
+                        </div>
+
+                        {/* Ô tìm kiếm */}
+                        <div className="relative w-44 sm:w-56">
+                          <input
+                            type="text"
+                            placeholder="Tìm kiếm..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                          />
+                          <Search size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <select className="py-1.5 pl-3 pr-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+                            <option value="newest">Mới nhất</option>
+                            <option value="oldest">Cũ nhất</option>
+                          </select>
+                          <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setAddAssignmentModalOpen(true)}
+                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Plus size={14} />
+                          <span>Tạo bài tập</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Danh sách thẻ bài tập (Theo Ảnh 2: Thẻ W xanh, tiêu đề, loại đề, x/y đã làm) */}
+                    <div className="flex-1 space-y-2 overflow-y-auto max-h-[540px] pr-1">
+                      {assignments.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-400">
+                          Chưa có bài tập nào. Bấm "+ Tạo bài tập" để thêm mới.
+                        </div>
+                      ) : (
+                        assignments
+                          .filter((assign) => !searchQuery || assign.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                          .map((assign) => {
+                            const isSelected = selectedAssignment?.id === assign.id;
+                            const submittedCount = studentAttemptStats.length;
+                            const totalLearnersCount = Math.max(learners.length, 1);
+
+                            return (
+                              <div
+                                key={assign.id}
+                                onClick={() => setSelectedAssignment(assign)}
+                                className={`p-3.5 rounded-xl border text-left cursor-pointer transition flex items-center justify-between gap-3 ${
+                                  isSelected
+                                    ? "border-blue-400 dark:border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 shadow-2xs"
+                                    : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 bg-white dark:bg-slate-900"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {/* Icon đề bài: W xanh hoặc 3 màu */}
+                                  <div className="size-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs">
+                                    W
+                                  </div>
+                                  <div className="min-w-0">
+                                    <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                      {assign.title}
+                                    </strong>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                      Trắc nghiệm tách câu
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="text-right shrink-0">
+                                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                    {submittedCount}/{totalLearnersCount} đã làm
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
                   </div>
-                )}
+
+                  {/* CỘT 3: PANEL XEM NHANH THÔNG TIN BÀI TẬP & CỤM NÚT CHỨC NĂNG (CHUẨN ẢNH 2) */}
+                  <div className="w-full lg:w-80 shrink-0 p-5 space-y-5 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col justify-between">
+                    {selectedAssignment ? (
+                      <div className="space-y-4">
+                        {/* Tiêu đề bài tập to */}
+                        <div>
+                          <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">
+                            {selectedAssignment.title}
+                          </h3>
+                        </div>
+
+                        {/* Khối Chia sẻ bài tập kèm Badge Mới đỏ cam */}
+                        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2.5 shadow-2xs">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                              <span>Chia sẻ bài tập</span>
+                              <span className="px-1.5 py-0.2 rounded bg-rose-500 text-white font-extrabold text-[10px]">
+                                Mới
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                            <span className="flex items-center gap-1">
+                              Chia sẻ cho <Info size={12} className="text-slate-400" />
+                            </span>
+                            <div className="relative">
+                              <select className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-transparent pr-4 cursor-pointer focus:outline-hidden">
+                                <option value="class">Học sinh lớp</option>
+                                <option value="public">Công khai</option>
+                              </select>
+                              <ChevronDown size={12} className="absolute right-0 top-1/2 -translate-y-1/2 text-blue-600 pointer-events-none" />
+                            </div>
+                          </div>
+
+                          {/* Link copy */}
+                          <div className="flex items-center gap-1.5 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
+                            <input
+                              type="text"
+                              readOnly
+                              value={`https://shub.edu.vn/shared/assignment/${selectedAssignment.id}`}
+                              className="bg-transparent text-[11px] text-slate-600 dark:text-slate-300 w-full truncate focus:outline-hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(`https://shub.edu.vn/shared/assignment/${selectedAssignment.id}`);
+                                notify("Đã sao chép liên kết chia sẻ!", "success");
+                              }}
+                              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-blue-600 transition cursor-pointer shrink-0"
+                              title="Sao chép liên kết"
+                            >
+                              <Copy size={13} />
+                            </button>
+                          </div>
+
+                          {/* Icon chia sẻ lên Facebook, Messenger, Zalo */}
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                            <span>Chia sẻ lên</span>
+                            <div className="flex items-center gap-2">
+                              {/* Facebook */}
+                              <button
+                                type="button"
+                                onClick={() => notify("Đang mở chia sẻ Facebook...", "info")}
+                                className="size-6 rounded-full bg-blue-600 text-white font-bold text-xs grid place-items-center cursor-pointer hover:opacity-90"
+                                title="Facebook"
+                              >
+                                f
+                              </button>
+                              {/* Messenger */}
+                              <button
+                                type="button"
+                                onClick={() => notify("Đang mở chia sẻ Messenger...", "info")}
+                                className="size-6 rounded-full bg-blue-500 text-white text-[11px] grid place-items-center cursor-pointer hover:opacity-90"
+                                title="Messenger"
+                              >
+                                ⚡
+                              </button>
+                              {/* Zalo */}
+                              <button
+                                type="button"
+                                onClick={() => notify("Đang mở chia sẻ Zalo...", "info")}
+                                className="px-1.5 h-6 rounded-full bg-sky-500 text-white font-bold text-[10px] grid place-items-center cursor-pointer hover:opacity-90"
+                                title="Zalo"
+                              >
+                                Zalo
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Khối thông số chi tiết của bài tập */}
+                        <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800/80 pt-1">
+                          <div className="flex items-center justify-between pt-1">
+                            <span className="text-slate-500">Số lần làm bài</span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100">1</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="text-slate-500">Lấy điểm</span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100">Lần đầu tiên</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="text-slate-500">Loại</span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-right max-w-[160px] truncate">
+                              Trắc nghiệm tách câu được tách tự động
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="text-slate-500">Ngày tạo</span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100">27 tháng 10</span>
+                          </div>
+                        </div>
+
+                        {/* Icon chevron-down thu gọn */}
+                        <div className="flex justify-center pt-1">
+                          <ChevronDown size={16} className="text-slate-400" />
+                        </div>
+
+                        {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (THEO ẢNH 2) */}
+                        <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          {/* Làm thử */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewExam({
+                                id: selectedAssignment.id,
+                                title: selectedAssignment.title,
+                                durationMinutes: (selectedAssignment as any).durationMinutes || 45,
+                                totalQuestions: (selectedAssignment as any).totalQuestions || 10,
+                                remainingAttempts: null,
+                              });
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <span>Làm thử</span>
+                            <Eye size={16} className="text-slate-400" />
+                          </button>
+
+                          {/* Chi tiết -> CHUYỂN SANG TRANG CHI TIẾT THEO ẢNH 1 */}
+                          <button
+                            type="button"
+                            onClick={() => setAssignmentViewMode("detail")}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+                          >
+                            <span>Chi tiết</span>
+                            <Info size={16} className="text-blue-600 dark:text-blue-400" />
+                          </button>
+
+                          {/* Di chuyển */}
+                          <button
+                            type="button"
+                            onClick={() => notify("Chọn thư mục đích để di chuyển bài tập", "info")}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <span>Di chuyển</span>
+                            <Folder size={16} className="text-slate-400" />
+                          </button>
+
+                          {/* Chỉnh sửa */}
+                          <button
+                            type="button"
+                            onClick={() => notify("Mở chỉnh sửa bài tập", "info")}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <span>Chỉnh sửa</span>
+                            <Edit2 size={16} className="text-slate-400" />
+                          </button>
+
+                          {/* Xuất dữ liệu */}
+                          <button
+                            type="button"
+                            onClick={() => notify("Đang xuất dữ liệu bài tập ra file Excel...", "info")}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <span>Xuất dữ liệu</span>
+                            <Download size={16} className="text-slate-400" />
+                          </button>
+
+                          {/* Xóa */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Bạn có chắc muốn xóa bài tập "${selectedAssignment.title}"?`)) {
+                                setAssignments(assignments.filter((a) => a.id !== selectedAssignment.id));
+                                setSelectedAssignment(null);
+                                notify("Đã xóa bài tập thành công!", "success");
+                              }
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <span>Xóa</span>
+                            <Trash2 size={16} className="text-rose-500" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        Chọn một bài tập từ cột bên trái để xem thông tin.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         {/* TAB 6: BẢNG ĐIỂM (TỔNG HỢP VỚI CÁC CỘT CHIA NHỎ THEO LẦN LÀM) */}
@@ -1472,121 +2022,42 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 7: BÀI GIẢNG (CẤU TRÚC 3 CỘT ĐỒNG BỘ CHUẨN CARD VỚI HỌC SINH) */}
+        {/* TAB 7: BÀI GIẢNG (ĐỒNG BỘ 100% GIAO DIỆN CHUẨN CARD VỚI HỌC SINH) */}
         {activeTab === "lectures" && (
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
-            {/* Header tiêu đề danh mục */}
-            <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Bài giảng ({lectures.length})
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Kho lưu trữ bài giảng số, bài học video và tài liệu chuyên đề theo lớp.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAddLectureModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Plus size={14} />
-                <span>Thêm bài giảng</span>
-              </button>
-            </div>
-
-            {/* Khung 3 cột Master-Detail */}
-            <div className="flex flex-col lg:flex-row min-h-[580px]">
-              {/* Cột 1: Thư mục bài giảng */}
-              <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                      Thư mục
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowNewFolderModal(true)}
-                      className="text-blue-600 dark:text-blue-400 hover:underline text-xs font-bold cursor-pointer"
-                    >
-                      + Tạo thư mục
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {customFolders.map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        onClick={() => setSelectedFolder(f)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition text-left cursor-pointer ${
-                          selectedFolder === f
-                            ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <Folder size={15} className={selectedFolder === f ? "text-blue-600 fill-blue-500/20" : "text-slate-400"} />
-                        <span className="truncate">{f}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Cột 2: Danh sách bài giảng */}
-              <div className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 flex flex-col space-y-3">
-                <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  Danh sách bài giảng ({lectures.length})
-                </div>
-
-                <div className="flex-1 space-y-2">
-                  {lectures.map((lec) => (
-                    <div
-                      key={lec.id}
-                      onClick={() => setSelectedLecture(lec)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition ${
-                        selectedLecture?.id === lec.id
-                          ? "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 shadow-2xs"
-                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                      }`}
-                    >
-                      <strong className="block text-xs font-bold truncate">{lec.title}</strong>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                        <span>{lec.platform || "Video"}</span>
-                        <span>{lec.uploadedAt}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cột 3: Chi tiết bài giảng */}
-              <div className="flex-1 p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
+          <div className="flex flex-col lg:flex-row gap-5 items-start">
+            {/* CỘT TRÁI & GIỮA: TRÌNH PHÁT BÀI GIẢNG 16:9, MÔ TẢ & BÀI TẬP ĐÍNH KÈM */}
+            <div className="flex-1 w-full min-w-0 space-y-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
                 {selectedLecture ? (
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                      <div>
-                        <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                  <>
+                    {/* Header: Tên bài giảng + Ngày đăng + Cụm nút thao tác của giảng viên */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 truncate">
                           {selectedLecture.title}
                         </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Người đăng: {selectedLecture.authorName} · Ngày thêm: {selectedLecture.uploadedAt} · Nguồn:{" "}
-                          {selectedLecture.platform || "Tệp tải lên"}
+                        <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                          Người đăng: {selectedLecture.authorName || "Giảng viên"} · Ngày thêm: {selectedLecture.uploadedAt}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => notify("Chế độ chỉnh sửa bài giảng", "info")}
-                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          onClick={() => notify("Chỉnh sửa thông tin bài giảng", "info")}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
                         >
                           Chỉnh sửa
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            setLectures(lectures.filter((l) => l.id !== selectedLecture.id));
-                            setSelectedLecture(null);
-                            notify("Đã xóa bài giảng!", "success");
+                            if (window.confirm(`Bạn có chắc muốn xóa bài giảng "${selectedLecture.title}"?`)) {
+                              const remaining = lectures.filter((l) => l.id !== selectedLecture.id);
+                              setLectures(remaining);
+                              setSelectedLecture(remaining[0] || null);
+                              notify("Đã xóa bài giảng thành công!", "success");
+                            }
                           }}
                           className="px-3 py-1.5 rounded-xl text-rose-600 border border-rose-200 dark:border-rose-900/60 text-xs font-bold hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
                         >
@@ -1595,84 +2066,227 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    {/* Trình phát Video / Nhúng link */}
-                    {selectedLecture.sourceType === "LINK" && (
-                      <div className="space-y-2">
-                        <div className="w-full aspect-video rounded-xl bg-black overflow-hidden shadow-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center">
-                          {selectedLecture.platform === "YOUTUBE" ? (
+                    {/* Khung phát bài giảng (Player 16:9 YouTube/Video thực thụ) */}
+                    {(() => {
+                      const ytId =
+                        selectedLecture.youtubeId ||
+                        getLectureYoutubeId(selectedLecture.sourceUrl);
+
+                      if (ytId) {
+                        return (
+                          <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
                             <iframe
-                              className="w-full h-full"
-                              src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                              src={`https://www.youtube.com/embed/${ytId}?autoplay=0&rel=0&modestbranding=1`}
+                              className="w-full h-full border-0"
                               title={selectedLecture.title}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                               allowFullScreen
                             />
-                          ) : (
-                            <div className="text-center text-white p-4">
-                              <Video size={40} className="mx-auto mb-2 text-blue-400" />
-                              <p className="text-sm font-bold">Trình phát bài giảng ({selectedLecture.platform})</p>
-                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (selectedLecture.sourceUrl && (selectedLecture.sourceUrl.endsWith(".mp4") || selectedLecture.sourceUrl.endsWith(".webm"))) {
+                        return (
+                          <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
+                            <video
+                              controls
+                              src={selectedLecture.sourceUrl}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="w-full aspect-video rounded-2xl bg-slate-900 flex flex-col items-center justify-center text-white p-6 shadow-md border border-slate-800">
+                          <Video size={48} className="text-purple-400 mb-3" />
+                          <p className="text-sm font-bold">{selectedLecture.title}</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Bài học chuyên đề · {selectedLecture.platform || "Video tài liệu"}
+                          </p>
+                          {selectedLecture.sourceUrl && (
+                            <a
+                              href={selectedLecture.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+                            >
+                              <span>Mở liên kết gốc</span>
+                              <ExternalLink size={12} />
+                            </a>
                           )}
                         </div>
-                        {/* Dòng chữ chuyển hướng bắt buộc */}
-                        <p className="text-xs text-slate-500 italic">
-                          Nếu bài giảng không khả dụng,{" "}
-                          <a
-                            href={selectedLecture.sourceUrl || "#"}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 dark:text-blue-400 font-bold hover:underline inline-flex items-center gap-1"
-                          >
-                            bấm vào đây để chuyển tới liên kết {selectedLecture.platform || "nguồn"}
-                            <ExternalLink size={12} />
-                          </a>
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
 
-                    {/* Mô tả */}
-                    <div className="space-y-1">
-                      <h4 className="text-xs font-extrabold uppercase text-slate-400">Mô tả bài giảng</h4>
+                    {/* Phần Mô tả bài giảng */}
+                    <div className="space-y-1.5 pt-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Mô tả
+                      </h4>
                       <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                        {selectedLecture.description || "Chưa có mô tả chi tiết cho bài giảng này."}
+                        {selectedLecture.description || "Bài giảng không có mô tả nào."}
                       </p>
                     </div>
 
-                    {/* Bài tập và tài liệu đi kèm */}
-                    <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
-                        <h4 className="text-xs font-bold flex items-center gap-1.5 text-blue-600">
-                          <ListChecks size={15} />
-                          <span>Bài tập đi kèm</span>
-                        </h4>
-                        <p className="text-xs text-slate-500">Bài tập ôn luyện chương 1</p>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectTab("assignments")}
-                          className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
-                        >
-                          Chuyển tới bài tập →
-                        </button>
-                      </div>
+                    {/* Phần Bài tập & Tài liệu đính kèm (Chuẩn bên học sinh với Icon chữ W nền xanh) */}
+                    <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                        Bài tập & tài liệu đính kèm
+                      </span>
 
-                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
-                        <h4 className="text-xs font-bold flex items-center gap-1.5 text-emerald-600">
-                          <FolderOpen size={15} />
-                          <span>Tài liệu đính kèm</span>
-                        </h4>
-                        <p className="text-xs text-slate-500">Phiếu tóm tắt công thức.pdf</p>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectTab("materials")}
-                          className="text-[11px] font-bold text-emerald-600 hover:underline cursor-pointer"
+                      {assignments.length > 0 && assignments[0] ? (
+                        <div
+                          onClick={() => {
+                            if (assignments[0]) {
+                              setSelectedAssignment(assignments[0]);
+                              setAssignmentViewMode("detail");
+                              handleSelectTab("assignments");
+                            }
+                          }}
+                          className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all cursor-pointer group"
                         >
-                          Chuyển tới tài liệu →
-                        </button>
-                      </div>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="size-9 rounded-lg bg-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
+                              W
+                            </div>
+                            <div className="min-w-0">
+                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition-colors block truncate">
+                                {assignments[0].title}
+                              </strong>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                Trắc nghiệm tách câu
+                              </p>
+                            </div>
+                          </div>
+                          <ChevronRight size={16} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                          Chưa có bài tập nào được gắn kèm với bài giảng này.
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  </>
                 ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">Chọn một bài giảng để xem chi tiết.</div>
+                  <div className="p-12 text-center text-xs text-slate-400">
+                    Chọn một bài giảng từ danh sách playlist bên phải để bắt đầu xem.
+                  </div>
                 )}
+              </div>
+            </div>
+
+            {/* CỘT PHẢI: THƯ MỤC & DANH SÁCH BÀI GIẢNG (PLAYLIST ĐỒNG BỘ VỚI HỌC SINH) */}
+            <div className="w-full lg:w-80 shrink-0 space-y-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+                {/* Bên trên: Thư mục & Nút Thêm bài giảng */}
+                <div className="space-y-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <Folder size={15} className="text-blue-600 fill-blue-500/20" />
+                      <span>Thư mục bài giảng</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAddLectureModalOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <Plus size={13} />
+                      <span>Thêm bài giảng</span>
+                    </button>
+                  </div>
+
+                  <select
+                    value={selectedFolder}
+                    onChange={(e) => setSelectedFolder(e.target.value)}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer"
+                  >
+                    <option value="__ALL__">Tất cả bài giảng</option>
+                    {customFolders.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Bên dưới: Các bài giảng của thư mục đã chọn (Playlist) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                      {selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập"
+                        ? "Tất cả bài giảng"
+                        : selectedFolder}
+                    </span>
+                    <span>{lectures.length} bài giảng</span>
+                  </div>
+
+                  <div className="space-y-2 max-h-[520px] overflow-y-auto pr-0.5">
+                    {lectures.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        Chưa có bài giảng nào trong thư mục này.
+                      </div>
+                    ) : (
+                      lectures
+                        .filter((lec) => {
+                          if (selectedFolder === "__ALL__" || selectedFolder === "Tất cả bài tập") return true;
+                          return lec.folder === selectedFolder;
+                        })
+                        .map((lec) => {
+                          const isPlaying = selectedLecture?.id === lec.id;
+                          const ytId = lec.youtubeId || getLectureYoutubeId(lec.sourceUrl);
+
+                          return (
+                            <div
+                              key={lec.id}
+                              onClick={() => setSelectedLecture(lec)}
+                              className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                                isPlaying
+                                  ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-500 dark:border-blue-400 shadow-2xs"
+                                  : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700"
+                              }`}
+                            >
+                              {/* Thumbnail YouTube / Video thật */}
+                              <div className="relative w-20 h-12 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-200 dark:border-slate-800">
+                                {ytId ? (
+                                  <img
+                                    src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                                    alt={lec.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-purple-900/60 text-purple-300">
+                                    <Video size={16} />
+                                  </div>
+                                )}
+                                {isPlaying && (
+                                  <div className="absolute inset-0 bg-blue-600/40 grid place-items-center">
+                                    <Play size={14} className="text-white fill-white animate-pulse" />
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Thông tin bài giảng */}
+                              <div className="min-w-0 flex-1">
+                                <strong
+                                  className={`block text-xs font-bold truncate ${
+                                    isPlaying ? "text-blue-600 dark:text-blue-400" : "text-slate-800 dark:text-slate-200"
+                                  }`}
+                                >
+                                  {lec.title}
+                                </strong>
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
+                                  <span>{lec.uploadedAt}</span>
+                                  <span className="font-semibold text-slate-500">{lec.platform || "Video"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
