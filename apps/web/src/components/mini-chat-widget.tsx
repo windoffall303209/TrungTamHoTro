@@ -477,8 +477,9 @@ function ContactPickerWindow({
   );
 }
 
-// Key lưu trạng thái các ô chat đang mở trong session người dùng
-const MINI_CHAT_STORAGE_KEY = "wind_edu_mini_chat_open_windows";
+// Key lưu trạng thái các ô chat đang mở và các bong bóng thu nhỏ theo từng tài khoản
+const getOpenWindowsStorageKey = (userId: string) => `wind_edu_mini_chat_open_windows_${userId}`;
+const getMinimizedBubblesStorageKey = (userId: string) => `wind_edu_mini_chat_minimized_bubbles_${userId}`;
 
 // Component MiniChatWidget quản lý tối đa 2 ô chat minisize, avatar thu gọn và chọn người
 export function MiniChatWidget() {
@@ -489,12 +490,12 @@ export function MiniChatWidget() {
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
   const [contacts, setContacts] = useState<ChatContact[]>(INITIAL_CONTACTS);
 
-  // Danh sách các ô chat đang mở tối đa 2 ô: [chatSlot2, chatSlot1]
-  // Vị trí hiển thị từ trái qua phải: Ô chat 2 - Ô chat 1 - Cột Logo chat
+  // Danh sách các ô chat đang mở tối đa 2 ô (trạng thái OPEN)
+  // Khôi phục từ localStorage theo tài khoản người dùng
   const [openWindows, setOpenWindows] = useState<ChatContact[]>(() => {
     if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
       try {
-        const saved = window.sessionStorage.getItem(MINI_CHAT_STORAGE_KEY);
+        const saved = window.localStorage.getItem(getOpenWindowsStorageKey(currentUserId));
         if (saved) {
           const parsed = JSON.parse(saved) as ChatContact[];
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -502,14 +503,29 @@ export function MiniChatWidget() {
           }
         }
       } catch {
-        // Bỏ qua lỗi session
+        // Bỏ qua lỗi parse
       }
     }
     return [];
   });
 
-  // Danh sách avatar chat thu gọn nằm phía trên nút logo chat (tối đa 5 avatar)
-  const [bubbles, setBubbles] = useState<MinimizedBubble[]>(INITIAL_BUBBLES);
+  // Danh sách avatar chat thu gọn (trạng thái MINIMIZED) - CHỈ khôi phục những cuộc trò chuyện đã được người dùng chủ động thu nhỏ
+  const [bubbles, setBubbles] = useState<MinimizedBubble[]>(() => {
+    if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
+      try {
+        const saved = window.localStorage.getItem(getMinimizedBubblesStorageKey(currentUserId));
+        if (saved) {
+          const parsed = JSON.parse(saved) as MinimizedBubble[];
+          if (Array.isArray(parsed)) {
+            return parsed.filter((b) => b && b.contact && b.contact.id);
+          }
+        }
+      } catch {
+        // Bỏ qua lỗi parse
+      }
+    }
+    return INITIAL_BUBBLES;
+  });
 
   // Trạng thái mở popup chọn người nhắn tin
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -522,21 +538,56 @@ export function MiniChatWidget() {
   // Kho tin nhắn của từng người
   const [chatMessages, setChatMessages] = useState<Record<string, MiniChatMessage[]>>({});
 
-  // Lưu trạng thái các ô chat đang mở vào sessionStorage để khi reload trang không bị mất
+  // Lưu trạng thái các ô chat đang mở (OPEN) vào localStorage theo tài khoản người dùng
   useEffect(() => {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
     try {
+      const key = getOpenWindowsStorageKey(currentUserId);
       if (openWindows.length > 0) {
-        window.sessionStorage.setItem(MINI_CHAT_STORAGE_KEY, JSON.stringify(openWindows));
+        window.localStorage.setItem(key, JSON.stringify(openWindows));
       } else {
-        window.sessionStorage.removeItem(MINI_CHAT_STORAGE_KEY);
+        window.localStorage.removeItem(key);
       }
     } catch {
       // Bỏ qua lỗi quota
     }
-  }, [openWindows]);
+  }, [openWindows, currentUserId]);
 
-  // Nạp danh bạ và các đoạn hội thoại thật từ cơ sở dữ liệu PostgreSQL
+  // Lưu trạng thái các cuộc trò chuyện thu nhỏ (MINIMIZED) vào localStorage theo tài khoản người dùng
+  useEffect(() => {
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    try {
+      const key = getMinimizedBubblesStorageKey(currentUserId);
+      if (bubbles.length > 0) {
+        window.localStorage.setItem(key, JSON.stringify(bubbles));
+      } else {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Bỏ qua lỗi quota
+    }
+  }, [bubbles, currentUserId]);
+
+  // Đồng bộ lại dữ liệu khi người dùng chuyển đổi tài khoản
+  useEffect(() => {
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    try {
+      const savedOpen = window.localStorage.getItem(getOpenWindowsStorageKey(currentUserId));
+      setOpenWindows(savedOpen ? deduplicateChatWindows(JSON.parse(savedOpen)) : []);
+
+      const savedBubbles = window.localStorage.getItem(getMinimizedBubblesStorageKey(currentUserId));
+      setBubbles(
+        savedBubbles
+          ? (JSON.parse(savedBubbles) as MinimizedBubble[]).filter((b) => b && b.contact?.id)
+          : []
+      );
+    } catch {
+      setOpenWindows([]);
+      setBubbles([]);
+    }
+  }, [currentUserId]);
+
+  // Nạp danh bạ và cập nhật thông tin từ cơ sở dữ liệu PostgreSQL
   useEffect(() => {
     async function loadRealChatData() {
       try {
@@ -599,37 +650,26 @@ export function MiniChatWidget() {
             })
           );
 
-          // Nạp các bong bóng thu gọn từ hội thoại thật gần nhất trong DB
+          // Cập nhật thông tin chi tiết và unreadCount cho các bong bóng ĐÃ ĐƯỢC người dùng chủ động thu nhỏ (MINIMIZED)
+          // Tuyệt đối không tự ý thêm các cuộc trò chuyện gần đây thành avatar bong bóng nếu người dùng chưa thu nhỏ hoặc đã đóng (CLOSED)
           if (Array.isArray(conversations)) {
-            const recentBubbles: MinimizedBubble[] = [];
-            for (const conv of conversations.slice(0, 3)) {
-              const partner = conv.members.find((m) => m.userId !== currentUserId);
-              if (partner) {
-                const matchedContact = realContacts.find((c) => c.id === partner.userId) || {
-                  id: partner.userId,
-                  name: partner.displayName,
-                  role: partner.roleCode === "INSTRUCTOR" ? "Giảng viên" : "Học viên",
-                  initials: partner.displayName.slice(0, 2).toUpperCase(),
-                  isOnline: true,
-                  statusText: "Đang hoạt động",
-                  conversationId: conv.id,
+            setBubbles((prev) =>
+              prev.map((bubble) => {
+                const conv = conversations.find((c) =>
+                  c.members.some((m) => m.userId === bubble.contact.id)
+                );
+                const matchedContact = realContacts.find((c) => c.id === bubble.contact.id);
+                return {
+                  ...bubble,
+                  contact: matchedContact ? { ...bubble.contact, ...matchedContact } : bubble.contact,
+                  unreadCount: typeof conv?.unreadCount === "number" ? conv.unreadCount : bubble.unreadCount,
                 };
-                recentBubbles.push({
-                  contact: matchedContact,
-                  unreadCount: conv.unreadCount || 0,
-                  lastInteractedAt: Date.now(),
-                });
-              }
-            }
-            if (process.env.NODE_ENV === "test") {
-              if (recentBubbles.length > 0) setBubbles(recentBubbles);
-            } else {
-              setBubbles(recentBubbles);
-            }
+              })
+            );
           }
         }
       } catch {
-        // Giữ fallback
+        // Bỏ qua lỗi mạng
       }
     }
 
