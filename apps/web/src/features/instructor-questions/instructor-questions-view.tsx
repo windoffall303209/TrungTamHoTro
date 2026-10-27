@@ -109,7 +109,7 @@ export function InstructorQuestionsView({
   // Chọn nhiều câu hỏi để tạo đề
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
 
-  // Dữ liệu câu hỏi ngân hàng
+  // Dữ liệu câu hỏi ngân hàng phân cấp đầy đủ Khối -> Môn -> Lớp
   const [questions, setQuestions] = useState<QuestionItem[]>([
     {
       id: "q-1",
@@ -168,8 +168,8 @@ export function InstructorQuestionsView({
     },
     {
       id: "q-5",
-      content: "Nhập giá trị của x thỏa mãn: 3x - 9 = 0",
-      type: "SHORT_ANSWER",
+      content: "Kết quả của phép tính 3 475 + 2 618 là bao nhiêu?",
+      type: "SINGLE_CHOICE",
       difficulty: "EASY",
       grade: 6,
       subject: "Toán",
@@ -177,11 +177,122 @@ export function InstructorQuestionsView({
       source: "Bài tập tuần 1",
       status: "PUBLISHED",
       version: 1,
-      correctAnswers: ["3", "x=3"],
+      options: ["6 083", "6 093", "6 193", "5 093"],
+      correctAnswers: ["6 093"],
+    },
+    {
+      id: "q-6",
+      content: "Kết quả của phép chia 864 : 8 là bao nhiêu?",
+      type: "SINGLE_CHOICE",
+      difficulty: "EASY",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A1",
+      source: "Bài tập tuần 1",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["108", "118", "106", "98"],
+      correctAnswers: ["108"],
+    },
+    {
+      id: "q-7",
+      content: "Phân số thích hợp điền vào chỗ chấm: 3/8 + 2/8 = ...",
+      type: "SINGLE_CHOICE",
+      difficulty: "EASY",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A1",
+      source: "Bài tập phân số",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["5/16", "1/8", "5/8", "6/8"],
+      correctAnswers: ["5/8"],
+    },
+    {
+      id: "q-8",
+      content: "Tính giá trị của biểu thức A = (-15) + (-25) trong tập hợp số nguyên ℤ?",
+      type: "SHORT_ANSWER",
+      difficulty: "EASY",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A2",
+      source: "Bài tập số nguyên Lớp 6A2",
+      status: "PUBLISHED",
+      version: 1,
+      correctAnswers: ["-40"],
+    },
+    {
+      id: "q-9",
+      content: "Một hình vuông có cạnh bằng 6 cm. Diện tích của hình vuông đó là bao nhiêu?",
+      type: "SINGLE_CHOICE",
+      difficulty: "EASY",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A2",
+      source: "Hình học trực quan Lớp 6A2",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["24 cm²", "36 cm²", "12 cm²", "18 cm²"],
+      correctAnswers: ["36 cm²"],
+    },
+    {
+      id: "q-10",
+      content: "Chỉ ra phó từ trong câu sau và nêu ý nghĩa ngữ pháp của nó: 'Tôi vẫn đang học bài'?",
+      type: "SHORT_ANSWER",
+      difficulty: "MEDIUM",
+      grade: 6,
+      subject: "Ngữ văn",
+      classCode: "VAN-6A2",
+      source: "Thực hành tiếng Việt 6A2",
+      status: "PUBLISHED",
+      version: 1,
+      correctAnswers: ["vẫn, đang"],
+    },
+    {
+      id: "q-11",
+      content: "Số hữu tỉ là số có thể viết dưới dạng phân số a/b với những điều kiện nào sau đây?",
+      type: "SINGLE_CHOICE",
+      difficulty: "EASY",
+      grade: 7,
+      subject: "Toán",
+      classCode: "TOAN-7A1",
+      source: "Số hữu tỉ Lớp 7A1",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["a, b ∈ ℤ và b ≠ 0", "a, b ∈ ℕ và b > 0", "a, b ∈ ℝ", "a ∈ ℤ và b > 0"],
+      correctAnswers: ["a, b ∈ ℤ và b ≠ 0"],
+    },
+    {
+      id: "q-12",
+      content: "Tọa độ đỉnh I của parabol y = x² - 4x + 3 là điểm nào sau đây?",
+      type: "SINGLE_CHOICE",
+      difficulty: "MEDIUM",
+      grade: 10,
+      subject: "Toán",
+      classCode: "TOAN-10A2",
+      source: "Hàm số bậc hai Lớp 10A2",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["I(2; -1)", "I(-2; 15)", "I(1; 0)", "I(2; 1)"],
+      correctAnswers: ["I(2; -1)"],
+    },
+    {
+      id: "q-13",
+      content: "Tìm giá trị cực đại của hàm số y = -x³ + 3x² + 1 trên tập số thực ℝ?",
+      type: "SINGLE_CHOICE",
+      difficulty: "HARD",
+      grade: 12,
+      subject: "Toán",
+      classCode: "TOAN-12A1",
+      source: "Khảo sát hàm số Lớp 12A1",
+      status: "PUBLISHED",
+      version: 1,
+      options: ["y_CĐ = 5 tại x = 2", "y_CĐ = 1 tại x = 0", "y_CĐ = 3 tại x = 1", "y_CĐ = 4 tại x = -1"],
+      correctAnswers: ["y_CĐ = 5 tại x = 2"],
     },
   ]);
 
-  // Dữ liệu đề thi / bài tập
+  // Dữ liệu đề thi / bài tập phân cấp theo Khối -> Môn -> Lớp
   const [examsList, setExamsList] = useState<ExamDraft[]>([
     {
       id: "ex-1",
@@ -212,6 +323,39 @@ export function InstructorQuestionsView({
       subject: "Vật lí",
       classCode: "LY-10A1",
       questionCount: 15,
+      totalScore: 10,
+      status: "PUBLISHED",
+      createdAt: "27/10/2026",
+    },
+    {
+      id: "ex-4",
+      title: "Đề ôn tập số học chương 1 Toán 6",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A1",
+      questionCount: 5,
+      totalScore: 10,
+      status: "PUBLISHED",
+      createdAt: "26/10/2026",
+    },
+    {
+      id: "ex-5",
+      title: "Đề kiểm tra 15 phút Số nguyên Lớp 6A2",
+      grade: 6,
+      subject: "Toán",
+      classCode: "TOAN-6A2",
+      questionCount: 4,
+      totalScore: 10,
+      status: "PUBLISHED",
+      createdAt: "27/10/2026",
+    },
+    {
+      id: "ex-6",
+      title: "Khảo sát chất lượng đầu năm Toán 12",
+      grade: 12,
+      subject: "Toán",
+      classCode: "TOAN-12A1",
+      questionCount: 20,
       totalScore: 10,
       status: "PUBLISHED",
       createdAt: "27/10/2026",
@@ -275,39 +419,107 @@ export function InstructorQuestionsView({
     void loadData();
   }, [loadData]);
 
-  // Cây phân cấp Khối > Môn > Lớp
+  // Cây phân cấp chuẩn K-12: Khối > Môn > Lớp
   const categoryTree = useMemo(() => {
-    const grades = [6, 7, 8, 9, 10, 11, 12];
-    const tree: Array<{ id: string; label: string; count: number; children?: Array<{ id: string; label: string; children?: Array<{ id: string; label: string }> }> }> = [
+    return [
       { id: "ALL", label: "Tất cả câu hỏi", count: questions.length },
+      {
+        id: "grade-6",
+        label: "Khối 6",
+        count: questions.filter((q) => q.grade === 6).length,
+        children: [
+          {
+            id: "grade-6-sub-Toán",
+            label: "Môn Toán",
+            children: [
+              { id: "cls-TOAN-6A1", label: "Lớp 6A1" },
+              { id: "cls-TOAN-6A2", label: "Lớp 6A2" },
+            ],
+          },
+          {
+            id: "grade-6-sub-Ngữ văn",
+            label: "Môn Ngữ văn",
+            children: [
+              { id: "cls-VAN-6A1", label: "Lớp 6A1" },
+              { id: "cls-VAN-6A2", label: "Lớp 6A2" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "grade-7",
+        label: "Khối 7",
+        count: questions.filter((q) => q.grade === 7).length,
+        children: [
+          {
+            id: "grade-7-sub-Toán",
+            label: "Môn Toán",
+            children: [{ id: "cls-TOAN-7A1", label: "Lớp 7A1" }],
+          },
+        ],
+      },
+      {
+        id: "grade-10",
+        label: "Khối 10",
+        count: questions.filter((q) => q.grade === 10).length,
+        children: [
+          {
+            id: "grade-10-sub-Toán",
+            label: "Môn Toán",
+            children: [
+              { id: "cls-TOAN-10A1", label: "Lớp 10A1" },
+              { id: "cls-TOAN-10A2", label: "Lớp 10A2" },
+            ],
+          },
+          {
+            id: "grade-10-sub-Vật lí",
+            label: "Môn Vật lí",
+            children: [{ id: "cls-LY-10A1", label: "Lớp 10A1" }],
+          },
+        ],
+      },
+      {
+        id: "grade-12",
+        label: "Khối 12",
+        count: questions.filter((q) => q.grade === 12).length,
+        children: [
+          {
+            id: "grade-12-sub-Toán",
+            label: "Môn Toán",
+            children: [{ id: "cls-TOAN-12A1", label: "Lớp 12A1" }],
+          },
+        ],
+      },
+      {
+        id: "UNCLASSIFIED",
+        label: "Chưa phân loại",
+        count: questions.filter((q) => !q.classCode).length,
+      },
     ];
+  }, [questions]);
 
-    grades.forEach((g) => {
-      const gClasses = classes.filter((c) => c.grade === g);
-      if (gClasses.length > 0 || g === 6 || g === 10) {
-        tree.push({
-          id: `grade-${g}`,
-          label: `Khối ${g}`,
-          count: questions.filter((q) => q.grade === g).length,
-          children: [
-            {
-              id: `grade-${g}-toan`,
-              label: "Môn Toán",
-              children: gClasses.filter((c) => c.subject === "Toán").map((c) => ({ id: `cls-${c.code}`, label: `Lớp ${c.code}` })),
-            },
-          ],
-        });
-      }
-    });
-
-    tree.push({ id: "UNCLASSIFIED", label: "Chưa phân loại", count: questions.filter((q) => !q.classCode).length });
-    return tree;
-  }, [classes, questions]);
-
-  // Lọc câu hỏi hiển thị
+  // Lọc câu hỏi hiển thị theo Cây phân cấp Khối -> Môn -> Lớp và các tiêu chí khác
   const filteredQuestions = useMemo(() => {
     return questions.filter((q) => {
-      // Tìm kiếm
+      // Lọc theo cây phân cấp được chọn ở cột trái
+      if (selectedCategory !== "ALL") {
+        if (selectedCategory === "UNCLASSIFIED") {
+          if (q.classCode) return false;
+        } else if (selectedCategory.startsWith("cls-")) {
+          const code = selectedCategory.replace("cls-", "");
+          if (q.classCode !== code) return false;
+        } else if (selectedCategory.includes("-sub-")) {
+          const parts = selectedCategory.split("-sub-");
+          const gNum = Number((parts[0] ?? "").replace("grade-", ""));
+          const subName = parts[1] ?? "";
+          if (q.grade !== gNum || q.subject?.toLowerCase() !== subName.toLowerCase()) return false;
+        } else if (selectedCategory.startsWith("grade-")) {
+          const gNum = Number(selectedCategory.replace("grade-", ""));
+          if (q.grade !== gNum) return false;
+        }
+      }
+
+      // Tìm kiếm theo từ khóa
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         if (!q.content.toLowerCase().includes(query)) return false;
@@ -323,7 +535,33 @@ export function InstructorQuestionsView({
 
       return true;
     });
-  }, [questions, searchQuery, filterType, filterDifficulty, filterStatus, filterSource]);
+  }, [questions, selectedCategory, searchQuery, filterType, filterDifficulty, filterStatus, filterSource]);
+
+  // Lọc đề thi theo cây phân cấp
+  const filteredExams = useMemo(() => {
+    return examsList.filter((ex) => {
+      if (selectedCategory !== "ALL") {
+        if (selectedCategory === "UNCLASSIFIED") {
+          if (ex.classCode) return false;
+        } else if (selectedCategory.startsWith("cls-")) {
+          const code = selectedCategory.replace("cls-", "");
+          if (ex.classCode !== code) return false;
+        } else if (selectedCategory.includes("-sub-")) {
+          const parts = selectedCategory.split("-sub-");
+          const gNum = Number((parts[0] ?? "").replace("grade-", ""));
+          const subName = parts[1] ?? "";
+          if (ex.grade !== gNum || ex.subject?.toLowerCase() !== subName.toLowerCase()) return false;
+        } else if (selectedCategory.startsWith("grade-")) {
+          const gNum = Number(selectedCategory.replace("grade-", ""));
+          if (ex.grade !== gNum) return false;
+        }
+      }
+      if (searchQuery.trim()) {
+        if (!ex.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [examsList, selectedCategory, searchQuery]);
 
   // Kích hoạt Tạo đề bằng AI (hiện cách nhau 40ms)
   const handleTriggerAiGen = () => {
@@ -685,7 +923,7 @@ export function InstructorQuestionsView({
         {activeTab === "exams" && (
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {examsList.map((ex) => (
+              {filteredExams.map((ex) => (
                 <div
                   key={ex.id}
                   className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-3 flex flex-col justify-between"
