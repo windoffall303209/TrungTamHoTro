@@ -76,6 +76,7 @@ import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/components/user-avatar";
 import { Button, Modal } from "@/components/ui";
+import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
 
 export interface InstructorClassWorkspaceProps {
   item: LearningClass;
@@ -491,6 +492,29 @@ export function InstructorClassWorkspace({
 
     setAssignmentFormTitle("");
     setAssignmentFormDesc("");
+  };
+
+  // Nhận bài tập từ AssignmentBuilderModal (hỗ trợ cả trắc nghiệm AI và tự luận)
+  const handleSaveFromBuilder = (data: any) => {
+    const newAssign: Assignment = {
+      id: `assign-${Date.now()}`,
+      classId: item.id,
+      classCode: item.code,
+      title: data.title || "Bài tập mới",
+      description: data.description || "Học sinh hoàn thành các câu hỏi được giao.",
+      instructions: data.type === "MULTIPLE_CHOICE" ? "Đề thi trắc nghiệm (AI tách câu)" : "Đề tự luận (tệp đính kèm)",
+      maxScore: data.type === "MULTIPLE_CHOICE" ? (data.questions?.reduce((s: number, q: any) => s + (Number(q.score) || 0), 0) || 10) : 10,
+      rubric: [],
+      status: "PUBLISHED",
+      version: 1,
+      createdById: session.user.id || "teacher",
+      dueAt: data.settings?.hasDueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    setAssignments([newAssign, ...assignments]);
+    setSelectedAssignment(newAssign);
+    setAddAssignmentModalOpen(false);
   };
 
   // Tạo thư mục mới
@@ -2124,80 +2148,14 @@ export function InstructorClassWorkspace({
       )}
 
       {/* =========================================================================
-          MODAL THÊM BÀI TẬP MỚI
+          MODAL THÊM BÀI TẬP MỚI TOÀN DIỆN (HỖ TRỢ 2 NGUỒN, AI TÁCH CÂU, TÙY CHỌN NỘP BÀI)
           ========================================================================= */}
-      {addAssignmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-extrabold">Tạo bài tập mới cho lớp</h3>
-              <button type="button" onClick={() => setAddAssignmentModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div>
-              <label className="block text-xs font-bold mb-1">Tiêu đề bài tập *:</label>
-              <input
-                type="text"
-                placeholder="Ví dụ: Bài tập ôn tập chương 1..."
-                value={assignmentFormTitle}
-                onChange={(e) => setAssignmentFormTitle(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold mb-1">Mô tả / Hướng dẫn:</label>
-              <textarea
-                rows={2}
-                value={assignmentFormDesc}
-                onChange={(e) => setAssignmentFormDesc(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold mb-1">Điểm tối đa:</label>
-                <input
-                  type="number"
-                  value={assignmentFormMaxScore}
-                  onChange={(e) => setAssignmentFormMaxScore(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">Thư mục:</label>
-                <select
-                  value={assignmentFormFolder}
-                  onChange={(e) => setAssignmentFormFolder(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                >
-                  {customFolders.filter((f) => f !== "Tất cả").map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setAddAssignmentModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveAssignment}
-                className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700"
-              >
-                Lưu bài tập
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AssignmentBuilderModal
+        open={addAssignmentModalOpen}
+        onClose={() => setAddAssignmentModalOpen(false)}
+        targetClassName={item.name || item.code}
+        onSaveAssignment={handleSaveFromBuilder}
+      />
 
       {/* =========================================================================
           MODAL THỐNG KÊ LƯỢT LÀM BÀI & XEM CHI TIẾT BÀI LÀM

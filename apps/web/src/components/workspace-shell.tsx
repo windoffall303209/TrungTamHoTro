@@ -62,10 +62,9 @@ interface NavSection {
 }
 
 const allNavItems: NavigationItem[] = [
-  { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   {
     href: "/courses",
-    label: "Khóa học & lớp",
+    label: "Lớp học & Khóa",
     icon: GraduationCap,
     permissions: ["course:view", "class:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
@@ -277,10 +276,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     );
     return found ?? sections[0];
   }, [sections, pathname]);
-  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Tổng quan, Lớp học, Lịch học, Tin nhắn
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Lịch học, Tin nhắn
   const learnerNavItems = useMemo(
     () => [
-      { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
@@ -471,7 +469,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         <div className="flex h-[70px] w-full items-center justify-between px-3 sm:px-5 lg:px-6 gap-2 sm:gap-4">
           {/* Logo & Category Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 shrink-0">
-            <Link className="flex items-center gap-2.5 shrink-0" href="/dashboard">
+            <Link className="flex items-center gap-2.5 shrink-0" href="/courses">
               <span className="grid size-[42px] place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white shadow-sm shadow-sky-600/25">
                 <GraduationCap size={22} />
               </span>

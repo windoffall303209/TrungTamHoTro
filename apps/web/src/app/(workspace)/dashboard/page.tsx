@@ -1,5 +1,7 @@
-import { DashboardHome } from "@/components/dashboard-home";
+import { redirect } from "next/navigation";
 
-/** Entry route của workspace, ủy quyền nội dung tổng quan cho DashboardHome. */
-export default function DashboardPage() { return <DashboardHome />; }
+// Chuyển hướng người dùng từ dashboard cũ sang không gian quản lý lớp học.
+export default function DashboardPage() {
+  redirect("/courses");
+}
 
