@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -14,12 +14,21 @@ import {
   Grid,
   List as ListIcon,
   MoreHorizontal,
+  MoreVertical,
   Plus,
   Search,
   Share2,
   Trash2,
   Upload,
   UploadCloud,
+  Move,
+  BookOpen,
+  Video,
+  Link2,
+  X,
+  Check,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
@@ -27,12 +36,15 @@ import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-moda
 export interface MaterialFileItem {
   id: string;
   name: string;
-  type: "word" | "pdf" | "image" | "folder";
+  type: "word" | "pdf" | "image" | "folder" | "video" | "slide" | "link";
   size: string;
   updatedAt: string;
   folderCategory?: string;
   isUnclassified?: boolean;
   tag?: string;
+  url?: string;
+  description?: string;
+  assignedRole?: "MATERIAL" | "LECTURE";
 }
 
 export interface ClassFolderItem {
@@ -324,6 +336,41 @@ export function InstructorMaterialsView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
+  // State Modal Tải lên Tài liệu / Bài giảng (Tải lên học liệu thật)
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadForm, setUploadForm] = useState({
+    title: "",
+    type: "pdf" as "word" | "pdf" | "slide" | "video" | "link",
+    category: "MATERIAL" as "MATERIAL" | "LECTURE",
+    url: "",
+    fileName: "",
+    fileSize: "1.8 MB",
+    targetClassId: "cls-6A1",
+    description: "",
+  });
+
+  // State Modal Gán vai trò (Dùng làm tài liệu / bài giảng)
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedFileForAssign, setSelectedFileForAssign] = useState<{
+    file: MaterialFileItem;
+    fromClassId?: string;
+  } | null>(null);
+
+  // State Modal Phân loại / Di chuyển sang thư mục
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [selectedFileForMove, setSelectedFileForMove] = useState<{
+    file: MaterialFileItem;
+    fromClassId?: string;
+  } | null>(null);
+  const [targetMoveClassId, setTargetMoveClassId] = useState<string>("cls-6A1");
+
+  // State menu 3 chấm đang mở
+  const [activeMenuFileId, setActiveMenuFileId] = useState<string | null>(null);
+
+  // Kéo thả (Drag & Drop)
+  const [draggedFile, setDraggedFile] = useState<MaterialFileItem | null>(null);
+  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
+
   // Modal tạo bài tập / đề thi
   const [assignmentModalOpen, setAssignmentModalOpen] = useState(false);
   const [targetAssignmentClassName, setTargetAssignmentClassName] = useState("Lớp 6A1");
@@ -347,6 +394,23 @@ export function InstructorMaterialsView() {
     return currentSubject.classes.find((c) => c.id === selectedClassId) || null;
   }, [currentSubject, selectedClassId]);
 
+  // Danh sách phẳng tất cả các lớp để thuận tiện chọn vị trí tải lên / di chuyển
+  const allClassesList = useMemo(() => {
+    const list: { classId: string; className: string; path: string }[] = [];
+    gradesData.forEach((grade) => {
+      grade.subjects.forEach((sub) => {
+        sub.classes.forEach((cls) => {
+          list.push({
+            classId: cls.id,
+            className: cls.name,
+            path: `${grade.label} > ${sub.name} > ${cls.name}`,
+          });
+        });
+      });
+    });
+    return list;
+  }, [gradesData]);
+
   // Xử lý tạo mới Khối / Môn / Lớp tùy theo vị trí đang đứng
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) {
@@ -355,7 +419,6 @@ export function InstructorMaterialsView() {
     }
 
     if (!selectedGradeId) {
-      // Đang ở cấp Khối: Tạo Khối mới
       const newGrade: GradeFolderItem = {
         id: `grade-${Date.now()}`,
         name: newFolderName.trim(),
@@ -367,7 +430,6 @@ export function InstructorMaterialsView() {
       setGradesData([...gradesData, newGrade]);
       notify(`Đã tạo khối '${newFolderName}' thành công!`, "success");
     } else if (selectedGradeId && !selectedSubjectId) {
-      // Đang ở cấp Môn: Tạo Môn mới cho Khối
       const newSubject: SubjectFolderItem = {
         id: `sub-${Date.now()}`,
         name: newFolderName.trim(),
@@ -384,7 +446,6 @@ export function InstructorMaterialsView() {
       );
       notify(`Đã tạo môn '${newFolderName}' cho ${currentGrade?.label}!`, "success");
     } else if (selectedSubjectId && !selectedClassId) {
-      // Đang ở cấp Lớp: Tạo Lớp mới cho Môn
       const newClass: ClassFolderItem = {
         id: `cls-${Date.now()}`,
         name: newFolderName.trim().startsWith("Lớp") ? newFolderName.trim() : `Lớp ${newFolderName.trim()}`,
@@ -412,6 +473,223 @@ export function InstructorMaterialsView() {
     setCreateFolderModalOpen(false);
   };
 
+  // Tải lên tài liệu / bài giảng thật
+  const handleUploadMaterialSubmit = () => {
+    if (!uploadForm.title.trim()) {
+      notify("Vui lòng nhập tiêu đề tài liệu / bài giảng!", "error");
+      return;
+    }
+
+    const newFile: MaterialFileItem = {
+      id: `mat-${Date.now()}`,
+      name: uploadForm.title.trim(),
+      type: uploadForm.type,
+      size: uploadForm.fileSize || "2.1 MB",
+      updatedAt: "Vừa xong",
+      tag: uploadForm.category === "LECTURE" ? "Bài giảng" : "Tài liệu",
+      assignedRole: uploadForm.category,
+      url: uploadForm.url,
+      description: uploadForm.description,
+    };
+
+    if (uploadForm.targetClassId === "unclassified") {
+      setUnclassifiedExams((prev) => [newFile, ...prev]);
+      notify(`Đã tải lên '${newFile.name}' vào danh sách Chưa phân loại!`, "success");
+    } else {
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== uploadForm.targetClassId) return c;
+              return {
+                ...c,
+                files: [newFile, ...c.files],
+                itemsCount: c.itemsCount + 1,
+              };
+            }),
+          })),
+        }))
+      );
+      const targetCls = allClassesList.find((c) => c.classId === uploadForm.targetClassId);
+      notify(`Đã tải lên '${newFile.name}' vào ${targetCls?.className || "lớp học"}!`, "success");
+    }
+
+    setUploadModalOpen(false);
+    setUploadForm({
+      title: "",
+      type: "pdf",
+      category: "MATERIAL",
+      url: "",
+      fileName: "",
+      fileSize: "1.8 MB",
+      targetClassId: currentClass?.id || "cls-6A1",
+      description: "",
+    });
+  };
+
+  // Chuyển tệp học liệu sang cột "Chưa phân loại" bên trái để sẵn sàng kéo thả
+  const handleMoveToUnclassified = (file: MaterialFileItem, fromClassId?: string) => {
+    if (fromClassId) {
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== fromClassId) return c;
+              return {
+                ...c,
+                files: c.files.filter((f) => f.id !== file.id),
+                itemsCount: Math.max(0, c.itemsCount - 1),
+              };
+            }),
+          })),
+        }))
+      );
+    }
+    const unclassifiedFile: MaterialFileItem = {
+      ...file,
+      isUnclassified: true,
+      updatedAt: "Vừa xong",
+    };
+    setUnclassifiedExams((prev) => [
+      unclassifiedFile,
+      ...prev.filter((f) => f.id !== file.id),
+    ]);
+    setActiveMenuFileId(null);
+    notify(`Đã chuyển '${file.name}' sang danh sách Chưa phân loại ở cột trái. Bạn có thể kéo thả vào thư mục khác.`, "info");
+  };
+
+  // Di chuyển tệp đến một lớp học cụ thể (từ popup hoặc kéo thả)
+  const handleMoveFileToTargetClass = (
+    file: MaterialFileItem,
+    targetClassId: string,
+    fromClassId?: string
+  ) => {
+    // Xóa ở vị trí cũ
+    if (fromClassId) {
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== fromClassId) return c;
+              return {
+                ...c,
+                files: c.files.filter((f) => f.id !== file.id),
+                itemsCount: Math.max(0, c.itemsCount - 1),
+              };
+            }),
+          })),
+        }))
+      );
+    } else {
+      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== file.id));
+    }
+
+    // Thêm vào lớp đích
+    setGradesData((prev) =>
+      prev.map((g) => ({
+        ...g,
+        subjects: g.subjects.map((s) => ({
+          ...s,
+          classes: s.classes.map((c) => {
+            if (c.id !== targetClassId) return c;
+            return {
+              ...c,
+              files: [{ ...file, isUnclassified: false, updatedAt: "Vừa xong" }, ...c.files],
+              itemsCount: c.itemsCount + 1,
+            };
+          }),
+        })),
+      }))
+    );
+
+    const targetCls = allClassesList.find((c) => c.classId === targetClassId);
+    notify(`Đã di chuyển '${file.name}' vào ${targetCls?.className || "lớp mới"} thành công!`, "success");
+    setMoveModalOpen(false);
+    setSelectedFileForMove(null);
+    setActiveMenuFileId(null);
+    setDraggedFile(null);
+    setDragOverTargetId(null);
+  };
+
+  // Xóa tệp học liệu
+  const handleDeleteFile = (file: MaterialFileItem, fromClassId?: string) => {
+    if (fromClassId) {
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== fromClassId) return c;
+              return {
+                ...c,
+                files: c.files.filter((f) => f.id !== file.id),
+                itemsCount: Math.max(0, c.itemsCount - 1),
+              };
+            }),
+          })),
+        }))
+      );
+    } else {
+      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== file.id));
+    }
+    setActiveMenuFileId(null);
+    notify(`Đã xóa '${file.name}' khỏi kho học liệu!`, "success");
+  };
+
+  // Xác nhận Dùng làm tài liệu hoặc bài giảng
+  const handleAssignRoleConfirm = (role: "MATERIAL" | "LECTURE") => {
+    if (!selectedFileForAssign) return;
+    const { file, fromClassId } = selectedFileForAssign;
+    const updatedFile: MaterialFileItem = {
+      ...file,
+      assignedRole: role,
+      tag: role === "LECTURE" ? "Bài giảng" : "Tài liệu",
+    };
+
+    if (fromClassId) {
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== fromClassId) return c;
+              return {
+                ...c,
+                files: c.files.map((f) => (f.id === file.id ? updatedFile : f)),
+              };
+            }),
+          })),
+        }))
+      );
+    } else {
+      setUnclassifiedExams((prev) =>
+        prev.map((f) => (f.id === file.id ? updatedFile : f))
+      );
+    }
+
+    notify(
+      `Đã thiết lập '${file.name}' làm ${role === "LECTURE" ? "Bài giảng" : "Tài liệu học tập"}!`,
+      "success"
+    );
+    setAssignModalOpen(false);
+    setSelectedFileForAssign(null);
+    setActiveMenuFileId(null);
+  };
+
+  // Xử lý khi thả tệp vào một Thư mục hoặc Lớp
+  const handleDropOnTargetClass = (classId: string) => {
+    if (!draggedFile) return;
+    handleMoveFileToTargetClass(draggedFile, classId);
+  };
+
   // Nhận bài tập vừa tạo từ modal và đưa vào đúng Lớp
   const handleSaveCreatedAssignment = (data: any) => {
     const newFile: MaterialFileItem = {
@@ -424,7 +702,6 @@ export function InstructorMaterialsView() {
     };
 
     if (selectedClassId && selectedSubjectId && selectedGradeId) {
-      // Gán vào lớp đang mở
       setGradesData((prev) =>
         prev.map((g) => {
           if (g.id !== selectedGradeId) return g;
@@ -444,22 +721,24 @@ export function InstructorMaterialsView() {
         })
       );
     } else {
-      // Thêm vào danh sách đề chưa phân loại ở cột trái
       setUnclassifiedExams([newFile, ...unclassifiedExams]);
     }
   };
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)] w-full bg-slate-50/50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100">
+    <div
+      onClick={() => setActiveMenuFileId(null)}
+      className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)] w-full bg-slate-50/50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100"
+    >
       {/* =========================================================================
-          CỘT TRÁI: ĐỀ CHƯA PHÂN LOẠI (CHUẨN 100% ẢNH 1)
+          CỘT TRÁI: ĐỀ / TÀI LIỆU CHƯA PHÂN LOẠI (HỖ TRỢ KÉO THẢ & MENU 3 CHẤM 3 LỰA CHỌN)
           ========================================================================= */}
-      <aside className="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 space-y-4">
+      <aside className="w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 space-y-4">
         {/* Hàng Header: Đề chưa phân loại kèm badge đỏ tròn */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Đề chưa phân loại
+              Đề / Tài liệu chưa phân loại
             </h2>
             <span className="grid size-5 place-items-center rounded-full bg-rose-500 text-white text-[11px] font-extrabold shadow-2xs">
               {unclassifiedExams.length}
@@ -467,19 +746,8 @@ export function InstructorMaterialsView() {
           </div>
         </div>
 
-        {/* Nút Mới nhất với icon sắp xếp */}
-        <div>
-          <button
-            type="button"
-            className="w-full py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-2 shadow-2xs transition cursor-pointer"
-          >
-            <span>1=</span>
-            <span>Mới nhất</span>
-          </button>
-        </div>
-
         {/* Switch: Hiển thị chi tiết học liệu */}
-        <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center justify-between pt-1 pb-1 border-b border-slate-100 dark:border-slate-800">
           <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
             Hiển thị chi tiết học liệu
           </span>
@@ -494,47 +762,144 @@ export function InstructorMaterialsView() {
           </label>
         </div>
 
-        {/* Danh sách các thẻ đề chưa phân loại (Icon Word xanh W, tag Tách câu, nút :::) */}
-        <div className="space-y-3 pt-2">
-          {unclassifiedExams.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => {
-                setTargetAssignmentClassName("Kho học liệu");
-                setAssignmentModalOpen(true);
-              }}
-              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-2xs space-y-2 hover:border-blue-400 transition cursor-pointer group"
-            >
-              {/* Dòng 1: Icon tag Học liệu và 6 chấm kéo thả */}
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <div className="flex items-center gap-1 font-semibold text-slate-500">
-                  <span>📍</span>
-                  <span>Học liệu</span>
-                </div>
-                <span className="text-slate-400 group-hover:text-slate-600 text-xs">:::</span>
-              </div>
+        {/* Hướng dẫn kéo thả trực quan */}
+        <div className="px-3 py-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 flex items-center gap-2">
+          <Move size={14} className="shrink-0 animate-pulse text-blue-600" />
+          <span>Kéo thả thẻ bên dưới vào các Lớp ở bảng bên phải để di chuyển thư mục.</span>
+        </div>
 
-              {/* Dòng 2: Icon W màu xanh dương, tên đề và tag Tách câu */}
-              <div className="flex items-start gap-2.5">
-                <div className="size-7 rounded-lg bg-blue-600 text-white font-extrabold text-xs grid place-items-center shrink-0 mt-0.5 shadow-xs">
-                  W
+        {/* Danh sách các thẻ đề chưa phân loại (Kéo thả draggable, Icon phân loại & Menu 3 chấm) */}
+        <div className="space-y-3 pt-1">
+          {unclassifiedExams.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+              Không có tài liệu nào chưa phân loại. Bấm "Tải lên" ở góc trên để bổ sung.
+            </div>
+          ) : (
+            unclassifiedExams.map((item) => (
+              <div
+                key={item.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", item.id);
+                  setDraggedFile(item);
+                }}
+                onDragEnd={() => setDraggedFile(null)}
+                className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-3 shadow-2xs space-y-2 hover:border-blue-400 transition cursor-grab active:cursor-grabbing group ${
+                  draggedFile?.id === item.id
+                    ? "opacity-50 border-blue-500 scale-[0.98]"
+                    : "border-slate-200 dark:border-slate-800"
+                }`}
+              >
+                {/* Dòng 1: Tag học liệu, vai trò gán và Nút 3 chấm */}
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <div className="flex items-center gap-1.5 font-semibold text-slate-500">
+                    <span>📍</span>
+                    <span>Học liệu</span>
+                    {item.assignedRole && (
+                      <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${
+                        item.assignedRole === "LECTURE"
+                          ? "bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300"
+                          : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                      }`}>
+                        {item.assignedRole === "LECTURE" ? "Bài giảng" : "Tài liệu"}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Nút 3 chấm và Dropdown Popover */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuFileId(activeMenuFileId === item.id ? null : item.id);
+                      }}
+                      className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer"
+                      title="Tùy chọn học liệu"
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+
+                    {activeMenuFileId === item.id && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFileForAssign({ file: item });
+                            setAssignModalOpen(true);
+                            setActiveMenuFileId(null);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                        >
+                          <BookOpen size={14} className="text-blue-600" />
+                          <span>Dùng làm tài liệu/bài giảng</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFileForMove({ file: item });
+                            setMoveModalOpen(true);
+                            setActiveMenuFileId(null);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                        >
+                          <Move size={14} className="text-amber-600" />
+                          <span>Phân loại lại tài liệu</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleDeleteFile(item);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center gap-2 cursor-pointer font-medium"
+                        >
+                          <Trash2 size={14} />
+                          <span>Xóa</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition">
-                    {item.name}
-                  </strong>
-                  <span className="inline-block text-[10px] text-slate-500 mt-0.5 font-medium">
-                    {item.tag || "Tách câu"}
-                  </span>
+
+                {/* Dòng 2: Icon loại file, tên đề và tag */}
+                <div className="flex items-start gap-2.5">
+                  <div className={`size-7 rounded-lg text-white font-extrabold text-xs grid place-items-center shrink-0 mt-0.5 shadow-xs ${
+                    item.type === "word"
+                      ? "bg-blue-600"
+                      : item.type === "pdf"
+                      ? "bg-rose-600"
+                      : item.type === "video"
+                      ? "bg-purple-600"
+                      : "bg-emerald-600"
+                  }`}>
+                    {item.type === "word" ? "W" : item.type === "pdf" ? "PDF" : item.type === "video" ? "MP4" : "DOC"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition">
+                      {item.name}
+                    </strong>
+                    {showDetail && (
+                      <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                        <span>{item.size}</span>
+                        <span>•</span>
+                        <span>{item.updatedAt}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </aside>
 
       {/* =========================================================================
-          CỘT PHẢI: BẢNG HỌC LIỆU PHÂN CẤP (KHỐI -> MÔN -> LỚP) CHUẨN 100% ẢNH 1
+          CỘT PHẢI: BẢNG HỌC LIỆU PHÂN CẤP (KHỐI -> MÔN -> LỚP)
           ========================================================================= */}
       <main className="flex-1 p-5 sm:p-6 space-y-4 overflow-y-auto">
         {/* Header hàng trên: Tiêu đề Học liệu & Breadcrumb + Icon view + Nút Tải lên */}
@@ -593,7 +958,7 @@ export function InstructorMaterialsView() {
             )}
           </div>
 
-          {/* Icon view toggle + Nút Tải lên chuẩn Ảnh 1 */}
+          {/* Icon view toggle + Nút Tải lên tài liệu/bài giảng */}
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-0.5">
               <button
@@ -616,15 +981,20 @@ export function InstructorMaterialsView() {
               </button>
             </div>
 
+            {/* Nút Tải lên học liệu (Tài liệu / Bài giảng) */}
             <button
               type="button"
               onClick={() => {
-                setTargetAssignmentClassName(currentClass?.name || "Kho học liệu");
-                setAssignmentModalOpen(true);
+                setUploadForm((prev) => ({
+                  ...prev,
+                  targetClassId: currentClass?.id || "cls-6A1",
+                }));
+                setUploadModalOpen(true);
               }}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-2xs"
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
             >
-              Tải lên
+              <Upload size={14} />
+              <span>Tải lên tài liệu / bài giảng</span>
             </button>
           </div>
         </div>
@@ -633,7 +1003,7 @@ export function InstructorMaterialsView() {
         <div className="relative">
           <input
             type="text"
-            placeholder="Tìm kiếm"
+            placeholder="Tìm kiếm học liệu, tài liệu, bài giảng..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full px-4 py-2.5 pr-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500"
@@ -642,10 +1012,10 @@ export function InstructorMaterialsView() {
         </div>
 
         {/* =====================================================================
-            BẢNG DANH SÁCH MỤC (TABLE VIEW CHUẨN ẢNH 1)
+            BẢNG DANH SÁCH MỤC (TABLE VIEW HỖ TRỢ THẢ KÉO THAY ĐỔI THƯ MỤC)
             ===================================================================== */}
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-          {/* Hàng Header bảng chuẩn Ảnh 1 */}
+          {/* Hàng Header bảng chuẩn */}
           <div className="grid grid-cols-12 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs font-semibold text-slate-500">
             <div className="col-span-6 flex items-center gap-1">
               <span>
@@ -664,7 +1034,7 @@ export function InstructorMaterialsView() {
               <span>Sửa đổi lần cuối</span>
               <Filter size={12} className="text-slate-400" />
             </div>
-            <div className="col-span-1 text-right"></div>
+            <div className="col-span-1 text-right">Tùy chọn</div>
           </div>
 
           {/* Hàng hành động đầu tiên: Nút Tạo mới có icon Folder xanh dấu cộng (+) */}
@@ -682,7 +1052,7 @@ export function InstructorMaterialsView() {
                 ? `Tạo môn mới cho ${currentGrade?.label}`
                 : !selectedClassId
                 ? `Tạo lớp mới cho môn ${currentSubject?.name}`
-                : `Thêm bài tập / học liệu cho ${currentClass?.name}`}
+                : `Thêm tài liệu / bài giảng mới cho ${currentClass?.name}`}
             </span>
           </div>
 
@@ -739,27 +1109,50 @@ export function InstructorMaterialsView() {
               </>
             )}
 
-            {/* CẤP 3: DANH SÁCH LỚP HỌC (NẾU ĐÃ CHỌN MÔN) */}
+            {/* CẤP 3: DANH SÁCH LỚP HỌC (HỖ TRỢ THẢ KÉO ĐỂ PHÂN LOẠI FILE VÀO LỚP) */}
             {selectedSubjectId && !selectedClassId && currentSubject && (
               <>
                 {currentSubject.classes.length > 0 ? (
-                  currentSubject.classes.map((cls) => (
-                    <div
-                      key={cls.id}
-                      onClick={() => setSelectedClassId(cls.id)}
-                      className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group"
-                    >
-                      <div className="col-span-6 flex items-center gap-3">
-                        <Folder size={18} className="text-blue-600 fill-blue-600" />
-                        <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                          {cls.name} ({cls.code})
-                        </strong>
+                  currentSubject.classes.map((cls) => {
+                    const isDragOver = dragOverTargetId === cls.id;
+                    return (
+                      <div
+                        key={cls.id}
+                        onClick={() => setSelectedClassId(cls.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setDragOverTargetId(cls.id);
+                        }}
+                        onDragLeave={() => setDragOverTargetId(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          handleDropOnTargetClass(cls.id);
+                        }}
+                        className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
+                          isDragOver
+                            ? "bg-blue-100/70 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
+                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                        }`}
+                      >
+                        <div className="col-span-6 flex items-center gap-3">
+                          <Folder size={18} className="text-blue-600 fill-blue-600" />
+                          <div>
+                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
+                              {cls.name} ({cls.code})
+                            </strong>
+                            {isDragOver && (
+                              <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
+                                Thả tệp vào đây để di chuyển vào lớp này
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-span-3 text-slate-500">{cls.files.length} tệp</div>
+                        <div className="col-span-2 text-slate-500">{cls.updatedAt}</div>
+                        <div className="col-span-1 text-right text-slate-400">...</div>
                       </div>
-                      <div className="col-span-3 text-slate-500">{cls.files.length} tệp</div>
-                      <div className="col-span-2 text-slate-500">{cls.updatedAt}</div>
-                      <div className="col-span-1 text-right text-slate-400">...</div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="p-8 text-center text-xs text-slate-400">
                     Môn này chưa có lớp học nào. Hãy bấm "+ Tạo lớp mới" ở trên để mở lớp.
@@ -768,7 +1161,7 @@ export function InstructorMaterialsView() {
               </>
             )}
 
-            {/* CẤP 4: DANH SÁCH TÀI LIỆU & BÀI TẬP CỦA LỚP */}
+            {/* CẤP 4: DANH SÁCH TÀI LIỆU & BÀI GIẢNG CỦA LỚP KÈM MENU 3 CHẤM ĐẦY ĐỦ 3 CHỨC NĂNG */}
             {selectedClassId && currentClass && (
               <>
                 {currentClass.files.length > 0 ? (
@@ -776,33 +1169,108 @@ export function InstructorMaterialsView() {
                     <div
                       key={file.id}
                       onClick={() => {
-                        notify(`Đang mở xem bài tập: ${file.name}`, "info");
+                        notify(`Đang xem tài liệu/bài giảng: ${file.name}`, "info");
                       }}
-                      className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group"
+                      className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group relative"
                     >
                       <div className="col-span-6 flex items-center gap-3">
-                        <span className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 ${
-                          file.type === "word" ? "bg-blue-600" : "bg-rose-600"
-                        }`}>
-                          {file.type === "word" ? "W" : "PDF"}
+                        <span
+                          className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 ${
+                            file.type === "word"
+                              ? "bg-blue-600"
+                              : file.type === "pdf"
+                              ? "bg-rose-600"
+                              : file.type === "video"
+                              ? "bg-purple-600"
+                              : "bg-emerald-600"
+                          }`}
+                        >
+                          {file.type === "word" ? "W" : file.type === "pdf" ? "PDF" : file.type === "video" ? "MP4" : "DOC"}
                         </span>
-                        <div>
+                        <div className="min-w-0">
                           <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition block truncate">
                             {file.name}
                           </strong>
-                          {file.tag && (
-                            <span className="text-[10px] text-blue-600 font-semibold">{file.tag}</span>
-                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {file.tag && (
+                              <span className="text-[10px] text-blue-600 font-semibold">{file.tag}</span>
+                            )}
+                            {file.assignedRole && (
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold ${
+                                file.assignedRole === "LECTURE"
+                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300"
+                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                              }`}>
+                                {file.assignedRole === "LECTURE" ? "Bài giảng" : "Tài liệu học tập"}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="col-span-3 text-slate-500">{file.size}</div>
                       <div className="col-span-2 text-slate-500">{file.updatedAt}</div>
-                      <div className="col-span-1 text-right text-slate-400">...</div>
+
+                      {/* Cột Tùy chọn 3 chấm với 3 hành động: Dùng làm tài liệu/bài giảng, Phân loại lại tài liệu, Xóa */}
+                      <div className="col-span-1 text-right relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuFileId(activeMenuFileId === file.id ? null : file.id);
+                          }}
+                          className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer"
+                          title="Tùy chọn"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+
+                        {activeMenuFileId === file.id && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFileForAssign({ file, fromClassId: currentClass.id });
+                                setAssignModalOpen(true);
+                                setActiveMenuFileId(null);
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                            >
+                              <BookOpen size={14} className="text-blue-600" />
+                              <span>Dùng làm tài liệu/bài giảng</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleMoveToUnclassified(file, currentClass.id);
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                            >
+                              <Move size={14} className="text-amber-600" />
+                              <span>Phân loại lại tài liệu</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleDeleteFile(file, currentClass.id);
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center gap-2 cursor-pointer font-medium"
+                            >
+                              <Trash2 size={14} />
+                              <span>Xóa</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (
                   <div className="p-8 text-center text-xs text-slate-400">
-                    Lớp chưa có học liệu hoặc bài tập nào. Hãy bấm "+ Thêm bài tập / học liệu" để thêm ngay.
+                    Lớp chưa có học liệu hoặc bài giảng nào. Hãy bấm "Tải lên tài liệu / bài giảng" để bổ sung ngay.
                   </div>
                 )}
               </>
@@ -810,6 +1278,292 @@ export function InstructorMaterialsView() {
           </div>
         </div>
       </main>
+
+      {/* =========================================================================
+          MODAL TẢI LÊN TÀI LIỆU / BÀI GIẢNG (KHO HỌC LIỆU THẬT)
+          ========================================================================= */}
+      {uploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <UploadCloud size={20} className="text-blue-600" />
+                <span>Tải lên tài liệu / bài giảng</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Chọn mục đích: Tài liệu học tập hoặc Bài giảng */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Mục đích sử dụng:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUploadForm({ ...uploadForm, category: "MATERIAL", type: "pdf" })}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      uploadForm.category === "MATERIAL"
+                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-600"
+                        : "border-slate-200 dark:border-slate-800 text-slate-600"
+                    }`}
+                  >
+                    <BookOpen size={16} />
+                    <span>Tài liệu học tập</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadForm({ ...uploadForm, category: "LECTURE", type: "video" })}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      uploadForm.category === "LECTURE"
+                        ? "border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-600"
+                        : "border-slate-200 dark:border-slate-800 text-slate-600"
+                    }`}
+                  >
+                    <Video size={16} />
+                    <span>Bài giảng (Video / Link)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tên tiêu đề */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tiêu đề tài liệu / bài giảng: <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Đề cương ôn tập Toán giữa kỳ 1 hoặc Bài giảng Số nguyên..."
+                  value={uploadForm.title}
+                  onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Vị trí lưu: Chọn Lớp hoặc Chưa phân loại */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Vị trí phân loại vào lớp / thư mục:
+                </label>
+                <select
+                  value={uploadForm.targetClassId}
+                  onChange={(e) => setUploadForm({ ...uploadForm, targetClassId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="unclassified">📍 Kho chưa phân loại (ở cột trái)</option>
+                  {allClassesList.map((item) => (
+                    <option key={item.classId} value={item.classId}>
+                      📁 {item.path}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Định dạng tệp / Liên kết */}
+              {uploadForm.category === "LECTURE" ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Liên kết Video (YouTube, Google Drive):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="url"
+                      placeholder="https://www.youtube.com/watch?v=... hoặc Google Drive link"
+                      value={uploadForm.url}
+                      onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value, type: "link" })}
+                      className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
+                    />
+                    <Link2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tệp đính kèm (PDF, Word, PowerPoint, Ảnh):
+                  </label>
+                  <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30">
+                    <FileText size={28} className="mx-auto text-blue-600" />
+                    <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                      Kéo thả hoặc{" "}
+                      <label className="text-blue-600 font-bold hover:underline cursor-pointer">
+                        chọn tệp từ máy
+                        <input
+                          type="file"
+                          accept=".pdf,.docx,.doc,.pptx,.ppt,.png,.jpg"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const ext = file.name.split(".").pop()?.toLowerCase();
+                              setUploadForm({
+                                ...uploadForm,
+                                title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
+                                fileName: file.name,
+                                fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                                type: ext === "pdf" ? "pdf" : "word",
+                              });
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {uploadForm.fileName && (
+                      <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2 rounded-lg inline-block">
+                        ✓ Đã chọn: {uploadForm.fileName} ({uploadForm.fileSize})
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadMaterialSubmit}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Check size={14} />
+                <span>Hoàn tất & Lưu vào kho</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL GÁN VAI TRÒ (DÙNG LÀM TÀI LIỆU / BÀI GIẢNG)
+          ========================================================================= */}
+      {assignModalOpen && selectedFileForAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <BookOpen size={20} className="text-blue-600" />
+              <span>Dùng làm tài liệu / bài giảng</span>
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Chọn vai trò áp dụng cho tệp <strong className="text-slate-900 dark:text-slate-100">"{selectedFileForAssign.file.name}"</strong>:
+            </p>
+
+            <div className="space-y-2 pt-1">
+              <div
+                onClick={() => handleAssignRoleConfirm("MATERIAL")}
+                className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 cursor-pointer transition flex items-center gap-3"
+              >
+                <div className="size-9 rounded-xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 grid place-items-center shrink-0">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                    Dùng làm Tài liệu tham khảo
+                  </strong>
+                  <span className="text-[11px] text-slate-500">
+                    Xuất hiện ở danh sách Tài liệu học tập để học sinh tải về ôn luyện.
+                  </span>
+                </div>
+              </div>
+
+              <div
+                onClick={() => handleAssignRoleConfirm("LECTURE")}
+                className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-950/20 cursor-pointer transition flex items-center gap-3"
+              >
+                <div className="size-9 rounded-xl bg-purple-100 dark:bg-purple-900/50 text-purple-600 grid place-items-center shrink-0">
+                  <Video size={18} />
+                </div>
+                <div>
+                  <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                    Dùng làm Bài giảng
+                  </strong>
+                  <span className="text-[11px] text-slate-500">
+                    Gắn vào hệ thống Bài giảng trực tuyến cho học sinh theo dõi video và lý thuyết.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setAssignModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL PHÂN LOẠI LẠI TÀI LIỆU / DI CHUYỂN SANG THƯ MỤC KHÁC
+          ========================================================================= */}
+      {moveModalOpen && selectedFileForMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Move size={20} className="text-amber-600" />
+              <span>Phân loại lại / Di chuyển tệp</span>
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Chọn thư mục / lớp đích để chuyển tệp <strong className="text-slate-900 dark:text-slate-100">"{selectedFileForMove.file.name}"</strong>:
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Thư mục lớp đích:
+              </label>
+              <select
+                value={targetMoveClassId}
+                onChange={(e) => setTargetMoveClassId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                {allClassesList.map((item) => (
+                  <option key={item.classId} value={item.classId}>
+                    📁 {item.path}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setMoveModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleMoveFileToTargetClass(
+                    selectedFileForMove.file,
+                    targetMoveClassId,
+                    selectedFileForMove.fromClassId
+                  );
+                }}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                Xác nhận di chuyển
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================================
           MODAL TẠO BÀI TẬP / ĐỀ THI TOÀN DIỆN
