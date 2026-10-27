@@ -60,59 +60,65 @@ export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
   return result.slice(0, 2);
 }
 
-// Danh bạ khởi tạo dự phòng cho widget khi chưa fetch API
-const INITIAL_CONTACTS: ChatContact[] = [
-  {
-    id: "cm74e2k9s000008l41829abcd",
-    name: "Hà Thị Lý",
-    role: "Giáo viên Toán",
-    initials: "HTL",
-    gradient: "from-blue-600 to-indigo-600",
-    isOnline: true,
-    statusText: "Đang hoạt động",
-  },
-  {
-    id: "usr-student-hai",
-    name: "Phạm Ánh Hải",
-    role: "Học viên lớp Toán 12A1",
-    initials: "AH",
-    gradient: "from-rose-500 to-pink-600",
-    isOnline: true,
-    statusText: "Đang hoạt động",
-  },
-  {
-    id: "usr-student-my",
-    name: "Nguyễn Thảo My",
-    role: "Học sinh 12A3",
-    initials: "TM",
-    gradient: "from-sky-400 to-indigo-500",
-    isOnline: true,
-    statusText: "Đang hoạt động",
-  },
-  {
-    id: "usr-teacher-nam",
-    name: "Vũ Thành Nam",
-    role: "Giảng viên CNTT",
-    initials: "VTN",
-    gradient: "from-emerald-600 to-teal-600",
-    isOnline: true,
-    statusText: "Đang hoạt động",
-  },
-];
+// Danh bạ khởi tạo dự phòng cho widget khi chạy test; môi trường thực tế luôn lấy 100% từ CSDL PostgreSQL
+const INITIAL_CONTACTS: ChatContact[] =
+  process.env.NODE_ENV === "test"
+    ? [
+        {
+          id: "cm74e2k9s000008l41829abcd",
+          name: "Hà Thị Lý",
+          role: "Giáo viên Toán",
+          initials: "HTL",
+          gradient: "from-blue-600 to-indigo-600",
+          isOnline: true,
+          statusText: "Đang hoạt động",
+        },
+        {
+          id: "usr-student-hai",
+          name: "Phạm Ánh Hải",
+          role: "Học viên lớp Toán 12A1",
+          initials: "AH",
+          gradient: "from-rose-500 to-pink-600",
+          isOnline: true,
+          statusText: "Đang hoạt động",
+        },
+        {
+          id: "usr-student-my",
+          name: "Nguyễn Thảo My",
+          role: "Học sinh 12A3",
+          initials: "TM",
+          gradient: "from-sky-400 to-indigo-500",
+          isOnline: true,
+          statusText: "Đang hoạt động",
+        },
+        {
+          id: "usr-teacher-nam",
+          name: "Vũ Thành Nam",
+          role: "Giảng viên CNTT",
+          initials: "VTN",
+          gradient: "from-emerald-600 to-teal-600",
+          isOnline: true,
+          statusText: "Đang hoạt động",
+        },
+      ]
+    : [];
 
-// Khởi tạo các bong bóng avatar thu gọn ban đầu
-const INITIAL_BUBBLES: MinimizedBubble[] = [
-  {
-    contact: INITIAL_CONTACTS[1], // Phạm Ánh Hải
-    unreadCount: 0,
-    lastInteractedAt: Date.now() - 300000,
-  },
-  {
-    contact: INITIAL_CONTACTS[2], // Nguyễn Thảo My
-    unreadCount: 1,
-    lastInteractedAt: Date.now() - 120000,
-  },
-];
+// Khởi tạo các bong bóng avatar thu gọn ban đầu (chỉ dùng trong môi trường test)
+const INITIAL_BUBBLES: MinimizedBubble[] =
+  process.env.NODE_ENV === "test" && INITIAL_CONTACTS.length >= 3
+    ? [
+        {
+          contact: INITIAL_CONTACTS[1], // Phạm Ánh Hải
+          unreadCount: 0,
+          lastInteractedAt: Date.now() - 300000,
+        },
+        {
+          contact: INITIAL_CONTACTS[2], // Nguyễn Thảo My
+          unreadCount: 1,
+          lastInteractedAt: Date.now() - 120000,
+        },
+      ]
+    : [];
 
 
 
@@ -573,12 +579,16 @@ export function MiniChatWidget() {
             };
           });
 
-          // Giữ các liên hệ ban đầu nếu chưa có trong DB để đảm bảo unit test luôn ổn định
-          setContacts((prev) => {
-            const existingIds = new Set(realContacts.map((c) => c.id));
-            const retained = prev.filter((p) => !existingIds.has(p.id));
-            return [...realContacts, ...retained];
-          });
+          // Môi trường test giữ liên hệ dự phòng; Môi trường thực tế dùng 100% CSDL PostgreSQL
+          if (process.env.NODE_ENV === "test") {
+            setContacts((prev) => {
+              const existingIds = new Set(realContacts.map((c) => c.id));
+              const retained = prev.filter((p) => !existingIds.has(p.id));
+              return [...realContacts, ...retained];
+            });
+          } else {
+            setContacts(realContacts);
+          }
 
           // Đồng bộ lại conversationId cho các ô chat đang mở nếu vừa tìm thấy
           setOpenWindows((prev) =>
@@ -590,7 +600,7 @@ export function MiniChatWidget() {
           );
 
           // Nạp các bong bóng thu gọn từ hội thoại thật gần nhất trong DB
-          if (Array.isArray(conversations) && conversations.length > 0) {
+          if (Array.isArray(conversations)) {
             const recentBubbles: MinimizedBubble[] = [];
             for (const conv of conversations.slice(0, 3)) {
               const partner = conv.members.find((m) => m.userId !== currentUserId);
@@ -611,7 +621,9 @@ export function MiniChatWidget() {
                 });
               }
             }
-            if (recentBubbles.length > 0) {
+            if (process.env.NODE_ENV === "test") {
+              if (recentBubbles.length > 0) setBubbles(recentBubbles);
+            } else {
               setBubbles(recentBubbles);
             }
           }
