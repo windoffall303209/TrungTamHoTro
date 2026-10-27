@@ -344,6 +344,7 @@ export interface ExamAttempt {
   id: string;
   examId: string;
   learnerId: string;
+  attemptNo?: number;
   answers: Record<string, string[]>;
   status: "IN_PROGRESS" | "SUBMITTED" | "GRADED";
   startedAt: string;

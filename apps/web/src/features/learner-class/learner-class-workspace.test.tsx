@@ -140,7 +140,7 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Toán 1")).toBeInTheDocument();
 
     // Cột 2: Danh sách có bài tập mẫu
-    expect(screen.getByText("Test bài tập")).toBeInTheDocument();
+    expect(screen.getAllByText("Test bài tập").length).toBeGreaterThanOrEqual(1);
 
     // Cột 3: Bảng thông số chi tiết
     expect(screen.getByText("Số lần làm bài")).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Chi tiết")).toBeInTheDocument();
   });
 
-  it("tab Bài giảng hiển thị giao diện 3 cột với cấu trúc cây thư mục và thông số video", () => {
+  it("tab Bài giảng hiển thị giao diện 3 cột với Cột 3 tinh gọn chỉ gồm Tên, Mô tả ngắn gọn, Ngày đăng", () => {
     render(
       <LearnerClassWorkspace
         item={dummyClass}
@@ -163,7 +163,49 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Tất cả bài giảng")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Tìm kiếm bài giảng...")).toBeInTheDocument();
     expect(screen.getAllByText(/Xem bài giảng/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Tiến độ xem")).toBeInTheDocument();
+    expect(screen.getByText("Ngày đăng")).toBeInTheDocument();
+    expect(screen.getByText("Mô tả")).toBeInTheDocument();
+  });
+
+  it("cho phép mở Trang chi tiết bài giảng 3 cột đầy đủ khi bấm nút Xem bài giảng", () => {
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Bài giảng"));
+    const viewLectureBtn = screen.getAllByText("Xem bài giảng")[0];
+    fireEvent.click(viewLectureBtn);
+
+    // Trang chi tiết bài giảng hiển thị với nút quay lại, khối mô tả, bài tập đính kèm và thư mục
+    expect(screen.getByText("Quay lại bài giảng")).toBeInTheDocument();
+    expect(screen.getByText(/Bài tập & tài liệu đính kèm/i)).toBeInTheDocument();
+    expect(screen.getByText("Thư mục bài giảng")).toBeInTheDocument();
+  });
+
+  it("tab Bài tập áp dụng tông màu điểm số không chứa icon emoji và cho phép mở xem lại bài làm khi bấm Chi tiết", () => {
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Bài tập"));
+
+    // Khối điểm số không có icon emoji 😐
+    expect(screen.queryByText("😐")).toBeNull();
+    expect(screen.getByText("4.0 điểm")).toBeInTheDocument();
+
+    // Bấm Chi tiết mở modal xem lại bài làm khi có 1 lần nộp bài
+    fireEvent.click(screen.getByText("Chi tiết"));
+    expect(screen.getByText(/Chi tiết bài làm \(Lần 1\)/i)).toBeInTheDocument();
+    expect(screen.getByText("Kết quả chấm điểm")).toBeInTheDocument();
+    expect(screen.getByText("Nhận xét của giáo viên")).toBeInTheDocument();
   });
 
   it("tab Tài liệu hiển thị giao diện 3 cột với cấu trúc thư mục học liệu và thông số tài liệu", () => {
