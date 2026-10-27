@@ -503,59 +503,196 @@ export function InstructorClassWorkspace({
     setLecturePreviewReady(false);
   };
 
-  // Lưu bài tập mới
-  const handleSaveAssignment = () => {
+  // Lưu bài tập mới trực tiếp vào cơ sở dữ liệu PostgreSQL
+  const handleSaveAssignment = async () => {
     if (!assignmentFormTitle.trim()) {
       notify("Vui lòng nhập tiêu đề bài tập!", "error");
       return;
     }
 
-    const newAssign: Assignment = {
-      id: `assign-${Date.now()}`,
-      classId: item.id,
-      classCode: item.code,
-      title: assignmentFormTitle.trim(),
-      description: assignmentFormDesc.trim(),
-      instructions: "",
-      maxScore: assignmentFormMaxScore,
-      rubric: [],
-      status: "PUBLISHED",
-      version: 1,
-      createdById: session.user.id || "teacher",
-      dueAt: assignmentFormDue || new Date(Date.now() + 7 * 86400000).toISOString(),
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      const createdAssign = await apiRequest<Assignment>(
+        `/instructor/classes/${item.id}/assignments`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            title: assignmentFormTitle.trim(),
+            description: assignmentFormDesc.trim() || "Bài tập do giáo viên phân công cho lớp.",
+            instructions: "Học sinh hoàn thành bài làm theo hướng dẫn và nộp đúng hạn.",
+            dueAt: assignmentFormDue || new Date(Date.now() + 7 * 86400000).toISOString(),
+            maxScore: Number(assignmentFormMaxScore) || 10,
+            rubric: [
+              {
+                title: "Nội dung bài làm",
+                description: "Đáp ứng đầy đủ yêu cầu của bài tập",
+                maxPoints: Number(assignmentFormMaxScore) || 10,
+              },
+            ],
+          }),
+        }
+      );
 
-    setAssignments([newAssign, ...assignments]);
-    setSelectedAssignment(newAssign);
-    setAddAssignmentModalOpen(false);
-    notify("Đã thêm bài tập mới!", "success");
+      // Công bố bài tập để học sinh có thể thấy và nộp
+      if (createdAssign?.id) {
+        await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+        }).catch((err) => console.warn("Lỗi tự động xuất bản:", err));
+      }
 
-    setAssignmentFormTitle("");
-    setAssignmentFormDesc("");
+      await loadClassData();
+      setAddAssignmentModalOpen(false);
+      setAssignmentFormTitle("");
+      setAssignmentFormDesc("");
+      notify("Đã tạo và công bố bài tập mới vào cơ sở dữ liệu!", "success");
+    } catch (err: any) {
+      console.error("Lỗi tạo bài tập:", err);
+      notify(err?.message || "Không thể tạo bài tập vào cơ sở dữ liệu", "error");
+    }
   };
 
-  // Nhận bài tập từ AssignmentBuilderModal (hỗ trợ cả trắc nghiệm AI và tự luận)
-  const handleSaveFromBuilder = (data: any) => {
-    const newAssign: Assignment = {
-      id: `assign-${Date.now()}`,
-      classId: item.id,
-      classCode: item.code,
-      title: data.title || "Bài tập mới",
-      description: data.description || "Học sinh hoàn thành các câu hỏi được giao.",
-      instructions: data.type === "MULTIPLE_CHOICE" ? "Đề thi trắc nghiệm (AI tách câu)" : "Đề tự luận (tệp đính kèm)",
-      maxScore: data.type === "MULTIPLE_CHOICE" ? (data.questions?.reduce((s: number, q: any) => s + (Number(q.score) || 0), 0) || 10) : 10,
-      rubric: [],
-      status: "PUBLISHED",
-      version: 1,
-      createdById: session.user.id || "teacher",
-      dueAt: data.settings?.hasDueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
-      createdAt: new Date().toISOString(),
-    };
+  // Nhận bài tập từ AssignmentBuilderModal và lưu trực tiếp vào PostgreSQL (hỗ trợ cả trắc nghiệm AI và tự luận)
+  const handleSaveFromBuilder = async (data: any) => {
+    try {
+      notify("Đang lưu bài tập và cấu hình vào cơ sở dữ liệu...", "info");
 
-    setAssignments([newAssign, ...assignments]);
-    setSelectedAssignment(newAssign);
-    setAddAssignmentModalOpen(false);
+      if (data.type === "MULTIPLE_CHOICE" && data.questions && data.questions.length > 0) {
+        // Luồng Trắc nghiệm:
+        // Bước 1: Lưu câu hỏi vào Question Bank (nếu có courseId)
+        let questionIds: string[] = [];
+        if (course?.id) {
+          try {
+            const formattedQuestions = data.questions.map((q: any) => ({
+              courseId: course.id,
+              content: q.content || "Nội dung câu hỏi",
+              type: "SINGLE_CHOICE",
+              options: q.options && q.options.length > 0 ? q.options : ["A", "B", "C", "D"],
+              correctAnswers: [q.correctAnswer || "A"],
+              difficulty: 2,
+              tags: ["Trắc nghiệm", "AI Tách câu"],
+            }));
+
+            const importedQuestions = await apiRequest<any[]>(
+              "/instructor/question-bank/questions/import",
+              {
+                method: "POST",
+                roleCode: session.roleCode,
+                body: JSON.stringify({
+                  courseId: course.id,
+                  questions: formattedQuestions,
+                }),
+              }
+            ).catch(() => [] as any[]);
+
+            questionIds = importedQuestions.map((q) => q.id);
+          } catch (qErr) {
+            console.warn("Không thể import câu hỏi vào ngân hàng:", qErr);
+          }
+        }
+
+        // Bước 2: Tạo đề thi Exam nếu có câu hỏi
+        if (questionIds.length > 0) {
+          try {
+            const createdExam = await apiRequest<any>("/instructor/exams", {
+              method: "POST",
+              roleCode: session.roleCode,
+              body: JSON.stringify({
+                classId: item.id,
+                title: data.title || "Bài kiểm tra trắc nghiệm",
+                questionIds,
+                durationMinutes: Number(data.settings?.durationMinutes) || 45,
+                totalScore: Number(data.settings?.totalScore) || 10,
+                openAt: data.settings?.openAt || new Date().toISOString(),
+                closeAt: data.settings?.dueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+                attemptLimit: Number(data.settings?.attemptLimit) || 1,
+                shuffleQuestions: Boolean(data.settings?.shuffleQuestions),
+              }),
+            });
+
+            if (createdExam?.id) {
+              await apiRequest(`/instructor/exams/${createdExam.id}/publish`, {
+                method: "POST",
+                roleCode: session.roleCode,
+              }).catch(() => null);
+            }
+          } catch (examErr) {
+            console.warn("Không thể tạo đề thi riêng:", examErr);
+          }
+        }
+
+        // Bước 3: Tạo bản ghi Assignment trong lớp
+        const createdAssign = await apiRequest<Assignment>(
+          `/instructor/classes/${item.id}/assignments`,
+          {
+            method: "POST",
+            roleCode: session.roleCode,
+            body: JSON.stringify({
+              title: data.title || "Bài kiểm tra trắc nghiệm",
+              description: data.description || `Đề thi trắc nghiệm gồm ${data.questions.length} câu hỏi.`,
+              instructions: "Đề thi trắc nghiệm tách câu. Học sinh chọn đáp án đúng cho từng câu hỏi.",
+              dueAt: data.settings?.hasDueAt && data.settings?.dueAt
+                ? new Date(data.settings.dueAt).toISOString()
+                : new Date(Date.now() + 7 * 86400000).toISOString(),
+              maxScore: Number(data.settings?.totalScore) || 10,
+              rubric: [
+                {
+                  title: "Trắc nghiệm tự động",
+                  description: "Hệ thống chấm điểm tự động",
+                  maxPoints: Number(data.settings?.totalScore) || 10,
+                },
+              ],
+            }),
+          }
+        );
+
+        if (createdAssign?.id) {
+          await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
+            method: "POST",
+            roleCode: session.roleCode,
+          }).catch(() => null);
+        }
+      } else {
+        // Luồng Tự luận
+        const createdAssign = await apiRequest<Assignment>(
+          `/instructor/classes/${item.id}/assignments`,
+          {
+            method: "POST",
+            roleCode: session.roleCode,
+            body: JSON.stringify({
+              title: data.title || "Bài tập tự luận mới",
+              description: data.description || "Học sinh hoàn thành bài làm theo tài liệu đính kèm.",
+              instructions: data.attachedFile ? `Tệp đính kèm: ${data.attachedFile.name}` : "Nộp bài viết hoặc file đính kèm theo đúng hạn.",
+              dueAt: data.settings?.hasDueAt && data.settings?.dueAt
+                ? new Date(data.settings.dueAt).toISOString()
+                : new Date(Date.now() + 7 * 86400000).toISOString(),
+              maxScore: Number(data.maxScore) || 10,
+              rubric: [
+                {
+                  title: "Nội dung bài làm",
+                  description: "Đầy đủ và chính xác theo yêu cầu đề bài",
+                  maxPoints: Number(data.maxScore) || 10,
+                },
+              ],
+            }),
+          }
+        );
+
+        if (createdAssign?.id) {
+          await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
+            method: "POST",
+            roleCode: session.roleCode,
+          }).catch(() => null);
+        }
+      }
+
+      await loadClassData();
+      setAddAssignmentModalOpen(false);
+      notify(`Đã lưu và xuất bản bài tập '${data.title}' vào cơ sở dữ liệu!`, "success");
+    } catch (err: any) {
+      console.error("Lỗi khi lưu bài tập từ builder:", err);
+      notify(err?.message || "Không thể lưu bài tập vào cơ sở dữ liệu", "error");
+    }
   };
 
   // Tạo thư mục mới

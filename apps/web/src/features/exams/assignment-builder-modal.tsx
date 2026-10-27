@@ -67,7 +67,7 @@ export interface AssignmentBuilderModalProps {
       shuffleAnswers: boolean;
     };
     attachedFile?: { name: string; size: string; type: string };
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 // Mẫu câu hỏi phân tích bằng AI trắc nghiệm theo chuẩn K-12 trong Ảnh 3
@@ -243,6 +243,8 @@ export function AssignmentBuilderModal({
     );
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   // Toggle hình thức nộp bài
   const handleToggleSubmissionMethod = (method: string) => {
     setSubmissionMethods((prev) =>
@@ -250,35 +252,42 @@ export function AssignmentBuilderModal({
     );
   };
 
-  // Hoàn tất lưu bài tập
-  const handleFinishSave = () => {
-    onSaveAssignment({
-      title: title.trim() || "Bài tập mới",
-      description: description.trim(),
-      type: assignmentType,
-      source: sourceType,
-      questions: assignmentType === "MULTIPLE_CHOICE" ? questions : [],
-      submissionMethods,
-      settings: {
-        durationMinutes,
-        hasDuration,
-        startAt,
-        hasStartAt,
-        dueAt,
-        hasDueAt,
-        allowLateSubmission,
-        isExamLabel,
-        blockReviewAfterSubmit,
-        studentPermission,
-        maxAttempts,
-        gradingMethod,
-        shuffleQuestions,
-        shuffleAnswers,
-      },
-      attachedFile: uploadedFile || undefined,
-    });
-    notify(`Đã tạo bài tập '${title}' thành công cho ${targetClassName}!`, "success");
-    onClose();
+  // Hoàn tất lưu bài tập trực tiếp vào cơ sở dữ liệu
+  const handleFinishSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSaveAssignment({
+        title: title.trim() || "Bài tập mới",
+        description: description.trim(),
+        type: assignmentType,
+        source: sourceType,
+        questions: assignmentType === "MULTIPLE_CHOICE" ? questions : [],
+        submissionMethods,
+        settings: {
+          durationMinutes,
+          hasDuration,
+          startAt,
+          hasStartAt,
+          dueAt,
+          hasDueAt,
+          allowLateSubmission,
+          isExamLabel,
+          blockReviewAfterSubmit,
+          studentPermission,
+          maxAttempts,
+          gradingMethod,
+          shuffleQuestions,
+          shuffleAnswers,
+        },
+        attachedFile: uploadedFile || undefined,
+      });
+      onClose();
+    } catch (err: any) {
+      console.error("Lỗi hoàn tất tạo bài tập:", err);
+      notify(err?.message || "Không thể lưu bài tập", "error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -324,10 +333,11 @@ export function AssignmentBuilderModal({
               <button
                 type="button"
                 onClick={handleFinishSave}
-                className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                disabled={isSaving}
+                className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
               >
                 <Check size={14} />
-                <span>Hoàn tất & Phát hành</span>
+                <span>{isSaving ? "Đang lưu CSDL..." : "Hoàn tất & Phát hành"}</span>
               </button>
             ) : null}
 
@@ -1221,10 +1231,11 @@ export function AssignmentBuilderModal({
               <button
                 type="button"
                 onClick={handleFinishSave}
-                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-xs"
+                disabled={isSaving}
+                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
               >
                 <Check size={15} />
-                <span>Hoàn tất & Lưu bài tập</span>
+                <span>{isSaving ? "Đang lưu CSDL..." : "Hoàn tất & Lưu bài tập"}</span>
               </button>
             </div>
           </div>
