@@ -825,11 +825,11 @@ export function LearnerClassWorkspace({
         author?: { displayName?: string };
       }>(`/learner/classes/${item.id}/forum/topics`, {
         method: "POST",
-        body: {
+        body: JSON.stringify({
           title,
           body: content,
           tags: ["class", item.code.toLowerCase()],
-        },
+        }),
       });
 
       const newPost: ClassPost = {
@@ -1000,9 +1000,9 @@ export function LearnerClassWorkspace({
         author?: { displayName?: string };
       }>(`/learner/forum/topics/${selectedPostForModal.id}/posts`, {
         method: "POST",
-        body: {
+        body: JSON.stringify({
           body: commentBody,
-        },
+        }),
       });
 
       const newCmt: PostComment = {
@@ -2023,13 +2023,13 @@ export function LearnerClassWorkspace({
                 /* CHẾ ĐỘ DẠNG TUẦN: HIỂN THỊ DẠNG LƯỚI */
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
                   {[
-                    { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Phương trình lượng giác" },
-                    { day: "Thứ 3", date: "27/10", hasClass: false },
-                    { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Hình học không gian" },
-                    { day: "Thứ 5", date: "29/10", hasClass: false },
-                    { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Ôn tập và Kiểm tra 15p" },
-                    { day: "Thứ 7", date: "31/10", hasClass: false },
-                    { day: "Chủ nhật", date: "01/11", hasClass: false },
+                    { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Phương trình lượng giác", isToday: false },
+                    { day: "Thứ 3", date: "27/10", hasClass: false, isToday: true },
+                    { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Hình học không gian", isToday: false },
+                    { day: "Thứ 5", date: "29/10", hasClass: false, isToday: false },
+                    { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Ôn tập và Kiểm tra 15p", isToday: false },
+                    { day: "Thứ 7", date: "31/10", hasClass: false, isToday: false },
+                    { day: "Chủ nhật", date: "01/11", hasClass: false, isToday: false },
                   ].map((col, idx) => (
                     <div
                       key={idx}

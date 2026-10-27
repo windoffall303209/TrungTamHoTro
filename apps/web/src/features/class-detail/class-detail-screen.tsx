@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { AccessDenied } from "@/components/access-denied";
 import { SectionState } from "@/components/section-state";
 import {
@@ -30,6 +31,7 @@ import {
 import { DetailTab, roleLabel } from "./class-detail.shared";
 import { useClassDetailModel } from "./use-class-detail-model";
 import { LearnerClassWorkspace } from "@/features/learner-class/learner-class-workspace";
+import { InstructorClassWorkspace } from "@/features/instructor-class/instructor-class-workspace";
 
 /** Lắp ghép màn hình chi tiết lớp từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function ClassDetailScreen() {
@@ -102,6 +104,13 @@ export default function ClassDetailScreen() {
             item={item}
             course={course}
             teacherName={primaryInstructor?.displayName || "Wind Fall"}
+            instructors={instructors}
+            onBack={() => router.push("/courses")}
+          />
+        ) : session.roleCode === "INSTRUCTOR" ? (
+          <InstructorClassWorkspace
+            item={item}
+            course={course}
             instructors={instructors}
             onBack={() => router.push("/courses")}
           />
@@ -280,7 +289,7 @@ export default function ClassDetailScreen() {
                               className="font-bold text-sky-600 dark:text-sky-400 hover:underline"
                               href={`/academic?classId=${encodeURIComponent(item.id)}`}
                             >
-                              {session.roleCode === "LEARNER"
+                              {(session.roleCode as string) === "LEARNER"
                                 ? "Xem lịch và bài tập của lớp"
                                 : "Theo dõi lịch dạy và bài tập"}
                             </Link>
@@ -290,7 +299,7 @@ export default function ClassDetailScreen() {
                               className="font-bold text-sky-600 dark:text-sky-400 hover:underline"
                               href={`/exams?classId=${encodeURIComponent(item.id)}`}
                             >
-                              {session.roleCode === "LEARNER"
+                              {(session.roleCode as string) === "LEARNER"
                                 ? "Làm đề thi và xem kết quả"
                                 : "Quản lý đề thi của lớp"}
                             </Link>

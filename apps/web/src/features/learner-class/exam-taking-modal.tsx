@@ -127,9 +127,9 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
       }
 
       // Mở lượt làm bài chính thức trong database nếu còn lượt làm bài
-      if (!(exam.remainingAttempts !== undefined && exam.remainingAttempts !== null && exam.remainingAttempts <= 0)) {
+      if (exam && !(exam.remainingAttempts !== undefined && exam.remainingAttempts !== null && exam.remainingAttempts <= 0)) {
         try {
-          const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam?.id}/attempts`, {
+          const attempt = await apiRequest<{ id: string }>(`/learner/exams/${exam.id}/attempts`, {
             method: "POST",
           });
           if (isMounted && attempt?.id) {
@@ -208,10 +208,12 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
     // Lưu tạm câu trả lời lên server
     if (attemptId) {
       const q = questions[currentIdx];
-      void apiRequest(`/learner/exam-attempts/${attemptId}/answers`, {
-        method: "PATCH",
-        body: { answers: { [String(q.id)]: { selected: key } } },
-      }).catch(() => {});
+      if (q) {
+        void apiRequest(`/learner/exam-attempts/${attemptId}/answers`, {
+          method: "PATCH",
+          body: JSON.stringify({ answers: { [String(q.id)]: { selected: key } } }),
+        }).catch(() => {});
+      }
     }
   };
 
@@ -292,7 +294,12 @@ export function ExamTakingModal({ open, onClose, exam, onSubmitted }: ExamTaking
 
   if (!open || !exam) return null;
 
-  const currentQ = questions[currentIdx] || questions[0];
+  const currentQ = questions[currentIdx] || questions[0] || {
+    id: "q-fallback",
+    question: "Chưa có nội dung câu hỏi",
+    options: [],
+    correctAnswer: "A",
+  };
   const answeredCount = Object.keys(answers).length;
   const flaggedCount = Object.values(flagged).filter(Boolean).length;
   const unansweredCount = questions.length - answeredCount;

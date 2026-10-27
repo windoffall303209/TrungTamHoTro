@@ -113,7 +113,7 @@ export default function LiveClassesPage() {
   // Tính nhãn hiển thị khoảng thời gian theo tuần hoặc theo tháng
   const periodLabel = useMemo(() => {
     if (scheduleView === "week") {
-      const sunday = weekDays[6];
+      const sunday = weekDays[6] ?? currentMonday;
       const mDay = currentMonday.getDate();
       const mMonth = currentMonday.getMonth() + 1;
       const sDay = sunday.getDate();
@@ -390,7 +390,7 @@ export default function LiveClassesPage() {
       </div>
 
       {/* Thanh công cụ lịch học: Chuyển Tuần/Tháng và Điều hướng thời gian */}
-      {learner && (
+      {(learner || instructor) && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs mb-4">
           {/* Nút chuyển đổi chế độ Tuần / Tháng */}
           <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
@@ -454,8 +454,8 @@ export default function LiveClassesPage() {
       )}
 
       <SectionState loading={loading} empty={items.length === 0}>
-        {learner && scheduleView === "week" ? (
-          /* CHẾ ĐỘ DẠNG TUẦN (LƯỚI 7 NGÀY THỜI KHÓA BIỂU) CHO HỌC SINH */
+        {(learner || instructor) && scheduleView === "week" ? (
+          /* CHẾ ĐỘ DẠNG TUẦN (LƯỚI 7 NGÀY THỜI KHÓA BIỂU) CHO HỌC SINH VÀ GIẢNG VIÊN */
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {weekDays.map((colDate, idx) => {
               const daySessions = items.filter((session) => {
@@ -487,7 +487,7 @@ export default function LiveClassesPage() {
                     {/* Header cột thứ và ngày DD/MM */}
                     <div className="border-b border-slate-200/60 dark:border-slate-800 pb-2 mb-2.5">
                       <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                        {t(dayName)}
+                        {t(dayName || "Thứ 2")}
                         {isColToday ? ` - ${t("Hôm nay")}` : ""}
                       </p>
                       <p className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
@@ -548,34 +548,66 @@ export default function LiveClassesPage() {
                               </div>
 
                               <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
-                                <div className="flex items-center justify-between text-[10px] text-white/90">
-                                  <span className="flex items-center gap-1 font-semibold">
-                                    <UserCheck size={12} />
-                                    {isAttended ? t("Đã điểm danh") : t("Chưa điểm danh")}
-                                  </span>
-                                </div>
-
-                                {isAttended ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void leave(session)}
-                                    className="w-full py-1.5 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                  >
-                                    {t("Rời phòng")}
-                                  </button>
+                                {instructor ? (
+                                  <div className="flex flex-col gap-1.5">
+                                    {session.status === "SCHEDULED" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void transition(session, "LIVE")}
+                                        className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                      >
+                                        <Play size={12} /> {t("Bắt đầu ca dạy")}
+                                      </button>
+                                    )}
+                                    {session.status === "LIVE" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void transition(session, "COMPLETED")}
+                                        className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                      >
+                                        {t("Kết thúc ca dạy")}
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => void join(session)}
+                                      className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                    >
+                                      {t("Vào phòng")} <ExternalLink size={11} />
+                                    </button>
+                                  </div>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    disabled={!canJoin && !isLive}
-                                    onClick={() => void join(session)}
-                                    className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                                      canJoin || isLive
-                                        ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs"
-                                        : "bg-white/10 text-white/50 cursor-not-allowed"
-                                    }`}
-                                  >
-                                    {isLive ? t("Vào lớp ngay") : canJoin ? t("Vào phòng") : t("Chưa đến giờ")}
-                                  </button>
+                                  <>
+                                    <div className="flex items-center justify-between text-[10px] text-white/90">
+                                      <span className="flex items-center gap-1 font-semibold">
+                                        <UserCheck size={12} />
+                                        {isAttended ? t("Đã điểm danh") : t("Chưa điểm danh")}
+                                      </span>
+                                    </div>
+
+                                    {isAttended ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void leave(session)}
+                                        className="w-full py-1.5 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                      >
+                                        {t("Rời phòng")}
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={!canJoin && !isLive}
+                                        onClick={() => void join(session)}
+                                        className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                                          canJoin || isLive
+                                            ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs"
+                                            : "bg-white/10 text-white/50 cursor-not-allowed"
+                                        }`}
+                                      >
+                                        {isLive ? t("Vào lớp ngay") : canJoin ? t("Vào phòng") : t("Chưa đến giờ")}
+                                      </button>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>
@@ -592,8 +624,8 @@ export default function LiveClassesPage() {
               );
             })}
           </div>
-        ) : learner && scheduleView === "month" ? (
-          /* CHẾ ĐỘ DẠNG THÁNG CHO HỌC SINH */
+        ) : (learner || instructor) && scheduleView === "month" ? (
+          /* CHẾ ĐỘ DẠNG THÁNG CHO HỌC SINH VÀ GIẢNG VIÊN */
           <div className="space-y-4">
             {(() => {
               const monthSessions = items.filter((session) => {
@@ -640,7 +672,25 @@ export default function LiveClassesPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {joinedSessionId === item.id ? (
+                    {instructor && item.status === "SCHEDULED" ? (
+                      <Button onClick={() => void transition(item, "LIVE")}>
+                        <Play size={15} />
+                        Bắt đầu
+                      </Button>
+                    ) : null}
+                    {instructor && item.status === "LIVE" ? (
+                      <Button
+                        onClick={() => void transition(item, "COMPLETED")}
+                        variant="secondary"
+                      >
+                        Kết thúc
+                      </Button>
+                    ) : null}
+                    {instructor ? (
+                      <Button onClick={() => void join(item)} variant="secondary">
+                        Vào phòng <ExternalLink size={15} />
+                      </Button>
+                    ) : joinedSessionId === item.id ? (
                       <Button onClick={() => void leave(item)} variant="secondary">
                         {t("Rời phòng và chốt điểm danh")}
                       </Button>

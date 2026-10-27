@@ -123,7 +123,7 @@ const allNavItems: NavigationItem[] = [
     label: "Báo cáo",
     icon: ChartNoAxesCombined,
     permissions: ["report:view"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR"],
+    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
   },
   {
     href: "/class-operations",
@@ -288,22 +288,36 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Danh sách điều hướng trung tâm dành riêng cho Giáo viên: Lớp học, Học Liệu, Ngân hàng câu hỏi, Lịch Học, Tin nhắn
+  const instructorNavItems = useMemo(
+    () => [
+      { href: "/courses", label: "Lớp học", icon: GraduationCap },
+      { href: "/materials", label: "Học Liệu", icon: Database },
+      { href: "/questions", label: "Ngân hàng câu hỏi", icon: FileQuestion },
+      { href: "/live-classes", label: "Lịch Học", icon: CalendarDays },
+      { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
+    ],
+    [],
+  );
+
   // Tính toán chữ cái đầu và tên hiển thị ngắn của học sinh
   const initials = useMemo(() => {
     const name = session.user.name?.trim() || "";
     if (!name) return "TN";
     const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    const first = parts[0]?.[0] ?? "";
+    const last = parts[parts.length - 1]?.[0] ?? "";
+    if (first && last && parts.length >= 2) {
+      return (first + last).toUpperCase();
     }
-    return name.slice(0, 2).toUpperCase();
+    return name.slice(0, 2).toUpperCase() || "TN";
   }, [session.user.name]);
 
   const shortName = useMemo(() => {
     const name = session.user.name?.trim() || "";
     if (!name) return "Nam";
     const parts = name.split(/\s+/).filter(Boolean);
-    return parts[parts.length - 1];
+    return parts[parts.length - 1] ?? "Nam";
   }, [session.user.name]);
 
 
@@ -471,8 +485,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Category Navigation dành cho Quản trị viên và Giảng viên */}
-            {session.roleCode !== "LEARNER" && (
+            {/* Desktop Category Navigation dành cho Quản trị viên (ẩn với Học sinh và Giáo viên) */}
+            {session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" && (
               <nav className="hidden lg:flex items-center gap-1.5">
                 {sections.map((section) => {
                   const isSelected = currentSection?.id === section.id;
@@ -505,45 +519,50 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* 3 chức năng chính của Học sinh: chữ tăng 20% (14.5px), nút & icon tăng 10% */}
-          {session.roleCode === "LEARNER" && (
+          {/* Điều hướng chính giữa dành cho Học sinh & Giáo viên */}
+          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR") && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex items-center pointer-events-auto">
-              <nav aria-label="Điều hướng chính học sinh" className="flex items-center gap-2 p-1.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs">
-                {learnerNavItems.map(({ href, label, icon: Icon }) => {
-                  const isSelected =
-                    href === "/dashboard"
-                      ? pathname === "/dashboard"
-                      : pathname === href || pathname.startsWith(`${href}/`);
-                  return (
-                    <Link
-                      className={`flex items-center gap-2.5 px-5 py-2 rounded-xl text-[14.5px] font-extrabold tracking-tight transition-all duration-150 ${
-                        isSelected
-                          ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
-                      }`}
-                      href={href}
-                      key={href}
-                    >
-                      <Icon
-                        className={`shrink-0 ${
+              <nav
+                aria-label={session.roleCode === "INSTRUCTOR" ? "Điều hướng giáo viên" : "Điều hướng chính học sinh"}
+                className="flex items-center gap-1.5 sm:gap-2 p-1.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs"
+              >
+                {(session.roleCode === "INSTRUCTOR" ? instructorNavItems : learnerNavItems).map(
+                  ({ href, label, icon: Icon }) => {
+                    const isSelected =
+                      href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : pathname === href || pathname.startsWith(`${href}/`);
+                    return (
+                      <Link
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-[13.5px] sm:text-[14px] font-extrabold tracking-tight transition-all duration-150 ${
                           isSelected
-                            ? "text-sky-600 dark:text-sky-400"
-                            : "text-slate-400 dark:text-slate-500"
+                            ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
                         }`}
-                        size={18}
-                      />
-                      <span>{t(label)}</span>
-                    </Link>
-                  );
-                })}
+                        href={href}
+                        key={href}
+                      >
+                        <Icon
+                          className={`shrink-0 ${
+                            isSelected
+                              ? "text-sky-600 dark:text-sky-400"
+                              : "text-slate-400 dark:text-slate-500"
+                          }`}
+                          size={17}
+                        />
+                        <span>{t(label)}</span>
+                      </Link>
+                    );
+                  },
+                )}
               </nav>
             </div>
           )}
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
-            {/* Role indicator pill cho giảng viên và quản trị */}
-            {session.roleCode !== "LEARNER" && (
+            {/* Role indicator pill chỉ cho Quản trị viên */}
+            {session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" && (
               <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
                 <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
                 {t(session.user.roleName)}
@@ -700,7 +719,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onMouseEnter={() => setProfileOpen(true)}
               onMouseLeave={() => setProfileOpen(false)}
             >
-              {session.roleCode === "LEARNER" ? (
+              {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" ? (
                 <button
                   aria-expanded={profileOpen}
                   aria-label={t("Mở menu tài khoản")}
@@ -747,7 +766,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
               {profileOpen ? (
                 <div className="absolute right-0 top-full z-50 pt-1.5">
-                  {session.roleCode === "LEARNER" ? (
+                  {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" ? (
                     <section
                       className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
                       role="menu"
@@ -762,7 +781,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold shrink-0">
-                              Học sinh
+                              {session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
                             </span>
                             <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                               {session.user.name || "Vũ Thành Nam"}
@@ -917,8 +936,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Ẩn cho học sinh, chuyển sang sidebar dọc) */}
-        {currentSection && session.roleCode !== "LEARNER" ? (
+        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Ẩn cho học sinh và giáo viên, chuyển sang sidebar dọc) */}
+        {currentSection && session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" ? (
           <div className="border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-[#090e1a]/80 backdrop-blur-sm overflow-x-auto">
             <div className="flex h-11 w-full items-center px-5 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
@@ -993,7 +1012,34 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="flex-1 overflow-y-auto py-4 space-y-4">
-              {session.roleCode === "LEARNER" ? (
+              {session.roleCode === "INSTRUCTOR" ? (
+                <div className="space-y-1">
+                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Menu giáo viên
+                  </p>
+                  {instructorNavItems.map(({ href, label, icon: Icon }) => {
+                    const active =
+                      href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : pathname === href || pathname.startsWith(`${href}/`);
+                    return (
+                      <Link
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          active
+                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                        href={href}
+                        key={href}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Icon size={16} />
+                        <span>{t(label)}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : session.roleCode === "LEARNER" ? (
                 <div className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     Menu học sinh
