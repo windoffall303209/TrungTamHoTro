@@ -539,11 +539,47 @@ export function InstructorClassWorkspace({
     Array<{ id: string; content: string; options: string[]; correctKey: string; explanation: string }>
   >([]);
 
-  // Cách 4: Soạn đề thi thủ công từ ngân hàng câu hỏi
+  // Cách 4: Tạo đề thi từ ngân hàng câu hỏi (3 kiểu: 1. Thủ công, 2. Chọn mốc để AI chọn, 3. Ngẫu nhiên)
   const [manualExamModalOpen, setManualExamModalOpen] = useState(false);
+  const [examCreationMode, setExamCreationMode] = useState<"MANUAL" | "AI_CRITERIA" | "RANDOM">("MANUAL");
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDuration, setManualExamDuration] = useState(45);
+  const [manualExamDueAt, setManualExamDueAt] = useState("2026-11-05T23:59");
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
+  const [manualExamFilterScope, setManualExamFilterScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
+
+  // Kiểu 2: Chọn mốc để AI chọn câu hỏi
+  const [aiCriteriaQuestionCount, setAiCriteriaQuestionCount] = useState(10);
+  const [aiCriteriaPreset, setAiCriteriaPreset] = useState<"STANDARD" | "BASIC" | "ADVANCED" | "CUSTOM">("STANDARD");
+  const [aiRatioBasic, setAiRatioBasic] = useState(40);
+  const [aiRatioMedium, setAiRatioMedium] = useState(30);
+  const [aiRatioHard, setAiRatioHard] = useState(20);
+  const [aiRatioVeryHard, setAiRatioVeryHard] = useState(10);
+  const [aiCriteriaScope, setAiCriteriaScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
+  const [aiCriteriaPreviewList, setAiCriteriaPreviewList] = useState<any[]>([]);
+
+  // Kiểu 3: Ngẫu nhiên
+  const [randomQuestionCount, setRandomQuestionCount] = useState(10);
+  const [randomTypeScope, setRandomTypeScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
+  const [randomShuffle, setRandomShuffle] = useState(true);
+
+  // Bộ lọc cho Tab 9: Ngân hàng câu hỏi
+  const [questionBankTab, setQuestionBankTab] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
+  const [questionBankSearch, setQuestionBankSearch] = useState("");
+  const [questionBankDifficulty, setQuestionBankDifficulty] = useState("ALL");
+
+  // Chỉnh sửa câu hỏi trong ngân hàng
+  const [editingQuestionModalOpen, setEditingQuestionModalOpen] = useState(false);
+  const [editingQuestionData, setEditingQuestionData] = useState<{
+    id: string;
+    content: string;
+    type: string;
+    difficulty: string;
+    source: string;
+    options: string[];
+    correctAnswers: number[];
+    solution: string;
+  } | null>(null);
 
   // Ngân hàng câu hỏi riêng của lớp học (lưu vật lý qua localStorage)
   const [classQuestions, setClassQuestions] = useState<
@@ -622,6 +658,28 @@ export function InstructorClassWorkspace({
       } catch (e) {}
     }
   }, [classQuestions, item.id]);
+
+  // Thống kê phân loại Ngân hàng câu hỏi riêng của lớp
+  const classQuestionStats = useMemo(() => {
+    const total = classQuestions.length;
+    const multipleChoice = classQuestions.filter((q) => q.type !== "Tự luận").length;
+    const essay = classQuestions.filter((q) => q.type === "Tự luận").length;
+    return { total, multipleChoice, essay };
+  }, [classQuestions]);
+
+  // Danh sách câu hỏi sau lọc trong Tab 9
+  const filteredClassQuestions = useMemo(() => {
+    return classQuestions.filter((q) => {
+      if (questionBankTab === "MULTIPLE_CHOICE" && q.type === "Tự luận") return false;
+      if (questionBankTab === "ESSAY" && q.type !== "Tự luận") return false;
+      if (questionBankDifficulty !== "ALL" && q.difficulty !== questionBankDifficulty) return false;
+      if (questionBankSearch.trim()) {
+        const kw = questionBankSearch.toLowerCase().trim();
+        return q.content.toLowerCase().includes(kw) || q.source?.toLowerCase().includes(kw);
+      }
+      return true;
+    });
+  }, [classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch]);
 
   // Danh sách Tài liệu đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý qua localStorage)
   const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([
@@ -1107,9 +1165,94 @@ export function InstructorClassWorkspace({
         }
       }
 
+      // ĐỒNG BỘ CÂU HỎI VÀO NGÂN HÀNG CÂU HỎI LỚP (TRẮC NGHIỆM / TỰ LUẬN)
+      if (data.type === "MULTIPLE_CHOICE" && data.questions && data.questions.length > 0) {
+        const newExtracted = data.questions.map((q: any, idx: number) => ({
+          id: `cq-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          content: q.content,
+          type: q.type || "Trắc nghiệm một đáp án",
+          difficulty: "Thông hiểu",
+          source: data.title || "Tách câu tự động (AI)",
+          options: q.options?.map((opt: any) => (typeof opt === "string" ? opt : opt.text)) || ["A", "B", "C", "D"],
+          correctAnswers: [q.correctAnswer === "B" ? 1 : q.correctAnswer === "C" ? 2 : q.correctAnswer === "D" ? 3 : 0],
+          solution: q.hint || q.solutionVideoUrl || `Đáp án đúng: ${q.correctAnswer || "A"}`,
+          createdAt: new Date().toLocaleDateString("vi-VN"),
+        }));
+        setClassQuestions((prev) => [...newExtracted, ...prev]);
+      } else {
+        const newEssayQuestion = {
+          id: `cq-${Date.now()}-essay`,
+          content: data.title + (data.description ? `: ${data.description}` : ""),
+          type: "Tự luận",
+          difficulty: "Vận dụng",
+          source: data.title || "Đề bài tự luận",
+          solution: data.attachedFile
+            ? `Tệp đính kèm: ${data.attachedFile.name}`
+            : data.submissionMethods?.length
+            ? `Hình thức nộp: ${data.submissionMethods.join(", ")}`
+            : "Nộp bài theo yêu cầu đề bài",
+          createdAt: new Date().toLocaleDateString("vi-VN"),
+        };
+        setClassQuestions((prev) => [newEssayQuestion, ...prev]);
+      }
+
+      // Tạo bản ghi Assignment hoàn chỉnh hiển thị ngay lập tức
+      const localAssign: Assignment = {
+        id: `assign-${Date.now()}`,
+        classId: item.id,
+        classCode: item.code,
+        title: data.title || (data.type === "MULTIPLE_CHOICE" ? "Bài kiểm tra trắc nghiệm" : "Bài tập tự luận"),
+        description:
+          data.description ||
+          (data.type === "MULTIPLE_CHOICE"
+            ? `Đề thi trắc nghiệm gồm ${data.questions?.length || 0} câu hỏi.`
+            : "Học sinh hoàn thành bài làm theo tệp đề bài đính kèm."),
+        instructions: data.attachedFile
+          ? `Tệp đề bài: ${data.attachedFile.name}. Hình thức nộp: ${data.submissionMethods?.join(", ") || "Tải tệp / chụp ảnh"}`
+          : data.submissionMethods?.length
+          ? `Hình thức nộp bài: ${data.submissionMethods.join(", ")}`
+          : "Học sinh hoàn thành bài làm và nộp trước hạn.",
+        dueAt:
+          data.settings?.hasDueAt && data.settings?.dueAt
+            ? new Date(data.settings.dueAt).toISOString()
+            : new Date(Date.now() + 7 * 86400000).toISOString(),
+        maxScore: Number(data.settings?.totalScore || data.maxScore) || 10,
+        rubric: [
+          {
+            id: `rb-${Date.now()}-1`,
+            title: data.type === "MULTIPLE_CHOICE" ? "Trắc nghiệm tự động" : "Bài làm tự luận",
+            description: "Đánh giá theo đáp án chuẩn",
+            maxPoints: Number(data.settings?.totalScore || data.maxScore) || 10,
+          },
+        ],
+        status: "PUBLISHED",
+        version: 1,
+        createdById: session.user.id || "instructor-1",
+        createdAt: new Date().toISOString(),
+      };
+      (localAssign as any).durationMinutes = Number(data.settings?.durationMinutes) || 45;
+      (localAssign as any).totalQuestions = data.questions?.length || 1;
+      (localAssign as any).submissionMethods = data.submissionMethods || [];
+      (localAssign as any).attachedFile = data.attachedFile;
+      (localAssign as any).questions = data.questions || [];
+
+      setAssignments((prev) => {
+        const nextList = [localAssign, ...prev];
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
+            if (data.questions && data.questions.length > 0) {
+              localStorage.setItem(`wind_exam_questions_${localAssign.id}`, JSON.stringify(data.questions));
+            }
+          } catch (e) {}
+        }
+        return nextList;
+      });
+      setSelectedAssignment(localAssign);
+
       await loadClassData();
       setAddAssignmentModalOpen(false);
-      notify(`Đã lưu và xuất bản bài tập '${data.title}' vào cơ sở dữ liệu!`, "success");
+      notify(`Đã lưu và xuất bản bài tập '${data.title}' thành công!`, "success");
     } catch (err: any) {
       console.error("Lỗi khi lưu bài tập từ builder:", err);
       notify(err?.message || "Không thể lưu bài tập vào cơ sở dữ liệu", "error");
@@ -1801,32 +1944,88 @@ export function InstructorClassWorkspace({
     );
   };
 
-  // Soạn đề thủ công từ ngân hàng câu hỏi (Cách 4)
-  const handleSaveManualExam = () => {
-    if (!manualExamTitle.trim()) {
-      notify("Vui lòng nhập tên đề thi / bài tập!", "error");
-      return;
-    }
-    if (manualExamSelectedQuestions.length === 0) {
-      notify("Vui lòng chọn ít nhất 1 câu hỏi từ ngân hàng!", "error");
+  // Mở modal chỉnh sửa câu hỏi trong ngân hàng lớp
+  const handleOpenEditQuestion = (q: any) => {
+    setEditingQuestionData({
+      id: q.id,
+      content: q.content,
+      type: q.type || "Trắc nghiệm một đáp án",
+      difficulty: q.difficulty || "Thông hiểu",
+      source: q.source || "Ngân hàng câu hỏi",
+      options: q.options ? [...q.options] : ["Phương án A", "Phương án B", "Phương án C", "Phương án D"],
+      correctAnswers: q.correctAnswers ? [...q.correctAnswers] : [0],
+      solution: q.solution || "",
+    });
+    setEditingQuestionModalOpen(true);
+  };
+
+  // Lưu câu hỏi sau khi giáo viên chỉnh sửa
+  const handleSaveEditedQuestion = () => {
+    if (!editingQuestionData) return;
+    if (!editingQuestionData.content.trim()) {
+      notify("Vui lòng nhập nội dung câu hỏi!", "error");
       return;
     }
 
+    setClassQuestions((prev) =>
+      prev.map((q) =>
+        q.id === editingQuestionData.id
+          ? {
+              ...q,
+              content: editingQuestionData.content.trim(),
+              type: editingQuestionData.type,
+              difficulty: editingQuestionData.difficulty,
+              source: editingQuestionData.source.trim() || "Ngân hàng câu hỏi",
+              options: editingQuestionData.type !== "Tự luận" ? editingQuestionData.options.filter(Boolean) : undefined,
+              correctAnswers: editingQuestionData.type !== "Tự luận" ? editingQuestionData.correctAnswers : undefined,
+              solution: editingQuestionData.solution.trim() || undefined,
+            }
+          : q
+      )
+    );
+    setEditingQuestionModalOpen(false);
+    setEditingQuestionData(null);
+    notify("Đã cập nhật câu hỏi thành công!", "success");
+  };
+
+  // Kiểu 1: Soạn đề thủ công từ các câu hỏi giáo viên tick chọn
+  const handleCreateExamManual = () => {
+    if (!manualExamTitle.trim()) {
+      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
+      return;
+    }
+    if (manualExamSelectedQuestions.length === 0) {
+      notify("Vui lòng tick chọn ít nhất 1 câu hỏi từ ngân hàng!", "error");
+      return;
+    }
+
+    const selectedObjs = classQuestions.filter((q) => manualExamSelectedQuestions.includes(q.id));
     const newAssign: Assignment = {
       id: `assign-${Date.now()}`,
       classId: item.id,
       classCode: item.code,
       title: manualExamTitle.trim(),
-      description: `Đề thi soạn từ ${manualExamSelectedQuestions.length} câu hỏi trong ngân hàng lớp. Thời lượng: ${manualExamDuration} phút.`,
-      instructions: "Học sinh hoàn thành bài kiểm tra và nộp bài trước hạn.",
-      dueAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      description: `Đề thi gồm ${selectedObjs.length} câu hỏi do giáo viên chọn lọc thủ công từ ngân hàng câu hỏi riêng của lớp.`,
+      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Học sinh hoàn thành các câu hỏi và nộp bài trước hạn.`,
+      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
       maxScore: 10,
-      rubric: [],
+      rubric: [
+        {
+          id: `rb-${Date.now()}-manual`,
+          title: "Đánh giá kết quả bài thi",
+          description: "Chấm điểm tự động và trực tiếp theo đáp án chuẩn",
+          maxPoints: 10,
+        },
+      ],
       status: "PUBLISHED",
       version: 1,
       createdById: session.user.id || "instructor-1",
       createdAt: new Date().toISOString(),
     };
+    (newAssign as any).durationMinutes = manualExamDuration;
+    (newAssign as any).totalQuestions = selectedObjs.length;
+    (newAssign as any).questions = selectedObjs;
+    (newAssign as any).questionIds = selectedObjs.map((q) => q.id);
 
     const nextList = [newAssign, ...assignments];
     setAssignments(nextList);
@@ -1834,13 +2033,195 @@ export function InstructorClassWorkspace({
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
+        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(selectedObjs));
       } catch (e) {}
     }
 
     setManualExamModalOpen(false);
     setManualExamTitle("");
     setManualExamSelectedQuestions([]);
-    notify("Đã soạn và tạo bài tập kiểm tra từ ngân hàng thành công!", "success");
+    notify(`Đã tạo thành công đề thi '${newAssign.title}' gồm ${selectedObjs.length} câu hỏi!`, "success");
+  };
+
+  // Kiểu 2: AI chọn câu hỏi theo mốc ma trận độ khó
+  const handleTriggerAiCriteriaSelection = () => {
+    let pool = [...classQuestions];
+    if (aiCriteriaScope === "MULTIPLE_CHOICE") {
+      pool = pool.filter((q) => q.type !== "Tự luận");
+    } else if (aiCriteriaScope === "ESSAY") {
+      pool = pool.filter((q) => q.type === "Tự luận");
+    }
+
+    if (pool.length === 0) {
+      notify("Không có câu hỏi nào trong ngân hàng phù hợp với phạm vi đã chọn!", "error");
+      return;
+    }
+
+    const totalCount = Math.min(aiCriteriaQuestionCount, pool.length);
+    const targetBasic = Math.max(1, Math.round((totalCount * aiRatioBasic) / 100));
+    const targetMed = Math.max(1, Math.round((totalCount * aiRatioMedium) / 100));
+    const targetHard = Math.round((totalCount * aiRatioHard) / 100);
+    const targetVeryHard = totalCount - targetBasic - targetMed - targetHard;
+
+    const basicPool = pool.filter((q) => q.difficulty === "Cơ bản" || q.difficulty === "Nhận biết");
+    const medPool = pool.filter((q) => q.difficulty === "Thông hiểu");
+    const hardPool = pool.filter((q) => q.difficulty === "Vận dụng");
+    const vhardPool = pool.filter((q) => q.difficulty === "Vận dụng cao");
+
+    const picked: any[] = [];
+    const pickFrom = (source: any[], count: number) => {
+      const shuffled = [...source].sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, count);
+    };
+
+    picked.push(...pickFrom(basicPool, targetBasic));
+    picked.push(...pickFrom(medPool, targetMed));
+    picked.push(...pickFrom(hardPool, targetHard));
+    picked.push(...pickFrom(vhardPool, targetVeryHard));
+
+    // Bổ sung thêm nếu chưa đủ tổng số câu yêu cầu
+    const remainingNeeded = totalCount - picked.length;
+    if (remainingNeeded > 0) {
+      const remainingPool = pool.filter((q) => !picked.some((p) => p.id === q.id));
+      picked.push(...pickFrom(remainingPool, remainingNeeded));
+    }
+
+    setAiCriteriaPreviewList(picked);
+    notify(`AI đã chọn thành công ${picked.length} câu hỏi theo đúng ma trận mốc tỷ lệ!`, "success");
+  };
+
+  // Lưu đề thi tạo bằng Kiểu 2 (AI chọn theo mốc)
+  const handleCreateExamAiCriteria = () => {
+    if (!manualExamTitle.trim()) {
+      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
+      return;
+    }
+
+    let questionsToUse = aiCriteriaPreviewList;
+    if (questionsToUse.length === 0) {
+      let pool = [...classQuestions];
+      if (aiCriteriaScope === "MULTIPLE_CHOICE") {
+        pool = pool.filter((q) => q.type !== "Tự luận");
+      } else if (aiCriteriaScope === "ESSAY") {
+        pool = pool.filter((q) => q.type === "Tự luận");
+      }
+      if (pool.length === 0) {
+        notify("Ngân hàng câu hỏi chưa có câu nào phù hợp!", "error");
+        return;
+      }
+      questionsToUse = pool.slice(0, Math.min(aiCriteriaQuestionCount, pool.length));
+    }
+
+    const newAssign: Assignment = {
+      id: `assign-${Date.now()}`,
+      classId: item.id,
+      classCode: item.code,
+      title: manualExamTitle.trim(),
+      description: `Đề thi ${questionsToUse.length} câu được AI chọn tự động theo ma trận mốc độ khó (${aiRatioBasic}% Cơ bản, ${aiRatioMedium}% Thông hiểu, ${aiRatioHard}% Vận dụng, ${aiRatioVeryHard}% Vận dụng cao).`,
+      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Hệ thống tự động chấm điểm theo barem.`,
+      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+      maxScore: 10,
+      rubric: [
+        {
+          id: `rb-${Date.now()}-ai`,
+          title: "Đề thi theo chuẩn ma trận",
+          description: "Phân loại năng lực học sinh",
+          maxPoints: 10,
+        },
+      ],
+      status: "PUBLISHED",
+      version: 1,
+      createdById: session.user.id || "instructor-1",
+      createdAt: new Date().toISOString(),
+    };
+    (newAssign as any).durationMinutes = manualExamDuration;
+    (newAssign as any).totalQuestions = questionsToUse.length;
+    (newAssign as any).questions = questionsToUse;
+    (newAssign as any).questionIds = questionsToUse.map((q) => q.id);
+
+    const nextList = [newAssign, ...assignments];
+    setAssignments(nextList);
+    setSelectedAssignment(newAssign);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
+        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(questionsToUse));
+      } catch (e) {}
+    }
+
+    setManualExamModalOpen(false);
+    setManualExamTitle("");
+    setAiCriteriaPreviewList([]);
+    notify(`Đã tạo thành công đề thi AI '${newAssign.title}' gồm ${questionsToUse.length} câu hỏi!`, "success");
+  };
+
+  // Kiểu 3: Bốc ngẫu nhiên câu hỏi từ ngân hàng
+  const handleCreateExamRandom = () => {
+    if (!manualExamTitle.trim()) {
+      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
+      return;
+    }
+
+    let pool = [...classQuestions];
+    if (randomTypeScope === "MULTIPLE_CHOICE") {
+      pool = pool.filter((q) => q.type !== "Tự luận");
+    } else if (randomTypeScope === "ESSAY") {
+      pool = pool.filter((q) => q.type === "Tự luận");
+    }
+
+    if (pool.length === 0) {
+      notify("Ngân hàng chưa có câu hỏi nào phù hợp với phạm vi ngẫu nhiên!", "error");
+      return;
+    }
+
+    const countToPick = Math.min(randomQuestionCount, pool.length);
+    const shuffled = [...pool].sort(() => 0.5 - Math.random());
+    const pickedQuestions = shuffled.slice(0, countToPick);
+
+    if (randomShuffle) {
+      pickedQuestions.sort(() => 0.5 - Math.random());
+    }
+
+    const newAssign: Assignment = {
+      id: `assign-${Date.now()}`,
+      classId: item.id,
+      classCode: item.code,
+      title: manualExamTitle.trim(),
+      description: `Đề thi gồm ${pickedQuestions.length} câu hỏi được bốc ngẫu nhiên và xáo trộn từ ngân hàng câu hỏi lớp.`,
+      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Học sinh làm bài và nộp trước hạn.`,
+      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
+      maxScore: 10,
+      rubric: [
+        {
+          id: `rb-${Date.now()}-rnd`,
+          title: "Đề thi ngẫu nhiên",
+          description: "Xáo trộn câu hỏi chống sao chép",
+          maxPoints: 10,
+        },
+      ],
+      status: "PUBLISHED",
+      version: 1,
+      createdById: session.user.id || "instructor-1",
+      createdAt: new Date().toISOString(),
+    };
+    (newAssign as any).durationMinutes = manualExamDuration;
+    (newAssign as any).totalQuestions = pickedQuestions.length;
+    (newAssign as any).questions = pickedQuestions;
+    (newAssign as any).questionIds = pickedQuestions.map((q) => q.id);
+
+    const nextList = [newAssign, ...assignments];
+    setAssignments(nextList);
+    setSelectedAssignment(newAssign);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
+        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(pickedQuestions));
+      } catch (e) {}
+    }
+
+    setManualExamModalOpen(false);
+    setManualExamTitle("");
+    notify(`Đã bốc ngẫu nhiên và tạo đề thi '${newAssign.title}' (${pickedQuestions.length} câu) thành công!`, "success");
   };
 
   // Xóa câu hỏi khỏi ngân hàng của lớp
@@ -3899,7 +4280,7 @@ export function InstructorClassWorkspace({
         {/* TAB 9: NGÂN HÀNG CÂU HỎI LỚP HỌC */}
         {activeTab === "questions" && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                   Ngân hàng câu hỏi riêng lớp {item.name}
@@ -3911,6 +4292,18 @@ export function InstructorClassWorkspace({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => {
+                    setExamCreationMode("MANUAL");
+                    setManualExamTitle(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString("vi-VN")}`);
+                    setManualExamModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <FileCheck2 size={15} />
+                  <span>Tạo đề</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleOpenCreationHub("QUESTION")}
                   className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
@@ -3920,12 +4313,90 @@ export function InstructorClassWorkspace({
               </div>
             </div>
 
+            {/* Thanh phân loại Trắc nghiệm / Tự luận và Tìm kiếm */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setQuestionBankTab("ALL")}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                    questionBankTab === "ALL"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <span>Tất cả</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold">
+                    {classQuestionStats.total}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuestionBankTab("MULTIPLE_CHOICE")}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                    questionBankTab === "MULTIPLE_CHOICE"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <span>Trắc nghiệm</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
+                    {classQuestionStats.multipleChoice}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuestionBankTab("ESSAY")}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                    questionBankTab === "ESSAY"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  <span>Tự luận</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-bold">
+                    {classQuestionStats.essay}
+                  </span>
+                </button>
+              </div>
+
+              {/* Ô tìm kiếm và lọc độ khó */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 sm:w-60">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Tìm câu hỏi, nguồn..."
+                    value={questionBankSearch}
+                    onChange={(e) => setQuestionBankSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+
+                <select
+                  value={questionBankDifficulty}
+                  onChange={(e) => setQuestionBankDifficulty(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
+                >
+                  <option value="ALL">Tất cả độ khó</option>
+                  <option value="Cơ bản">Cơ bản</option>
+                  <option value="Thông hiểu">Thông hiểu</option>
+                  <option value="Vận dụng">Vận dụng</option>
+                  <option value="Vận dụng cao">Vận dụng cao</option>
+                </select>
+              </div>
+            </div>
+
             <div className="space-y-3">
-              {classQuestions.length === 0 ? (
+              {filteredClassQuestions.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center space-y-3">
                   <FileQuestion size={32} className="mx-auto text-slate-400" />
                   <p className="text-xs text-slate-500 font-medium">
-                    Chưa có câu hỏi nào trong ngân hàng riêng của lớp.
+                    {classQuestions.length === 0
+                      ? "Chưa có câu hỏi nào trong ngân hàng riêng của lớp."
+                      : "Không tìm thấy câu hỏi nào phù hợp với bộ lọc hiện tại."}
                   </p>
                   <button
                     type="button"
@@ -3937,7 +4408,7 @@ export function InstructorClassWorkspace({
                   </button>
                 </div>
               ) : (
-                classQuestions.map((q) => (
+                filteredClassQuestions.map((q) => (
                   <div
                     key={q.id}
                     className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition"
@@ -3959,35 +4430,11 @@ export function InstructorClassWorkspace({
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => {
-                            const newAssign: Assignment = {
-                              id: `assign-${Date.now()}`,
-                              classId: item.id,
-                              classCode: item.code,
-                              title: `Bài tập: ${q.content.slice(0, 35)}...`,
-                              description: `Bài tập từ câu hỏi ngân hàng lớp: ${q.content}`,
-                              instructions: "Học sinh chọn phương án đúng nhất và nộp bài trước hạn.",
-                              dueAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-                              maxScore: 10,
-                              rubric: [],
-                              status: "PUBLISHED",
-                              version: 1,
-                              createdById: session.user.id || "instructor-1",
-                              createdAt: new Date().toISOString(),
-                            };
-                            const nextList = [newAssign, ...assignments];
-                            setAssignments(nextList);
-                            setSelectedAssignment(newAssign);
-                            if (typeof window !== "undefined") {
-                              try {
-                                localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-                              } catch (e) {}
-                            }
-                            notify("Đã giao câu hỏi này thành bài tập cho lớp!", "success");
-                          }}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition cursor-pointer"
+                          onClick={() => handleOpenEditQuestion(q)}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition inline-flex items-center gap-1 cursor-pointer"
                         >
-                          Giao làm bài tập
+                          <Edit3 size={12} />
+                          <span>Chỉnh sửa</span>
                         </button>
                         <button
                           type="button"
@@ -6000,22 +6447,25 @@ export function InstructorClassWorkspace({
       )}
 
       {/* =========================================================================
-          CÁCH 4: MODAL SOẠN ĐỀ THI TỪ NGÂN HÀNG CÂU HỎI
+          MODAL: CHỈNH SỬA CÂU HỎI TRONG NGÂN HÀNG CÂU HỎI LỚP
           ========================================================================= */}
-      {manualExamModalOpen && (
+      {editingQuestionModalOpen && editingQuestionData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <Layers size={18} className="text-amber-600" />
+                <Edit3 size={18} className="text-blue-600" />
                 <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                  Soạn đề thi từ Ngân hàng câu hỏi lớp
+                  Chỉnh sửa câu hỏi ngân hàng lớp
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setManualExamModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                onClick={() => {
+                  setEditingQuestionModalOpen(false);
+                  setEditingQuestionData(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
               >
                 <X size={18} />
               </button>
@@ -6025,11 +6475,241 @@ export function InstructorClassWorkspace({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tiêu đề đề thi / bài tập <span className="text-rose-500">*</span>:
+                    Loại câu hỏi:
+                  </label>
+                  <select
+                    value={editingQuestionData.type}
+                    onChange={(e) =>
+                      setEditingQuestionData({ ...editingQuestionData, type: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                  >
+                    <option value="Trắc nghiệm một đáp án">Trắc nghiệm một đáp án</option>
+                    <option value="Nhiều đáp án">Nhiều đáp án</option>
+                    <option value="Đúng / Sai">Đúng / Sai</option>
+                    <option value="Điền khuyết">Điền khuyết</option>
+                    <option value="Tự luận">Tự luận</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Mức độ độ khó:
+                  </label>
+                  <select
+                    value={editingQuestionData.difficulty}
+                    onChange={(e) =>
+                      setEditingQuestionData({ ...editingQuestionData, difficulty: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                  >
+                    <option value="Cơ bản">Cơ bản (Nhận biết)</option>
+                    <option value="Thông hiểu">Thông hiểu</option>
+                    <option value="Vận dụng">Vận dụng</option>
+                    <option value="Vận dụng cao">Vận dụng cao</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nội dung câu hỏi <span className="text-rose-500">*</span>:
+                </label>
+                <textarea
+                  rows={3}
+                  value={editingQuestionData.content}
+                  onChange={(e) =>
+                    setEditingQuestionData({ ...editingQuestionData, content: e.target.value })
+                  }
+                  placeholder="Nhập nội dung câu hỏi..."
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                />
+              </div>
+
+              {/* Các phương án nếu không phải Tự luận */}
+              {editingQuestionData.type !== "Tự luận" && (
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Các phương án trả lời & Chọn đáp án đúng:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextLetter = String.fromCharCode(65 + editingQuestionData.options.length);
+                        setEditingQuestionData({
+                          ...editingQuestionData,
+                          options: [...editingQuestionData.options, `Phương án ${nextLetter}`],
+                        });
+                      }}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      + Thêm phương án
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {editingQuestionData.options.map((opt, idx) => {
+                      const prefix = String.fromCharCode(65 + idx);
+                      const isCorrect = editingQuestionData.correctAnswers.includes(idx);
+                      return (
+                        <div key={idx} className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editingQuestionData.type === "Nhiều đáp án") {
+                                const exists = editingQuestionData.correctAnswers.includes(idx);
+                                setEditingQuestionData({
+                                  ...editingQuestionData,
+                                  correctAnswers: exists
+                                    ? editingQuestionData.correctAnswers.filter((a) => a !== idx)
+                                    : [...editingQuestionData.correctAnswers, idx],
+                                });
+                              } else {
+                                setEditingQuestionData({
+                                  ...editingQuestionData,
+                                  correctAnswers: [idx],
+                                });
+                              }
+                            }}
+                            className={`size-7 rounded-lg font-bold text-xs shrink-0 flex items-center justify-center transition cursor-pointer ${
+                              isCorrect
+                                ? "bg-emerald-600 text-white shadow-2xs"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                            }`}
+                            title={isCorrect ? "Đáp án đúng (Bấm để đổi)" : "Bấm để chọn làm đáp án đúng"}
+                          >
+                            {prefix}
+                          </button>
+                          <input
+                            type="text"
+                            value={opt}
+                            onChange={(e) => {
+                              const newOpts = [...editingQuestionData.options];
+                              newOpts[idx] = e.target.value;
+                              setEditingQuestionData({ ...editingQuestionData, options: newOpts });
+                            }}
+                            className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100"
+                          />
+                          {editingQuestionData.options.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newOpts = editingQuestionData.options.filter((_, oIdx) => oIdx !== idx);
+                                const newCorrect = editingQuestionData.correctAnswers
+                                  .filter((a) => a !== idx)
+                                  .map((a) => (a > idx ? a - 1 : a));
+                                setEditingQuestionData({
+                                  ...editingQuestionData,
+                                  options: newOpts,
+                                  correctAnswers: newCorrect.length > 0 ? newCorrect : [0],
+                                });
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Xóa phương án này"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Hướng dẫn giải chi tiết / Gợi ý:
+                </label>
+                <textarea
+                  rows={2}
+                  value={editingQuestionData.solution}
+                  onChange={(e) =>
+                    setEditingQuestionData({ ...editingQuestionData, solution: e.target.value })
+                  }
+                  placeholder="Nhập hướng dẫn giải, kiến thức áp dụng..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Nguồn câu hỏi / Xuất xứ đề:
+                </label>
+                <input
+                  type="text"
+                  value={editingQuestionData.source}
+                  onChange={(e) =>
+                    setEditingQuestionData({ ...editingQuestionData, source: e.target.value })
+                  }
+                  placeholder="Ví dụ: Đề kiểm tra giữa kỳ 1, Tách từ Word..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingQuestionModalOpen(false);
+                  setEditingQuestionData(null);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditedQuestion}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
+              >
+                Lưu cập nhật
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          CÁCH 4: MODAL TẠO ĐỀ THI TỪ NGÂN HÀNG CÂU HỎI (3 KIỂU CHỨC NĂNG THẬT)
+          ========================================================================= */}
+      {manualExamModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200 my-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-indigo-50/30 dark:bg-indigo-950/20">
+              <div className="flex items-center gap-2">
+                <FileCheck2 size={20} className="text-indigo-600 dark:text-indigo-400" />
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                    Tạo đề thi / bài tập từ Ngân hàng câu hỏi
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Ngân hàng lớp hiện có {classQuestions.length} câu ({classQuestionStats.multipleChoice} trắc nghiệm, {classQuestionStats.essay} tự luận)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManualExamModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
+              {/* Thông tin chung */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tiêu đề bài kiểm tra / bài tập <span className="text-rose-500">*</span>:
                   </label>
                   <input
                     type="text"
-                    placeholder="Ví dụ: Kiểm tra 15 phút Toán học..."
+                    placeholder="Ví dụ: Kiểm tra 15 phút Toán học số 1..."
                     value={manualExamTitle}
                     onChange={(e) => setManualExamTitle(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
@@ -6038,7 +6718,7 @@ export function InstructorClassWorkspace({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Thời lượng làm bài (phút):
+                    Thời lượng (phút):
                   </label>
                   <input
                     type="number"
@@ -6046,88 +6726,467 @@ export function InstructorClassWorkspace({
                     max={180}
                     value={manualExamDuration}
                     onChange={(e) => setManualExamDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-bold"
                   />
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Chọn các câu hỏi đưa vào đề thi ({manualExamSelectedQuestions.length}/{classQuestions.length}):
-                  </label>
+              {/* BỘ CHỌN 3 KIỂU TẠO ĐỀ */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Chọn phương thức tạo đề thi:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      if (manualExamSelectedQuestions.length === classQuestions.length) {
-                        setManualExamSelectedQuestions([]);
-                      } else {
-                        setManualExamSelectedQuestions(classQuestions.map((q) => q.id));
-                      }
-                    }}
-                    className="text-amber-600 font-bold hover:underline cursor-pointer"
+                    onClick={() => setExamCreationMode("MANUAL")}
+                    className={`p-3 rounded-xl border-2 text-left transition cursor-pointer space-y-1 ${
+                      examCreationMode === "MANUAL"
+                        ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-xs"
+                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                    }`}
                   >
-                    {manualExamSelectedQuestions.length === classQuestions.length ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
+                      <ListChecks size={15} className="text-indigo-600" />
+                      <span>1. Chọn thủ công</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Tự tay tick chọn từng câu hỏi trong ngân hàng đưa vào đề.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExamCreationMode("AI_CRITERIA")}
+                    className={`p-3 rounded-xl border-2 text-left transition cursor-pointer space-y-1 ${
+                      examCreationMode === "AI_CRITERIA"
+                        ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-xs"
+                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
+                      <Wand2 size={15} className="text-emerald-600" />
+                      <span>2. Chọn mốc (AI chọn)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Chọn tỷ lệ ma trận độ khó, AI tự lọc câu hỏi chuẩn xác.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExamCreationMode("RANDOM")}
+                    className={`p-3 rounded-xl border-2 text-left transition cursor-pointer space-y-1 ${
+                      examCreationMode === "RANDOM"
+                        ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-xs"
+                        : "border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
+                      <RefreshCw size={15} className="text-amber-600" />
+                      <span>3. Ngẫu nhiên</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Bốc ngẫu nhiên số lượng câu hỏi và tự động xáo trộn.
+                    </p>
                   </button>
                 </div>
+              </div>
 
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                  {classQuestions.map((q) => {
-                    const isSelected = manualExamSelectedQuestions.includes(q.id);
-                    return (
-                      <label
-                        key={q.id}
-                        className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
-                          isSelected
-                            ? "border-amber-400 bg-amber-50/50 dark:bg-amber-950/30"
-                            : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850"
-                        }`}
+              {/* =================================================================
+                  NỘI DUNG KIỂU 1: GIÁO VIÊN CHỌN THỦ CÔNG
+                  ================================================================= */}
+              {examCreationMode === "MANUAL" && (
+                <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        Chọn câu hỏi ({manualExamSelectedQuestions.length}/{classQuestions.length} câu đã chọn):
+                      </span>
+                      <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
+                        {(["ALL", "MULTIPLE_CHOICE", "ESSAY"] as const).map((sc) => (
+                          <button
+                            key={sc}
+                            type="button"
+                            onClick={() => setManualExamFilterScope(sc)}
+                            className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer ${
+                              manualExamFilterScope === sc
+                                ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs"
+                                : "text-slate-500"
+                            }`}
+                          >
+                            {sc === "ALL" ? "Tất cả" : sc === "MULTIPLE_CHOICE" ? "Trắc nghiệm" : "Tự luận"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentPool = classQuestions
+                          .filter((q) => {
+                            if (manualExamFilterScope === "MULTIPLE_CHOICE") return q.type !== "Tự luận";
+                            if (manualExamFilterScope === "ESSAY") return q.type === "Tự luận";
+                            return true;
+                          })
+                          .map((q) => q.id);
+                        if (manualExamSelectedQuestions.length >= currentPool.length) {
+                          setManualExamSelectedQuestions([]);
+                        } else {
+                          setManualExamSelectedQuestions(currentPool);
+                        }
+                      }}
+                      className="text-indigo-600 font-bold hover:underline cursor-pointer"
+                    >
+                      {manualExamSelectedQuestions.length > 0 ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    {classQuestions
+                      .filter((q) => {
+                        if (manualExamFilterScope === "MULTIPLE_CHOICE") return q.type !== "Tự luận";
+                        if (manualExamFilterScope === "ESSAY") return q.type === "Tự luận";
+                        return true;
+                      })
+                      .map((q) => {
+                        const isSelected = manualExamSelectedQuestions.includes(q.id);
+                        return (
+                          <label
+                            key={q.id}
+                            className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                              isSelected
+                                ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30"
+                                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setManualExamSelectedQuestions([...manualExamSelectedQuestions, q.id]);
+                                } else {
+                                  setManualExamSelectedQuestions(
+                                    manualExamSelectedQuestions.filter((id) => id !== q.id)
+                                  );
+                                }
+                              }}
+                              className="mt-0.5 rounded text-indigo-600 accent-indigo-600"
+                            />
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                  {q.type}
+                                </span>
+                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                                  {q.difficulty}
+                                </span>
+                                <span className="text-[10px] text-slate-400">Nguồn: {q.source}</span>
+                              </div>
+                              <p className="font-semibold text-slate-800 dark:text-slate-200">{q.content}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* =================================================================
+                  NỘI DUNG KIỂU 2: CHỌN MỐC RỒI ĐỂ AI CHỌN
+                  ================================================================= */}
+              {examCreationMode === "AI_CRITERIA" && (
+                <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Tổng số lượng câu hỏi trong đề:
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(1, classQuestions.length)}
+                        value={aiCriteriaQuestionCount}
+                        onChange={(e) => setAiCriteriaQuestionCount(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Phạm vi câu hỏi:
+                      </label>
+                      <select
+                        value={aiCriteriaScope}
+                        onChange={(e) => setAiCriteriaScope(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
                       >
+                        <option value="ALL">Tất cả (Trắc nghiệm & Tự luận)</option>
+                        <option value="MULTIPLE_CHOICE">Chỉ trắc nghiệm</option>
+                        <option value="ESSAY">Chỉ tự luận</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Mốc ma trận phân bố độ khó:
+                    </label>
+                    <select
+                      value={aiCriteriaPreset}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setAiCriteriaPreset(val);
+                        if (val === "STANDARD") {
+                          setAiRatioBasic(40);
+                          setAiRatioMedium(30);
+                          setAiRatioHard(20);
+                          setAiRatioVeryHard(10);
+                        } else if (val === "BASIC") {
+                          setAiRatioBasic(50);
+                          setAiRatioMedium(35);
+                          setAiRatioHard(15);
+                          setAiRatioVeryHard(0);
+                        } else if (val === "ADVANCED") {
+                          setAiRatioBasic(20);
+                          setAiRatioMedium(30);
+                          setAiRatioHard(30);
+                          setAiRatioVeryHard(20);
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                    >
+                      <option value="STANDARD">
+                        Ma trận chuẩn Bộ GD&ĐT (40% Cơ bản, 30% Thông hiểu, 20% Vận dụng, 10% Vận dụng cao)
+                      </option>
+                      <option value="BASIC">
+                        Đề 15 phút - Ôn tập cơ bản (50% Cơ bản, 35% Thông hiểu, 15% Vận dụng)
+                      </option>
+                      <option value="ADVANCED">
+                        Đề nâng cao - Phân hóa học sinh (20% Cơ bản, 30% Thông hiểu, 30% Vận dụng, 20% Vận dụng cao)
+                      </option>
+                      <option value="CUSTOM">Tùy chỉnh tỷ lệ ma trận</option>
+                    </select>
+                  </div>
+
+                  {/* Lưới 4 mốc tỷ lệ */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                    <div>
+                      <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Cơ bản (Nhận biết)
+                      </span>
+                      <div className="flex items-center gap-1 mt-1">
                         <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setManualExamSelectedQuestions([...manualExamSelectedQuestions, q.id]);
-                            } else {
-                              setManualExamSelectedQuestions(
-                                manualExamSelectedQuestions.filter((id) => id !== q.id)
-                              );
-                            }
-                          }}
-                          className="mt-0.5 rounded text-amber-600"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={aiRatioBasic}
+                          onChange={(e) => setAiRatioBasic(Number(e.target.value))}
+                          disabled={aiCriteriaPreset !== "CUSTOM"}
+                          className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
                         />
-                        <div className="flex-1 space-y-1">
+                        <span className="text-xs font-bold text-slate-500">%</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Thông hiểu
+                      </span>
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={aiRatioMedium}
+                          onChange={(e) => setAiRatioMedium(Number(e.target.value))}
+                          disabled={aiCriteriaPreset !== "CUSTOM"}
+                          className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
+                        />
+                        <span className="text-xs font-bold text-slate-500">%</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Vận dụng
+                      </span>
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={aiRatioHard}
+                          onChange={(e) => setAiRatioHard(Number(e.target.value))}
+                          disabled={aiCriteriaPreset !== "CUSTOM"}
+                          className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
+                        />
+                        <span className="text-xs font-bold text-slate-500">%</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        Vận dụng cao
+                      </span>
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={aiRatioVeryHard}
+                          onChange={(e) => setAiRatioVeryHard(Number(e.target.value))}
+                          disabled={aiCriteriaPreset !== "CUSTOM"}
+                          className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
+                        />
+                        <span className="text-xs font-bold text-slate-500">%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={handleTriggerAiCriteriaSelection}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Sparkles size={14} />
+                      <span>AI Lọc câu hỏi & Xem trước</span>
+                    </button>
+                    {aiCriteriaPreviewList.length > 0 && (
+                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                        ✓ Đã chọn {aiCriteriaPreviewList.length} câu hỏi theo mốc
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Danh sách câu hỏi AI đã lọc để giáo viên kiểm tra */}
+                  {aiCriteriaPreviewList.length > 0 && (
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {aiCriteriaPreviewList.map((q, idx) => (
+                        <div
+                          key={q.id || idx}
+                          className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/20 dark:bg-emerald-950/20 space-y-1"
+                        >
                           <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300">
+                              Câu {idx + 1}
+                            </span>
                             <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                               {q.type}
                             </span>
-                            <span className="text-[10px] text-slate-400">Nguồn: {q.source}</span>
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                              {q.difficulty}
+                            </span>
                           </div>
-                          <p className="font-semibold text-slate-800 dark:text-slate-200">{q.content}</p>
+                          <p className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                            {q.content}
+                          </p>
                         </div>
-                      </label>
-                    );
-                  })}
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {/* =================================================================
+                  NỘI DUNG KIỂU 3: BỐC NGẪU NHIÊN CÂU HỎI
+                  ================================================================= */}
+              {examCreationMode === "RANDOM" && (
+                <div className="space-y-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Số lượng câu cần bốc ngẫu nhiên:
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(1, classQuestions.length)}
+                        value={randomQuestionCount}
+                        onChange={(e) => setRandomQuestionCount(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Phạm vi bốc câu hỏi:
+                      </label>
+                      <select
+                        value={randomTypeScope}
+                        onChange={(e) => setRandomTypeScope(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
+                      >
+                        <option value="ALL">Tất cả câu hỏi ({classQuestions.length} câu)</option>
+                        <option value="MULTIPLE_CHOICE">Chỉ trắc nghiệm ({classQuestionStats.multipleChoice} câu)</option>
+                        <option value="ESSAY">Chỉ tự luận ({classQuestionStats.essay} câu)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={randomShuffle}
+                      onChange={(e) => setRandomShuffle(e.target.checked)}
+                      className="rounded accent-indigo-600"
+                    />
+                    <div>
+                      <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Xáo trộn ngẫu nhiên thứ tự các câu hỏi
+                      </strong>
+                      <span className="text-[11px] text-slate-500">
+                        Đảm bảo cấu trúc đề thi đa dạng và khách quan cho học sinh
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              )}
             </div>
 
-            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+            {/* Footer */}
+            <div className="px-6 py-3.5 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50">
               <button
                 type="button"
                 onClick={() => setManualExamModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Hủy
               </button>
-              <button
-                type="button"
-                onClick={handleSaveManualExam}
-                className="px-5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-xs cursor-pointer"
-              >
-                Tạo bài tập kiểm tra
-              </button>
+
+              {examCreationMode === "MANUAL" && (
+                <button
+                  type="button"
+                  onClick={handleCreateExamManual}
+                  disabled={manualExamSelectedQuestions.length === 0}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer disabled:opacity-40"
+                >
+                  Tạo đề thi thủ công ({manualExamSelectedQuestions.length} câu)
+                </button>
+              )}
+
+              {examCreationMode === "AI_CRITERIA" && (
+                <button
+                  type="button"
+                  onClick={handleCreateExamAiCriteria}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs cursor-pointer"
+                >
+                  Xác nhận & Tạo đề thi bằng AI
+                </button>
+              )}
+
+              {examCreationMode === "RANDOM" && (
+                <button
+                  type="button"
+                  onClick={handleCreateExamRandom}
+                  className="px-5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-xs cursor-pointer"
+                >
+                  Bốc ngẫu nhiên & Tạo đề thi
+                </button>
+              )}
             </div>
           </div>
         </div>
