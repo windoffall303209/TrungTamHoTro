@@ -97,12 +97,16 @@ export class CreateCourseDto {
   @IsString() @MinLength(2) @MaxLength(50) code!: string;
   @IsString() @MinLength(3) @MaxLength(200) name!: string;
   @IsString() @MinLength(10) description!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
+  @IsOptional() @IsString() @MaxLength(100) subject?: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
 }
 
 export class UpdateCourseDto {
   @IsString() @MinLength(3) @MaxLength(200) name!: string;
   @IsString() @MinLength(10) description!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
+  @IsOptional() @IsString() @MaxLength(100) subject?: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
 }
 
@@ -116,6 +120,8 @@ export class CreateClassDto {
   @IsString() @MinLength(2) code!: string;
   @IsString() @MinLength(3) name!: string;
   @IsString() term!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
+  @IsOptional() @IsString() @MaxLength(100) subject?: string;
   @IsDateString() startAt!: string;
   @IsDateString() endAt!: string;
   @IsInt() @Min(1) @Max(1000) capacity!: number;

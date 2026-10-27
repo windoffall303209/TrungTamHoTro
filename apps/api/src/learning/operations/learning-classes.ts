@@ -163,7 +163,7 @@ export async function createClass(
     LearningClass,
     "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
   > &
-    Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment">>,
+    Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
   actorId = "usr-manager",
 ): Promise<LearningClass> {
   const code = input.code.trim().toUpperCase();
@@ -190,6 +190,8 @@ export async function createClass(
           code,
           name: input.name.trim(),
           term,
+          grade: input.grade ?? course.grade ?? null,
+          subject: input.subject?.trim() || course.subject || null,
           startAt: new Date(input.startAt),
           endAt: new Date(input.endAt),
           capacity: input.capacity,
@@ -210,6 +212,8 @@ export async function createClass(
             code,
             term,
             timezone,
+            grade: row.grade,
+            subject: row.subject,
           },
         },
       });
@@ -242,6 +246,8 @@ export async function createClass(
     courseVersion: course.version,
     code,
     term,
+    grade: input.grade ?? course.grade,
+    subject: input.subject?.trim() || course.subject,
     timezone,
     allowLateEnrollment: input.allowLateEnrollment ?? false,
     id: id("class"),

@@ -119,6 +119,8 @@ export interface GradingQueueGroup {
   type: "ASSIGNMENT" | "EXAM";
   classId: string;
   classCode: string;
+  grade?: number | null;
+  subject?: string | null;
   title: string;
   maxScore: number;
   submittedCount: number;

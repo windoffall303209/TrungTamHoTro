@@ -239,7 +239,7 @@ export async function gradingQueue(
         status: { in: ["PUBLISHED", "CLOSED"] },
       },
       include: {
-        class: { select: { code: true } },
+        class: { select: { code: true, grade: true, subject: true } },
         submissions: {
           include: {
             learner: { select: { displayName: true, email: true } },
@@ -255,7 +255,7 @@ export async function gradingQueue(
         status: { in: ["PUBLISHED", "CLOSED"] },
       },
       include: {
-        class: { select: { code: true } },
+        class: { select: { code: true, grade: true, subject: true } },
         attempts: {
           where: { status: { in: ["SUBMITTED", "GRADED"] } },
           include: {
@@ -273,6 +273,8 @@ export async function gradingQueue(
       type: "ASSIGNMENT",
       classId: assignment.classId,
       classCode: assignment.class.code,
+      grade: assignment.class.grade,
+      subject: assignment.class.subject,
       title: assignment.title,
       maxScore: Number(assignment.maxScore),
       submittedCount: assignment.submissions.length,
@@ -295,6 +297,8 @@ export async function gradingQueue(
     type: "EXAM",
     classId: exam.classId,
     classCode: exam.class.code,
+    grade: exam.class.grade,
+    subject: exam.class.subject,
     title: exam.title,
     maxScore: Number(exam.totalScore),
     submittedCount: exam.attempts.length,

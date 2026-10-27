@@ -11,12 +11,12 @@ import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge, Tabs, usePagination } from "@/components/ui";
 import { apiRequest } from "@/lib/api-client";
-import type { Course, CourseVersionSnapshot, LearningClass } from "@/lib/learning-types";
+import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
-const blankCourse = { code: "", name: "", description: "", outcomes: "" };
-const blankClass = { courseId: "", code: "", name: "", term: "2026-2027", startAt: "", endAt: "", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false };
+const blankCourse = { code: "", name: "", description: "", outcomes: "", grade: "", subject: "" };
+const blankClass = { courseId: "", code: "", name: "", term: "2026-2027", grade: "", subject: "", startAt: "", endAt: "", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false };
 
 /** Màu sắc banner card lớp học ngẫu nhiên theo chỉ số */
 const GRADIENTS = [
@@ -32,20 +32,85 @@ const GRADIENTS = [
 export default function CoursesPage() {
   const router = useRouter();
   const { session, notify } = useApp();
-  const [courses, setCourses] = useState<Course[]>([]); const [classes, setClasses] = useState<LearningClass[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [classes, setClasses] = useState<LearningClass[]>([]);
   const [activeTab, setActiveTab] = useState<"courses" | "classes">("classes");
-  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [mode, setMode] = useState<"course" | "class" | null>(null);
-  const [courseForm, setCourseForm] = useState(blankCourse); const [classForm, setClassForm] = useState(blankClass);
-  const [editingCourseId, setEditingCourseId] = useState<string | null>(null); const [versionTarget, setVersionTarget] = useState<Course | null>(null); const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
-  const [archiveTarget, setArchiveTarget] = useState<Course | null>(null); const [archiveReason, setArchiveReason] = useState("");
-  const [courseFilter, setCourseFilter] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState<"course" | "class" | null>(null);
+  const [courseForm, setCourseForm] = useState(blankCourse);
+  const [classForm, setClassForm] = useState(blankClass);
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [versionTarget, setVersionTarget] = useState<Course | null>(null);
+  const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
+  const [archiveTarget, setArchiveTarget] = useState<Course | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  
+  // Bộ lọc chuẩn K-12: Khối -> Môn -> Lớp/Khóa học
+  const [gradeFilter, setGradeFilter] = useState<string>("");
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  const [courseFilter, setCourseFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
+
   const isLearner = session.roleCode === "LEARNER";
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "course:manage");
 
+  // Danh sách các môn học có thể chọn lọc (theo khối đang chọn hoặc toàn bộ)
+  const availableSubjects = useMemo(() => {
+    const list = new Set<string>();
+    courses.forEach((c) => {
+      if (!gradeFilter || String(c.grade) === gradeFilter) {
+        if (c.subject) list.add(c.subject);
+      }
+    });
+    classes.forEach((cl) => {
+      if (!gradeFilter || String(cl.grade) === gradeFilter) {
+        if (cl.subject) list.add(cl.subject);
+      }
+    });
+    if (list.size === 0) {
+      K12_SUBJECTS.forEach((s) => list.add(s));
+    }
+    return Array.from(list);
+  }, [courses, classes, gradeFilter]);
+
+  const displayCourses = useMemo(() => {
+    let result = courses;
+    if (gradeFilter) {
+      result = result.filter((item) => String(item.grade) === gradeFilter);
+    }
+    if (subjectFilter) {
+      result = result.filter((item) => item.subject === subjectFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (item) =>
+          item.name.toLowerCase().includes(q) ||
+          item.code.toLowerCase().includes(q) ||
+          item.description.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [courses, gradeFilter, subjectFilter, searchQuery]);
+
   const displayClasses = useMemo(() => {
     let result = classes;
+    if (gradeFilter) {
+      result = result.filter((item) => {
+        if (item.grade) return String(item.grade) === gradeFilter;
+        const course = courses.find((c) => c.id === item.courseId);
+        return course ? String(course.grade) === gradeFilter : false;
+      });
+    }
+    if (subjectFilter) {
+      result = result.filter((item) => {
+        if (item.subject) return item.subject === subjectFilter;
+        const course = courses.find((c) => c.id === item.courseId);
+        return course ? course.subject === subjectFilter : false;
+      });
+    }
     if (courseFilter) {
       result = result.filter((item) => item.courseId === courseFilter);
     }
@@ -59,30 +124,266 @@ export default function CoursesPage() {
       );
     }
     return result;
-  }, [classes, courseFilter, searchQuery]);
+  }, [classes, courses, gradeFilter, subjectFilter, courseFilter, searchQuery]);
 
-  const coursePagination = usePagination(courses);
+  const coursePagination = usePagination(displayCourses);
   const classPagination = usePagination(displayClasses);
+
   /** Nạp khóa học dành cho quản lý và các lớp mà vai trò hiện tại được phép truy cập. */
-  const load = useCallback(async () => { if (!allowed) return; setLoading(true); try { const [courseData, classData] = await Promise.all([manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]), apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode })]); setCourses(courseData); setClasses(classData); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error"); } finally { setLoading(false); } }, [allowed, manager, notify, session.roleCode]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const load = useCallback(async () => {
+    if (!allowed) return;
+    setLoading(true);
+    try {
+      const [courseData, classData] = await Promise.all([
+        manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
+        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
+      ]);
+      setCourses(courseData);
+      setClasses(classData);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [allowed, manager, notify, session.roleCode]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
   /** Tạo khóa học mới hoặc tạo bản nháp phiên bản kế tiếp từ khóa học đang sửa. */
-  const createCourse = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const payload = { ...courseForm, outcomes: courseForm.outcomes.split("\n").map((item) => item.trim()).filter(Boolean) }; await apiRequest(editingCourseId ? `/manager/courses/${editingCourseId}` : "/manager/courses", { method: editingCourseId ? "PATCH" : "POST", roleCode: session.roleCode, body: JSON.stringify(editingCourseId ? { name: payload.name, description: payload.description, outcomes: payload.outcomes } : payload) }); notify(editingCourseId ? "Đã tạo bản nháp mới; phiên bản đang dùng của lớp không đổi." : "Đã tạo khóa học bản nháp."); setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được khóa học.", "error"); } finally { setSaving(false); } };
+  const createCourse = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        ...courseForm,
+        grade: courseForm.grade ? Number(courseForm.grade) : undefined,
+        subject: courseForm.subject?.trim() || undefined,
+        outcomes: courseForm.outcomes.split("\n").map((item) => item.trim()).filter(Boolean),
+      };
+      await apiRequest(
+        editingCourseId ? `/manager/courses/${editingCourseId}` : "/manager/courses",
+        {
+          method: editingCourseId ? "PATCH" : "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify(
+            editingCourseId
+              ? { name: payload.name, description: payload.description, grade: payload.grade, subject: payload.subject, outcomes: payload.outcomes }
+              : payload
+          ),
+        }
+      );
+      notify(editingCourseId ? "Đã tạo bản nháp mới; phiên bản đang dùng của lớp không đổi." : "Đã tạo khóa học bản nháp.");
+      setMode(null);
+      setEditingCourseId(null);
+      setCourseForm(blankCourse);
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không lưu được khóa học.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Mở lớp mới từ khóa học đã chọn và chuẩn hóa thời gian sang ISO trước khi gửi. */
-  const createClass = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { await apiRequest("/manager/classes", { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ ...classForm, startAt: new Date(classForm.startAt).toISOString(), endAt: new Date(classForm.endAt).toISOString() }) }); notify("Đã mở lớp học mới."); setMode(null); setClassForm(blankClass); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được lớp.", "error"); } finally { setSaving(false); } };
+  const createClass = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await apiRequest("/manager/classes", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          ...classForm,
+          grade: classForm.grade ? Number(classForm.grade) : undefined,
+          subject: classForm.subject?.trim() || undefined,
+          startAt: new Date(classForm.startAt).toISOString(),
+          endAt: new Date(classForm.endAt).toISOString(),
+        }),
+      });
+      notify("Đã mở lớp học mới.");
+      setMode(null);
+      setClassForm(blankClass);
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tạo được lớp.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Xuất bản phiên bản khóa học để có thể dùng cho hoạt động giảng dạy. */
-  const publish = async (course: Course) => { try { await apiRequest(`/manager/courses/${course.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify("Đã xuất bản khóa học."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được.", "error"); } };
+  const publish = async (course: Course) => {
+    try {
+      await apiRequest(`/manager/courses/${course.id}/publish`, { method: "POST", roleCode: session.roleCode });
+      notify("Đã xuất bản khóa học.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không xuất bản được.", "error");
+    }
+  };
+
   /** Đưa dữ liệu khóa học vào biểu mẫu để tạo bản nháp chỉnh sửa mới. */
-  const editCourse = (course: Course) => { setEditingCourseId(course.id); setCourseForm({ code: course.code, name: course.name, description: course.description, outcomes: course.outcomes.join("\n") }); setMode("course"); };
+  const editCourse = (course: Course) => {
+    setEditingCourseId(course.id);
+    setCourseForm({
+      code: course.code,
+      name: course.name,
+      description: course.description,
+      grade: course.grade ? String(course.grade) : "",
+      subject: course.subject || "",
+      outcomes: course.outcomes.join("\n"),
+    });
+    setMode("course");
+  };
+
   /** Nạp lịch sử phiên bản và mở bảng đối chiếu của khóa học. */
-  const openVersions = async (course: Course) => { try { setVersions(await apiRequest<CourseVersionSnapshot[]>(`/manager/courses/${course.id}/versions`, { roleCode: session.roleCode })); setVersionTarget(course); } catch (error) { notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error"); } };
+  const openVersions = async (course: Course) => {
+    try {
+      setVersions(await apiRequest<CourseVersionSnapshot[]>(`/manager/courses/${course.id}/versions`, { roleCode: session.roleCode }));
+      setVersionTarget(course);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error");
+    }
+  };
+
   /** Ngừng sử dụng khóa học nhưng giữ snapshot mà các lớp cũ đang tham chiếu. */
-  const archiveCourse = async (event: React.FormEvent) => { event.preventDefault(); if (!archiveTarget) return; try { setSaving(true); await apiRequest(`/manager/courses/${archiveTarget.id}/archive`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ reason: archiveReason }) }); notify("Đã ngừng sử dụng khóa học; các lớp cũ vẫn giữ phiên bản đã chọn."); setArchiveTarget(null); setArchiveReason(""); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không ngừng sử dụng được khóa học.", "error"); } finally { setSaving(false); } };
+  const archiveCourse = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!archiveTarget) return;
+    try {
+      setSaving(true);
+      await apiRequest(`/manager/courses/${archiveTarget.id}/archive`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ reason: archiveReason }),
+      });
+      notify("Đã ngừng sử dụng khóa học; các lớp cũ vẫn giữ phiên bản đã chọn.");
+      setArchiveTarget(null);
+      setArchiveReason("");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không ngừng sử dụng được khóa học.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /** Kích hoạt lớp sau khi API xác nhận các điều kiện vận hành cần thiết. */
-  const activate = async (item: LearningClass) => { try { await apiRequest(`/manager/classes/${item.id}/activate`, { method: "POST", roleCode: session.roleCode }); notify("Lớp đã được kích hoạt."); await load(); } catch (error) { notify(error instanceof Error ? error.message : "Không kích hoạt được.", "error"); } };
-  return <div className="w-full px-5 sm:px-6 lg:px-8 py-5"><PageHeader title={session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : "Khóa học & lớp"} description={manager ? "Quản lý danh mục đào tạo, kỳ học, sức chứa và vòng đời lớp." : "Theo dõi các lớp được phân công hoặc đã ghi danh theo đúng phạm vi truy cập."} actions={manager ? <div className="flex gap-2"><Button onClick={() => setMode("course")} variant="secondary"><BookOpen size={17} />Khóa học</Button><Button onClick={() => setMode("class")}><Plus size={17} />Mở lớp</Button></div> : undefined} />
-    {manager ? <Tabs className="mt-3.5 mb-3" items={[{ value: "courses", label: "Khóa học", count: courses.length }, { value: "classes", label: "Lớp học", count: classes.length }]} label="Chọn nội dung quản lý" onChange={setActiveTab} value={activeTab} /> : null}
-    <SectionState loading={loading} empty={manager ? activeTab === "courses" ? courses.length === 0 : classes.length === 0 : classes.length === 0}>
+  const activate = async (item: LearningClass) => {
+    try {
+      await apiRequest(`/manager/classes/${item.id}/activate`, { method: "POST", roleCode: session.roleCode });
+      notify("Lớp đã được kích hoạt.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không kích hoạt được.", "error");
+    }
+  };
+  return <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
+    <PageHeader
+      title={session.roleCode === "LEARNER" ? "Lớp của tôi" : session.roleCode === "INSTRUCTOR" ? "Lớp giảng dạy" : "Khóa học & lớp"}
+      description={manager ? "Quản lý danh mục đào tạo, kỳ học, phân cấp Khối - Môn và vòng đời lớp." : "Theo dõi các lớp được phân công hoặc đã ghi danh theo đúng phạm vi truy cập."}
+      actions={manager ? (
+        <div className="flex gap-2">
+          <Button onClick={() => setMode("course")} variant="secondary">
+            <BookOpen size={17} />
+            Khóa học
+          </Button>
+          <Button onClick={() => setMode("class")}>
+            <Plus size={17} />
+            Mở lớp
+          </Button>
+        </div>
+      ) : undefined}
+    />
+
+    {manager ? (
+      <Tabs
+        className="mt-3.5 mb-3"
+        items={[
+          { value: "courses", label: "Khóa học", count: displayCourses.length },
+          { value: "classes", label: "Lớp học", count: displayClasses.length }
+        ]}
+        label="Chọn nội dung quản lý"
+        onChange={setActiveTab}
+        value={activeTab}
+      />
+    ) : null}
+
+    {/* THANH BỘ LỌC PHÂN CẤP CHUẨN K-12: KHỐI -> MÔN -> LỚP */}
+    {(!isLearner || !displayClasses.length) && (
+      <div className="mb-4 p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center gap-3">
+        {/* Lọc Khối */}
+        <div className="w-48 shrink-0">
+          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+            Khối lớp (K-12)
+          </label>
+          <select
+            value={gradeFilter}
+            onChange={(e) => {
+              setGradeFilter(e.target.value);
+              classPagination.resetPage();
+              coursePagination.resetPage();
+            }}
+            className={`${inputClass} h-9 text-xs font-semibold`}
+          >
+            <option value="">Tất cả khối (1-12)</option>
+            {K12_GRADES.map((g) => (
+              <option key={g.value} value={g.value}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Lọc Môn học */}
+        <div className="w-52 shrink-0">
+          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+            Môn học
+          </label>
+          <select
+            value={subjectFilter}
+            onChange={(e) => {
+              setSubjectFilter(e.target.value);
+              classPagination.resetPage();
+              coursePagination.resetPage();
+            }}
+            className={`${inputClass} h-9 text-xs font-semibold`}
+          >
+            <option value="">Tất cả môn học</option>
+            {availableSubjects.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Nút reset lọc nếu đang kích hoạt */}
+        {(gradeFilter || subjectFilter || courseFilter || searchQuery) && (
+          <div className="self-end pb-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setGradeFilter("");
+                setSubjectFilter("");
+                setCourseFilter("");
+                setSearchQuery("");
+                classPagination.resetPage();
+                coursePagination.resetPage();
+              }}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+            >
+              Xóa bộ lọc
+            </button>
+          </div>
+        )}
+      </div>
+    )}
+
+    <SectionState loading={loading} empty={manager ? activeTab === "courses" ? displayCourses.length === 0 : displayClasses.length === 0 : displayClasses.length === 0}>
       <div className="mt-3.5">
         {manager && activeTab === "courses" ? (
           <section className="min-w-0">
@@ -92,7 +393,7 @@ export default function CoursesPage() {
                 <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">Nội dung đào tạo và phiên bản đang được sử dụng.</p>
               </div>
               <span className="shrink-0 text-xs sm:text-sm font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-3 py-1 rounded-full border border-sky-200/80 dark:border-sky-800/60 tabular-nums">
-                {courses.length} khóa học
+                {displayCourses.length} khóa học
               </span>
             </div>
             <div className="space-y-3">
@@ -100,9 +401,21 @@ export default function CoursesPage() {
                 <article className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4.5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all space-y-3" key={course.id}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wide">
-                        {course.code} · v{course.version}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wide">
+                          {course.code} · v{course.version}
+                        </span>
+                        {course.grade && (
+                          <span className="inline-flex items-center rounded-md bg-purple-50 dark:bg-purple-950/50 border border-purple-200/80 dark:border-purple-800/60 px-2 py-0.5 text-xs font-bold text-purple-700 dark:text-purple-300">
+                            Khối {course.grade}
+                          </span>
+                        )}
+                        {course.subject && (
+                          <span className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/60 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                            Môn {course.subject}
+                          </span>
+                        )}
+                      </div>
                       <h3 className="mt-1.5 text-base font-bold text-slate-900 dark:text-slate-100">{course.name}</h3>
                       <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400 max-w-3xl">{course.description}</p>
                     </div>
@@ -249,6 +562,16 @@ export default function CoursesPage() {
                               <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-[11px] font-extrabold uppercase tracking-wide">
                                 {item.code}
                               </span>
+                              {(item.grade || course?.grade) && (
+                                <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
+                                  Khối {item.grade ?? course?.grade}
+                                </span>
+                              )}
+                              {(item.subject || course?.subject) && (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                                  {item.subject ?? course?.subject}
+                                </span>
+                              )}
                               <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold">
                                 {item.term}
                               </span>
@@ -296,10 +619,11 @@ export default function CoursesPage() {
               /* GIAO DIỆN BẢNG DÀNH CHO MANAGER / INSTRUCTOR */
               <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[760px] text-left text-sm">
+                  <table className="w-full min-w-[850px] text-left text-sm">
                     <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-2.5">Lớp học</th>
+                        <th className="px-3.5 py-2.5">Khối & Môn (K-12)</th>
                         <th className="px-3.5 py-2.5">Học kỳ / Khóa</th>
                         <th className="px-3 py-2.5 text-center">Giảng viên</th>
                         <th className="px-3 py-2.5 text-center">Sĩ số</th>
@@ -311,6 +635,8 @@ export default function CoursesPage() {
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                       {classPagination.pageItems.map((item) => {
                         const course = courses.find((c) => c.id === item.courseId);
+                        const classGrade = item.grade ?? course?.grade;
+                        const classSubject = item.subject ?? course?.subject;
                         return (
                           <tr
                             key={item.id}
@@ -328,6 +654,22 @@ export default function CoursesPage() {
                               <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                                 {item.timezone} · {item.allowLateEnrollment ? "Cho ghi danh muộn" : "Khóa ghi danh muộn"}
                               </p>
+                            </td>
+                            <td className="px-3.5 py-2.5 text-xs whitespace-nowrap">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {classGrade ? (
+                                  <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[11px] font-bold">
+                                    Khối {classGrade}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[11px]">Chưa gán</span>
+                                )}
+                                {classSubject && (
+                                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
+                                    {classSubject}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3.5 py-2.5 text-xs whitespace-nowrap">
                               <p className="font-semibold text-slate-800 dark:text-slate-200">{item.term}</p>
@@ -356,7 +698,7 @@ export default function CoursesPage() {
                                   <button
                                     type="button"
                                     onClick={() => void activate(item)}
-                                    className="rounded-lg px-2 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                                    className="rounded-lg px-2 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
                                   >
                                     Kích hoạt
                                   </button>
@@ -384,8 +726,149 @@ export default function CoursesPage() {
         ) : null}
       </div>
     </SectionState>
-    <Modal open={mode === "course"} onClose={() => { setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); }} title={editingCourseId ? "Sửa khóa học" : "Tạo khóa học"} description={editingCourseId ? "Thay đổi được lưu thành bản nháp mới; các lớp đang chạy vẫn giữ snapshot cũ." : "Khóa học được lưu ở trạng thái nháp để rà soát trước khi xuất bản."}><form className="space-y-4" onSubmit={(e) => void createCourse(e)}><Field label="Mã khóa học"><input className={inputClass} disabled={Boolean(editingCourseId)} required value={courseForm.code} onChange={(e) => setCourseForm({ ...courseForm, code: e.target.value })} /></Field><Field label="Tên khóa học"><input className={inputClass} required minLength={3} value={courseForm.name} onChange={(e) => setCourseForm({ ...courseForm, name: e.target.value })} /></Field><Field label="Mô tả"><textarea className={inputClass} required minLength={10} rows={3} value={courseForm.description} onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })} /></Field><Field label="Chuẩn đầu ra — mỗi dòng một mục"><textarea className={inputClass} required rows={3} value={courseForm.outcomes} onChange={(e) => setCourseForm({ ...courseForm, outcomes: e.target.value })} /></Field><Button loading={saving} type="submit">{editingCourseId ? "Lưu bản nháp" : "Tạo khóa học"}</Button></form></Modal>
-    <Modal open={mode === "class"} onClose={() => setMode(null)} title="Mở lớp học"><form className="space-y-4" onSubmit={(e) => void createClass(e)}><Field label="Khóa học"><SearchableSelect aria-label="Tìm và chọn khóa học" onChange={(value) => setClassForm({ ...classForm, courseId: value })} options={courses.filter((course) => course.status === "PUBLISHED").map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Gõ mã hoặc tên khóa học để lọc…" value={classForm.courseId} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Mã lớp"><input className={inputClass} required value={classForm.code} onChange={(e) => setClassForm({ ...classForm, code: e.target.value })} /></Field><Field label="Học kỳ"><input className={inputClass} required value={classForm.term} onChange={(e) => setClassForm({ ...classForm, term: e.target.value })} /></Field></div><Field label="Tên lớp"><input className={inputClass} required value={classForm.name} onChange={(e) => setClassForm({ ...classForm, name: e.target.value })} /></Field><div className="grid gap-3 sm:grid-cols-2"><Field label="Bắt đầu"><input className={inputClass} required type="datetime-local" value={classForm.startAt} onChange={(e) => setClassForm({ ...classForm, startAt: e.target.value })} /></Field><Field label="Kết thúc"><input className={inputClass} required type="datetime-local" value={classForm.endAt} onChange={(e) => setClassForm({ ...classForm, endAt: e.target.value })} /></Field></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Sức chứa"><input className={inputClass} min={1} type="number" value={classForm.capacity} onChange={(e) => setClassForm({ ...classForm, capacity: Number(e.target.value) })} /></Field><Field label="Múi giờ"><input className={inputClass} required value={classForm.timezone} onChange={(e) => setClassForm({ ...classForm, timezone: e.target.value })} /></Field></div><label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700"><input checked={classForm.allowLateEnrollment} className="size-5 accent-sky-600" onChange={(e) => setClassForm({ ...classForm, allowLateEnrollment: e.target.checked })} type="checkbox" />Cho phép ghi danh sau ngày khai giảng</label><Button disabled={!classForm.courseId} loading={saving} type="submit">Mở lớp</Button></form></Modal>
+
+    {/* MODAL TẠO / SỬA KHÓA HỌC */}
+    <Modal
+      open={mode === "course"}
+      onClose={() => { setMode(null); setEditingCourseId(null); setCourseForm(blankCourse); }}
+      title={editingCourseId ? "Sửa khóa học" : "Tạo khóa học"}
+      description={editingCourseId ? "Thay đổi được lưu thành bản nháp mới; các lớp đang chạy vẫn giữ snapshot cũ." : "Khóa học được lưu ở trạng thái nháp để rà soát trước khi xuất bản."}
+    >
+      <form className="space-y-4" onSubmit={(e) => void createCourse(e)}>
+        <Field label="Mã khóa học">
+          <input className={inputClass} disabled={Boolean(editingCourseId)} required value={courseForm.code} onChange={(e) => setCourseForm({ ...courseForm, code: e.target.value })} />
+        </Field>
+        <Field label="Tên khóa học">
+          <input className={inputClass} required minLength={3} value={courseForm.name} onChange={(e) => setCourseForm({ ...courseForm, name: e.target.value })} />
+        </Field>
+
+        {/* Phân cấp chuẩn K-12: Khối lớp & Môn học */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Khối lớp (K-12)">
+            <select
+              className={inputClass}
+              value={courseForm.grade}
+              onChange={(e) => setCourseForm({ ...courseForm, grade: e.target.value })}
+            >
+              <option value="">-- Chọn khối --</option>
+              {K12_GRADES.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Môn học">
+            <input
+              list="k12-subject-list"
+              className={inputClass}
+              placeholder="VD: Toán, Ngữ văn, Tiếng Anh..."
+              value={courseForm.subject}
+              onChange={(e) => setCourseForm({ ...courseForm, subject: e.target.value })}
+            />
+            <datalist id="k12-subject-list">
+              {K12_SUBJECTS.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </Field>
+        </div>
+
+        <Field label="Mô tả">
+          <textarea className={inputClass} required minLength={10} rows={3} value={courseForm.description} onChange={(e) => setCourseForm({ ...courseForm, description: e.target.value })} />
+        </Field>
+        <Field label="Chuẩn đầu ra — mỗi dòng một mục">
+          <textarea className={inputClass} required rows={3} value={courseForm.outcomes} onChange={(e) => setCourseForm({ ...courseForm, outcomes: e.target.value })} />
+        </Field>
+        <Button loading={saving} type="submit">{editingCourseId ? "Lưu bản nháp" : "Tạo khóa học"}</Button>
+      </form>
+    </Modal>
+
+    {/* MODAL MỞ LỚP HỌC */}
+    <Modal open={mode === "class"} onClose={() => setMode(null)} title="Mở lớp học">
+      <form className="space-y-4" onSubmit={(e) => void createClass(e)}>
+        <Field label="Khóa học">
+          <SearchableSelect
+            aria-label="Tìm và chọn khóa học"
+            onChange={(value) => {
+              const selectedCrs = courses.find((c) => c.id === value);
+              setClassForm({
+                ...classForm,
+                courseId: value,
+                grade: selectedCrs?.grade ? String(selectedCrs.grade) : "",
+                subject: selectedCrs?.subject || "",
+              });
+            }}
+            options={courses.filter((course) => course.status === "PUBLISHED").map((course) => ({
+              value: course.id,
+              label: `${course.code} — ${course.name}`,
+              description: `Khối ${course.grade ?? "?"} · Môn ${course.subject ?? "?"} · v${course.version}`,
+              keywords: `${course.id} ${course.subject ?? ""} ${course.grade ?? ""}`
+            }))}
+            placeholder="Gõ mã hoặc tên khóa học để lọc…"
+            value={classForm.courseId}
+          />
+        </Field>
+
+        {/* Hiển thị Khối & Môn theo khóa học được chọn */}
+        {classForm.courseId && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 text-xs">
+            <span className="font-bold text-slate-500 dark:text-slate-400">Phân cấp K-12 kế thừa:</span>
+            {classForm.grade ? (
+              <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 text-purple-700 dark:text-purple-300 font-bold">
+                Khối {classForm.grade}
+              </span>
+            ) : null}
+            {classForm.subject ? (
+              <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 text-emerald-700 dark:text-emerald-300 font-bold">
+                Môn {classForm.subject}
+              </span>
+            ) : null}
+            {!classForm.grade && !classForm.subject && (
+              <span className="text-slate-400 italic">Khóa học này chưa thiết lập Khối & Môn</span>
+            )}
+          </div>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Mã lớp">
+            <input className={inputClass} required value={classForm.code} onChange={(e) => setClassForm({ ...classForm, code: e.target.value })} />
+          </Field>
+          <Field label="Học kỳ">
+            <input className={inputClass} required value={classForm.term} onChange={(e) => setClassForm({ ...classForm, term: e.target.value })} />
+          </Field>
+        </div>
+
+        <Field label="Tên lớp">
+          <input className={inputClass} required value={classForm.name} onChange={(e) => setClassForm({ ...classForm, name: e.target.value })} />
+        </Field>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Bắt đầu">
+            <input className={inputClass} required type="datetime-local" value={classForm.startAt} onChange={(e) => setClassForm({ ...classForm, startAt: e.target.value })} />
+          </Field>
+          <Field label="Kết thúc">
+            <input className={inputClass} required type="datetime-local" value={classForm.endAt} onChange={(e) => setClassForm({ ...classForm, endAt: e.target.value })} />
+          </Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Sức chứa">
+            <input className={inputClass} min={1} type="number" value={classForm.capacity} onChange={(e) => setClassForm({ ...classForm, capacity: Number(e.target.value) })} />
+          </Field>
+          <Field label="Múi giờ">
+            <input className={inputClass} required value={classForm.timezone} onChange={(e) => setClassForm({ ...classForm, timezone: e.target.value })} />
+          </Field>
+        </div>
+
+        <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+          <input checked={classForm.allowLateEnrollment} className="size-5 accent-sky-600" onChange={(e) => setClassForm({ ...classForm, allowLateEnrollment: e.target.checked })} type="checkbox" />
+          Cho phép ghi danh sau ngày khai giảng
+        </label>
+
+        <Button disabled={!classForm.courseId} loading={saving} type="submit">Mở lớp</Button>
+      </form>
+    </Modal>
     <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title={`Lịch sử ${versionTarget?.code ?? "khóa học"}`} description="Mỗi phiên bản đã phát hành là snapshot bất biến; lớp học tiếp tục dùng đúng version đã chọn lúc mở."><div className="space-y-3">{versions.length ? versions.map((version) => <article className="rounded-xl border border-slate-200 p-4" key={version.id}><div className="flex items-center justify-between"><strong>Phiên bản {version.version}</strong><span className="text-xs text-slate-500">{new Date(version.publishedAt).toLocaleString(activeLocale())}</span></div><p className="mt-2 text-sm font-bold">{version.name}</p><p className="mt-1 text-xs leading-5 text-slate-500">{version.outcomes.join(" · ")}</p></article>) : <p className="text-sm text-slate-500">Khóa học chưa có phiên bản phát hành.</p>}</div></Modal>
     <Modal open={Boolean(archiveTarget)} onClose={() => setArchiveTarget(null)} title="Ngừng sử dụng khóa học" description="Khóa học sẽ không thể mở lớp mới; lớp hiện có và snapshot phiên bản vẫn được giữ nguyên."><form className="space-y-4" onSubmit={(event) => void archiveCourse(event)}><Field label="Lý do"><textarea className={inputClass} minLength={5} required rows={4} value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} /></Field><Button loading={saving} type="submit" variant="danger"><Archive size={15} />Xác nhận ngừng dùng</Button></form></Modal>
   </div>;

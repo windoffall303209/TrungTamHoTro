@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { K12_GRADES, K12_SUBJECTS } from "@/lib/learning-types";
 import { ExamGradingDialog } from "./exam-grading-dialog";
 import { useTeachingModel } from "./use-teaching-model";
 
@@ -34,6 +35,15 @@ export default function TeachingScreen() {
     canManageTeaching,
     attempts,
     gradingQueue,
+    filteredGradingQueue,
+    instructorClasses,
+    gradeFilter,
+    setGradeFilter,
+    subjectFilter,
+    setSubjectFilter,
+    classFilter,
+    setClassFilter,
+    availableSubjects,
     regrades,
     exams,
     selectedExamId,
@@ -72,20 +82,115 @@ export default function TeachingScreen() {
               Hàng đợi chấm bài chung
             </h2>
             <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Lớp → bài → bài nộp; số chờ chấm được tính cho cả hai loại.
+              Lọc theo Khối → Môn → Lớp phụ trách để xem danh sách bài chờ chấm.
             </p>
           </div>
           <span className="text-xs font-bold tabular-nums text-sky-700 dark:text-sky-300 rounded-full bg-sky-50 dark:bg-sky-950/50 px-3 py-1 border border-sky-100 dark:border-sky-800">
-            {gradingQueue.reduce((sum, item) => sum + item.pendingCount, 0)} chờ chấm
+            {filteredGradingQueue.reduce((sum, item) => sum + item.pendingCount, 0)} chờ chấm
           </span>
         </div>
+
+        {/* Thanh lọc chuẩn K-12: Khối -> Môn -> Lớp */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <span className="text-slate-400">Lọc K-12:</span>
+          </div>
+
+          {/* Chọn Khối */}
+          <select
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            value={gradeFilter}
+            onChange={(e) => {
+              setGradeFilter(e.target.value);
+              setSubjectFilter("");
+              setClassFilter("");
+            }}
+          >
+            <option value="">Tất cả khối</option>
+            {K12_GRADES.map((g) => (
+              <option key={g.value} value={g.value}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+
+          {/* Chọn Môn */}
+          <select
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            value={subjectFilter}
+            onChange={(e) => {
+              setSubjectFilter(e.target.value);
+              setClassFilter("");
+            }}
+          >
+            <option value="">Tất cả môn</option>
+            {(availableSubjects.length > 0 ? availableSubjects : K12_SUBJECTS).map((sub) => (
+              <option key={sub} value={sub}>
+                {sub}
+              </option>
+            ))}
+          </select>
+
+          {/* Chọn Lớp */}
+          <select
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+          >
+            <option value="">Tất cả lớp phụ trách</option>
+            {instructorClasses
+              .filter((c) => {
+                if (gradeFilter && c.grade && String(c.grade) !== gradeFilter) return false;
+                if (subjectFilter && c.subject && c.subject !== subjectFilter) return false;
+                return true;
+              })
+              .map((c) => (
+                <option key={c.id} value={c.code}>
+                  {c.code} - {c.name}
+                </option>
+              ))}
+          </select>
+
+          {/* Nút xóa lọc */}
+          {(gradeFilter || subjectFilter || classFilter) && (
+            <button
+              type="button"
+              onClick={() => {
+                setGradeFilter("");
+                setSubjectFilter("");
+                setClassFilter("");
+              }}
+              className="ml-auto inline-flex items-center gap-1 text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer font-medium"
+            >
+              <span>✕ Xóa bộ lọc</span>
+            </button>
+          )}
+        </div>
+
         {Object.keys(queueByClass).length ? (
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            {Object.entries(queueByClass).map(([classCode, groups]) => (
+            {Object.entries(queueByClass).map(([classCode, groups]) => {
+              const cls = instructorClasses.find((c) => c.code === classCode || groups[0]?.classId === c.id);
+              const itemGrade = groups[0]?.grade ?? cls?.grade;
+              const itemSubject = groups[0]?.subject ?? cls?.subject;
+
+              return (
               <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={classCode}>
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-2">
-                  {classCode}
-                </h3>
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-sky-700 dark:text-sky-300">
+                    {classCode}
+                  </h3>
+                  {itemGrade ? (
+                    <span className="rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 text-[10px] font-semibold border border-indigo-200/50 dark:border-indigo-800/50">
+                      Khối {itemGrade}
+                    </span>
+                  ) : null}
+                  {itemSubject ? (
+                    <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-semibold border border-emerald-200/50 dark:border-emerald-800/50">
+                      Môn {itemSubject}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {groups.map((group) =>
                     group.type === "ASSIGNMENT" ? (
@@ -139,7 +244,8 @@ export default function TeachingScreen() {
                   )}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         ) : (
           <p className="py-8 text-center text-sm text-[var(--ink-muted)]">
