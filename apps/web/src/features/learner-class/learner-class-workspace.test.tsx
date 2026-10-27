@@ -117,9 +117,70 @@ describe("LearnerClassWorkspace", () => {
     fireEvent.click(startButtons[0]);
 
     // Question Palette Grid hiển thị 3 màu chú thích
-    expect(screen.getByText(/Đã làm/i)).toBeInTheDocument();
-    expect(screen.getByText(/Chưa làm/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Đã làm/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Chưa làm/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Cần xem lại/i)).toBeInTheDocument();
     expect(screen.getByText("Nộp bài")).toBeInTheDocument();
+  });
+
+  it("tab Bài tập hiển thị giao diện 3 cột Master-Detail: Thư mục, Danh sách và Bảng chi tiết điểm", () => {
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Bài tập"));
+
+    // Cột 1: Cây thư mục
+    expect(screen.getByText("Thư mục")).toBeInTheDocument();
+    expect(screen.getByText("Tất cả bài tập")).toBeInTheDocument();
+    expect(screen.getByText("Toán 1")).toBeInTheDocument();
+
+    // Cột 2: Danh sách có bài tập mẫu
+    expect(screen.getByText("Test bài tập")).toBeInTheDocument();
+
+    // Cột 3: Bảng thông số chi tiết
+    expect(screen.getByText("Số lần làm bài")).toBeInTheDocument();
+    expect(screen.getByText("Lấy điểm")).toBeInTheDocument();
+    expect(screen.getByText("Ngày tạo")).toBeInTheDocument();
+    expect(screen.getByText("Chi tiết")).toBeInTheDocument();
+  });
+
+  it("tab Bài giảng hiển thị giao diện 3 cột với cấu trúc cây thư mục và thông số video", () => {
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Bài giảng"));
+
+    expect(screen.getByText("Tất cả bài giảng")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Tìm kiếm bài giảng...")).toBeInTheDocument();
+    expect(screen.getAllByText(/Xem bài giảng/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Tiến độ xem")).toBeInTheDocument();
+  });
+
+  it("tab Tài liệu hiển thị giao diện 3 cột với cấu trúc thư mục học liệu và thông số tài liệu", () => {
+    render(
+      <LearnerClassWorkspace
+        item={dummyClass}
+        course={dummyCourse}
+        teacherName="Thầy Nam"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Tài liệu"));
+
+    expect(screen.getByText("Tất cả tài liệu")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Tìm kiếm tài liệu...")).toBeInTheDocument();
+    expect(screen.getAllByText(/Xem trước/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Định dạng")).toBeInTheDocument();
+    expect(screen.getByText("Dung lượng")).toBeInTheDocument();
   });
 });
