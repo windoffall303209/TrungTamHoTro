@@ -178,6 +178,7 @@ export function AssignmentBuilderModal({
   const [activeTabRight, setActiveTabRight] = useState<"1. Đáp án" | "2. Mở rộng" | "3. Thông tin phần">("1. Đáp án");
   const [isRandomQuestions, setIsRandomQuestions] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [attemptedSave, setAttemptedSave] = useState(false);
 
   // Tùy chọn nộp bài cho dạng Tự luận (Ảnh 2)
   const [submissionMethods, setSubmissionMethods] = useState<string[]>([
@@ -320,10 +321,15 @@ export function AssignmentBuilderModal({
 
   // Hoàn tất lưu bài tập trực tiếp vào cơ sở dữ liệu
   const handleFinishSave = async () => {
+    if (!title.trim()) {
+      setAttemptedSave(true);
+      notify("Vui lòng đặt tên cho bài tập!", "error");
+      return;
+    }
     setIsSaving(true);
     try {
       await onSaveAssignment({
-        title: title.trim() || "Bài tập mới",
+        title: title.trim(),
         description: description.trim(),
         type: assignmentType,
         source: sourceType,
@@ -378,10 +384,10 @@ export function AssignmentBuilderModal({
               {step === "SOURCE"
                 ? "Chọn phương thức & Dạng đề"
                 : step === "AI_SPLIT"
-                ? "Chọn dạng đề & Tách câu AI"
+                ? "Bước 1: Xác định câu hỏi & đáp án"
                 : step === "ESSAY_SETUP"
-                ? "Thiết lập đề tự luận & Tệp đính kèm"
-                : "Cấu hình làm bài & Nộp bài"}
+                ? "Bước 1: Thiết lập đề tự luận"
+                : "Bước 2: Thông tin bài tập & Cấu hình làm bài"}
             </span>
           </div>
 
@@ -392,21 +398,30 @@ export function AssignmentBuilderModal({
                 onClick={() => setStep("SETTINGS")}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
-                <span>Tiếp tục</span>
+                <span>Tiếp tục sang Thông tin</span>
                 <ArrowRight size={14} />
               </button>
             ) : null}
 
             {step === "SETTINGS" ? (
-              <button
-                type="button"
-                onClick={handleFinishSave}
-                disabled={isSaving}
-                className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                <Check size={14} />
-                <span>{isSaving ? "Đang lưu CSDL..." : "Hoàn tất & Phát hành"}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setStep(assignmentType === "MULTIPLE_CHOICE" ? "AI_SPLIT" : "ESSAY_SETUP")}
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
+                >
+                  ← Quay lại câu hỏi
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFinishSave}
+                  disabled={isSaving}
+                  className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <Check size={14} />
+                  <span>{isSaving ? "Đang lưu CSDL..." : "Hoàn tất & Lưu bài tập"}</span>
+                </button>
+              </>
             ) : null}
 
             <button
@@ -766,22 +781,21 @@ export function AssignmentBuilderModal({
                 CỘT PHẢI: BẢNG ĐIỀU KHIỂN & CẤU HÌNH ĐÁP ÁN TỪNG CÂU (CHUẨN ẢNH 3)
                 --------------------------------------------------------------------- */}
             <div className="w-full lg:w-5/12 p-4 sm:p-5 overflow-y-auto space-y-4 bg-white dark:bg-slate-900">
-              {/* 3 Tab điều hướng trên đầu */}
-              <div className="grid grid-cols-3 rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs font-bold text-center">
-                {(["1. Đáp án", "2. Mở rộng", "3. Thông tin phần"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setActiveTabRight(tab)}
-                    className={`py-1.5 rounded-lg transition cursor-pointer ${
-                      activeTabRight === tab
-                        ? "bg-blue-600 text-white shadow-xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              {/* Tiêu đề Bảng điều khiển đáp án & điểm số chuẩn stepper */}
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="size-7 rounded-lg bg-blue-600 text-white grid place-items-center font-bold text-xs shadow-2xs">
+                    <Check size={14} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
+                      Xác định đáp án & Thang điểm
+                    </h4>
+                    <span className="text-[10px] text-slate-500 block">
+                      Tùy chỉnh đáp án đúng và điểm số cho từng câu hỏi
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Thanh công cụ: Số câu, Tổng điểm, Nhập nhanh, Ngẫu nhiên, Lưu ý */}
@@ -938,6 +952,18 @@ export function AssignmentBuilderModal({
                   </div>
                 ))}
               </div>
+
+              {/* Nút Tiếp tục chuyển bước sang Thông tin */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 sticky bottom-0 bg-white dark:bg-slate-900 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setStep("SETTINGS")}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <span>Tiếp tục sang phần Thông tin</span>
+                  <ArrowRight size={15} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1060,11 +1086,50 @@ export function AssignmentBuilderModal({
           <div className="p-6 overflow-y-auto space-y-5">
             <div>
               <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                Cấu hình bài tập & Quy chế thi
+                Thông tin bài tập & Quy chế thi
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Thiết lập thời lượng, hạn nộp, quyền xem điểm, đảo đề và phương thức tính điểm.
+                Nhập tên bài tập, hướng dẫn và thiết lập thời lượng, hạn nộp, phương thức tính điểm.
               </p>
+            </div>
+
+            {/* THÔNG TIN BẮT BUỘC CỦA BÀI TẬP: TÊN VÀ MÔ TẢ */}
+            <div className="space-y-4 max-w-3xl p-5 rounded-2xl bg-blue-50/40 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/60 shadow-2xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                  Tên bài tập <span className="text-rose-500 font-extrabold">* (Trường bắt buộc)</span>:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Bài tập Toán 10 - Ôn tập Hàm số bậc nhất..."
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-bold transition ${
+                    !title.trim() && attemptedSave
+                      ? "border-rose-500 bg-rose-50/50 text-rose-800 focus:ring-rose-500 ring-2 ring-rose-300"
+                      : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-slate-100"
+                  }`}
+                />
+                {!title.trim() && attemptedSave && (
+                  <p className="text-[11px] text-rose-500 font-bold mt-1.5 flex items-center gap-1">
+                    <AlertTriangle size={14} />
+                    <span>Tên bài tập là bắt buộc. Vui lòng nhập tên bài tập trước khi lưu!</span>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                  Yêu cầu / Hướng dẫn làm bài:
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Nhập ghi chú hoặc hướng dẫn học sinh làm bài..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
             </div>
 
             <div className="space-y-4 max-w-3xl divide-y divide-slate-100 dark:divide-slate-800">

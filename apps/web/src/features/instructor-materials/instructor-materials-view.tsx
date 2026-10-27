@@ -217,6 +217,20 @@ export function InstructorMaterialsView() {
 
   // State Modal Tải lên Tài liệu / Bài giảng (Tải lên học liệu thật)
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadModalStep, setUploadModalStep] = useState<"SELECT_TYPE" | "FORM">("SELECT_TYPE");
+  const [materialLectureMethod, setMaterialLectureMethod] = useState<"LINK" | "FILE">("LINK");
+  const [materialLecturePlatform, setMaterialLecturePlatform] = useState<
+    "YOUTUBE" | "FACEBOOK" | "DRIVE" | "INVALID"
+  >("INVALID");
+
+  const detectPlatformFromUrl = (url: string) => {
+    if (!url) return "INVALID";
+    if (url.includes("youtube.com") || url.includes("youtu.be")) return "YOUTUBE";
+    if (url.includes("facebook.com") || url.includes("fb.watch")) return "FACEBOOK";
+    if (url.includes("drive.google.com")) return "DRIVE";
+    return "INVALID";
+  };
+
   const [uploadForm, setUploadForm] = useState({
     title: "",
     type: "pdf" as "word" | "pdf" | "slide" | "video" | "link",
@@ -1182,6 +1196,7 @@ export function InstructorMaterialsView() {
                   ...prev,
                   targetClassId: currentContextLocation.classId,
                 }));
+                setUploadModalStep("SELECT_TYPE");
                 setUploadModalOpen(true);
               }}
               className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
@@ -1562,172 +1577,400 @@ export function InstructorMaterialsView() {
       {/* =========================================================================
           MODAL TẢI LÊN TÀI LIỆU / BÀI GIẢNG (KHO HỌC LIỆU THẬT)
           ========================================================================= */}
+      {/* =========================================================================
+          MODAL TẢI LÊN TÀI LIỆU / BÀI GIẢNG (QUY TRÌNH 2 BƯỚC CHUẨN LỚP HỌC)
+          ========================================================================= */}
       {uploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <UploadCloud size={20} className="text-blue-600" />
-                <span>Tải lên tài liệu / bài giảng</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setUploadModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
+          {/* BƯỚC 1: CHỌN TẢI TÀI LIỆU HOẶC BÀI GIẢNG */}
+          {uploadModalStep === "SELECT_TYPE" && (
+            <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <UploadCloud size={20} className="text-blue-600" />
+                  <span>Chọn loại học liệu cần thêm</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setUploadModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-            <div className="space-y-3">
-              {/* Chọn mục đích: Tài liệu học tập hoặc Bài giảng */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Mục đích sử dụng:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setUploadForm({ ...uploadForm, category: "MATERIAL", type: "pdf" })}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
-                      uploadForm.category === "MATERIAL"
-                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-600"
-                        : "border-slate-200 dark:border-slate-800 text-slate-600"
-                    }`}
-                  >
-                    <BookOpen size={16} />
-                    <span>Tài liệu học tập</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUploadForm({ ...uploadForm, category: "LECTURE", type: "video" })}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
-                      uploadForm.category === "LECTURE"
-                        ? "border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-600"
-                        : "border-slate-200 dark:border-slate-800 text-slate-600"
-                    }`}
-                  >
-                    <Video size={16} />
-                    <span>Bài giảng (Video / Link)</span>
-                  </button>
+              <p className="text-xs text-slate-500">
+                Lựa chọn phương thức học liệu bạn muốn thêm vào <strong className="text-slate-800 dark:text-slate-200">{currentContextLocation.label}</strong>:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                {/* Cách 1: Tải lên tài liệu */}
+                <div
+                  onClick={() => {
+                    setUploadForm((prev) => ({
+                      ...prev,
+                      category: "MATERIAL",
+                      type: "pdf",
+                      title: "",
+                      fileName: "",
+                      url: "",
+                    }));
+                    setUploadModalStep("FORM");
+                  }}
+                  className="p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition cursor-pointer space-y-2 group shadow-2xs"
+                >
+                  <div className="size-11 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 grid place-items-center group-hover:scale-105 transition-transform">
+                    <BookOpen size={22} />
+                  </div>
+                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
+                    1. Tải tài liệu
+                  </strong>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Học liệu số, giáo trình, bài tập, đề cương dạng PDF, Word, Excel, Slide...
+                  </p>
+                </div>
+
+                {/* Cách 2: Tải lên bài giảng */}
+                <div
+                  onClick={() => {
+                    setUploadForm((prev) => ({
+                      ...prev,
+                      category: "LECTURE",
+                      type: "video",
+                      title: "",
+                      fileName: "",
+                      url: "",
+                    }));
+                    setMaterialLectureMethod("LINK");
+                    setUploadModalStep("FORM");
+                  }}
+                  className="p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-purple-500 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 transition cursor-pointer space-y-2 group shadow-2xs"
+                >
+                  <div className="size-11 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-400 grid place-items-center group-hover:scale-105 transition-transform">
+                    <Video size={22} />
+                  </div>
+                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
+                    2. Tải bài giảng
+                  </strong>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Video bài học chuyên đề (Dán liên kết YouTube, Drive, Facebook hoặc tải tệp video từ máy)...
+                  </p>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Tên tiêu đề */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Tiêu đề tài liệu / bài giảng: <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: Đề cương ôn tập Toán giữa kỳ 1 hoặc Bài giảng Số nguyên..."
-                  value={uploadForm.title}
-                  onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
-                />
+          {/* BƯỚC 2: FORM TƯƠNG ỨNG THEO ĐÚNG LOẠI ĐÃ CHỌN (CHUẨN LỚP HỌC) */}
+          {uploadModalStep === "FORM" && (
+            <div className={`w-full rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${uploadForm.category === "LECTURE" ? "max-w-3xl" : "max-w-lg"}`}>
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUploadModalStep("SELECT_TYPE")}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer font-bold text-sm"
+                    title="Quay lại chọn loại học liệu"
+                  >
+                    ←
+                  </button>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    {uploadForm.category === "LECTURE" ? (
+                      <>
+                        <Video size={20} className="text-purple-600" />
+                        <span>Thêm bài giảng mới</span>
+                      </>
+                    ) : (
+                      <>
+                        <BookOpen size={20} className="text-blue-600" />
+                        <span>Tải lên tài liệu học tập</span>
+                      </>
+                    )}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUploadModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
               </div>
 
-              {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở, không hỏi nơi lưu */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Vị trí lưu mặc định:
-                </label>
-                <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="size-8 rounded-lg bg-blue-600 text-white grid place-items-center shrink-0 shadow-2xs">
-                      <FolderOpen size={16} />
-                    </div>
-                    <div className="min-w-0">
-                      <strong className="block text-xs font-bold text-blue-700 dark:text-blue-300 truncate">
-                        {currentContextLocation.path}
-                      </strong>
-                      <span className="text-[11px] text-slate-500 block">
-                        Tự động lưu vào vị trí này theo ngữ cảnh bạn đang mở.
+              {/* FORM CHO TÀI LIỆU */}
+              {uploadForm.category === "MATERIAL" && (
+                <div className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Tên tài liệu <span className="text-rose-500">*</span>:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ví dụ: Đề cương ôn tập Toán giữa kỳ 1..."
+                      value={uploadForm.title}
+                      onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Vị trí lưu mặc định:
+                    </label>
+                    <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="size-8 rounded-lg bg-blue-600 text-white grid place-items-center shrink-0 shadow-2xs">
+                          <FolderOpen size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <strong className="block text-xs font-bold text-blue-700 dark:text-blue-300 truncate">
+                            {currentContextLocation.path}
+                          </strong>
+                          <span className="text-[11px] text-slate-500 block">
+                            Tự động lưu vào vị trí này theo ngữ cảnh bạn đang mở.
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 text-[10px] font-extrabold shrink-0 border border-blue-200 dark:border-blue-800">
+                        Hiện tại
                       </span>
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 text-[10px] font-extrabold shrink-0 border border-blue-200 dark:border-blue-800">
-                    Hiện tại
-                  </span>
-                </div>
-              </div>
 
-              {/* Định dạng tệp / Liên kết */}
-              {uploadForm.category === "LECTURE" ? (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Liên kết Video (YouTube, Google Drive):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="url"
-                      placeholder="https://www.youtube.com/watch?v=... hoặc Google Drive link"
-                      value={uploadForm.url}
-                      onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value, type: "link" })}
-                      className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500"
-                    />
-                    <Link2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tệp đính kèm (PDF, Word, PowerPoint, Ảnh):
-                  </label>
-                  <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30">
-                    <FileText size={28} className="mx-auto text-blue-600" />
-                    <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                      Kéo thả hoặc{" "}
-                      <label className="text-blue-600 font-bold hover:underline cursor-pointer">
-                        chọn tệp từ máy
-                        <input
-                          type="file"
-                          accept=".pdf,.docx,.doc,.pptx,.ppt,.png,.jpg"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const ext = file.name.split(".").pop()?.toLowerCase();
-                              setUploadForm({
-                                ...uploadForm,
-                                title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
-                                fileName: file.name,
-                                fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-                                type: ext === "pdf" ? "pdf" : "word",
-                              });
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {uploadForm.fileName && (
-                      <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2 rounded-lg inline-block">
-                        ✓ Đã chọn: {uploadForm.fileName} ({uploadForm.fileSize})
+                  {/* Tệp đính kèm */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Tệp tài liệu (PDF, Word, Excel, Slide):
+                    </label>
+                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30">
+                      <FileText size={28} className="mx-auto text-blue-600" />
+                      <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                        Kéo thả hoặc{" "}
+                        <label className="text-blue-600 font-bold hover:underline cursor-pointer">
+                          chọn tệp từ máy
+                          <input
+                            type="file"
+                            accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.png,.jpg"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const ext = file.name.split(".").pop()?.toLowerCase();
+                                setUploadForm({
+                                  ...uploadForm,
+                                  title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
+                                  fileName: file.name,
+                                  fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                                  type: ext === "pdf" ? "pdf" : "word",
+                                });
+                              }
+                            }}
+                          />
+                        </label>
                       </div>
-                    )}
+                      {uploadForm.fileName && (
+                        <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2.5 rounded-lg inline-block">
+                          ✓ Đã chọn: {uploadForm.fileName} ({uploadForm.fileSize})
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Mô tả tài liệu:
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Mô tả tóm tắt nội dung tài liệu..."
+                      value={uploadForm.description}
+                      onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
+                    />
                   </div>
                 </div>
               )}
-            </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setUploadModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleUploadMaterialSubmit}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <Check size={14} />
-                <span>Hoàn tất & Lưu vào kho</span>
-              </button>
+              {/* FORM CHO BÀI GIẢNG (CHUẨN 2 VÙNG TWO-PANE NHƯ LỚP HỌC) */}
+              {uploadForm.category === "LECTURE" && (
+                <div className="grid md:grid-cols-2 gap-5 text-xs">
+                  {/* Vùng 1: Chọn cách thêm & Nguồn */}
+                  <div className="space-y-3.5 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-4">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-purple-600 block">
+                      Bước 1: Nguồn bài giảng
+                    </span>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMaterialLectureMethod("LINK")}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          materialLectureMethod === "LINK"
+                            ? "bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700"
+                            : "border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        <Link2 size={14} />
+                        <span>Dán liên kết</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMaterialLectureMethod("FILE")}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          materialLectureMethod === "FILE"
+                            ? "bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-700"
+                            : "border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        <UploadCloud size={14} />
+                        <span>Tải tệp từ máy</span>
+                      </button>
+                    </div>
+
+                    {materialLectureMethod === "LINK" ? (
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Liên kết (YouTube, Facebook, Google Drive):
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="url"
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            value={uploadForm.url}
+                            onChange={(e) => {
+                              const u = e.target.value;
+                              const plat = detectPlatformFromUrl(u);
+                              setMaterialLecturePlatform(plat);
+                              setUploadForm({ ...uploadForm, url: u, type: "link" });
+                            }}
+                            className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
+                          />
+                          {materialLecturePlatform !== "INVALID" && (
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600 font-extrabold text-[10px]">
+                              ✓ {materialLecturePlatform}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Tải tệp video / slide bài giảng:
+                        </label>
+                        <label className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 block text-center cursor-pointer hover:border-purple-500 transition">
+                          <input
+                            type="file"
+                            accept="video/*,.pptx,.ppt,.pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setUploadForm({
+                                  ...uploadForm,
+                                  title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
+                                  fileName: file.name,
+                                  fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                                  type: "video",
+                                });
+                              }
+                            }}
+                          />
+                          <UploadCloud size={24} className="mx-auto text-purple-600 mb-1" />
+                          <span className="block text-xs font-bold">Chọn tệp video hoặc slide</span>
+                          <span className="block text-[10px] text-slate-400">Hỗ trợ MP4, WebM, PPTX, PDF</span>
+                        </label>
+                        {uploadForm.fileName && (
+                          <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg text-center">
+                            ✓ {uploadForm.fileName} ({uploadForm.fileSize})
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Vùng 2: Thông tin bài giảng & Vị trí lưu */}
+                  <div className="space-y-3.5">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 block">
+                      Bước 2: Thông tin bài giảng
+                    </span>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Tên bài giảng <span className="text-rose-500">*</span>:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Bài giảng 01: Đại số & Giải tích..."
+                        value={uploadForm.title}
+                        onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-purple-500 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Mô tả bài giảng:
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Tóm tắt nội dung bài học..."
+                        value={uploadForm.description}
+                        onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
+                      />
+                    </div>
+
+                    {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Vị trí lưu mặc định:
+                      </label>
+                      <div className="p-2.5 rounded-xl bg-purple-50/80 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="size-7 rounded-lg bg-purple-600 text-white grid place-items-center shrink-0 shadow-2xs">
+                            <FolderOpen size={14} />
+                          </div>
+                          <span className="text-xs font-bold text-purple-700 dark:text-purple-300 truncate">
+                            {currentContextLocation.path}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 text-[10px] font-extrabold shrink-0">
+                          Hiện tại
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setUploadModalStep("SELECT_TYPE")}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  ← Đổi loại
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUploadModalOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUploadMaterialSubmit}
+                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check size={14} />
+                    <span>Hoàn tất & Lưu vào kho</span>
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
