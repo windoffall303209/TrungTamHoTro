@@ -104,6 +104,10 @@ export class ContentController {
   /** Tạo metadata học liệu không kèm tệp cho lớp giảng viên. */
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id); }
 
+  @Post("instructor/materials") @RequirePermissions("material:manage")
+  /** Tạo metadata học liệu không kèm tệp cho kho dùng chung hoặc chưa phân loại. */
+  createDirectMaterial(@Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(null, input, undefined, session.user.id); }
+
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
   @UseInterceptors(MaterialUploadInterceptor)
   /** Chuẩn hóa tên/tags của tệp multipart rồi giao service quét virus và lưu object. */

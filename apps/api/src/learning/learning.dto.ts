@@ -182,6 +182,7 @@ export class CreateMaterialDto {
   @IsString() folder!: string;
   @IsArray() @IsString({ each: true }) tags!: string[];
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
+  @IsOptional() @IsString() courseId?: string;
 }
 
 /** Metadata đi kèm file upload học liệu; nội dung binary do interceptor cung cấp. */
@@ -192,6 +193,8 @@ export class UploadMaterialDto {
 }
 
 export class UpdateMaterialDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() classId?: string | null;
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
