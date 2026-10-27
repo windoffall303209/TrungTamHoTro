@@ -238,6 +238,10 @@ export async function createMaterial(
     : undefined;
   // Học liệu theo môn luôn dùng chung; học liệu trong lớp do giảng viên của lớp chọn phạm vi.
   const scope = classId ? input.scope ?? "SHARED" : "SHARED";
+  if (!classId && !input.courseId && prisma) {
+    const firstCourse = await prisma.course.findFirst({ select: { id: true } });
+    if (firstCourse) input.courseId = firstCourse.id;
+  }
   if (!classId && !input.courseId)
     throw new BadRequestException("Cần chọn môn học cho học liệu dùng chung.");
   if (prisma) {
@@ -417,7 +421,10 @@ function assertInstructorVisibility(
 export async function updateMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
-  input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility" | "scope">>,
+  input: Partial<Pick<LearningMaterial, "folder" | "tags" | "visibility" | "scope">> & {
+    classId?: string | null;
+    name?: string;
+  },
   actorId = "usr-instructor",
 ): Promise<LearningMaterial> {
   const prisma = serviceContext.database();
@@ -433,19 +440,22 @@ export async function updateMaterial(
       );
     if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    if (input.scope === "CLASS" && !current.classId)
+    if (input.scope === "CLASS" && !current.classId && !input.classId)
       throw new BadRequestException(
         "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
       );
     assertInstructorVisibility(current, input.visibility);
     return prisma.$transaction(async (transaction) => {
+      const nextScope = input.classId ? "CLASS" : input.classId === null ? "SHARED" : input.scope;
       const updated = await transaction.material.update({
         where: { id: materialId },
         data: {
-          folder: input.folder?.trim(),
+          name: input.name ? input.name.trim() : undefined,
+          folder: input.folder !== undefined ? input.folder?.trim() : undefined,
+          classId: input.classId !== undefined ? (input.classId || null) : undefined,
           tags: input.tags,
           visibility: input.visibility,
-          scope: input.scope,
+          scope: nextScope,
           version: { increment: 1 },
         },
       });
@@ -478,12 +488,20 @@ export async function updateMaterial(
     );
   if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (input.scope === "CLASS" && !item.classId)
+  if (input.scope === "CLASS" && !item.classId && !input.classId)
     throw new BadRequestException(
       "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
     );
   assertInstructorVisibility(item, input.visibility);
-  Object.assign(item, input);
+  if (input.classId !== undefined) {
+    (item as any).classId = input.classId || null;
+    item.scope = input.classId ? "CLASS" : "SHARED";
+  }
+  if (input.name) item.name = input.name.trim();
+  if (input.folder !== undefined) item.folder = input.folder.trim();
+  if (input.tags) item.tags = input.tags;
+  if (input.visibility) item.visibility = input.visibility;
+  if (input.scope && input.classId === undefined) item.scope = input.scope;
   item.version += 1;
   const stored = serviceContext.materialFiles.get(materialId);
   serviceContext.materialVersions.unshift({

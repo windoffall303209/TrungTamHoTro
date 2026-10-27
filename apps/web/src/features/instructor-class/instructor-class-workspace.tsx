@@ -29,6 +29,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderInput,
   Globe,
   GraduationCap,
   Info,
@@ -691,6 +692,59 @@ export function InstructorClassWorkspace({
   const [editMaterialFormSize, setEditMaterialFormSize] = useState("");
   const [editMaterialFormPageCount, setEditMaterialFormPageCount] = useState(10);
   const [editMaterialFormDesc, setEditMaterialFormDesc] = useState("");
+
+  // Modal Di chuyển Bài giảng & Tài liệu sang lớp khác hoặc Cần phân cấp lại
+  const [moveItemModalOpen, setMoveItemModalOpen] = useState(false);
+  const [itemForMove, setItemForMove] = useState<{ id: string; title: string; kind: "LECTURE" | "MATERIAL" } | null>(null);
+  const [targetDestinationClassId, setTargetDestinationClassId] = useState<string>("unclassified");
+  const [allInstructorClasses, setAllInstructorClasses] = useState<LearningClass[]>([]);
+
+  useEffect(() => {
+    apiRequest<LearningClass[]>("/instructor/classes", { roleCode: session.roleCode })
+      .then((data) => {
+        if (Array.isArray(data)) setAllInstructorClasses(data);
+      })
+      .catch((err) => console.warn("Lỗi nạp danh sách lớp:", err));
+  }, [session.roleCode]);
+
+  const handleOpenMoveItem = (id: string, title: string, kind: "LECTURE" | "MATERIAL") => {
+    setItemForMove({ id, title, kind });
+    setTargetDestinationClassId("unclassified");
+    setMoveItemModalOpen(true);
+  };
+
+  const handleConfirmMoveItem = async () => {
+    if (!itemForMove) return;
+    const isUnclassified = targetDestinationClassId === "unclassified";
+    try {
+      await apiRequest(`/instructor/materials/${itemForMove.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: isUnclassified ? null : targetDestinationClassId,
+          scope: isUnclassified ? "SHARED" : "CLASS",
+        }),
+      });
+
+      if (targetDestinationClassId !== item.id) {
+        if (itemForMove.kind === "LECTURE") {
+          setLectures((prev: any[]) => prev.filter((l: any) => l.id !== itemForMove.id));
+        } else {
+          setMaterialsList((prev: any[]) => prev.filter((m: any) => m.id !== itemForMove.id));
+        }
+      }
+
+      const targetCls = allInstructorClasses.find((c) => c.id === targetDestinationClassId);
+      const destName = isUnclassified ? "Cần phân cấp lại (Chưa phân loại)" : targetCls?.name || "lớp mới";
+      notify(`Đã di chuyển '${itemForMove.title}' sang ${destName} thành công!`, "success");
+    } catch (err) {
+      console.warn("Lỗi di chuyển học liệu trong CSDL:", err);
+      notify("Có lỗi khi di chuyển học liệu. Vui lòng thử lại!", "error");
+    } finally {
+      setMoveItemModalOpen(false);
+      setItemForMove(null);
+    }
+  };
 
   // Cài đặt lớp học (Settings)
   const [classSettings, setClassSettings] = useState({
@@ -4032,20 +4086,28 @@ export function InstructorClassWorkspace({
                         <span>Xem bài giảng</span>
                       </button>
 
-                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa và Xóa bài giảng */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa, Di chuyển và Xóa bài giảng */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => handleOpenEditLecture(activeLectureItem)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                         >
                           <Edit3 size={13} />
                           <span>Chỉnh sửa</span>
                         </button>
                         <button
                           type="button"
+                          onClick={() => handleOpenMoveItem(activeLectureItem.id, activeLectureItem.title, "LECTURE")}
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <FolderInput size={13} />
+                          <span>Di chuyển</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                         >
                           <Trash2 size={13} />
                           <span>Xóa</span>
@@ -4322,20 +4384,28 @@ export function InstructorClassWorkspace({
                         <span>Tải xuống tài liệu</span>
                       </button>
 
-                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa và Xóa tài liệu */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa, Di chuyển và Xóa tài liệu */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => handleOpenEditMaterial(activeMaterialItem)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                         >
                           <Edit3 size={13} />
                           <span>Chỉnh sửa</span>
                         </button>
                         <button
                           type="button"
+                          onClick={() => handleOpenMoveItem(activeMaterialItem.id, activeMaterialItem.title, "MATERIAL")}
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <FolderInput size={13} />
+                          <span>Di chuyển</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                         >
                           <Trash2 size={13} />
                           <span>Xóa</span>
@@ -7263,6 +7333,56 @@ export function InstructorClassWorkspace({
                   Bốc ngẫu nhiên & Tạo đề thi
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Di chuyển Bài giảng / Tài liệu sang lớp khác hoặc Cần phân cấp lại */}
+      {moveItemModalOpen && itemForMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <FolderInput size={20} className="text-amber-600" />
+              <span>Di chuyển {itemForMove.kind === "LECTURE" ? "bài giảng" : "tài liệu"}</span>
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Chọn thư mục / lớp đích để chuyển <strong className="text-slate-900 dark:text-slate-100">"{itemForMove.title}"</strong>:
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Thư mục / Lớp đích:
+              </label>
+              <select
+                value={targetDestinationClassId}
+                onChange={(e) => setTargetDestinationClassId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="unclassified">📍 Cần phân cấp lại (Chưa phân loại)</option>
+                {allInstructorClasses.map((cls) => (
+                  <option key={cls.id} value={cls.id}>
+                    📁 {cls.name} ({cls.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setMoveItemModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmMoveItem}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                Xác nhận di chuyển
+              </button>
             </div>
           </div>
         </div>

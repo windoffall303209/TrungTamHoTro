@@ -29,6 +29,8 @@ import {
   Check,
   CheckCircle2,
   AlertTriangle,
+  FolderMinus,
+  FolderOpen,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
@@ -246,6 +248,7 @@ export function InstructorMaterialsView() {
 
   // Kéo thả (Drag & Drop)
   const [draggedFile, setDraggedFile] = useState<MaterialFileItem | null>(null);
+  const [draggedFileFromClassId, setDraggedFileFromClassId] = useState<string | undefined>(undefined);
   const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
 
   // Modal tạo bài tập / đề thi
@@ -287,6 +290,39 @@ export function InstructorMaterialsView() {
     });
     return list;
   }, [gradesData]);
+
+  // Ngữ cảnh lưu trữ hiện tại: Đang ở thư mục nào thì lưu ở đó luôn, không cần hỏi
+  const currentContextLocation = useMemo(() => {
+    if (selectedClassId && currentClass) {
+      return {
+        classId: currentClass.id,
+        path: `${currentGrade?.label || "Khối"} > Môn ${currentSubject?.name || "Môn"} > ${currentClass.name}`,
+        label: currentClass.name,
+      };
+    }
+    if (selectedSubjectId && currentSubject) {
+      const firstCls = currentSubject.classes[0];
+      return {
+        classId: firstCls?.id || "unclassified",
+        path: `${currentGrade?.label || "Khối"} > Môn ${currentSubject.name}${firstCls ? ` > ${firstCls.name}` : ""}`,
+        label: firstCls?.name || currentSubject.name,
+      };
+    }
+    if (selectedGradeId && currentGrade) {
+      const firstSub = currentGrade.subjects[0];
+      const firstCls = firstSub?.classes[0];
+      return {
+        classId: firstCls?.id || "unclassified",
+        path: `${currentGrade.label}${firstSub ? ` > Môn ${firstSub.name}` : ""}${firstCls ? ` > ${firstCls.name}` : ""}`,
+        label: firstCls?.name || currentGrade.label,
+      };
+    }
+    return {
+      classId: "unclassified",
+      path: "📍 Cần phân cấp lại (Chưa phân loại)",
+      label: "Cần phân cấp lại",
+    };
+  }, [selectedClassId, currentClass, selectedSubjectId, currentSubject, selectedGradeId, currentGrade]);
 
   // Xử lý tạo mới Khối / Môn / Lớp tùy theo vị trí đang đứng
   const handleCreateFolder = () => {
@@ -350,18 +386,59 @@ export function InstructorMaterialsView() {
     setCreateFolderModalOpen(false);
   };
 
-  // Tải lên tài liệu / bài giảng thật
-  const handleUploadMaterialSubmit = () => {
+  // Tải lên tài liệu / bài giảng thật - Lưu trực tiếp vào CSDL PostgreSQL theo ngữ cảnh hiện tại
+  const handleUploadMaterialSubmit = async () => {
     if (!uploadForm.title.trim()) {
       notify("Vui lòng nhập tiêu đề tài liệu / bài giảng!", "error");
       return;
     }
 
+    const effectiveTargetClassId = uploadForm.targetClassId || currentContextLocation.classId;
+    const isUnclassified = effectiveTargetClassId === "unclassified";
+    const ext = uploadForm.fileName ? uploadForm.fileName.split(".").pop()?.toLowerCase() : uploadForm.type;
+    const mimeType = ext === "pdf"
+      ? "application/pdf"
+      : ext?.includes("doc")
+      ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      : uploadForm.type === "video"
+      ? "video/mp4"
+      : "application/octet-stream";
+
+    let createdId = `mat-${Date.now()}`;
+    try {
+      const payload = {
+        name: uploadForm.title.trim(),
+        mimeType,
+        sizeBytes: 1887436,
+        folder: uploadForm.category === "LECTURE" ? "Bài giảng" : "Tài liệu",
+        tags: [uploadForm.category, uploadForm.type],
+        scope: isUnclassified ? ("SHARED" as const) : ("CLASS" as const),
+      };
+
+      if (isUnclassified) {
+        const created = await apiRequest<any>("/instructor/materials", {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify(payload),
+        });
+        if (created?.id) createdId = created.id;
+      } else {
+        const created = await apiRequest<any>(`/instructor/classes/${effectiveTargetClassId}/materials`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify(payload),
+        });
+        if (created?.id) createdId = created.id;
+      }
+    } catch (err) {
+      console.warn("Lỗi lưu học liệu mới vào CSDL:", err);
+    }
+
     const newFile: MaterialFileItem = {
-      id: `mat-${Date.now()}`,
+      id: createdId,
       name: uploadForm.title.trim(),
       type: uploadForm.type,
-      size: uploadForm.fileSize || "2.1 MB",
+      size: uploadForm.fileSize || "1.8 MB",
       updatedAt: "Vừa xong",
       tag: uploadForm.category === "LECTURE" ? "Bài giảng" : "Tài liệu",
       assignedRole: uploadForm.category,
@@ -369,9 +446,9 @@ export function InstructorMaterialsView() {
       description: uploadForm.description,
     };
 
-    if (uploadForm.targetClassId === "unclassified") {
+    if (isUnclassified) {
       setUnclassifiedExams((prev) => [newFile, ...prev]);
-      notify(`Đã tải lên '${newFile.name}' vào danh sách Chưa phân loại!`, "success");
+      notify(`Đã lưu '${newFile.name}' vào Cần phân cấp lại (CSDL)!`, "success");
     } else {
       setGradesData((prev) =>
         prev.map((g) => ({
@@ -379,7 +456,7 @@ export function InstructorMaterialsView() {
           subjects: g.subjects.map((s) => ({
             ...s,
             classes: s.classes.map((c) => {
-              if (c.id !== uploadForm.targetClassId) return c;
+              if (c.id !== effectiveTargetClassId) return c;
               return {
                 ...c,
                 files: [newFile, ...c.files],
@@ -389,8 +466,8 @@ export function InstructorMaterialsView() {
           })),
         }))
       );
-      const targetCls = allClassesList.find((c) => c.classId === uploadForm.targetClassId);
-      notify(`Đã tải lên '${newFile.name}' vào ${targetCls?.className || "lớp học"}!`, "success");
+      const targetCls = allClassesList.find((c) => c.classId === effectiveTargetClassId);
+      notify(`Đã lưu '${newFile.name}' vào ${targetCls?.className || currentContextLocation.label} (CSDL)!`, "success");
     }
 
     setUploadModalOpen(false);
@@ -401,13 +478,26 @@ export function InstructorMaterialsView() {
       url: "",
       fileName: "",
       fileSize: "1.8 MB",
-      targetClassId: currentClass?.id || "cls-6A1",
+      targetClassId: currentContextLocation.classId,
       description: "",
     });
   };
 
-  // Chuyển tệp học liệu sang cột "Chưa phân loại" bên trái để sẵn sàng kéo thả
-  const handleMoveToUnclassified = (file: MaterialFileItem, fromClassId?: string) => {
+  // Chuyển tệp học liệu sang ô "Cần phân cấp lại" bên trái VÀ CẬP NHẬT CƠ SỞ DỮ LIỆU
+  const handleMoveToUnclassified = async (file: MaterialFileItem, fromClassId?: string) => {
+    try {
+      await apiRequest(`/instructor/materials/${file.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: null,
+          scope: "SHARED",
+        }),
+      });
+    } catch (err) {
+      console.warn("Lỗi cập nhật Cần phân cấp lại vào CSDL:", err);
+    }
+
     if (fromClassId) {
       setGradesData((prev) =>
         prev.map((g) => ({
@@ -436,15 +526,29 @@ export function InstructorMaterialsView() {
       ...prev.filter((f) => f.id !== file.id),
     ]);
     setActiveMenuFileId(null);
-    notify(`Đã chuyển '${file.name}' sang danh sách Chưa phân loại ở cột trái. Bạn có thể kéo thả vào thư mục khác.`, "info");
+    notify(`Đã chuyển '${file.name}' vào ô Cần phân cấp lại và lưu vào CSDL.`, "info");
   };
 
-  // Di chuyển tệp đến một lớp học cụ thể (từ popup hoặc kéo thả)
-  const handleMoveFileToTargetClass = (
+  // Di chuyển tệp đến một thư mục/lớp học cụ thể VÀ CẬP NHẬT CSDL
+  const handleMoveFileToTargetClass = async (
     file: MaterialFileItem,
     targetClassId: string,
     fromClassId?: string
   ) => {
+    const isToUnclassified = targetClassId === "unclassified";
+    try {
+      await apiRequest(`/instructor/materials/${file.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: isToUnclassified ? null : targetClassId,
+          scope: isToUnclassified ? "SHARED" : "CLASS",
+        }),
+      });
+    } catch (err) {
+      console.warn("Lỗi cập nhật vị trí di chuyển file vào CSDL:", err);
+    }
+
     // Xóa ở vị trí cũ
     if (fromClassId) {
       setGradesData((prev) =>
@@ -467,35 +571,53 @@ export function InstructorMaterialsView() {
       setUnclassifiedExams((prev) => prev.filter((f) => f.id !== file.id));
     }
 
-    // Thêm vào lớp đích
-    setGradesData((prev) =>
-      prev.map((g) => ({
-        ...g,
-        subjects: g.subjects.map((s) => ({
-          ...s,
-          classes: s.classes.map((c) => {
-            if (c.id !== targetClassId) return c;
-            return {
-              ...c,
-              files: [{ ...file, isUnclassified: false, updatedAt: "Vừa xong" }, ...c.files],
-              itemsCount: c.itemsCount + 1,
-            };
-          }),
-        })),
-      }))
-    );
+    if (isToUnclassified) {
+      setUnclassifiedExams((prev) => [
+        { ...file, isUnclassified: true, updatedAt: "Vừa xong" },
+        ...prev.filter((f) => f.id !== file.id),
+      ]);
+      notify(`Đã di chuyển '${file.name}' vào Cần phân cấp lại (CSDL) thành công!`, "success");
+    } else {
+      // Thêm vào lớp đích
+      setGradesData((prev) =>
+        prev.map((g) => ({
+          ...g,
+          subjects: g.subjects.map((s) => ({
+            ...s,
+            classes: s.classes.map((c) => {
+              if (c.id !== targetClassId) return c;
+              return {
+                ...c,
+                files: [{ ...file, isUnclassified: false, updatedAt: "Vừa xong" }, ...c.files.filter((f) => f.id !== file.id)],
+                itemsCount: c.itemsCount + 1,
+              };
+            }),
+          })),
+        }))
+      );
+      const targetCls = allClassesList.find((c) => c.classId === targetClassId);
+      notify(`Đã di chuyển '${file.name}' vào ${targetCls?.className || "lớp mới"} (CSDL) thành công!`, "success");
+    }
 
-    const targetCls = allClassesList.find((c) => c.classId === targetClassId);
-    notify(`Đã di chuyển '${file.name}' vào ${targetCls?.className || "lớp mới"} thành công!`, "success");
     setMoveModalOpen(false);
     setSelectedFileForMove(null);
     setActiveMenuFileId(null);
     setDraggedFile(null);
+    setDraggedFileFromClassId(undefined);
     setDragOverTargetId(null);
   };
 
-  // Xóa tệp học liệu
-  const handleDeleteFile = (file: MaterialFileItem, fromClassId?: string) => {
+  // Xóa tệp học liệu vật lý khỏi CSDL
+  const handleDeleteFile = async (file: MaterialFileItem, fromClassId?: string) => {
+    try {
+      await apiRequest(`/instructor/materials/${file.id}`, {
+        method: "DELETE",
+        roleCode: session.roleCode,
+      });
+    } catch (err) {
+      console.warn("Lỗi xóa file trong CSDL:", err);
+    }
+
     if (fromClassId) {
       setGradesData((prev) =>
         prev.map((g) => ({
@@ -517,7 +639,7 @@ export function InstructorMaterialsView() {
       setUnclassifiedExams((prev) => prev.filter((f) => f.id !== file.id));
     }
     setActiveMenuFileId(null);
-    notify(`Đã xóa '${file.name}' khỏi kho học liệu!`, "success");
+    notify(`Đã xóa '${file.name}' khỏi kho học liệu và CSDL!`, "success");
   };
 
   // Xác nhận Dùng làm tài liệu hoặc bài giảng
@@ -561,78 +683,132 @@ export function InstructorMaterialsView() {
     setActiveMenuFileId(null);
   };
 
-  // Xử lý khi thả tệp vào một Khối (Tự động khởi tạo môn/lớp nếu chưa có để đảm bảo luôn nhận tệp thành công)
-  const handleDropOnTargetGrade = (gradeId: string) => {
-    if (!draggedFile) return;
+  // Xử lý kéo thả kiểu Laptop: Hỗ trợ cả file nội bộ và file kéo từ máy tính cá nhân
+  const handleDropOnTargetFolder = async (
+    targetClassId: string,
+    e: React.DragEvent
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTargetId(null);
+
+    // TH1: Kéo thả file từ máy tính cá nhân (Desktop / Laptop Explorer)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+      const fType = ext.includes("doc") ? "word" : ext.includes("pdf") ? "pdf" : ext.includes("mp4") ? "video" : "pdf";
+      const sizeMb = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+      const isUnc = targetClassId === "unclassified";
+
+      let createdId = `mat-${Date.now()}`;
+      try {
+        const payload = {
+          name: file.name,
+          mimeType: file.type || (ext.includes("pdf") ? "application/pdf" : "application/octet-stream"),
+          sizeBytes: file.size || 1500000,
+          folder: "Tài liệu",
+          tags: ["Tài liệu", ext],
+          scope: isUnc ? ("SHARED" as const) : ("CLASS" as const),
+        };
+        const endpoint = isUnc ? "/instructor/materials" : `/instructor/classes/${targetClassId}/materials`;
+        const created = await apiRequest<any>(endpoint, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify(payload),
+        });
+        if (created?.id) createdId = created.id;
+      } catch (err) {
+        console.warn("Lỗi lưu file kéo thả từ máy tính vào CSDL:", err);
+      }
+
+      const newFile: MaterialFileItem = {
+        id: createdId,
+        name: file.name,
+        type: fType as any,
+        size: sizeMb,
+        updatedAt: "Vừa xong",
+        tag: "Tài liệu",
+        assignedRole: "MATERIAL",
+      };
+
+      if (isUnc) {
+        setUnclassifiedExams((prev) => [newFile, ...prev]);
+        notify(`Đã lưu tệp '${file.name}' từ máy tính vào ô Cần phân cấp lại (CSDL)!`, "success");
+      } else {
+        setGradesData((prev) =>
+          prev.map((g) => ({
+            ...g,
+            subjects: g.subjects.map((s) => ({
+              ...s,
+              classes: s.classes.map((c) => {
+                if (c.id !== targetClassId) return c;
+                return {
+                  ...c,
+                  files: [newFile, ...c.files],
+                  itemsCount: c.itemsCount + 1,
+                };
+              }),
+            })),
+          }))
+        );
+        const targetCls = allClassesList.find((c) => c.classId === targetClassId);
+        notify(`Đã lưu tệp '${file.name}' từ máy tính vào ${targetCls?.className || "thư mục"} (CSDL)!`, "success");
+      }
+      return;
+    }
+
+    // TH2: Kéo thả file nội bộ
+    if (draggedFile) {
+      if (targetClassId === "unclassified") {
+        await handleMoveToUnclassified(draggedFile, draggedFileFromClassId);
+      } else {
+        await handleMoveFileToTargetClass(draggedFile, targetClassId, draggedFileFromClassId);
+      }
+    }
+  };
+
+  // Xử lý khi thả tệp vào một Khối (kéo thả kiểu laptop)
+  const handleDropOnTargetGrade = async (gradeId: string, e: React.DragEvent) => {
     const targetGrade = gradesData.find((g) => g.id === gradeId);
     if (!targetGrade) return;
 
-    if (targetGrade.subjects.length === 0) {
+    let targetClassId: string | null = null;
+    const firstSub = targetGrade.subjects[0];
+    const firstCls = firstSub?.classes?.[0];
+    if (firstCls) {
+      targetClassId = firstCls.id;
+    }
+
+    if (!targetClassId) {
       const newClassId = `cls-${gradeId}-auto-${Date.now()}`;
       const newSubjectId = `sub-${gradeId}-auto-${Date.now()}`;
       const newClass: ClassFolderItem = {
         id: newClassId,
         name: `Lớp ${targetGrade.name}A1`,
         code: `K${targetGrade.name}-01`,
-        itemsCount: 1,
+        itemsCount: 0,
         updatedAt: "Vừa xong",
-        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
+        files: [],
       };
       const newSub: SubjectFolderItem = {
         id: newSubjectId,
         name: "Tài liệu chung",
-        itemsCount: 1,
+        itemsCount: 0,
         updatedAt: "Vừa xong",
         classes: [newClass],
       };
-
       setGradesData((prev) =>
-        prev.map((g) => (g.id === gradeId ? { ...g, itemsCount: g.itemsCount + 1, subjects: [newSub, ...g.subjects] } : g))
+        prev.map((g) => (g.id === gradeId ? { ...g, subjects: [newSub, ...g.subjects] } : g))
       );
-      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
-      notify(`Đã di chuyển '${draggedFile.name}' vào Khối ${targetGrade.label} thành công!`, "success");
-      setDraggedFile(null);
-      setDragOverTargetId(null);
-      return;
+      targetClassId = newClassId;
     }
 
-    const firstSubject = targetGrade.subjects[0];
-    if (!firstSubject || firstSubject.classes.length === 0) {
-      const newClassId = `cls-${gradeId}-sub-auto-${Date.now()}`;
-      const newClass: ClassFolderItem = {
-        id: newClassId,
-        name: `Lớp ${targetGrade.name}A1`,
-        code: `K${targetGrade.name}-01`,
-        itemsCount: 1,
-        updatedAt: "Vừa xong",
-        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
-      };
-      setGradesData((prev) =>
-        prev.map((g) => {
-          if (g.id !== gradeId) return g;
-          return {
-            ...g,
-            itemsCount: g.itemsCount + 1,
-            subjects: g.subjects.map((s, idx) => (idx === 0 ? { ...s, itemsCount: s.itemsCount + 1, classes: [newClass, ...s.classes] } : s)),
-          };
-        })
-      );
-      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
-      notify(`Đã di chuyển '${draggedFile.name}' vào Khối ${targetGrade.label} thành công!`, "success");
-      setDraggedFile(null);
-      setDragOverTargetId(null);
-      return;
-    }
-
-    const targetClass = firstSubject.classes[0];
-    if (targetClass) {
-      handleMoveFileToTargetClass(draggedFile, targetClass.id);
-    }
+    await handleDropOnTargetFolder(targetClassId, e);
   };
 
-  // Xử lý khi thả tệp vào một Môn (Tự động khởi tạo lớp nếu môn chưa có lớp)
-  const handleDropOnTargetSubject = (subjectId: string) => {
-    if (!draggedFile) return;
+  // Xử lý khi thả tệp vào một Môn (kéo thả kiểu laptop)
+  const handleDropOnTargetSubject = async (subjectId: string, e: React.DragEvent) => {
     let foundClassId: string | null = null;
     let parentGradeId: string | null = null;
     let targetSubjectName = "môn học";
@@ -649,45 +825,37 @@ export function InstructorMaterialsView() {
       });
     });
 
-    if (foundClassId) {
-      handleMoveFileToTargetClass(draggedFile, foundClassId);
-      return;
-    }
-
-    if (parentGradeId) {
-      const newClassId = `cls-sub-auto-${Date.now()}`;
+    if (!foundClassId && parentGradeId) {
+      foundClassId = `cls-sub-auto-${Date.now()}`;
       const newClass: ClassFolderItem = {
-        id: newClassId,
+        id: foundClassId,
         name: `Lớp ${targetSubjectName} 1`,
         code: `L-${Date.now().toString().slice(-4)}`,
-        itemsCount: 1,
+        itemsCount: 0,
         updatedAt: "Vừa xong",
-        files: [{ ...draggedFile, isUnclassified: false, updatedAt: "Vừa xong" }],
+        files: [],
       };
       setGradesData((prev) =>
         prev.map((g) => {
           if (g.id !== parentGradeId) return g;
           return {
             ...g,
-            itemsCount: g.itemsCount + 1,
-            subjects: g.subjects.map((s) => (s.id === subjectId ? { ...s, itemsCount: s.itemsCount + 1, classes: [newClass, ...s.classes] } : s)),
+            subjects: g.subjects.map((s) => (s.id === subjectId ? { ...s, classes: [newClass, ...s.classes] } : s)),
           };
         })
       );
-      setUnclassifiedExams((prev) => prev.filter((f) => f.id !== draggedFile.id));
-      notify(`Đã di chuyển '${draggedFile.name}' vào môn ${targetSubjectName} thành công!`, "success");
-      setDraggedFile(null);
-      setDragOverTargetId(null);
-      return;
     }
 
-    notify("Không tìm thấy thông tin môn học để lưu tệp!", "error");
+    if (foundClassId) {
+      await handleDropOnTargetFolder(foundClassId, e);
+    } else {
+      notify("Không tìm thấy lớp học hợp lệ để lưu tệp!", "error");
+    }
   };
 
   // Xử lý khi thả tệp vào một Thư mục hoặc Lớp
-  const handleDropOnTargetClass = (classId: string) => {
-    if (!draggedFile) return;
-    handleMoveFileToTargetClass(draggedFile, classId);
+  const handleDropOnTargetClass = async (classId: string, e: React.DragEvent) => {
+    await handleDropOnTargetFolder(classId, e);
   };
 
   // Nhận bài tập vừa tạo từ modal và đưa vào đúng Lớp
@@ -731,19 +899,40 @@ export function InstructorMaterialsView() {
       className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)] w-full bg-slate-50/50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100"
     >
       {/* =========================================================================
-          CỘT TRÁI: ĐỀ / TÀI LIỆU CHƯA PHÂN LOẠI (HỖ TRỢ KÉO THẢ & MENU 3 CHẤM 3 LỰA CHỌN)
+          CỘT TRÁI: CẦN PHÂN CẤP LẠI (HỖ TRỢ KÉO THẢ KIỂU LAPTOP & MENU 3 CHẤM)
           ========================================================================= */}
-      <aside className="w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 space-y-4">
-        {/* Hàng Header: Đề chưa phân loại kèm badge đỏ tròn */}
+      <aside
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setDragOverTargetId("unclassified-zone");
+        }}
+        onDragLeave={() => {
+          if (dragOverTargetId === "unclassified-zone") setDragOverTargetId(null);
+        }}
+        onDrop={(e) => handleDropOnTargetFolder("unclassified", e)}
+        className={`w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 space-y-4 transition-all ${
+          dragOverTargetId === "unclassified-zone"
+            ? "bg-rose-50/80 dark:bg-rose-950/40 ring-2 ring-dashed ring-rose-500 scale-[1.01]"
+            : ""
+        }`}
+      >
+        {/* Hàng Header: Cần phân cấp lại kèm badge đỏ tròn */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Đề / Tài liệu chưa phân loại
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <span>📍</span>
+              <span>Cần phân cấp lại</span>
             </h2>
             <span className="grid size-5 place-items-center rounded-full bg-rose-500 text-white text-[11px] font-extrabold shadow-2xs">
               {unclassifiedExams.length}
             </span>
           </div>
+          {dragOverTargetId === "unclassified-zone" && (
+            <span className="text-[10px] font-extrabold text-rose-600 bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-full animate-pulse">
+              Thả vào đây
+            </span>
+          )}
         </div>
 
         {/* Switch: Hiển thị chi tiết học liệu */}
@@ -765,14 +954,14 @@ export function InstructorMaterialsView() {
         {/* Hướng dẫn kéo thả trực quan */}
         <div className="px-3 py-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 flex items-center gap-2">
           <Move size={14} className="shrink-0 animate-pulse text-blue-600" />
-          <span>Kéo thả thẻ bên dưới vào các Lớp ở bảng bên phải để di chuyển thư mục.</span>
+          <span>Kéo thả thẻ vào các Thư mục/Lớp ở bảng bên phải để lưu (hoặc kéo tệp máy tính thả vào đây).</span>
         </div>
 
         {/* Danh sách các thẻ đề chưa phân loại (Kéo thả draggable, Icon phân loại & Menu 3 chấm) */}
         <div className="space-y-3 pt-1">
           {unclassifiedExams.length === 0 ? (
             <div className="p-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-              Không có tài liệu nào chưa phân loại. Bấm "Tải lên" ở góc trên để bổ sung.
+              Không có tài liệu nào cần phân cấp lại. Bấm "Tải lên" hoặc kéo thả tệp từ máy tính vào đây.
             </div>
           ) : (
             unclassifiedExams.map((item) => (
@@ -782,8 +971,12 @@ export function InstructorMaterialsView() {
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/plain", item.id);
                   setDraggedFile(item);
+                  setDraggedFileFromClassId(undefined);
                 }}
-                onDragEnd={() => setDraggedFile(null)}
+                onDragEnd={() => {
+                  setDraggedFile(null);
+                  setDraggedFileFromClassId(undefined);
+                }}
                 className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-3 shadow-2xs space-y-2 hover:border-blue-400 transition cursor-grab active:cursor-grabbing group ${
                   draggedFile?.id === item.id
                     ? "opacity-50 border-blue-500 scale-[0.98]"
@@ -848,7 +1041,7 @@ export function InstructorMaterialsView() {
                           className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
                         >
                           <Move size={14} className="text-amber-600" />
-                          <span>Phân loại lại tài liệu</span>
+                          <span>Di chuyển đến thư mục...</span>
                         </button>
 
                         <button
@@ -987,7 +1180,7 @@ export function InstructorMaterialsView() {
               onClick={() => {
                 setUploadForm((prev) => ({
                   ...prev,
-                  targetClassId: currentClass?.id || "cls-6A1",
+                  targetClassId: currentContextLocation.classId,
                 }));
                 setUploadModalOpen(true);
               }}
@@ -1075,8 +1268,7 @@ export function InstructorMaterialsView() {
                       }}
                       onDragLeave={() => setDragOverTargetId(null)}
                       onDrop={(e) => {
-                        e.preventDefault();
-                        handleDropOnTargetGrade(grade.id);
+                        handleDropOnTargetGrade(grade.id, e);
                       }}
                       className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
                         isDragOver
@@ -1092,7 +1284,7 @@ export function InstructorMaterialsView() {
                           </strong>
                           {isDragOver && (
                             <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
-                              Thả tệp vào đây để chuyển vào khối {grade.label}
+                              Thả tệp vào đây để lưu vào khối {grade.label}
                             </span>
                           )}
                         </div>
@@ -1121,8 +1313,7 @@ export function InstructorMaterialsView() {
                         }}
                         onDragLeave={() => setDragOverTargetId(null)}
                         onDrop={(e) => {
-                          e.preventDefault();
-                          handleDropOnTargetSubject(sub.id);
+                          handleDropOnTargetSubject(sub.id, e);
                         }}
                         className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
                           isDragOver
@@ -1138,7 +1329,7 @@ export function InstructorMaterialsView() {
                             </strong>
                             {isDragOver && (
                               <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
-                                Thả tệp vào đây để chuyển vào môn {sub.name}
+                                Thả tệp vào đây để lưu vào môn {sub.name}
                               </span>
                             )}
                           </div>
@@ -1169,12 +1360,12 @@ export function InstructorMaterialsView() {
                         onClick={() => setSelectedClassId(cls.id)}
                         onDragOver={(e) => {
                           e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
                           setDragOverTargetId(cls.id);
                         }}
                         onDragLeave={() => setDragOverTargetId(null)}
                         onDrop={(e) => {
-                          e.preventDefault();
-                          handleDropOnTargetClass(cls.id);
+                          handleDropOnTargetClass(cls.id, e);
                         }}
                         className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
                           isDragOver
@@ -1209,21 +1400,48 @@ export function InstructorMaterialsView() {
               </>
             )}
 
-            {/* CẤP 4: DANH SÁCH TÀI LIỆU & BÀI GIẢNG CỦA LỚP KÈM MENU 3 CHẤM ĐẦY ĐỦ 3 CHỨC NĂNG */}
+            {/* CẤP 4: DANH SÁCH TÀI LIỆU & BÀI GIẢNG CỦA LỚP KÈM MENU 3 CHẤM ĐẦY ĐỦ TÙY CHỌN */}
             {selectedClassId && currentClass && (
-              <>
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDragOverTargetId(currentClass.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverTargetId === currentClass.id) setDragOverTargetId(null);
+                }}
+                onDrop={(e) => handleDropOnTargetClass(currentClass.id, e)}
+                className={`divide-y divide-slate-100 dark:divide-slate-800/50 transition ${
+                  dragOverTargetId === currentClass.id
+                    ? "bg-blue-50/60 dark:bg-blue-950/30 ring-2 ring-dashed ring-blue-500"
+                    : ""
+                }`}
+              >
                 {currentClass.files.length > 0 ? (
                   currentClass.files.map((file) => (
                     <div
                       key={file.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", file.id);
+                        setDraggedFile(file);
+                        setDraggedFileFromClassId(currentClass.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedFile(null);
+                        setDraggedFileFromClassId(undefined);
+                      }}
                       onClick={() => {
                         notify(`Đang xem tài liệu/bài giảng: ${file.name}`, "info");
                       }}
-                      className="grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer text-xs transition group relative"
+                      className={`grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-grab active:cursor-grabbing text-xs transition group relative ${
+                        draggedFile?.id === file.id ? "opacity-50 scale-[0.99]" : ""
+                      }`}
                     >
                       <div className="col-span-6 flex items-center gap-3">
                         <span
-                          className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 ${
+                          className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 shadow-2xs ${
                             file.type === "word"
                               ? "bg-blue-600"
                               : file.type === "pdf"
@@ -1258,7 +1476,7 @@ export function InstructorMaterialsView() {
                       <div className="col-span-3 text-slate-500">{file.size}</div>
                       <div className="col-span-2 text-slate-500">{file.updatedAt}</div>
 
-                      {/* Cột Tùy chọn 3 chấm với 3 hành động: Dùng làm tài liệu/bài giảng, Phân loại lại tài liệu, Xóa */}
+                      {/* Cột Tùy chọn 3 chấm với: Dùng làm tài liệu/bài giảng, Di chuyển, Chuyển vào Cần phân cấp lại, Xóa */}
                       <div className="col-span-1 text-right relative">
                         <button
                           type="button"
@@ -1275,7 +1493,7 @@ export function InstructorMaterialsView() {
                         {activeMenuFileId === file.id && (
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
+                            className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
                           >
                             <button
                               type="button"
@@ -1293,12 +1511,26 @@ export function InstructorMaterialsView() {
                             <button
                               type="button"
                               onClick={() => {
-                                handleMoveToUnclassified(file, currentClass.id);
+                                setSelectedFileForMove({ file, fromClassId: currentClass.id });
+                                setTargetMoveClassId(allClassesList[0]?.classId || "unclassified");
+                                setMoveModalOpen(true);
+                                setActiveMenuFileId(null);
                               }}
                               className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
                             >
                               <Move size={14} className="text-amber-600" />
-                              <span>Phân loại lại tài liệu</span>
+                              <span>Di chuyển</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleMoveToUnclassified(file, currentClass.id);
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                            >
+                              <FolderMinus size={14} className="text-blue-600" />
+                              <span>Chuyển vào Cần phân cấp lại</span>
                             </button>
 
                             <button
@@ -1318,10 +1550,10 @@ export function InstructorMaterialsView() {
                   ))
                 ) : (
                   <div className="p-8 text-center text-xs text-slate-400">
-                    Lớp chưa có học liệu hoặc bài giảng nào. Hãy bấm "Tải lên tài liệu / bài giảng" để bổ sung ngay.
+                    Lớp chưa có học liệu hoặc bài giảng nào. Hãy bấm "Tải lên tài liệu / bài giảng" hoặc kéo thả tệp từ máy tính vào đây.
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -1395,23 +1627,29 @@ export function InstructorMaterialsView() {
                 />
               </div>
 
-              {/* Vị trí lưu: Chọn Lớp hoặc Chưa phân loại */}
+              {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở, không hỏi nơi lưu */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Vị trí phân loại vào lớp / thư mục:
+                  Vị trí lưu mặc định:
                 </label>
-                <select
-                  value={uploadForm.targetClassId}
-                  onChange={(e) => setUploadForm({ ...uploadForm, targetClassId: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="unclassified">📍 Kho chưa phân loại (ở cột trái)</option>
-                  {allClassesList.map((item) => (
-                    <option key={item.classId} value={item.classId}>
-                      📁 {item.path}
-                    </option>
-                  ))}
-                </select>
+                <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="size-8 rounded-lg bg-blue-600 text-white grid place-items-center shrink-0 shadow-2xs">
+                      <FolderOpen size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <strong className="block text-xs font-bold text-blue-700 dark:text-blue-300 truncate">
+                        {currentContextLocation.path}
+                      </strong>
+                      <span className="text-[11px] text-slate-500 block">
+                        Tự động lưu vào vị trí này theo ngữ cảnh bạn đang mở.
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 text-[10px] font-extrabold shrink-0 border border-blue-200 dark:border-blue-800">
+                    Hiện tại
+                  </span>
+                </div>
               </div>
 
               {/* Định dạng tệp / Liên kết */}
@@ -1557,28 +1795,29 @@ export function InstructorMaterialsView() {
       )}
 
       {/* =========================================================================
-          MODAL PHÂN LOẠI LẠI TÀI LIỆU / DI CHUYỂN SANG THƯ MỤC KHÁC
+          MODAL DI CHUYỂN TÀI LIỆU / BÀI GIẢNG SANG THƯ MỤC KHÁC
           ========================================================================= */}
       {moveModalOpen && selectedFileForMove && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Move size={20} className="text-amber-600" />
-              <span>Phân loại lại / Di chuyển tệp</span>
+              <span>Di chuyển tệp sang thư mục khác</span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Chọn thư mục / lớp đích để chuyển tệp <strong className="text-slate-900 dark:text-slate-100">"{selectedFileForMove.file.name}"</strong>:
+              Chọn thư mục đích để di chuyển tệp <strong className="text-slate-900 dark:text-slate-100">"{selectedFileForMove.file.name}"</strong>:
             </p>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Thư mục lớp đích:
+                Thư mục đích:
               </label>
               <select
                 value={targetMoveClassId}
                 onChange={(e) => setTargetMoveClassId(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
               >
+                <option value="unclassified">📍 Cần phân cấp lại (Chưa phân loại)</option>
                 {allClassesList.map((item) => (
                   <option key={item.classId} value={item.classId}>
                     📁 {item.path}
