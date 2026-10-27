@@ -6,6 +6,8 @@ export interface LearningCourse {
   code: string;
   name: string;
   description: string;
+  grade?: number;
+  subject?: string;
   outcomes: string[];
   status: PublishStatus;
   version: number;
@@ -18,6 +20,8 @@ export interface CourseVersionSnapshot {
   version: number;
   name: string;
   description: string;
+  grade?: number;
+  subject?: string;
   outcomes: string[];
   publishedBy: string;
   publishedAt: string;
@@ -30,6 +34,8 @@ export interface LearningClass {
   code: string;
   name: string;
   term: string;
+  grade?: number;
+  subject?: string;
   startAt: string;
   endAt: string;
   capacity: number;

@@ -8,6 +8,7 @@ import type {
   ExamAttempt,
   ExamAttemptReview,
   GradingQueueGroup,
+  LearningClass,
   LiveSession,
   RegradeRequest,
 } from "@/lib/learning-types";
@@ -27,6 +28,12 @@ export function useTeachingModel() {
     ]);
 
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
+  const [instructorClasses, setInstructorClasses] = useState<LearningClass[]>([]);
+
+  // Bộ lọc chuẩn K-12 dành cho giáo viên: Khối -> Môn -> Lớp
+  const [gradeFilter, setGradeFilter] = useState<string>("");
+  const [subjectFilter, setSubjectFilter] = useState<string>("");
+  const [classFilter, setClassFilter] = useState<string>("");
 
   const [gradingQueue, setGradingQueue] = useState<GradingQueueGroup[]>([]);
 
@@ -49,16 +56,54 @@ export function useTeachingModel() {
     [attempts, selectedExamId],
   );
 
+  // Danh sách các môn học có trong các lớp giảng dạy của giáo viên
+  const availableSubjects = useMemo(() => {
+    const set = new Set<string>();
+    instructorClasses.forEach((c) => {
+      if (!gradeFilter || String(c.grade) === gradeFilter) {
+        if (c.subject) set.add(c.subject);
+      }
+    });
+    return Array.from(set);
+  }, [instructorClasses, gradeFilter]);
+
+  // Hàng đợi chấm bài đã áp dụng bộ lọc Khối -> Môn -> Lớp
+  const filteredGradingQueue = useMemo(() => {
+    return gradingQueue.filter((item) => {
+      const cls = instructorClasses.find(
+        (c) => c.code === item.classCode || c.id === item.classId,
+      );
+      const itemGrade = item.grade ?? cls?.grade;
+      const itemSubject = item.subject ?? cls?.subject;
+
+      if (
+        gradeFilter &&
+        itemGrade !== undefined &&
+        itemGrade !== null &&
+        String(itemGrade) !== gradeFilter
+      ) {
+        return false;
+      }
+      if (subjectFilter && itemSubject && itemSubject !== subjectFilter) {
+        return false;
+      }
+      if (classFilter && item.classCode !== classFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [gradingQueue, instructorClasses, gradeFilter, subjectFilter, classFilter]);
+
   const queueByClass = useMemo(
     () =>
-      gradingQueue.reduce<Record<string, GradingQueueGroup[]>>(
+      filteredGradingQueue.reduce<Record<string, GradingQueueGroup[]>>(
         (groups, item) => {
           (groups[item.classCode] ??= []).push(item);
           return groups;
         },
         {},
       ),
-    [gradingQueue],
+    [filteredGradingQueue],
   );
 
   const attemptPagination = usePagination(selectedAttempts);
@@ -110,23 +155,33 @@ export function useTeachingModel() {
   const load = useCallback(async () => {
     if (!canManageTeaching) return;
     try {
-      const [attemptData, examData, sessionData, regradeData, queueData] =
-        await Promise.all([
-          apiRequest<ExamAttempt[]>("/instructor/exam-attempts", {
-            roleCode: session.roleCode,
-          }),
-          apiRequest<Exam[]>("/exams", { roleCode: session.roleCode }),
-          apiRequest<LiveSession[]>("/sessions", {
-            roleCode: session.roleCode,
-          }),
-          apiRequest<RegradeRequest[]>("/instructor/regrade-requests", {
-            roleCode: session.roleCode,
-          }),
-          apiRequest<GradingQueueGroup[]>("/instructor/grading-queue", {
-            roleCode: session.roleCode,
-          }),
-        ]);
+      const [
+        attemptData,
+        examData,
+        sessionData,
+        regradeData,
+        queueData,
+        classData,
+      ] = await Promise.all([
+        apiRequest<ExamAttempt[]>("/instructor/exam-attempts", {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<Exam[]>("/exams", { roleCode: session.roleCode }),
+        apiRequest<LiveSession[]>("/sessions", {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<RegradeRequest[]>("/instructor/regrade-requests", {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<GradingQueueGroup[]>("/instructor/grading-queue", {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<LearningClass[]>("/instructor/classes", {
+          roleCode: session.roleCode,
+        }).catch(() => [] as LearningClass[]),
+      ]);
       setAttempts(attemptData);
+      setInstructorClasses(classData);
       setRegrades(
         regradeData.filter(
           (item) => item.status === "OPEN" || item.status === "IN_REVIEW",
@@ -474,6 +529,15 @@ export function useTeachingModel() {
     canManageTeaching,
     attempts,
     gradingQueue,
+    filteredGradingQueue,
+    instructorClasses,
+    gradeFilter,
+    setGradeFilter,
+    subjectFilter,
+    setSubjectFilter,
+    classFilter,
+    setClassFilter,
+    availableSubjects,
     regrades,
     exams,
     selectedExamId,

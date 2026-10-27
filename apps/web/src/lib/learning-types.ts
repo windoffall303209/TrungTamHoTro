@@ -6,6 +6,8 @@ export interface Course {
   code: string;
   name: string;
   description: string;
+  grade?: number;
+  subject?: string;
   outcomes: string[];
   status: PublishStatus;
   version: number;
@@ -18,6 +20,8 @@ export interface CourseVersionSnapshot {
   version: number;
   name: string;
   description: string;
+  grade?: number;
+  subject?: string;
   outcomes: string[];
   publishedBy: string;
   publishedAt: string;
@@ -30,6 +34,8 @@ export interface LearningClass {
   code: string;
   name: string;
   term: string;
+  grade?: number;
+  subject?: string;
   startAt: string;
   endAt: string;
   capacity: number;
@@ -212,6 +218,8 @@ export interface GradingQueueGroup {
   type: "ASSIGNMENT" | "EXAM";
   classId: string;
   classCode: string;
+  grade?: number | null;
+  subject?: string | null;
   title: string;
   maxScore: number;
   submittedCount: number;
@@ -737,3 +745,35 @@ export interface ChatMessagePage {
   items: ChatMessage[];
   nextCursor?: string;
 }
+
+export const K12_GRADES = [
+  { value: "1", label: "Khối 1 (Tiểu học)" },
+  { value: "2", label: "Khối 2 (Tiểu học)" },
+  { value: "3", label: "Khối 3 (Tiểu học)" },
+  { value: "4", label: "Khối 4 (Tiểu học)" },
+  { value: "5", label: "Khối 5 (Tiểu học)" },
+  { value: "6", label: "Khối 6 (THCS)" },
+  { value: "7", label: "Khối 7 (THCS)" },
+  { value: "8", label: "Khối 8 (THCS)" },
+  { value: "9", label: "Khối 9 (THCS)" },
+  { value: "10", label: "Khối 10 (THPT)" },
+  { value: "11", label: "Khối 11 (THPT)" },
+  { value: "12", label: "Khối 12 (THPT)" },
+];
+
+export const K12_SUBJECTS = [
+  "Toán",
+  "Ngữ văn",
+  "Tiếng Anh",
+  "Vật lí",
+  "Hóa học",
+  "Sinh học",
+  "Lịch sử",
+  "Địa lí",
+  "Tin học",
+  "Công nghệ",
+  "GDCD",
+  "Khoa học tự nhiên",
+  "Lịch sử và Địa lí",
+];
+

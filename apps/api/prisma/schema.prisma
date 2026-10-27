@@ -336,19 +336,22 @@ model Course {
   code        String          @unique @db.VarChar(50)
   name        String          @db.VarChar(200)
   description String          @db.Text
+  grade       Int?            @db.SmallInt
+  subject     String?         @db.VarChar(100)
   outcomes    Json
   status      CourseStatus    @default(DRAFT)
   version     Int             @default(1)
   ownerId     String          @map("owner_id")
   owner       User            @relation("CourseOwner", fields: [ownerId], references: [id])
-    classes     LearningClass[]
-    versions    CourseVersion[]
+  classes     LearningClass[]
+  versions    CourseVersion[]
   questions   Question[]
   materials   Material[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
   @@index([ownerId, status])
+  @@index([grade, subject])
   @@map("courses")
 }
 
@@ -358,6 +361,8 @@ model CourseVersion {
   version     Int
   name        String   @db.VarChar(200)
   description String   @db.Text
+  grade       Int?     @db.SmallInt
+  subject     String?  @db.VarChar(100)
   outcomes    Json
   publishedBy String   @map("published_by") @db.VarChar(191)
   course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -365,21 +370,24 @@ model CourseVersion {
 
   @@unique([courseId, version])
   @@index([courseId, publishedAt])
+  @@index([grade, subject])
   @@map("course_versions")
 }
 
 model LearningClass {
-    id            String            @id @default(cuid())
-    courseId      String            @map("course_id")
-    courseVersion Int               @map("course_version")
-    code          String            @db.VarChar(50)
+  id            String            @id @default(cuid())
+  courseId      String            @map("course_id")
+  courseVersion Int               @map("course_version")
+  code          String            @db.VarChar(50)
   name          String            @db.VarChar(200)
   term          String            @db.VarChar(50)
+  grade         Int?              @db.SmallInt
+  subject       String?           @db.VarChar(100)
   startAt       DateTime          @map("start_at")
   endAt         DateTime          @map("end_at")
-    capacity      Int
-    timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
-    allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
+  capacity      Int
+  timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
+  allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
   status        ClassStatus       @default(DRAFT)
   closeReason   String?           @map("close_reason") @db.VarChar(500)
   archivePolicy String?           @map("archive_policy") @db.VarChar(50)
@@ -400,9 +408,10 @@ model LearningClass {
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
-    @@index([courseId, status])
-    @@index([term])
-    @@unique([code, term])
+  @@index([courseId, status])
+  @@index([term])
+  @@index([grade, subject])
+  @@unique([code, term])
   @@map("learning_classes")
 }
 

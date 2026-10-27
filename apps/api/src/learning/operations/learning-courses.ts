@@ -30,7 +30,8 @@ export async function listCourses(
 /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
 export async function createCourse(
   serviceContext: LearningServiceContext,
-  input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes">,
+  input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
+    Partial<Pick<LearningCourse, "grade" | "subject">>,
   actorId = "usr-manager",
 ): Promise<LearningCourse> {
   const code = input.code.trim().toUpperCase();
@@ -43,6 +44,8 @@ export async function createCourse(
           code,
           name: input.name.trim(),
           description: input.description.trim(),
+          grade: input.grade ?? null,
+          subject: input.subject?.trim() || null,
           outcomes: input.outcomes.filter(Boolean),
           ownerId: actorId,
         },
@@ -62,6 +65,8 @@ export async function createCourse(
     code,
     name: input.name.trim(),
     description: input.description.trim(),
+    grade: input.grade,
+    subject: input.subject?.trim(),
     outcomes: input.outcomes.filter(Boolean),
     status: "DRAFT",
     version: 1,
@@ -76,7 +81,8 @@ export async function createCourse(
 export async function updateCourse(
   serviceContext: LearningServiceContext,
   courseId: string,
-  input: Pick<LearningCourse, "name" | "description" | "outcomes">,
+  input: Pick<LearningCourse, "name" | "description" | "outcomes"> &
+    Partial<Pick<LearningCourse, "grade" | "subject">>,
   actorId = "usr-manager",
 ): Promise<LearningCourse> {
   const name = input.name.trim();
@@ -97,7 +103,14 @@ export async function updateCourse(
     return prisma.$transaction(async (transaction) => {
       const row = await transaction.course.update({
         where: { id: courseId },
-        data: { name, description, outcomes, status: "DRAFT" },
+        data: {
+          name,
+          description,
+          outcomes,
+          grade: input.grade !== undefined ? input.grade : current.grade,
+          subject: input.subject !== undefined ? input.subject?.trim() || null : current.subject,
+          status: "DRAFT",
+        },
       });
       await transaction.auditLog.create({
         data: {
@@ -152,6 +165,8 @@ export async function listCourseVersions(
       version: row.version,
       name: row.name,
       description: row.description,
+      grade: row.grade ?? undefined,
+      subject: row.subject ?? undefined,
       outcomes: serviceContext.toStringArray(row.outcomes),
       publishedBy: row.publishedBy,
       publishedAt: row.publishedAt.toISOString(),
@@ -197,6 +212,8 @@ export async function publishCourse(
           version: nextVersion,
           name: course.name,
           description: course.description,
+          grade: course.grade,
+          subject: course.subject,
           outcomes,
           publishedBy: actorId,
         },
