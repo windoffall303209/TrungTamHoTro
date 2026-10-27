@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { ExamTakingModal, type ExamTakingData } from "@/features/learner-class/exam-taking-modal";
 import {
   AlertCircle,
   ArrowLeft,
@@ -276,6 +277,7 @@ export function InstructorClassWorkspace({
 
   // Bài tập được chọn ở Cột 3
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [previewExam, setPreviewExam] = useState<ExamTakingData | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareScope, setShareScope] = useState<"CLASS_ONLY" | "PUBLIC">("CLASS_ONLY");
   const [statsModalOpen, setStatsModalOpen] = useState(false);
@@ -1078,7 +1080,15 @@ export function InstructorClassWorkspace({
                         </button>
                         <button
                           type="button"
-                          onClick={() => notify("Đang mở bản xem trước đề bài...", "info")}
+                          onClick={() => {
+                            setPreviewExam({
+                              id: selectedAssignment.id,
+                              title: selectedAssignment.title,
+                              durationMinutes: (selectedAssignment as any).durationMinutes || 45,
+                              totalQuestions: (selectedAssignment as any).totalQuestions || 10,
+                              remainingAttempts: null,
+                            });
+                          }}
                           className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
                         >
                           <Eye size={13} />
@@ -2386,6 +2396,14 @@ export function InstructorClassWorkspace({
           </div>
         </div>
       )}
+
+      {/* Modal làm thử / xem đề dành cho giáo viên */}
+      <ExamTakingModal
+        open={Boolean(previewExam)}
+        onClose={() => setPreviewExam(null)}
+        exam={previewExam}
+        isInstructorPreview={true}
+      />
     </div>
   );
 }

@@ -510,25 +510,16 @@ export function LearnerClassWorkspace({
         dueAt: exam.closeAt || "2026-12-31T23:59:00Z",
         status: completedCount > 0 ? "GRADED" : "PENDING",
         score: latestScore,
-        maxScore: 10,
-        totalQuestions: 10,
+        maxScore: Number(exam.totalScore) || 10,
+        totalQuestions: exam.questionCount || exam.questionIds?.length || 10,
         remainingAttempts: exam.remainingAttempts,
         attemptLimit: exam.attemptLimit ?? 1,
         completedAttempts: completedCount,
-        attempts: attempts.length > 0 ? attempts : (latestScore !== undefined ? [
-          {
-            id: `att-${exam.id}-1`,
-            attemptNo: 1,
-            score: latestScore,
-            maxScore: 10,
-            submittedAt: "27/10/2026 08:34",
-            feedback: "Bài làm hoàn thành đúng hạn.",
-          },
-        ] : []),
-        folder: idx % 2 === 0 ? "Toán 1" : "Hình học",
-        subtypeText: "Trắc nghiệm tách câu",
-        scoringMethod: "Lần đầu tiên",
-        createdAt: "27 tháng 10",
+        attempts: attempts,
+        folder: "Tất cả bài tập",
+        subtypeText: "Trắc nghiệm",
+        scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm cao nhất" : "Lần đầu tiên",
+        createdAt: (exam as any).createdAt ? new Date((exam as any).createdAt).toLocaleDateString("vi-VN") : "Gần đây",
       };
     });
 
@@ -544,84 +535,29 @@ export function LearnerClassWorkspace({
           : assign.submission
             ? "SUBMITTED"
             : "PENDING",
-      score: assign.submission?.score ?? undefined,
-      maxScore: 10,
-      totalQuestions: 4,
+      score: assign.submission?.score !== null && assign.submission?.score !== undefined ? Number(assign.submission.score) : undefined,
+      maxScore: Number(assign.maxScore) || 10,
+      totalQuestions: 1,
       remainingAttempts: null,
       attemptLimit: 1,
       completedAttempts: assign.submission ? 1 : 0,
       attempts: assign.submission ? [
         {
-          id: `att-${assign.id}-sub`,
+          id: assign.submission.id,
           attemptNo: 1,
-          score: assign.submission.score ?? 8.5,
-          maxScore: 10,
-          submittedAt: assign.submission.submittedAt || "26/10/2026 20:00",
-          feedback: assign.submission.feedback || "Bài tự luận đã được giáo viên đánh giá.",
+          score: assign.submission.score !== null && assign.submission.score !== undefined ? Number(assign.submission.score) : 0,
+          maxScore: Number(assign.maxScore) || 10,
+          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString("vi-VN") : "Đã nộp",
+          feedback: assign.submission.feedback || "Bài tự luận đã được ghi nhận.",
         },
       ] : [],
-      folder: "Toán 1",
-      subtypeText: "Bài tập tự luận nộp file",
-      scoringMethod: "Điểm cao nhất",
-      createdAt: "26 tháng 10",
+      folder: "Tất cả bài tập",
+      subtypeText: "Bài tập tự luận",
+      scoringMethod: "Điểm đánh giá",
+      createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString("vi-VN") : "Gần đây",
     }));
 
-    const combined = [...dbExams, ...dbAssigns];
-    if (combined.length > 0) return combined;
-
-    // Fallback duy nhất cho môi trường Vitest khi chạy kiểm thử tự động
-    if (typeof process !== "undefined" && process.env.NODE_ENV === "test") {
-      return [
-        {
-          id: "test-exam-01",
-          title: "Test bài tập",
-          type: "EXAM",
-          durationMinutes: 45,
-          dueAt: "2026-11-30T22:00:00Z",
-          status: "GRADED",
-          score: 4.0,
-          maxScore: 10,
-          totalQuestions: 10,
-          remainingAttempts: 1,
-          attemptLimit: 2,
-          completedAttempts: 1,
-          attempts: [
-            {
-              id: "attempt-test-1",
-              attemptNo: 1,
-              score: 4.0,
-              maxScore: 10,
-              submittedAt: "27/10/2026 08:34",
-              feedback: "Em cần rèn luyện thêm phần giải phương trình bậc hai.",
-            },
-          ],
-          folder: "Toán 1",
-          subtypeText: "Trắc nghiệm tách câu",
-          scoringMethod: "Lần đầu tiên",
-          createdAt: "27 tháng 10",
-        },
-        {
-          id: "test-exam-02",
-          title: "Bài tập đại số chưa làm",
-          type: "EXAM",
-          durationMinutes: 30,
-          dueAt: "2026-11-30T22:00:00Z",
-          status: "PENDING",
-          maxScore: 10,
-          totalQuestions: 5,
-          remainingAttempts: 1,
-          attemptLimit: 1,
-          completedAttempts: 0,
-          attempts: [],
-          folder: "Toán 1",
-          subtypeText: "Trắc nghiệm tách câu",
-          scoringMethod: "Lần đầu tiên",
-          createdAt: "27 tháng 10",
-        },
-      ];
-    }
-
-    return [];
+    return [...dbExams, ...dbAssigns];
   }, [classExams, classAssignments, learnerResults]);
 
   // State cho Bài giảng
@@ -1257,7 +1193,7 @@ export function LearnerClassWorkspace({
                 </span>
                 <div className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
                   <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate flex-1 font-mono">
-                    https://shub.edu.vn/...
+                    {typeof window !== "undefined" ? `${window.location.origin}/classes/${item.id}` : `/classes/${item.id}`}
                   </span>
                   <button
                     type="button"
@@ -2162,20 +2098,19 @@ export function LearnerClassWorkspace({
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Lấy điểm</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.scoringMethod || "Lần đầu tiên"}
+                            {activeAssignment.scoringMethod || "Điểm cao nhất"}
                           </span>
                         </div>
                         <div className="flex items-start justify-between gap-2 text-slate-600 dark:text-slate-300">
                           <span className="shrink-0">Loại</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100 text-right">
-                            {activeAssignment.subtypeText ||
-                              "Trắc nghiệm tách câu được tách tự động"}
+                            {activeAssignment.subtypeText || (activeAssignment.type === "EXAM" ? "Trắc nghiệm" : "Tự luận")}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Ngày tạo</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.createdAt || "27 tháng 10"}
+                            {activeAssignment.createdAt || "Gần đây"}
                           </span>
                         </div>
                       </div>
