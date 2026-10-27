@@ -242,7 +242,6 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Thời khóa biểu các ca học theo tuần và theo tháng, hỗ trợ điểm danh và vào phòng trực tuyến.": "Class timetable by week and month with attendance tracking and virtual classroom access.",
   "Tuần": "Week",
   "Tháng": "Month",
-  "Hôm nay": "Today",
   "Không có lịch học": "No scheduled classes",
   "Không có ca học": "No scheduled classes",
   "Đang diễn ra": "In progress",

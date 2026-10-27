@@ -17,6 +17,8 @@ import type { Course, LearningClass, Material, MaterialReview, MaterialVersionSn
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
+import { InstructorMaterialsView } from "@/features/instructor-materials/instructor-materials-view";
+
 // Mục thư viện chung ở thanh bên: học liệu dùng chung của mọi môn, không lọc theo môn hay lớp.
 const SHARED_LIBRARY = "__shared__";
 const REVIEW_LABELS: Record<MaterialReview["action"], string> = { APPROVE: "Duyệt và phát hành", REVOKE: "Thu hồi", HIDE: "Ẩn học liệu", REQUEST_CHANGES: "Yêu cầu chỉnh sửa" };
@@ -328,6 +330,9 @@ export default function MaterialsPage() {
   };
 
   if (!allowed) return <AccessDenied />;
+  if (session.roleCode === "INSTRUCTOR") {
+    return <InstructorMaterialsView initialClasses={classes} initialCourses={courses} />;
+  }
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader

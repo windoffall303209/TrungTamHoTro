@@ -9,6 +9,7 @@ import { QuestionImage } from "@/components/question-image";
 import { SectionState } from "@/components/section-state";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button, Field, FormattedTextarea, inputClass, Modal, Pagination, RichText, StatusBadge, usePagination } from "@/components/ui";
+import { InstructorQuestionsView } from "@/features/instructor-questions/instructor-questions-view";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import type { Course, Question, QuestionImportResult } from "@/lib/learning-types";
@@ -72,6 +73,11 @@ function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: st
 /** Quản lý ngân hàng câu hỏi, editor theo loại, ảnh minh họa, nhập hàng loạt và phê duyệt. */
 export default function QuestionsPage() {
   const { session, notify } = useApp();
+
+  if (session.roleCode === "INSTRUCTOR") {
+    return <InstructorQuestionsView />;
+  }
+
   const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
   const canManage = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:manage");
   const canReview = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
