@@ -12,8 +12,12 @@ import {
   FileText,
   Folder,
   LayoutDashboard,
+  LayoutGrid,
+  List,
+  Lock,
   MessageCircle,
   MessageSquare,
+  Play,
   Plus,
   Repeat2,
   Settings,
@@ -49,7 +53,9 @@ export type ManagerSubTab =
   | "instructors"
   | "learners"
   | "schedule"
-  | "materials";
+  | "assignments"
+  | "materials"
+  | "lectures";
 
 export interface ManagerClassWorkspaceProps {
   item: LearningClass;
@@ -146,12 +152,18 @@ export function ManagerClassWorkspace({
   const [settingsForm, setSettingsForm] = useState({
     name: item.name,
     capacity: item.capacity ?? 40,
-    allowLateEnrollment: item.allowLateEnrollment ?? false,
     description: (item as any).description || "",
   });
 
-  // Trạng thái thư mục tài liệu
+  // Trạng thái xem lịch học & xác nhận kích hoạt/đóng lớp học
+  const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
+  const [confirmActivateOpen, setConfirmActivateOpen] = useState(false);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const [closingClass, setClosingClass] = useState(false);
+
+  // Trạng thái thư mục tài liệu & bài giảng
   const [selectedFolder, setSelectedFolder] = useState<string>("__ALL__");
+  const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
 
   // Đồng bộ lại khi prop item thay đổi
   useEffect(() => {
@@ -159,7 +171,6 @@ export function ManagerClassWorkspace({
     setSettingsForm({
       name: item.name,
       capacity: item.capacity ?? 40,
-      allowLateEnrollment: item.allowLateEnrollment ?? false,
       description: (item as any).description || "",
     });
   }, [item]);
@@ -199,7 +210,6 @@ export function ManagerClassWorkspace({
         body: JSON.stringify({
           name: settingsForm.name.trim(),
           capacity: Number(settingsForm.capacity),
-          allowLateEnrollment: settingsForm.allowLateEnrollment,
         }),
       });
       setCurrentClass((prev) => ({
@@ -207,7 +217,6 @@ export function ManagerClassWorkspace({
         ...updated,
         name: settingsForm.name.trim(),
         capacity: Number(settingsForm.capacity),
-        allowLateEnrollment: settingsForm.allowLateEnrollment,
         description: settingsForm.description.trim(),
       } as LearningClass));
       notify("Đã cập nhật cài đặt lớp học thành công.", "success");
@@ -239,8 +248,10 @@ export function ManagerClassWorkspace({
       icon: Users,
       count: activeEnrollments.length,
     },
-    { id: "schedule", label: "Lịch học & Ca dạy", icon: CalendarDays },
-    { id: "materials", label: "Học liệu & Bài tập", icon: BookOpenCheck },
+    { id: "schedule", label: "Lịch học", icon: CalendarDays },
+    { id: "assignments", label: "Bài tập", icon: FileText },
+    { id: "materials", label: "Tài liệu", icon: Folder },
+    { id: "lectures", label: "Bài giảng", icon: Video },
   ];
 
   return (
@@ -265,7 +276,11 @@ export function ManagerClassWorkspace({
           <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate max-w-sm">
             {currentClass.name}
           </h1>
-          <StatusBadge status={item.status} />
+          {currentClass.status === "CLOSED" && (
+            <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200/80 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-semibold">
+              Đã đóng lớp
+            </span>
+          )}
           {classGrade && (
             <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-xs font-semibold">
               Khối {classGrade}
@@ -288,14 +303,25 @@ export function ManagerClassWorkspace({
             <span>{copiedLink ? "Đã sao chép!" : "Sao chép link"}</span>
           </button>
 
-          {item.status === "DRAFT" && (
+          {currentClass.status === "DRAFT" && (
             <Button
               loading={saving}
-              onClick={() => void activate()}
+              onClick={() => setConfirmActivateOpen(true)}
               className="h-8 px-3 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               <CheckCircle2 size={14} />
               <span>Kích hoạt lớp</span>
+            </Button>
+          )}
+
+          {currentClass.status !== "DRAFT" && currentClass.status !== "CLOSED" && (
+            <Button
+              loading={closingClass}
+              onClick={() => setConfirmCloseOpen(true)}
+              className="h-8 px-3 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              <Lock size={14} />
+              <span>Đóng lớp</span>
             </Button>
           )}
         </div>
@@ -372,149 +398,63 @@ export function ManagerClassWorkspace({
           {/* TAB 1: TỔNG QUAN                                              */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "overview" && (
-            <div className="space-y-5">
-              {/* 4 Thẻ KPI thông số lớp học */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Sĩ số lớp</span>
-                    <Users size={16} className="text-blue-500" />
-                  </div>
-                  <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-900 dark:text-slate-100">
-                    {item.learnerIds.length}
-                    <span className="text-xs font-normal text-slate-400 ml-1">/{currentClass.capacity}</span>
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {currentClass.allowLateEnrollment ? "Cho ghi danh muộn" : "Đã khóa ghi danh"}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                    Tổng quan lớp học
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Thông tin định danh và thông số cơ bản của lớp học.
                   </p>
                 </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Giảng viên</span>
-                    <UserCheck size={16} className="text-indigo-500" />
-                  </div>
-                  <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-900 dark:text-slate-100">
-                    {instructors.length}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {primaryInstructor ? "Đã có GV chính" : "Chưa có GV chính"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Khai giảng</span>
-                    <Calendar size={16} className="text-emerald-500" />
-                  </div>
-                  <p className="mt-2 text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">
-                    {new Date(item.startAt).toLocaleDateString(activeLocale())}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Bế giảng: {new Date(item.endAt).toLocaleDateString(activeLocale())}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="text-[11px] font-bold uppercase tracking-wider">Trạng thái</span>
-                    <Clock size={16} className="text-amber-500" />
-                  </div>
-                  <div className="mt-2">
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <p className="mt-2 text-[11px] text-slate-500 font-mono">
-                    {item.timezone}
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsModalOpen(true)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:text-blue-600 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Settings size={14} />
+                  <span>Sửa cài đặt</span>
+                </button>
               </div>
 
-              {/* 2 Card chi tiết: Thông tin lớp học & Phân cấp môn học K-12 */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
-                      Thông tin lớp học
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSettingsModalOpen(true)}
-                      className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
-                    >
-                      Sửa cài đặt
-                    </button>
-                  </div>
-                  <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800">
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-slate-500">Mã lớp học:</span>
-                      <strong className="font-mono text-slate-900 dark:text-slate-100">{item.code}</strong>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-slate-500">Tên lớp học:</span>
-                      <strong className="text-slate-900 dark:text-slate-100">{currentClass.name}</strong>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-slate-500">Học kỳ:</span>
-                      <strong className="text-slate-900 dark:text-slate-100">{item.term}</strong>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-slate-500">Sức chứa tối đa:</span>
-                      <strong className="text-slate-900 dark:text-slate-100 tabular-nums">{currentClass.capacity} học viên</strong>
-                    </div>
-                    {(currentClass as any).description && (
-                      <div className="py-1.5">
-                        <span className="text-slate-500 block mb-1">Mô tả lớp học:</span>
-                        <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">
-                          {(currentClass as any).description}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Mã lớp</span>
+                  <p className="text-sm font-mono font-bold text-slate-900 dark:text-slate-100">{item.code}</p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
-                      Phân cấp môn học K-12
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                      K-12 Chuẩn
-                    </span>
-                  </div>
-                  {course ? (
-                    <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800">
-                      <div className="flex justify-between py-1.5">
-                        <span className="text-slate-500">Môn học gốc:</span>
-                        <strong className="text-slate-900 dark:text-slate-100">{course.name} ({course.code})</strong>
-                      </div>
-                      <div className="flex justify-between py-1.5">
-                        <span className="text-slate-500">Khối lớp:</span>
-                        <span className="font-bold text-purple-600 dark:text-purple-400">
-                          {classGrade ? `Khối ${classGrade}` : "Chưa gắn khối"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5">
-                        <span className="text-slate-500">Môn học:</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                          {classSubject ? `Môn ${classSubject}` : "Chưa phân môn"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5">
-                        <span className="text-slate-500">Phiên bản snapshot:</span>
-                        <span className="font-semibold text-sky-600 dark:text-sky-400">
-                          v{item.courseVersion}
-                        </span>
-                      </div>
-                      <div className="py-1.5">
-                        <span className="text-slate-500 block mb-1">Mô tả môn học:</span>
-                        <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">
-                          {course.description}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400">Chưa liên kết môn học chuẩn.</p>
-                  )}
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Tên lớp</span>
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{currentClass.name}</p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Khối lớp</span>
+                  <p className="text-sm font-bold text-purple-600 dark:text-purple-400">
+                    {classGrade ? `Khối ${classGrade}` : "Chưa xác định"}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Môn học</span>
+                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                    {classSubject ? `Môn ${classSubject}` : (course?.name || "Chưa xác định")}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Sức chứa</span>
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                    {currentClass.capacity ?? 40} học viên
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Mô tả</span>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
+                    {(currentClass as any).description?.trim() || "Chưa có mô tả cho lớp học này."}
+                  </p>
                 </div>
               </div>
             </div>
@@ -794,77 +734,280 @@ export function ManagerClassWorkspace({
           )}
 
           {/* ------------------------------------------------------------- */}
-          {/* TAB 5: LỊCH HỌC & CA DẠY (Đồng bộ theo giao diện giáo viên)    */}
+          {/* TAB 5: LỊCH HỌC (Dạng tuần & Dạng tháng chuẩn học sinh)       */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "schedule" && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-                    Lịch học của lớp ({currentClass.name})
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Quản lý các ca học, phòng học trực tuyến và điểm danh
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Lịch học của {currentClass.name || item.code}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Theo dõi và quản lý các ca học, thời khóa biểu và điểm danh của lớp này.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Nút chuyển đổi: Dạng tuần (Lưới) & Dạng tháng (Danh sách) */}
+                  <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleView("week")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        scheduleView === "week"
+                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      }`}
+                    >
+                      <LayoutGrid size={14} />
+                      <span>Dạng tuần (Lưới)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleView("month")}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        scheduleView === "month"
+                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      }`}
+                    >
+                      <List size={14} />
+                      <span>Dạng tháng (Danh sách)</span>
+                    </button>
+                  </div>
+
                   <Link
                     href={`/attendance?classId=${encodeURIComponent(item.id)}`}
-                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition inline-flex items-center gap-1.5 shadow-2xs"
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition inline-flex items-center gap-1.5 shadow-2xs"
                   >
                     <CalendarDays size={14} />
                     <span>Đối soát điểm danh</span>
                   </Link>
+
                   <button
                     type="button"
                     onClick={() => notify("Chức năng thêm buổi học mới đã sẵn sàng.", "info")}
-                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
-                    <Plus size={15} />
-                    <span>Thêm buổi học mới</span>
+                    <Plus size={14} />
+                    <span>Thêm buổi học</span>
                   </button>
                 </div>
               </div>
 
-              <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+              {scheduleView === "week" ? (
+                /* CHẾ ĐỘ DẠNG TUẦN: HIỂN THỊ DẠNG LƯỚI 7 NGÀY CỦA LỚP */
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
+                  {[
+                    { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Quy định", isToday: false },
+                    { day: "Thứ 3", date: "27/10", hasClass: false, isToday: true },
+                    { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Giải thuật", isToday: false },
+                    { day: "Thứ 5", date: "29/10", hasClass: false, isToday: false },
+                    { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 03: Bài tập chuyên đề 1", isToday: false },
+                    { day: "Thứ 7", date: "31/10", hasClass: false, isToday: false },
+                    { day: "Chủ nhật", date: "01/11", hasClass: false, isToday: false },
+                  ].map((col, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-xl border flex flex-col justify-between min-h-40 ${
+                        col.hasClass
+                          ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60"
+                          : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-1.5 mb-2">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.day}</span>
+                          <span className="text-[10px] text-slate-400">{col.date}</span>
+                        </div>
+
+                        {col.hasClass ? (
+                          <div className="space-y-1.5">
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold block w-fit">
+                              Trực tuyến
+                            </span>
+                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                              {col.title}
+                            </p>
+                            <p className="text-[10px] text-slate-500 flex items-center gap-1">
+                              <Clock size={11} /> {col.time}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 italic pt-6 text-center">Nghỉ</p>
+                        )}
+                      </div>
+
+                      {col.hasClass && (
+                        <div className="space-y-1 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
+                            className="w-full py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
+                          >
+                            Vào phòng
+                          </button>
+                          <Link
+                            href={`/attendance?classId=${encodeURIComponent(item.id)}`}
+                            className="w-full block py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold transition-colors text-center"
+                          >
+                            Điểm danh
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
+                <div className="space-y-3 pt-2">
+                  {[
+                    { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Hướng dẫn phương pháp học", status: "Đã diễn ra" },
+                    { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Giải thuật cơ bản", status: "Hôm nay" },
+                    { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập chuyên đề và Kiểm tra 15p", status: "Sắp diễn ra" },
+                    { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Chuyên đề nâng cao và Vận dụng thực tế", status: "Sắp diễn ra" },
+                  ].map((row, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-blue-300 transition-colors gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            row.status === "Hôm nay"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                              : row.status === "Đã diễn ra"
+                              ? "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                              : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                          }`}>
+                            {row.status}
+                          </span>
+                          <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+                            {row.title}
+                          </strong>
+                        </div>
+                        <p className="text-xs text-slate-500 flex items-center gap-2">
+                          <span>Ngày: {row.date}</span>
+                          <span>·</span>
+                          <span>Thời gian: {row.time}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          <Play size={13} />
+                          <span>Vào phòng</span>
+                        </button>
+                        <Link
+                          href={`/attendance?classId=${encodeURIComponent(item.id)}`}
+                          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                        >
+                          Điểm danh
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ------------------------------------------------------------- */}
+          {/* TAB 6: BÀI TẬP (Thay thế Học liệu & Bài tập theo yêu cầu)     */}
+          {/* ------------------------------------------------------------- */}
+          {activeTab === "assignments" && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Bài tập của lớp ({currentClass.name})
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Quản lý danh sách bài tập rèn luyện, bài kiểm tra và tiến độ nộp bài của học viên.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/academic?classId=${encodeURIComponent(item.id)}`}
+                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus size={14} />
+                    <span>Tạo bài tập mới</span>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-3">
                 {[
-                  { title: "Buổi 1: Giới thiệu chung & Phổ biến quy định", date: "Thứ Hai, 27/10/2026", time: "18:00 - 19:30", status: "COMPLETED" },
-                  { title: "Buổi 2: Phương trình & Giải thuật cơ bản", date: "Thứ Tư, 29/10/2026", time: "18:00 - 19:30", status: "SCHEDULED" },
-                  { title: "Buổi 3: Luyện tập chuyên sâu & Giải đề thi", date: "Thứ Sáu, 31/10/2026", time: "18:00 - 19:30", status: "SCHEDULED" },
-                ].map((s, idx) => (
+                  {
+                    title: "Bài tập rèn luyện tuần 1: Đại số & Hàm số bậc hai",
+                    type: "Tự luận & Trắc nghiệm",
+                    dueDate: "23:59 - 30/10/2026",
+                    submittedCount: activeEnrollments.length > 0 ? Math.floor(activeEnrollments.length * 0.8) : 18,
+                    totalCount: activeEnrollments.length || 24,
+                    status: "Đang mở",
+                  },
+                  {
+                    title: "Bài kiểm tra định kỳ 15 phút - Chương 1",
+                    type: "Trắc nghiệm tự động",
+                    dueDate: "21:00 - 02/11/2026",
+                    submittedCount: 0,
+                    totalCount: activeEnrollments.length || 24,
+                    status: "Sắp diễn ra",
+                  },
+                  {
+                    title: "Phiếu khảo sát và đánh giá năng lực đầu khóa",
+                    type: "Phiếu đánh giá",
+                    dueDate: "23:59 - 25/10/2026",
+                    submittedCount: activeEnrollments.length || 24,
+                    totalCount: activeEnrollments.length || 24,
+                    status: "Đã kết thúc",
+                  },
+                ].map((asg, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4.5 shadow-xs space-y-3"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-blue-400 transition bg-white dark:bg-slate-900/60 gap-3"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        s.status === "COMPLETED"
-                          ? "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                          : "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400"
-                      }`}>
-                        {s.status === "COMPLETED" ? "Đã diễn ra" : "Sắp tới"}
-                      </span>
-                      <Clock size={14} className="text-slate-400" />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          asg.status === "Đang mở"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                            : asg.status === "Sắp diễn ra"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        }`}>
+                          {asg.status}
+                        </span>
+                        <span className="text-[11px] text-slate-400">{asg.type}</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        {asg.title}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Hạn nộp: <strong className="text-slate-700 dark:text-slate-300">{asg.dueDate}</strong> · Đã nộp: <strong className="text-blue-600 dark:text-blue-400">{asg.submittedCount}/{asg.totalCount}</strong> học viên
+                      </p>
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{s.title}</h3>
-                    <div className="text-xs text-slate-500 space-y-1">
-                      <div>📅 {s.date}</div>
-                      <div>⏰ {s.time}</div>
-                    </div>
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Link
+                        href={`/academic?classId=${encodeURIComponent(item.id)}`}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+                      >
+                        Chấm bài
+                      </Link>
                       <button
                         type="button"
-                        onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                        className="flex-1 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
+                        onClick={() => notify(`Xem chi tiết bài tập: ${asg.title}`, "info")}
+                        className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100 text-xs font-semibold cursor-pointer"
                       >
-                        Vào phòng
+                        Chi tiết
                       </button>
-                      <Link
-                        href={`/attendance?classId=${encodeURIComponent(item.id)}`}
-                        className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition text-center"
-                      >
-                        Điểm danh
-                      </Link>
                     </div>
                   </div>
                 ))}
@@ -873,33 +1016,20 @@ export function ManagerClassWorkspace({
           )}
 
           {/* ------------------------------------------------------------- */}
-          {/* TAB 6: HỌC LIỆU & BÀI TẬP (Đồng bộ theo giao diện giáo viên)   */}
+          {/* TAB 7: TÀI LIỆU (Tách riêng theo giao diện giáo viên)          */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "materials" && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
-              {/* Header tiêu đề danh mục */}
               <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                    Học liệu & Bài tập ({currentClass.name})
+                    Tài liệu ({currentClass.name})
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Học liệu số, giáo trình và tài liệu tham khảo phân loại theo thư mục chuyên đề.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Link
-                    href={`/materials?classId=${encodeURIComponent(item.id)}`}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition shadow-2xs"
-                  >
-                    Kho tài liệu
-                  </Link>
-                  <Link
-                    href={`/academic?classId=${encodeURIComponent(item.id)}`}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold transition shadow-2xs"
-                  >
-                    Bài tập & Đề thi
-                  </Link>
                   <button
                     type="button"
                     onClick={() => notify("Đang mở trình tải tài liệu học tập...", "info")}
@@ -952,7 +1082,7 @@ export function ManagerClassWorkspace({
                   </div>
                 </div>
 
-                {/* CỘT 2: DANH SÁCH HỌC LIỆU VÀ BÀI TẬP */}
+                {/* CỘT 2: DANH SÁCH TÀI LIỆU */}
                 <div className="flex-1 min-w-0 p-4 space-y-3">
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
                     Tài liệu trong thư mục ({selectedFolder === "__ALL__" ? "Tất cả" : "Chuyên đề"})
@@ -962,7 +1092,7 @@ export function ManagerClassWorkspace({
                       { title: "Giáo trình bài giảng lý thuyết tuần 1.pdf", type: "PDF", size: "2.4 MB", date: "24/10/2026", author: "Vũ Đức Minh" },
                       { title: "Slide trình chiếu trực quan chương 1.pptx", type: "SLIDE", size: "8.1 MB", date: "25/10/2026", author: "Vũ Đức Minh" },
                       { title: "Phiếu bài tập rèn luyện kỹ năng số 01.docx", type: "DOC", size: "450 KB", date: "26/10/2026", author: "Vũ Đức Minh" },
-                      { title: "Video hướng dẫn giải bài mẫu thực hành.mp4", type: "VIDEO", size: "45 MB", date: "26/10/2026", author: "Vũ Đức Minh" },
+                      { title: "Tài liệu tra cứu công thức nhanh.pdf", type: "PDF", size: "1.2 MB", date: "27/10/2026", author: "Vũ Đức Minh" },
                     ].map((mat, idx) => (
                       <div
                         key={idx}
@@ -970,7 +1100,7 @@ export function ManagerClassWorkspace({
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="size-9 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
-                            {mat.type === "VIDEO" ? <Video size={16} /> : <FileText size={16} />}
+                            <FileText size={16} />
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
@@ -989,6 +1119,118 @@ export function ManagerClassWorkspace({
                             className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
                           >
                             Tải về
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ------------------------------------------------------------- */}
+          {/* TAB 8: BÀI GIẢNG (Tách riêng theo giao diện giáo viên)          */}
+          {/* ------------------------------------------------------------- */}
+          {activeTab === "lectures" && (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Bài giảng ({currentClass.name})
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Video bài học chuyên đề, slide trình chiếu và audio ghi âm theo chương mục.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => notify("Đang mở trình thêm bài giảng mới...", "info")}
+                    className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus size={14} />
+                    <span>Thêm bài giảng</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Khung Master-Detail */}
+              <div className="flex flex-col lg:flex-row min-h-[460px]">
+                {/* CỘT 1: CÂY THƯ MỤC (~220px) */}
+                <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                    <span>Chuyên đề</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    {[
+                      { id: "__ALL__", name: "Tất cả chuyên đề", count: 3 },
+                      { id: "mod-1", name: "Chương 1: Kiến thức nền tảng", count: 1 },
+                      { id: "mod-2", name: "Chương 2: Ứng dụng thực tế", count: 2 },
+                    ].map((f) => {
+                      const isSelected = selectedLectureFolder === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setSelectedLectureFolder(f.id)}
+                          className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
+                            isSelected
+                              ? "text-purple-600 dark:text-purple-400 font-bold bg-purple-50/80 dark:bg-purple-950/50"
+                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Folder
+                              size={15}
+                              className={isSelected ? "text-purple-600 fill-purple-500/20" : "text-slate-400"}
+                            />
+                            <span className="truncate">{f.name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 tabular-nums">{f.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* CỘT 2: DANH SÁCH BÀI GIẢNG */}
+                <div className="flex-1 min-w-0 p-4 space-y-3">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Bài giảng trong chuyên đề ({selectedLectureFolder === "__ALL__" ? "Tất cả" : "Chuyên đề"})
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { title: "Bài 01: Giới thiệu tổng quan và phương pháp tiếp cận", duration: "45:20", teacher: "Vũ Đức Minh", views: 28 },
+                      { title: "Bài 02: Phân tích mô hình dữ liệu và giải thuật cốt lõi", duration: "52:10", teacher: "Vũ Đức Minh", views: 24 },
+                      { title: "Bài 03: Hướng dẫn thực hành và giải đáp thắc mắc chuyên sâu", duration: "38:45", teacher: "Vũ Đức Minh", views: 19 },
+                    ].map((lec, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-purple-400 transition bg-white dark:bg-slate-900/60"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="size-9 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 grid place-items-center shrink-0">
+                            <Video size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                              {lec.title}
+                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Thời lượng: {lec.duration} · Giảng viên: {lec.teacher} · {lec.views} lượt xem
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => notify(`Đang mở bài giảng: ${lec.title}`, "info")}
+                            className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold cursor-pointer"
+                          >
+                            Xem bài giảng
                           </button>
                         </div>
                       </div>
@@ -1043,16 +1285,6 @@ export function ManagerClassWorkspace({
             />
           </Field>
 
-          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
-            <input
-              checked={settingsForm.allowLateEnrollment}
-              className="size-5 accent-sky-600"
-              onChange={(e) => setSettingsForm({ ...settingsForm, allowLateEnrollment: e.target.checked })}
-              type="checkbox"
-            />
-            Cho phép ghi danh sau ngày khai giảng
-          </label>
-
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setSettingsModalOpen(false)} type="button">
               Hủy
@@ -1062,6 +1294,86 @@ export function ManagerClassWorkspace({
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal xác nhận kích hoạt lớp */}
+      <Modal
+        open={confirmActivateOpen}
+        onClose={() => setConfirmActivateOpen(false)}
+        title="Xác nhận kích hoạt lớp học"
+        description={`Bạn có chắc chắn muốn kích hoạt lớp học "${currentClass.name}"? Sau khi kích hoạt, học viên và giảng viên có thể truy cập đầy đủ các phân hệ học tập.`}
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Lớp học sẽ chuyển sang trạng thái hoạt động chính thức (ACTIVE).
+          </p>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setConfirmActivateOpen(false)} type="button">
+              Hủy
+            </Button>
+            <Button
+              loading={saving}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={async () => {
+                try {
+                  await activate();
+                  setCurrentClass((prev) => ({ ...prev, status: "ACTIVE" }));
+                  notify("Đã kích hoạt lớp học thành công.", "success");
+                } catch (err) {
+                  notify(err instanceof Error ? err.message : "Kích hoạt lớp thất bại.", "error");
+                } finally {
+                  setConfirmActivateOpen(false);
+                }
+              }}
+            >
+              Xác nhận kích hoạt
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal xác nhận đóng lớp */}
+      <Modal
+        open={confirmCloseOpen}
+        onClose={() => setConfirmCloseOpen(false)}
+        title="Xác nhận đóng lớp học"
+        description={`Bạn có chắc chắn muốn đóng lớp học "${currentClass.name}"?`}
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Sau khi đóng, lớp học sẽ chuyển sang trạng thái lưu trữ (CLOSED). Học viên sẽ không thể nộp bài tập mới hoặc thực hiện các hoạt động tính điểm.
+          </p>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setConfirmCloseOpen(false)} type="button">
+              Hủy
+            </Button>
+            <Button
+              loading={closingClass}
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+              onClick={async () => {
+                setClosingClass(true);
+                try {
+                  await apiRequest(`/manager/classes/${item.id}/close`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      closeReason: "Kết thúc khóa học",
+                      archivePolicy: "READ_ONLY",
+                    }),
+                  });
+                  setCurrentClass((prev) => ({ ...prev, status: "CLOSED" }));
+                  notify("Đã đóng lớp học thành công.", "success");
+                } catch (err) {
+                  notify(err instanceof Error ? err.message : "Đóng lớp thất bại.", "error");
+                } finally {
+                  setClosingClass(false);
+                  setConfirmCloseOpen(false);
+                }
+              }}
+            >
+              Xác nhận đóng lớp
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Modal 1: Phân công giảng viên mới */}
