@@ -415,8 +415,9 @@ export function ManagerClassWorkspace({
           {/* TAB 1: TỔNG QUAN                                              */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "overview" && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="space-y-4">
+              {/* Header tổng quan */}
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
                     Tổng quan lớp học
@@ -428,50 +429,69 @@ export function ManagerClassWorkspace({
                 <button
                   type="button"
                   onClick={() => setSettingsModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:text-blue-600 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:text-blue-600 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 self-start sm:self-auto bg-slate-50/50 dark:bg-slate-800/40"
                 >
                   <Settings size={14} />
                   <span>Sửa cài đặt</span>
                 </button>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Mã lớp</span>
-                  <span className="text-sm font-mono font-bold text-slate-900 dark:text-slate-100">{item.code}</span>
+              {/* 2 Ô (Card) chi tiết: Thông tin lớp học & Môn học - Mô tả */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Ô 1: THÔNG TIN LỚP HỌC */}
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                      Thông tin lớp học
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-xs divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Mã lớp học:</span>
+                      <strong className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">{item.code}</strong>
+                    </div>
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Tên lớp học:</span>
+                      <strong className="text-xs font-bold text-slate-900 dark:text-slate-100">{currentClass.name}</strong>
+                    </div>
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Sức chứa tối đa:</span>
+                      <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                        {currentClass.capacity ?? 40} học viên
+                      </strong>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Tên lớp</span>
-                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{currentClass.name}</span>
-                </div>
+                {/* Ô 2: MÔN HỌC & MÔ TẢ */}
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                      Môn học & Mô tả
+                    </span>
+                  </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Khối lớp</span>
-                  <span className="text-sm font-bold text-purple-600 dark:text-purple-400">
-                    {classGrade ? `Khối ${classGrade}` : "Chưa xác định"}
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Môn học</span>
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                    {classSubject ? `Môn ${classSubject}` : (course?.name || "Chưa xác định")}
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Sức chứa</span>
-                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                    {currentClass.capacity ?? 40} học viên
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 gap-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 shrink-0">Mô tả</span>
-                  <span className="text-sm text-slate-700 dark:text-slate-300 sm:text-right max-w-xl leading-relaxed">
-                    {(currentClass as any).description?.trim() || "Chưa có mô tả cho lớp học này."}
-                  </span>
+                  <div className="space-y-1 text-xs divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Khối lớp:</span>
+                      <span className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                        {classGrade ? `Khối ${classGrade}` : "Chưa xác định"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Môn học:</span>
+                      <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        {classSubject ? `Môn ${classSubject}` : (course?.name || "Chưa xác định")}
+                      </span>
+                    </div>
+                    <div className="pt-2">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium block mb-1">Mô tả lớp học:</span>
+                      <p className="text-slate-700 dark:text-slate-300 text-xs leading-relaxed">
+                        {(currentClass as any).description?.trim() || "Chưa có mô tả cho lớp học này."}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
