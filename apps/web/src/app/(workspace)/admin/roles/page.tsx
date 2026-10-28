@@ -56,7 +56,7 @@ export default function RolesPage() {
 
   if (!canView) return <AccessDenied />;
 
-  return <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8"><PageHeader actions={canUpdate ? <Button loading={saving} onClick={() => void save()}><Save size={17} />Lưu ma trận</Button> : undefined} description="Bật hoặc tắt quyền theo vai trò. Các thay đổi được tăng phiên bản và ghi audit để phiên đang hoạt động có thể làm mới." eyebrow="Identity & Access · FUNC-ADM-002" title="Vai trò và quyền" />
+  return <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8"><PageHeader actions={canUpdate ? <Button loading={saving} onClick={() => void save()}><Save size={17} />Lưu ma trận</Button> : undefined} description="Bật hoặc tắt quyền theo vai trò. Các thay đổi được tăng phiên bản và ghi audit để phiên đang hoạt động có thể làm mới." title="Vai trò và quyền" />
     <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
       <aside aria-label="Danh sách vai trò" className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
         <div className="divide-y divide-slate-100 dark:divide-slate-800">

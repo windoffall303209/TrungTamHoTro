@@ -180,7 +180,7 @@ export default function ReportsPage() {
   };
 
   return <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-    <PageHeader eyebrow="Operational Intelligence" title="Báo cáo vận hành" description="Đối soát chỉ số theo kỳ, nhận diện rủi ro có giải thích và quản lý lịch sử xuất dữ liệu." />
+    <PageHeader title="Báo cáo vận hành" description="Đối soát chỉ số theo kỳ, nhận diện rủi ro có giải thích và quản lý lịch sử xuất dữ liệu." />
 
     <section className="mb-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
       <div className="flex flex-wrap items-end gap-3">
