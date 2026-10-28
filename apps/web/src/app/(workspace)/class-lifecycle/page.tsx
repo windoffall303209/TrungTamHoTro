@@ -114,7 +114,7 @@ export default function ClassLifecyclePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8 space-y-4">
-      <PageHeader eyebrow="Quản lý vòng đời" title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được kiểm toán minh bạch." />
+      <PageHeader title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được kiểm toán minh bạch." />
 
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <Field label="Lớp cần quản lý">

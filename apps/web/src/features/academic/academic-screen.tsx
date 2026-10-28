@@ -94,7 +94,6 @@ export default function AcademicScreen() {
     <div className="workspace-enter mx-auto max-w-7xl px-4 py-8 md:px-7 md:py-10">
       <RequestError message={model.loadError} retry={() => void model.reload()} />
       <PageHeader
-        eyebrow="Học vụ"
         title="Bài tập & kết quả học tập"
         description={
           canTeach
