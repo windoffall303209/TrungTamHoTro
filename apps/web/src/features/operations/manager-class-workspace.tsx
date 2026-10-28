@@ -182,104 +182,140 @@ export function ManagerClassWorkspace({
     { id: "lifecycle", label: "Vòng đời & Đóng lớp", icon: Archive },
   ];
 
+  const capacityPercent = Math.min(
+    100,
+    Math.round(((item.learnerIds.length || activeEnrollments.length) / (item.capacity || 40)) * 100)
+  );
+
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-5">
+      {/* ========================================================= */}
+      {/* HEADER NGANG LỚP HỌC (Hero Banner thông tin tổng quan)     */}
+      {/* ========================================================= */}
+      <section className="mb-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-7 shadow-lg relative overflow-hidden">
+        {/* Glow hiệu ứng trang trí */}
+        <div className="absolute -right-12 -bottom-12 size-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute right-1/3 -top-12 size-40 rounded-full bg-indigo-500/15 blur-2xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5">
+          {/* Cột trái: Nhận diện & Tiêu đề lớp học */}
+          <div className="space-y-3 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={onBack}
+                type="button"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-xs transition cursor-pointer"
+              >
+                <ArrowLeft size={13} />
+                <span>Danh sách lớp</span>
+              </button>
+              <span className="text-slate-400 text-xs">/</span>
+              <span className="px-2.5 py-0.5 rounded-lg bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-mono font-bold tracking-wider uppercase">
+                {item.code}
+              </span>
+              <StatusBadge status={item.status} />
+              {classGrade && (
+                <span className="px-2.5 py-0.5 rounded-lg bg-purple-500/20 border border-purple-400/30 text-purple-200 text-xs font-semibold">
+                  Khối {classGrade}
+                </span>
+              )}
+              {classSubject && (
+                <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-semibold">
+                  Môn {classSubject}
+                </span>
+              )}
+              <span className="px-2.5 py-0.5 rounded-lg bg-white/10 text-slate-300 text-xs font-semibold">
+                {item.term}
+              </span>
+            </div>
+
+            <div>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight flex items-center gap-3">
+                <span className="grid size-9 sm:size-10 place-items-center rounded-2xl bg-gradient-to-tr from-indigo-500 to-sky-400 text-white shadow-md shadow-indigo-500/30 shrink-0">
+                  <GraduationCap size={22} />
+                </span>
+                <span className="truncate">{item.name}</span>
+              </h1>
+              <p className="mt-1.5 text-xs text-slate-300 flex items-center gap-2 flex-wrap">
+                <span>
+                  {course?.name ? `Chương trình: ${course.name} (v${item.courseVersion})` : "Lớp học chuẩn K-12"}
+                </span>
+                <span className="text-slate-500">·</span>
+                <span>
+                  Khai giảng: {new Date(item.startAt).toLocaleDateString(activeLocale())} — Bế giảng: {new Date(item.endAt).toLocaleDateString(activeLocale())}
+                </span>
+                <span className="text-slate-500">·</span>
+                <span className="font-mono text-slate-400 text-[11px]">{item.timezone}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Cột phải: KPI nhanh & Thao tác của Header ngang */}
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+            {/* Quick KPI Sĩ số */}
+            <div className="px-4 py-2.5 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xs text-left min-w-[110px]">
+              <span className="text-[10px] text-slate-300 block font-bold uppercase tracking-wider">
+                Sĩ số lớp
+              </span>
+              <p className="text-lg font-black text-white tabular-nums mt-0.5">
+                {item.learnerIds.length} <span className="text-xs text-slate-400 font-normal">/{item.capacity}</span>
+              </p>
+            </div>
+
+            {/* Quick KPI Giảng viên chính */}
+            <div className="px-4 py-2.5 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xs flex items-center gap-3">
+              <UserAvatar
+                avatarUrl={primaryInstructor?.avatarUrl}
+                name={primaryInstructor?.displayName || "Chưa phân công"}
+                className="size-9 rounded-full text-xs shrink-0"
+              />
+              <div className="min-w-0">
+                <span className="text-[10px] text-slate-300 block font-bold uppercase tracking-wider">
+                  GV Phụ trách
+                </span>
+                <p className="text-xs font-bold text-white truncate max-w-[130px] mt-0.5">
+                  {primaryInstructor?.displayName || "Chưa phân công"}
+                </p>
+              </div>
+            </div>
+
+            {/* Nút tác vụ Header ngang */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer backdrop-blur-xs shadow-xs"
+              >
+                <Share2 size={14} />
+                <span>{copiedLink ? "Đã chép link!" : "Sao chép link"}</span>
+              </button>
+
+              {item.status === "DRAFT" && (
+                <Button
+                  loading={saving}
+                  onClick={() => void activate()}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-4 rounded-2xl shadow-sm"
+                >
+                  <CheckCircle2 size={15} />
+                  <span>Kích hoạt lớp</span>
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         {/* ========================================================= */}
-        {/* CỘT 1: SIDEBAR CARD ĐIỀU HƯỚNG TỔNG QUAN (280px)           */}
+        {/* CỘT 1: THANH DỌC ĐIỀU HƯỚNG VÀ WIDGET TÁC NGHIỆP (280px)  */}
         {/* ========================================================= */}
-        <aside className="w-full lg:w-72 shrink-0 space-y-4">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs space-y-4">
-            {/* Nút quay lại danh sách lớp */}
-            <button
-              onClick={onBack}
-              type="button"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
-            >
-              <ArrowLeft size={15} />
-              <span>Quay lại danh sách lớp</span>
-            </button>
-
-            {/* Thông tin lớp học chính */}
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="size-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-600 grid place-items-center text-white shrink-0 shadow-xs">
-                  <GraduationCap size={22} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-[10px] font-extrabold uppercase">
-                      {item.code}
-                    </span>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <h2
-                    className="mt-1 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate"
-                    title={item.name}
-                  >
-                    {item.name}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Huy hiệu phân cấp Khối - Môn */}
-              <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
-                {classGrade && (
-                  <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
-                    Khối {classGrade}
-                  </span>
-                )}
-                {classSubject && (
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                    {classSubject}
-                  </span>
-                )}
-                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold">
-                  {item.term}
-                </span>
-              </div>
-
-              {/* Nút sao chép liên kết */}
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                <span className="text-[11px]">Chia sẻ liên kết:</span>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                >
-                  <Share2 size={12} />
-                  <span>{copiedLink ? "Đã chép!" : "Sao chép link"}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Giảng viên chính phụ trách */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
-                Giảng viên chính
-              </span>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-                <UserAvatar
-                  avatarUrl={primaryInstructor?.avatarUrl}
-                  name={primaryInstructor?.displayName || "Chưa phân công"}
-                  className="size-8 rounded-full text-xs"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                    {primaryInstructor?.displayName || "Chưa phân công"}
-                  </p>
-                  <p className="text-[10px] text-slate-400 truncate">
-                    {primaryInstructor?.email || "Cần bổ nhiệm GV chính"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Menu điều hướng các tab con */}
-            <nav className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 py-1">
-                Quản trị chức năng
-              </p>
+        <aside className="w-full lg:w-72 shrink-0 space-y-3.5 lg:sticky lg:top-20">
+          {/* Card 1: Menu 7 Phân hệ nghiệp vụ */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs">
+            <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-2 py-1 mb-1">
+              Phân hệ quản trị
+            </p>
+            <nav className="space-y-1">
               {navMenuItems.map(({ id, label, icon: Icon, count }) => {
                 const isActive = activeTab === id;
                 return (
@@ -287,15 +323,15 @@ export function ManagerClassWorkspace({
                     key={id}
                     type="button"
                     onClick={() => setActiveTab(id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
                       isActive
-                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
+                        ? "bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs font-extrabold"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Icon
-                        size={15}
+                        size={16}
                         className={isActive ? "text-blue-600 dark:text-blue-400" : "text-slate-400"}
                       />
                       <span className="truncate">{label}</span>
@@ -315,20 +351,104 @@ export function ManagerClassWorkspace({
                 );
               })}
             </nav>
+          </div>
 
-            {/* Thao tác kích hoạt nhanh nếu ở trạng thái DRAFT */}
-            {item.status === "DRAFT" && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                <Button
-                  loading={saving}
-                  onClick={() => void activate()}
-                  className="w-full text-xs font-bold py-2"
-                >
-                  <CheckCircle2 size={15} />
-                  <span>Kích hoạt lớp học</span>
-                </Button>
-              </div>
-            )}
+          {/* Card 2: Widget Sĩ số & Tỷ lệ lấp đầy (Capacity Progress) */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                Năng lực & Sĩ số
+              </span>
+              <span className="text-xs font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
+                {capacityPercent}%
+              </span>
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300"
+                style={{ width: `${capacityPercent}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <span>Đã ghi danh: <strong className="text-slate-800 dark:text-slate-200">{item.learnerIds.length}</strong></span>
+              <span>Tối đa: <strong className="text-slate-800 dark:text-slate-200">{item.capacity}</strong></span>
+            </div>
+            <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+              {item.allowLateEnrollment ? "✓ Cho phép ghi danh muộn" : "✕ Đã khóa ghi danh muộn"}
+            </p>
+          </div>
+
+          {/* Card 3: Widget Đội ngũ giảng dạy (Mini Staff List) */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
+                Đội ngũ giảng dạy
+              </span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                {instructors.length} GV
+              </span>
+            </div>
+
+            <div className="space-y-2 max-h-36 overflow-y-auto scrollbar-thin">
+              {instructors.slice(0, 3).map((ins) => (
+                <div key={ins.instructorId} className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                  <UserAvatar
+                    avatarUrl={ins.avatarUrl}
+                    name={ins.displayName || "Giảng viên"}
+                    className="size-7 rounded-full text-[10px] shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                      {ins.displayName || "Giảng viên"}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {ins.role === "PRIMARY" ? "Giảng viên chính" : "Đồng giảng viên"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setAssignModalOpen(true)}
+              className="w-full py-1.5 px-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 text-blue-600 dark:text-blue-400 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <UserPlus size={13} />
+              <span>Phân công giảng viên</span>
+            </button>
+          </div>
+
+          {/* Card 4: Thao tác nhanh cho Quản lý trung tâm */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-2">
+            <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide block">
+              Thao tác nhanh
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEnrollModalOpen(true)}
+                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-[11px] font-bold transition text-left cursor-pointer border border-slate-100 dark:border-slate-800"
+              >
+                + Ghi danh
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkModalOpen(true)}
+                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 text-[11px] font-bold transition text-left cursor-pointer border border-slate-100 dark:border-slate-800"
+              >
+                + Nhập sỉ
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("lifecycle")}
+              className="w-full p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-300 hover:text-amber-600 dark:hover:text-amber-400 text-[11px] font-bold transition text-left cursor-pointer border border-slate-100 dark:border-slate-800 flex items-center justify-between"
+            >
+              <span>Vòng đời & Đóng lớp</span>
+              <Archive size={13} />
+            </button>
           </div>
         </aside>
 
