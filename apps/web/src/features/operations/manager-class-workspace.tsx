@@ -416,23 +416,13 @@ export function ManagerClassWorkspace({
           {/* ------------------------------------------------------------- */}
           {activeTab === "overview" && (
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-                    Tổng quan lớp học
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Thông tin định danh và thông số cơ bản của lớp học.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSettingsModalOpen(true)}
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:text-blue-600 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-800/40"
-                >
-                  <Settings size={14} />
-                  <span>Sửa cài đặt</span>
-                </button>
+              <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                  Tổng quan lớp học
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Thông tin định danh và thông số cơ bản của lớp học.
+                </p>
               </div>
 
               {/* Danh sách thông tin 1 cột, nhãn và giá trị liền cạnh nhau */}
