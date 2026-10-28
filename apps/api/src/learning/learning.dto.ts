@@ -129,6 +129,13 @@ export class CreateClassDto {
   @IsOptional() @IsBoolean() allowLateEnrollment = false;
 }
 
+/** Dữ liệu cập nhật thông tin và cài đặt lớp học. */
+export class UpdateClassDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(200) name?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
+  @IsOptional() @IsBoolean() allowLateEnrollment?: boolean;
+}
+
 export class AssignUserDto {
   @IsString() @IsNotEmpty() userId!: string;
 }

@@ -522,6 +522,7 @@ export class LearningService {
       listClasses: (...args) => owner.listClasses(...args),
       getClassCapabilities: (...args) => owner.getClassCapabilities(...args),
       createClass: (...args) => owner.createClass(...args),
+      updateClass: (...args) => owner.updateClass(...args),
       assignInstructor: (...args) => owner.assignInstructor(...args),
       transferPrimaryInstructor: (...args) =>
         owner.transferPrimaryInstructor(...args),
@@ -895,6 +896,15 @@ export class LearningService {
     actorId = "usr-manager",
   ): Promise<LearningClass> {
     return await classes_ops.createClass(this.operationContext, input, actorId);
+  }
+
+  /** Cập nhật thông tin và cài đặt lớp học. */
+  async updateClass(
+    classId: string,
+    input: { name?: string; capacity?: number; allowLateEnrollment?: boolean },
+    actorId = "usr-manager",
+  ): Promise<LearningClass> {
+    return await classes_ops.updateClass(this.operationContext, classId, input, actorId);
   }
 
   /** Gán giảng viên đúng role, bảo đảm người dùng có vai trò INSTRUCTOR và ghi lịch sử thành viên. */

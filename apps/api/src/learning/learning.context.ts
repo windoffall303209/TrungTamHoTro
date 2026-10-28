@@ -155,6 +155,11 @@ export interface LearningServiceContext {
       Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment">>,
     actorId?: string,
   ): Promise<LearningClass>;
+  updateClass(
+    classId: string,
+    input: { name?: string; capacity?: number; allowLateEnrollment?: boolean },
+    actorId?: string,
+  ): Promise<LearningClass>;
   assignInstructor(
     classId: string,
     instructorId: string,
