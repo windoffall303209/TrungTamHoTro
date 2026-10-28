@@ -96,7 +96,6 @@ export default function SettingsScreen() {
         </button>
       ) : null}
       <PageHeader
-        eyebrow="Platform Governance"
         title={activeMeta?.title ?? "Cấu hình hệ thống"}
         description={
           activeMeta?.description ??

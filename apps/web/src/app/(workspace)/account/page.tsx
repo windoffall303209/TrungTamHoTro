@@ -394,7 +394,6 @@ function AccountContent() {
     <div className="workspace-enter mx-auto max-w-5xl px-4 py-5 sm:px-6 lg:px-8 space-y-6">
       {/* Tiêu đề trang tài khoản */}
       <PageHeader
-        eyebrow="Tài khoản cá nhân"
         title={activeTab === "profile" ? "Thông tin cá nhân" : "Bảo mật tài khoản"}
         description={
           activeTab === "profile"

@@ -147,7 +147,7 @@ export default function AttendancePage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8 space-y-4">
-      <PageHeader eyebrow="Quản lý điểm danh" title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
+      <PageHeader title="Giám sát điểm danh" description="Đối chiếu dữ liệu nhà cung cấp với danh sách lớp, xử lý điều chỉnh và khóa kết quả." />
 
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">

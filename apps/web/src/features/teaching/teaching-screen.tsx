@@ -71,7 +71,6 @@ export default function TeachingScreen() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
-        eyebrow="Instructor Workspace"
         title="Chấm bài & buổi học"
         description="Một hàng đợi theo lớp cho cả bài tập và bài thi; mở bài làm cùng rubric hoặc đáp án trước khi cho điểm."
       />

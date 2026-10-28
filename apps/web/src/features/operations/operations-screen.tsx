@@ -96,7 +96,6 @@ export default function OperationsScreen() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
       <PageHeader
-        eyebrow="Governance & Compliance"
         title="Vận hành và tuân thủ"
         description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
       />
