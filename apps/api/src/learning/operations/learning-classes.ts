@@ -258,3 +258,49 @@ export async function createClass(
   serviceContext.classes.unshift(item);
   return { ...item, instructorIds: [], learnerIds: [] };
 }
+
+/** Cập nhật thông tin và cài đặt lớp học. */
+export async function updateClass(
+  serviceContext: LearningServiceContext,
+  classId: string,
+  input: { name?: string; capacity?: number; allowLateEnrollment?: boolean },
+  actorId = "usr-manager",
+): Promise<LearningClass> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const existing = await prisma.learningClass.findUnique({
+      where: { id: classId },
+      include: { instructors: true, enrollments: true },
+    });
+    if (!existing) {
+      throw new NotFoundException("Không tìm thấy lớp học.");
+    }
+    const dataToUpdate: Record<string, unknown> = {};
+    if (input.name !== undefined) dataToUpdate.name = input.name.trim();
+    if (input.capacity !== undefined) dataToUpdate.capacity = input.capacity;
+    if (input.allowLateEnrollment !== undefined) dataToUpdate.allowLateEnrollment = input.allowLateEnrollment;
+
+    const row = await prisma.learningClass.update({
+      where: { id: classId },
+      data: dataToUpdate,
+      include: { instructors: true, enrollments: true },
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId,
+        action: "CLASS_UPDATED",
+        entityType: "learning_class",
+        entityId: row.id,
+        context: { changes: input },
+      },
+    });
+    return serviceContext.mapClass(row);
+  }
+
+  const item = serviceContext.findClass(classId);
+  if (!item) throw new NotFoundException("Không tìm thấy lớp học.");
+  if (input.name !== undefined) item.name = input.name.trim();
+  if (input.capacity !== undefined) item.capacity = input.capacity;
+  if (input.allowLateEnrollment !== undefined) item.allowLateEnrollment = input.allowLateEnrollment;
+  return item;
+}

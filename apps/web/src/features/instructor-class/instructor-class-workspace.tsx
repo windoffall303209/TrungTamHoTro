@@ -2953,7 +2953,8 @@ export function InstructorClassWorkspace({
                     <th className="px-4 py-3">Họ và tên</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Vai trò</th>
-                    <th className="px-4 py-3 text-right">Trạng thái</th>
+                    <th className="px-4 py-3">Trạng thái</th>
+                    <th className="px-4 py-3 text-right">Nhắn tin</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2969,7 +2970,8 @@ export function InstructorClassWorkspace({
                         Giảng viên chính
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-emerald-600 font-bold">Phụ trách</td>
+                    <td className="px-4 py-3 text-emerald-600 font-bold">Phụ trách</td>
+                    <td className="px-4 py-3 text-right text-slate-400">—</td>
                   </tr>
 
                   {/* Học sinh */}
@@ -2983,7 +2985,28 @@ export function InstructorClassWorkspace({
                         </td>
                         <td className="px-4 py-3 text-slate-500">{l.email}</td>
                         <td className="px-4 py-3 text-slate-500">Học sinh</td>
-                        <td className="px-4 py-3 text-right text-emerald-600 font-bold">Đang học</td>
+                        <td className="px-4 py-3 text-emerald-600 font-bold">Đang học</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              window.dispatchEvent(
+                                new CustomEvent("open-mini-chat", {
+                                  detail: {
+                                    id: l.id,
+                                    name: l.displayName,
+                                    role: "LEARNER",
+                                  },
+                                }),
+                              );
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer shrink-0"
+                            title={`Nhắn tin với ${l.displayName}`}
+                          >
+                            <MessageCircle size={14} />
+                            <span>Nhắn tin</span>
+                          </button>
+                        </td>
                       </tr>
                     ))}
                 </tbody>
@@ -3052,13 +3075,34 @@ export function InstructorClassWorkspace({
                         <p className="text-[11px] text-slate-500">{ins.email || "teacher@wind.edu.vn"}</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => notify("Đã gỡ quyền đồng giáo viên!", "success")}
-                      className="text-xs text-rose-600 hover:underline font-bold cursor-pointer"
-                    >
-                      Gỡ quyền
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.dispatchEvent(
+                            new CustomEvent("open-mini-chat", {
+                              detail: {
+                                id: ins.instructorId,
+                                name: ins.displayName || "Đồng giáo viên",
+                                role: "INSTRUCTOR",
+                              },
+                            }),
+                          );
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer shrink-0"
+                        title={`Nhắn tin với ${ins.displayName || "Đồng giáo viên"}`}
+                      >
+                        <MessageCircle size={14} />
+                        <span>Nhắn tin</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => notify("Đã gỡ quyền đồng giáo viên!", "success")}
+                        className="text-xs text-rose-600 hover:underline font-bold cursor-pointer"
+                      >
+                        Gỡ quyền
+                      </button>
+                    </div>
                   </div>
                 ))}
             </div>

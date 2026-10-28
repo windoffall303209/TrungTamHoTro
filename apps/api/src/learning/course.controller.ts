@@ -3,7 +3,7 @@ import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../auth/auth.service.js";
 import { CurrentSession } from "../auth/current-session.decorator.js";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
-import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateCourseDto } from "./learning.dto.js";
+import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateClassDto, UpdateCourseDto } from "./learning.dto.js";
 import { LearningService } from "./learning.service.js";
 import type { ClassCapabilities, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "./learning.types.js";
 
@@ -60,6 +60,10 @@ export class CourseController {
   @Post("manager/classes") @RequirePermissions("class:manage")
   /** Mở lớp nháp từ phiên bản khóa học được chọn. */
   createClass(@Body() input: CreateClassDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.createClass(input, session.user.id); }
+
+  @Patch("manager/classes/:classId") @RequirePermissions("class:manage")
+  /** Cập nhật thông tin và cài đặt lớp học. */
+  updateClass(@Param("classId") classId: string, @Body() input: UpdateClassDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.updateClass(classId, input, session.user.id); }
 
   @Post("manager/classes/:classId/instructors") @RequirePermissions("class:manage")
   /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR. */
