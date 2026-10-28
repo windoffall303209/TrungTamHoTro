@@ -311,6 +311,58 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Danh sách điều hướng phân nhóm nghiệp vụ đa tầng dành cho Quản lý trung tâm (Left Sidebar)
+  const centerManagerNavGroups = useMemo(
+    () => [
+      {
+        id: "academic-ops",
+        title: "Quản trị đào tạo",
+        items: [
+          { href: "/courses", label: "Lớp & Khóa học", icon: GraduationCap },
+          { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
+          { href: "/attendance", label: "Giám sát điểm danh", icon: UserCheck },
+          { href: "/class-lifecycle", label: "Vòng đời lớp", icon: Archive },
+          { href: "/live-classes", label: "Lớp học online", icon: CalendarDays },
+        ],
+      },
+      {
+        id: "exams-reports",
+        title: "Khảo thí & Học liệu",
+        items: [
+          { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
+          { href: "/exams", label: "Đề & kết quả", icon: BookOpenCheck },
+          { href: "/materials", label: "Kho học liệu", icon: Database },
+        ],
+      },
+      {
+        id: "system-connect",
+        title: "Người dùng & Kết nối",
+        items: [
+          { href: "/admin/users", label: "Người dùng", icon: Users },
+          { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
+          { href: "/forum", label: "Diễn đàn", icon: MessageSquareText },
+          { href: "/support", label: "Hỗ trợ", icon: Headphones },
+        ],
+      },
+    ],
+    [],
+  );
+
+  // Xác định tiêu đề phân hệ hiện tại cho Quản lý trung tâm
+  const currentManagerPageTitle = useMemo(() => {
+    for (const group of centerManagerNavGroups) {
+      for (const item of group.items) {
+        if (pathname === item.href || (item.href !== "/courses" && pathname.startsWith(`${item.href}/`))) {
+          return { group: group.title, page: item.label, icon: item.icon };
+        }
+      }
+    }
+    if (pathname.startsWith("/courses/classes/")) {
+      return { group: "Quản trị đào tạo", page: "Không gian lớp học", icon: GraduationCap };
+    }
+    return { group: "Cổng Quản Trị Trung Tâm", page: "Điều hành & Vận hành", icon: LayoutDashboard };
+  }, [centerManagerNavGroups, pathname]);
+
   // Tính toán chữ cái đầu và tên hiển thị ngắn của học sinh
   const initials = useMemo(() => {
     const name = session.user.name?.trim() || "";
@@ -475,6 +527,606 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
+  // Khối Action Bar bên phải: Điều khiển vai trò, theme, ngôn ngữ, thông báo và menu người dùng
+  const renderRightActionBar = (includeMobileTrigger = true) => (
+    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+      {/* Role indicator pill chỉ cho Quản trị viên hệ thống */}
+      {session.roleCode === "SYSTEM_ADMIN" && (
+        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
+          <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
+          {t(session.user.roleName)}
+        </div>
+      )}
+
+      {session.availableRoles.length > 1 ? (
+        <select
+          aria-label={t("Chọn vai trò sử dụng")}
+          className="min-h-9.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-[13px] font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
+          onChange={(event) => void setRole(event.target.value as RoleCode)}
+          value={session.roleCode}
+        >
+          {session.availableRoles.map((role) => (
+            <option key={role.code} value={role.code}>
+              {t(role.name)}
+            </option>
+          ))}
+        </select>
+      ) : null}
+
+      <ThemeToggle />
+      <LanguageSwitcher compact />
+
+      {/* Notification Bell */}
+      <div className="relative" ref={notificationRef}>
+        <button
+          aria-label={
+            unreadCount
+              ? locale === "en-US"
+                ? `Notifications, ${unreadCount} unread`
+                : `Thông báo, ${unreadCount} chưa đọc`
+              : t("Thông báo")
+          }
+          className="relative grid size-[40px] place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
+          onClick={() => {
+            setNotificationOpen((open) => !open);
+            setProfileOpen(false);
+          }}
+          type="button"
+        >
+          <Bell size={18} />
+          {unreadCount ? (
+            <span className="absolute -right-1 -top-1 grid min-w-4.5 place-items-center rounded-full bg-sky-600 px-1 text-[11px] font-bold leading-4.5 text-white ring-2 ring-white dark:ring-slate-900 shadow-xs">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          ) : null}
+        </button>
+
+        {notificationOpen ? (
+          <section
+            aria-label={t("Trung tâm thông báo")}
+            className="absolute right-0 top-12 z-50 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {t("Thông báo")}
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {unreadCount
+                    ? locale === "en-US"
+                      ? `${unreadCount} unread items`
+                      : `${unreadCount} mục chưa đọc`
+                    : t("Đã đọc tất cả")}
+                </p>
+              </div>
+              <button
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 disabled:text-slate-300 dark:disabled:text-slate-700 transition-colors"
+                disabled={!unreadCount}
+                onClick={() => void markAllRead()}
+                type="button"
+              >
+                <CheckCheck size={14} />
+                {t("Đọc tất cả")}
+              </button>
+            </div>
+            <div className="max-h-[min(28rem,65dvh)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+              {notificationLoading ? (
+                <div className="flex min-h-36 items-center justify-center gap-2 text-xs font-semibold text-slate-500">
+                  <LoaderCircle className="animate-spin text-sky-600" size={18} />
+                  {t("Đang tải…")}
+                </div>
+              ) : notificationError ? (
+                <div className="grid min-h-36 place-items-center px-4 text-center">
+                  <div>
+                    <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                      {notificationError}
+                    </p>
+                    <button
+                      className="mt-2 text-xs font-semibold text-sky-600 hover:underline"
+                      onClick={() => void loadNotifications()}
+                      type="button"
+                    >
+                      {t("Thử lại")}
+                    </button>
+                  </div>
+                </div>
+              ) : notifications.length ? (
+                notifications.map((item) => (
+                  <Link
+                    className={`block px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                      item.readAt
+                        ? "bg-white dark:bg-slate-900"
+                        : "bg-sky-50/50 dark:bg-sky-950/20"
+                    }`}
+                    href={notificationHref(item)}
+                    key={item.id}
+                    onClick={() => {
+                      void markRead(item);
+                      setNotificationOpen(false);
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span
+                        className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                          item.readAt ? "bg-slate-300 dark:bg-slate-700" : "bg-sky-500"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
+                          {item.title}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                          {formatDateTime(item.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+              ) : (
+                <div className="grid min-h-36 place-items-center px-4 text-center">
+                  <div>
+                    <Bell className="mx-auto text-slate-300 dark:text-slate-700" size={24} />
+                    <p className="mt-2 text-xs font-semibold text-slate-500">
+                      {t("Chưa có thông báo")}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+      </div>
+
+      {/* Profile Menu Dropdown */}
+      <div
+        className="relative"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setProfileOpen(false);
+          }
+        }}
+        onMouseEnter={() => setProfileOpen(true)}
+        onMouseLeave={() => setProfileOpen(false)}
+      >
+        {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
+          <button
+            aria-expanded={profileOpen}
+            aria-label={t("Mở menu tài khoản")}
+            className="flex min-h-[38px] items-center gap-2 rounded-full pl-1.5 pr-3 py-1 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
+            onClick={() => setProfileOpen((open) => !open)}
+            type="button"
+          >
+            <UserAvatar
+              avatarUrl={session.user.avatarUrl}
+              name={session.user.name}
+              priority
+              className="size-8 rounded-full text-[13px]"
+            />
+            <span className="text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[110px] sm:max-w-[140px]">
+              {session.user.name}
+            </span>
+            <ChevronDown
+              className={`text-slate-500 transition-transform ${
+                profileOpen ? "rotate-180" : ""
+              }`}
+              size={14}
+            />
+          </button>
+        ) : (
+          <button
+            aria-expanded={profileOpen}
+            aria-label={t("Mở menu tài khoản")}
+            className="flex min-h-[40px] items-center gap-2.5 rounded-xl px-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2.5"
+            onClick={() => setProfileOpen((open) => !open)}
+            type="button"
+          >
+            <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority className="size-8 rounded-full text-[13px]" />
+            <span className="hidden sm:inline-block text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
+              {session.user.name}
+            </span>
+            <ChevronDown
+              className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
+                profileOpen ? "rotate-180" : ""
+              }`}
+              size={15}
+            />
+          </button>
+        )}
+
+        {profileOpen ? (
+          <div className="absolute right-0 top-full z-50 pt-1.5">
+            {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
+              <section
+                className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
+                role="menu"
+              >
+                <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-1.5">
+                  <UserAvatar
+                    avatarUrl={session.user.avatarUrl}
+                    name={session.user.name}
+                    className="size-11 rounded-full ring-2 ring-indigo-500/20"
+                    priority
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
+                        session.roleCode === "CENTER_MANAGER"
+                          ? "bg-indigo-600"
+                          : session.roleCode === "INSTRUCTOR"
+                            ? "bg-blue-600"
+                            : "bg-emerald-600"
+                      }`}>
+                        {session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
+                      </span>
+                      <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {session.user.name || "Quản trị viên"}
+                      </strong>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                      {session.user.email || "manager@wind.edu.vn"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-0.5">
+                  <Link
+                    aria-label={t("Thông tin")}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                    href="/account"
+                    onClick={() => setProfileOpen(false)}
+                    role="menuitem"
+                  >
+                    <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
+                      <UserRound size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        {t("Thông tin cá nhân")}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        Hồ sơ, ảnh đại diện và liên hệ
+                      </p>
+                    </div>
+                  </Link>
+
+                  <Link
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                    href="/account?tab=security"
+                    onClick={() => setProfileOpen(false)}
+                    role="menuitem"
+                  >
+                    <div className="size-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
+                      <ShieldCheck size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Bảo mật
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        Mật khẩu, xác thực 2 bước & phiên
+                      </p>
+                    </div>
+                  </Link>
+                </div>
+
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                <div className="space-y-0.5">
+                  <button
+                    className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    onClick={() => {
+                      notify("Đang mở tài liệu hướng dẫn sử dụng...", "info");
+                      setProfileOpen(false);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <BookOpenCheck size={15} className="text-slate-500" />
+                    <span>Hướng dẫn sử dụng</span>
+                  </button>
+
+                  <Link
+                    className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    href="/support"
+                    onClick={() => setProfileOpen(false)}
+                    role="menuitem"
+                  >
+                    <Headphones size={15} className="text-slate-500" />
+                    <span>Hỗ trợ</span>
+                  </Link>
+                </div>
+
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                <button
+                  className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                  onClick={() => void signOut()}
+                  role="menuitem"
+                  type="button"
+                >
+                  <LogOut size={15} />
+                  <span>{t("Đăng xuất")}</span>
+                </button>
+              </section>
+            ) : (
+              <section
+                className="w-56 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
+                role="menu"
+              >
+                <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
+                  <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                    {session.user.name}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {t(session.user.roleName)}
+                  </p>
+                </div>
+                <Link
+                  aria-label={t("Thông tin")}
+                  className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  href="/account"
+                  onClick={() => setProfileOpen(false)}
+                  role="menuitem"
+                >
+                  <UserRound size={14} className="text-slate-500" />
+                  <span>{t("Thông tin")}</span>
+                </Link>
+                <Link
+                  className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  href="/account?tab=security"
+                  onClick={() => setProfileOpen(false)}
+                  role="menuitem"
+                >
+                  <ShieldCheck size={14} className="text-slate-500" />
+                  <span>{t("Bảo mật")}</span>
+                </Link>
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                <button
+                  className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                  onClick={() => void signOut()}
+                  role="menuitem"
+                  type="button"
+                >
+                  <LogOut size={14} />
+                  <span>{t("Đăng xuất")}</span>
+                </button>
+              </section>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Mobile Menu Trigger */}
+      {includeMobileTrigger && (
+        <button
+          aria-label={t("Mở menu điều hướng")}
+          className="grid size-[40px] shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
+          onClick={() => setMenuOpen((open) => !open)}
+          type="button"
+        >
+          <Menu size={18} />
+        </button>
+      )}
+    </div>
+  );
+
+  const isCenterManager = session.roleCode === "CENTER_MANAGER";
+
+  // NẾU LÀ QUẢN LÝ TRUNG TÂM (CENTER_MANAGER): SỬ DỤNG BỐ CỤC DUAL NAVIGATION (HEADER NGANG + SIDEBAR DỌC)
+  if (isCenterManager) {
+    return (
+      <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)] flex">
+        {/* TẦNG 1: SIDEBAR DỌC CỐ ĐỊNH BÊN TRÁI (Header dọc cho Desktop) */}
+        <aside className="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-[#070b14]/95 backdrop-blur-md sticky top-0 h-screen z-30 shrink-0">
+          {/* Logo & Trung tâm điều hành */}
+          <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
+            <Link className="flex items-center gap-2.5" href="/courses">
+              <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-tr from-indigo-600 via-sky-600 to-cyan-500 text-white shadow-sm shadow-indigo-600/25">
+                <GraduationCap size={20} />
+              </span>
+              <div className="min-w-0">
+                <span className="font-extrabold text-[16px] tracking-tight text-slate-900 dark:text-white block leading-tight">
+                  Wind EDU
+                </span>
+                <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  Trung Tâm Quản Trị
+                </span>
+              </div>
+            </Link>
+            <div className="mt-3 px-2.5 py-1.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/50 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="size-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200 truncate">
+                  Cơ Sở Vận Hành 01
+                </span>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-800/60 text-indigo-800 dark:text-indigo-200 shrink-0">
+                HQ
+              </span>
+            </div>
+          </div>
+
+          {/* Danh mục điều hướng phân nhóm nghiệp vụ */}
+          <nav aria-label="Điều hướng quản lý trung tâm" className="flex-1 overflow-y-auto px-3 py-3 space-y-4 scrollbar-thin">
+            {centerManagerNavGroups.map((group) => (
+              <div key={group.id} className="space-y-1">
+                <div className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {t(group.title)}
+                </div>
+                {group.items.map(({ href, label, icon: Icon }) => {
+                  const active =
+                    href === "/courses"
+                      ? pathname === "/courses" || (pathname.startsWith("/courses/") && !pathname.startsWith("/courses/classes/"))
+                      : pathname === href || pathname.startsWith(`${href}/`);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                        active
+                          ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/80 dark:border-indigo-800/60 shadow-2xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
+                      }`}
+                    >
+                      <Icon
+                        size={16}
+                        className={`shrink-0 ${
+                          active
+                            ? "text-indigo-600 dark:text-indigo-400"
+                            : "text-slate-400 dark:text-slate-500"
+                        }`}
+                      />
+                      <span className="truncate">{t(label)}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+          </nav>
+
+          {/* Widget chân Sidebar */}
+          <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80">
+            <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                  Hệ thống máy chủ
+                </span>
+                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                  Trực tuyến 99.9%
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                <span>Phiên bản v2.6 Pro</span>
+                <Link
+                  href="/support"
+                  className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Trợ giúp
+                </Link>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* TẦNG 2: VÙNG NỘI DUNG CHÍNH (Gồm Header ngang + Main Page) */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* HEADER NGANG TOPBAR CHO QUẢN LÝ TRUNG TÂM */}
+          <header className="sticky top-0 z-20 h-16 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#070b14]/90 backdrop-blur-md flex items-center justify-between px-4 sm:px-6 shadow-2xs">
+            {/* Cột trái Topbar: Menu trigger trên mobile + Tiêu đề Phân hệ nghiệp vụ */}
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                aria-label={t("Mở menu điều hướng")}
+                className="grid size-[38px] shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
+                onClick={() => setMenuOpen((open) => !open)}
+                type="button"
+              >
+                <Menu size={18} />
+              </button>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="hidden sm:grid size-8 place-items-center rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 shrink-0">
+                  <currentManagerPageTitle.icon size={16} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
+                    <span>{t(currentManagerPageTitle.group)}</span>
+                    <span>/</span>
+                  </div>
+                  <h1 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white truncate -mt-0.5">
+                    {t(currentManagerPageTitle.page)}
+                  </h1>
+                </div>
+              </div>
+            </div>
+
+            {/* Cột phải Topbar: Action bar (Theme, Language, Notifications, Profile) */}
+            {renderRightActionBar(false)}
+          </header>
+
+          {/* VÙNG NỘI DUNG TRANG */}
+          <main id="workspace-main" tabIndex={-1} className="flex-1 outline-none">
+            {children}
+          </main>
+        </div>
+
+        {/* MOBILE DRAWER CHO QUẢN LÝ TRUNG TÂM */}
+        {menuOpen ? (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <div
+              className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs transition-opacity"
+              onClick={() => setMenuOpen(false)}
+            />
+            <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white dark:bg-[#0c1220] p-5 shadow-2xl flex flex-col z-10 border-r border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <span className="grid size-8 place-items-center rounded-lg bg-indigo-600 text-white">
+                    <GraduationCap size={18} />
+                  </span>
+                  <div>
+                    <span className="font-bold text-base text-slate-900 dark:text-white block leading-tight">Wind EDU</span>
+                    <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Quản Lý Trung Tâm</span>
+                  </div>
+                </div>
+                <button
+                  aria-label={t("Đóng menu")}
+                  className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => setMenuOpen(false)}
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <nav className="flex-1 overflow-y-auto py-4 space-y-4">
+                {centerManagerNavGroups.map((group) => (
+                  <div key={group.id} className="space-y-1">
+                    <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      {t(group.title)}
+                    </p>
+                    {group.items.map(({ href, label, icon: Icon }) => {
+                      const active =
+                        href === "/courses"
+                          ? pathname === "/courses" || (pathname.startsWith("/courses/") && !pathname.startsWith("/courses/classes/"))
+                          : pathname === href || pathname.startsWith(`${href}/`);
+                      return (
+                        <Link
+                          className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                            active
+                              ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-extrabold border border-indigo-200/80 dark:border-indigo-800/60"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                          href={href}
+                          key={href}
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Icon size={16} />
+                          <span>{t(label)}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ))}
+              </nav>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Trợ năng link ẩn */}
+        <nav aria-label={t("Điều hướng chức năng")} className="sr-only">
+          {availableItems.map((item) => (
+            <Link href={item.href} key={item.href}>
+              {t(item.label)}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Widget Chat Mini nổi góc dưới phải */}
+        {!pathname.startsWith("/messages") && <MiniChatWidget />}
+      </div>
+    );
+  }
+
+  // BỐ CỤC MẶC ĐỊNH DÀNH CHO CÁC VAI TRÒ KHÁC (LEARNER, INSTRUCTOR, SYSTEM_ADMIN)
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text-main)] flex flex-col">
       {/* TẦNG 1: MASTER HEADER ĐIỀU HƯỚNG NGANG (Top Command Bar) */}
@@ -496,7 +1148,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Category Navigation dành cho Quản trị viên hệ thống (ẩn với Quản lý trung tâm, Học sinh và Giáo viên) */}
+            {/* Desktop Category Navigation dành cho Quản trị viên hệ thống */}
             {session.roleCode === "SYSTEM_ADMIN" && (
               <nav className="hidden lg:flex items-center gap-1.5">
                 {sections.map((section) => {
@@ -530,24 +1182,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* Điều hướng trung tâm dành cho Học sinh, Giáo viên & Quản lý trung tâm */}
-          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER") && (
+          {/* Điều hướng trung tâm dành cho Học sinh & Giáo viên */}
+          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR") && (
             <div className="hidden md:flex flex-1 items-center justify-center min-w-0 px-1 sm:px-3">
               <nav
                 aria-label={
                   session.roleCode === "INSTRUCTOR"
                     ? "Điều hướng giáo viên"
-                    : session.roleCode === "CENTER_MANAGER"
-                      ? "Điều hướng quản lý trung tâm"
-                      : "Điều hướng chính học sinh"
+                    : "Điều hướng chính học sinh"
                 }
                 className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs"
               >
                 {(session.roleCode === "INSTRUCTOR"
                   ? instructorNavItems
-                  : session.roleCode === "CENTER_MANAGER"
-                    ? centerManagerNavItems
-                    : learnerNavItems
+                  : learnerNavItems
                 ).map(
                   ({ href, label, icon: Icon }) => {
                     const isSelected =
@@ -582,383 +1230,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Right Action Bar */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Role indicator pill chỉ cho Quản trị viên hệ thống */}
-            {session.roleCode === "SYSTEM_ADMIN" && (
-              <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
-                <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
-                {t(session.user.roleName)}
-              </div>
-            )}
-
-            {session.availableRoles.length > 1 ? (
-              <select
-                aria-label={t("Chọn vai trò sử dụng")}
-                className="min-h-9.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-[13px] font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
-                onChange={(event) => void setRole(event.target.value as RoleCode)}
-                value={session.roleCode}
-              >
-                {session.availableRoles.map((role) => (
-                  <option key={role.code} value={role.code}>
-                    {t(role.name)}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-
-            <ThemeToggle />
-            <LanguageSwitcher compact />
-
-            {/* Notification Bell */}
-            <div className="relative" ref={notificationRef}>
-              <button
-                aria-label={
-                  unreadCount
-                    ? locale === "en-US"
-                      ? `Notifications, ${unreadCount} unread`
-                      : `Thông báo, ${unreadCount} chưa đọc`
-                    : t("Thông báo")
-                }
-                className="relative grid size-[40px] place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
-                onClick={() => {
-                  setNotificationOpen((open) => !open);
-                  setProfileOpen(false);
-                }}
-                type="button"
-              >
-                <Bell size={18} />
-                {unreadCount ? (
-                  <span className="absolute -right-1 -top-1 grid min-w-4.5 place-items-center rounded-full bg-sky-600 px-1 text-[11px] font-bold leading-4.5 text-white ring-2 ring-white dark:ring-slate-900 shadow-xs">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                ) : null}
-              </button>
-
-              {notificationOpen ? (
-                <section
-                  aria-label={t("Trung tâm thông báo")}
-                  className="absolute right-0 top-12 z-50 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-2xl"
-                >
-                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30">
-                    <div>
-                      <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {t("Thông báo")}
-                      </h2>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {unreadCount
-                          ? locale === "en-US"
-                            ? `${unreadCount} unread items`
-                            : `${unreadCount} mục chưa đọc`
-                          : t("Đã đọc tất cả")}
-                      </p>
-                    </div>
-                    <button
-                      className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 disabled:text-slate-300 dark:disabled:text-slate-700 transition-colors"
-                      disabled={!unreadCount}
-                      onClick={() => void markAllRead()}
-                      type="button"
-                    >
-                      <CheckCheck size={14} />
-                      {t("Đọc tất cả")}
-                    </button>
-                  </div>
-                  <div className="max-h-[min(28rem,65dvh)] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
-                    {notificationLoading ? (
-                      <div className="flex min-h-36 items-center justify-center gap-2 text-xs font-semibold text-slate-500">
-                        <LoaderCircle className="animate-spin text-sky-600" size={18} />
-                        {t("Đang tải…")}
-                      </div>
-                    ) : notificationError ? (
-                      <div className="grid min-h-36 place-items-center px-4 text-center">
-                        <div>
-                          <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">
-                            {notificationError}
-                          </p>
-                          <button
-                            className="mt-2 text-xs font-semibold text-sky-600 hover:underline"
-                            onClick={() => void loadNotifications()}
-                            type="button"
-                          >
-                            {t("Thử lại")}
-                          </button>
-                        </div>
-                      </div>
-                    ) : notifications.length ? (
-                      notifications.map((item) => (
-                        <Link
-                          className={`block px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                            item.readAt
-                              ? "bg-white dark:bg-slate-900"
-                              : "bg-sky-50/50 dark:bg-sky-950/20"
-                          }`}
-                          href={notificationHref(item)}
-                          key={item.id}
-                          onClick={() => {
-                            void markRead(item);
-                            setNotificationOpen(false);
-                          }}
-                        >
-                          <div className="flex items-start gap-2.5">
-                            <span
-                              className={`mt-1.5 size-2 shrink-0 rounded-full ${
-                                item.readAt ? "bg-slate-300 dark:bg-slate-700" : "bg-sky-500"
-                              }`}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
-                                {item.title}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                                {formatDateTime(item.createdAt)}
-                              </p>
-                            </div>
-                          </div>
-                        </Link>
-                      ))
-                    ) : (
-                      <div className="grid min-h-36 place-items-center px-4 text-center">
-                        <div>
-                          <Bell className="mx-auto text-slate-300 dark:text-slate-700" size={24} />
-                          <p className="mt-2 text-xs font-semibold text-slate-500">
-                            {t("Chưa có thông báo")}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              ) : null}
-            </div>
-
-            {/* Profile Menu Dropdown */}
-            <div
-              className="relative"
-              onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) {
-                  setProfileOpen(false);
-                }
-              }}
-              onMouseEnter={() => setProfileOpen(true)}
-              onMouseLeave={() => setProfileOpen(false)}
-            >
-              {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
-                <button
-                  aria-expanded={profileOpen}
-                  aria-label={t("Mở menu tài khoản")}
-                  className="flex min-h-[38px] items-center gap-2 rounded-full pl-1.5 pr-3 py-1 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
-                  onClick={() => setProfileOpen((open) => !open)}
-                  type="button"
-                >
-                  <UserAvatar
-                    avatarUrl={session.user.avatarUrl}
-                    name={session.user.name}
-                    priority
-                    className="size-8 rounded-full text-[13px]"
-                  />
-                  <span className="text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[110px] sm:max-w-[140px]">
-                    {session.user.name}
-                  </span>
-                  <ChevronDown
-                    className={`text-slate-500 transition-transform ${
-                      profileOpen ? "rotate-180" : ""
-                    }`}
-                    size={14}
-                  />
-                </button>
-              ) : (
-                <button
-                  aria-expanded={profileOpen}
-                  aria-label={t("Mở menu tài khoản")}
-                  className="flex min-h-[40px] items-center gap-2.5 rounded-xl px-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2.5"
-                  onClick={() => setProfileOpen((open) => !open)}
-                  type="button"
-                >
-                  <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority className="size-8 rounded-full text-[13px]" />
-                  <span className="hidden sm:inline-block text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
-                    {session.user.name}
-                  </span>
-                  <ChevronDown
-                    className={`hidden text-slate-400 dark:text-slate-500 transition-transform sm:block ${
-                      profileOpen ? "rotate-180" : ""
-                    }`}
-                    size={15}
-                  />
-                </button>
-              )}
-
-              {profileOpen ? (
-                <div className="absolute right-0 top-full z-50 pt-1.5">
-                  {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
-                    <section
-                      className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
-                      role="menu"
-                    >
-                      <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-1.5">
-                        <UserAvatar
-                          avatarUrl={session.user.avatarUrl}
-                          name={session.user.name}
-                          className="size-11 rounded-full ring-2 ring-blue-500/20"
-                          priority
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
-                              session.roleCode === "CENTER_MANAGER"
-                                ? "bg-indigo-600"
-                                : session.roleCode === "INSTRUCTOR"
-                                  ? "bg-blue-600"
-                                  : "bg-emerald-600"
-                            }`}>
-                              {session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
-                            </span>
-                            <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                              {session.user.name || "Quản trị viên"}
-                            </strong>
-                          </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {session.user.email || "manager@wind.edu.vn"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <Link
-                          aria-label={t("Thông tin")}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                          href="/account"
-                          onClick={() => setProfileOpen(false)}
-                          role="menuitem"
-                        >
-                          <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
-                            <UserRound size={15} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                              {t("Thông tin cá nhân")}
-                            </p>
-                            <p className="text-[10px] text-slate-400 truncate">
-                              Hồ sơ, ảnh đại diện và liên hệ
-                            </p>
-                          </div>
-                        </Link>
-
-                        <Link
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                          href="/account?tab=security"
-                          onClick={() => setProfileOpen(false)}
-                          role="menuitem"
-                        >
-                          <div className="size-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
-                            <ShieldCheck size={15} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                              Bảo mật
-                            </p>
-                            <p className="text-[10px] text-slate-400 truncate">
-                              Mật khẩu, xác thực 2 bước & phiên
-                            </p>
-                          </div>
-                        </Link>
-                      </div>
-
-                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                      <div className="space-y-0.5">
-                        <button
-                          className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          onClick={() => {
-                            notify("Đang mở tài liệu hướng dẫn sử dụng...", "info");
-                            setProfileOpen(false);
-                          }}
-                          role="menuitem"
-                          type="button"
-                        >
-                          <BookOpenCheck size={15} className="text-slate-500" />
-                          <span>Hướng dẫn sử dụng</span>
-                        </button>
-
-                        <Link
-                          className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          href="/support"
-                          onClick={() => setProfileOpen(false)}
-                          role="menuitem"
-                        >
-                          <Headphones size={15} className="text-slate-500" />
-                          <span>Hỗ trợ</span>
-                        </Link>
-                      </div>
-
-                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                      <button
-                        className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                        onClick={() => void signOut()}
-                        role="menuitem"
-                        type="button"
-                      >
-                        <LogOut size={15} />
-                        <span>{t("Đăng xuất")}</span>
-                      </button>
-                    </section>
-                  ) : (
-                    <section
-                      className="w-56 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
-                      role="menu"
-                    >
-                      <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
-                        <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                          {session.user.name}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          {t(session.user.roleName)}
-                        </p>
-                      </div>
-                      <Link
-                        aria-label={t("Thông tin")}
-                        className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        href="/account"
-                        onClick={() => setProfileOpen(false)}
-                        role="menuitem"
-                      >
-                        <UserRound size={14} className="text-slate-500" />
-                        <span>{t("Thông tin")}</span>
-                      </Link>
-                      <Link
-                        className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        href="/account?tab=security"
-                        onClick={() => setProfileOpen(false)}
-                        role="menuitem"
-                      >
-                        <ShieldCheck size={14} className="text-slate-500" />
-                        <span>{t("Bảo mật")}</span>
-                      </Link>
-                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                      <button
-                        className="flex min-h-8.5 w-full items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                        onClick={() => void signOut()}
-                        role="menuitem"
-                        type="button"
-                      >
-                        <LogOut size={14} />
-                        <span>{t("Đăng xuất")}</span>
-                      </button>
-                    </section>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Mobile Menu Trigger */}
-            <button
-              aria-label={t("Mở menu điều hướng")}
-              className="grid size-[40px] shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden shadow-2xs"
-              onClick={() => setMenuOpen((open) => !open)}
-              type="button"
-            >
-              <Menu size={18} />
-            </button>
-          </div>
+          {renderRightActionBar(true)}
         </div>
 
         {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Chỉ dành cho SYSTEM_ADMIN) */}
@@ -1010,8 +1282,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </nav>
       </header>
 
-
-      {/* MOBILE DRAWER: Menu trượt trên màn hình di động */}
+      {/* MOBILE DRAWER: Menu trượt trên màn hình di động cho Học sinh, Giáo viên & Quản trị hệ thống */}
       {menuOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
@@ -1037,34 +1308,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="flex-1 overflow-y-auto py-4 space-y-4">
-              {session.roleCode === "CENTER_MANAGER" ? (
-                <div className="space-y-1">
-                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    Menu quản lý trung tâm
-                  </p>
-                  {centerManagerNavItems.map(({ href, label, icon: Icon }) => {
-                    const active =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <Link
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          active
-                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        href={href}
-                        key={href}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Icon size={16} />
-                        <span>{t(label)}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              ) : session.roleCode === "INSTRUCTOR" ? (
+              {session.roleCode === "INSTRUCTOR" ? (
                 <div className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     Menu giáo viên
