@@ -484,7 +484,6 @@ export default function UsersPage() {
           ) : undefined
         }
         description="Tạo, cập nhật, khóa và khôi phục tài khoản. Mọi thay đổi đều được ghi lại để truy vết."
-        eyebrow="Identity & Access · FUNC-ADM-001"
         title="Quản lý người dùng"
       />
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -523,12 +523,12 @@ export default function CoursesPage() {
                               </span>
                               {course.grade && (
                                 <span className="inline-flex items-center rounded-md bg-purple-50 dark:bg-purple-950/50 border border-purple-200/80 dark:border-purple-800/60 px-2 py-0.5 text-xs font-bold text-purple-700 dark:text-purple-300">
-                                  Khối {course.grade}
+                                  {`Khối ${course.grade}`}
                                 </span>
                               )}
                               {course.subject && (
                                 <span className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/60 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                                  Môn {course.subject}
+                                  {`Môn ${course.subject}`}
                                 </span>
                               )}
                             </div>
@@ -539,7 +539,7 @@ export default function CoursesPage() {
                         </div>
                         <div className="rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3">
                           <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
-                            Lớp trực thuộc ({classes.filter((item) => item.courseId === course.id).length})
+                            {`Lớp trực thuộc (${classes.filter((item) => item.courseId === course.id).length})`}
                           </p>
                           {classes.some((item) => item.courseId === course.id) ? (
                             <ul className="mt-2 flex flex-wrap gap-2">
@@ -644,7 +644,7 @@ export default function CoursesPage() {
                             </span>
                             {classGrade && (
                               <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
-                                Khối {classGrade}
+                                {`Khối ${classGrade}`}
                               </span>
                             )}
                             {classSubject && (

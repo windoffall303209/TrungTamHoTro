@@ -167,7 +167,6 @@ export default function ClassOperationsPage() {
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
       <PageHeader
-        eyebrow="Center Management"
         title="Điều hành lớp học"
         description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò."
       />
