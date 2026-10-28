@@ -64,7 +64,7 @@ interface NavSection {
 const allNavItems: NavigationItem[] = [
   {
     href: "/courses",
-    label: "Lớp học & Khóa",
+    label: "Khóa học & lớp",
     icon: GraduationCap,
     permissions: ["course:view", "class:view"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
@@ -298,6 +298,19 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Danh sách điều hướng trung tâm dành riêng cho Quản lý trung tâm
+  const centerManagerNavItems = useMemo(
+    () => [
+      { href: "/courses", label: "Lớp & Khóa học", icon: GraduationCap },
+      { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
+      { href: "/attendance", label: "Điểm danh & Vận hành", icon: UserCheck },
+      { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
+      { href: "/admin/users", label: "Người dùng", icon: Users },
+      { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
+    ],
+    [],
+  );
+
   // Tính toán chữ cái đầu và tên hiển thị ngắn của học sinh
   const initials = useMemo(() => {
     const name = session.user.name?.trim() || "";
@@ -483,8 +496,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Category Navigation dành cho Quản trị viên (ẩn với Học sinh và Giáo viên) */}
-            {session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" && (
+            {/* Desktop Category Navigation dành cho Quản trị viên hệ thống (ẩn với Quản lý trung tâm, Học sinh và Giáo viên) */}
+            {session.roleCode === "SYSTEM_ADMIN" && (
               <nav className="hidden lg:flex items-center gap-1.5">
                 {sections.map((section) => {
                   const isSelected = currentSection?.id === section.id;
@@ -517,14 +530,25 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {/* Điều hướng trung tâm dành cho Học sinh & Giáo viên */}
-          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR") && (
+          {/* Điều hướng trung tâm dành cho Học sinh, Giáo viên & Quản lý trung tâm */}
+          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER") && (
             <div className="hidden md:flex flex-1 items-center justify-center min-w-0 px-1 sm:px-3">
               <nav
-                aria-label={session.roleCode === "INSTRUCTOR" ? "Điều hướng giáo viên" : "Điều hướng chính học sinh"}
+                aria-label={
+                  session.roleCode === "INSTRUCTOR"
+                    ? "Điều hướng giáo viên"
+                    : session.roleCode === "CENTER_MANAGER"
+                      ? "Điều hướng quản lý trung tâm"
+                      : "Điều hướng chính học sinh"
+                }
                 className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs"
               >
-                {(session.roleCode === "INSTRUCTOR" ? instructorNavItems : learnerNavItems).map(
+                {(session.roleCode === "INSTRUCTOR"
+                  ? instructorNavItems
+                  : session.roleCode === "CENTER_MANAGER"
+                    ? centerManagerNavItems
+                    : learnerNavItems
+                ).map(
                   ({ href, label, icon: Icon }) => {
                     const isSelected =
                       href === "/dashboard"
@@ -559,8 +583,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Role indicator pill chỉ cho Quản trị viên */}
-            {session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" && (
+            {/* Role indicator pill chỉ cho Quản trị viên hệ thống */}
+            {session.roleCode === "SYSTEM_ADMIN" && (
               <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
                 <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
                 {t(session.user.roleName)}
@@ -717,7 +741,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onMouseEnter={() => setProfileOpen(true)}
               onMouseLeave={() => setProfileOpen(false)}
             >
-              {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" ? (
+              {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
                 <button
                   aria-expanded={profileOpen}
                   aria-label={t("Mở menu tài khoản")}
@@ -764,7 +788,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
               {profileOpen ? (
                 <div className="absolute right-0 top-full z-50 pt-1.5">
-                  {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" ? (
+                  {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
                     <section
                       className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
                       role="menu"
@@ -778,18 +802,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold shrink-0">
-                              {session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
+                            <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
+                              session.roleCode === "CENTER_MANAGER"
+                                ? "bg-indigo-600"
+                                : session.roleCode === "INSTRUCTOR"
+                                  ? "bg-blue-600"
+                                  : "bg-emerald-600"
+                            }`}>
+                              {session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
                             </span>
                             <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                              {session.user.name || "Vũ Thành Nam"}
+                              {session.user.name || "Quản trị viên"}
                             </strong>
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {session.user.email || "nvuthanh4@gmail.com"}
-                          </p>
-                          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                            0358482955
+                            {session.user.email || "manager@wind.edu.vn"}
                           </p>
                         </div>
                       </div>
@@ -934,8 +961,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Ẩn cho học sinh và giáo viên, chuyển sang sidebar dọc) */}
-        {currentSection && session.roleCode !== "LEARNER" && session.roleCode !== "INSTRUCTOR" ? (
+        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Chỉ dành cho SYSTEM_ADMIN) */}
+        {currentSection && session.roleCode === "SYSTEM_ADMIN" ? (
           <div className="border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-[#090e1a]/80 backdrop-blur-sm overflow-x-auto">
             <div className="flex h-11 w-full items-center px-5 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
@@ -1010,7 +1037,34 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="flex-1 overflow-y-auto py-4 space-y-4">
-              {session.roleCode === "INSTRUCTOR" ? (
+              {session.roleCode === "CENTER_MANAGER" ? (
+                <div className="space-y-1">
+                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Menu quản lý trung tâm
+                  </p>
+                  {centerManagerNavItems.map(({ href, label, icon: Icon }) => {
+                    const active =
+                      href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : pathname === href || pathname.startsWith(`${href}/`);
+                    return (
+                      <Link
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          active
+                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                        href={href}
+                        key={href}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Icon size={16} />
+                        <span>{t(label)}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : session.roleCode === "INSTRUCTOR" ? (
                 <div className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     Menu giáo viên

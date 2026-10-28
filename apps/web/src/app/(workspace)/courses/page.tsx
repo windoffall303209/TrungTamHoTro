@@ -2,7 +2,7 @@
 
 import { activeLocale } from "@/i18n/runtime";
 
-import { Archive, ArrowRight, BookOpen, Calendar, GraduationCap, History, Pencil, Plus, Rocket, Search, Users } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, Calendar, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AccessDenied } from "@/components/access-denied";
@@ -529,196 +529,113 @@ export default function CoursesPage() {
               <p className="my-4 text-xs text-slate-500">Không có lớp nào thuộc khóa học này.</p>
             ) : null}
 
-            {isLearner || session.roleCode === "INSTRUCTOR" ? (
-              /* GIAO DIỆN DẠNG DANH SÁCH (LIST ROWS) CHO HỌC SINH VÀ GIÁO VIÊN - CLICK VÀO HÀNG ĐỂ VÀO LỚP */
-              displayClasses.length === 0 ? (
-                <div className="py-16 text-center space-y-3 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8">
-                  <GraduationCap className="mx-auto text-slate-300 dark:text-slate-600" size={48} />
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                    Không tìm thấy lớp học nào
-                  </h3>
-                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                    {searchQuery ? "Thử tìm kiếm với từ khóa khác hoặc xóa ô tìm kiếm." : "Bạn hiện chưa tham gia lớp học nào."}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {classPagination.pageItems.map((item, idx) => {
-                    const course = courses.find((c) => c.id === item.courseId);
-                    const gradient = GRADIENTS[idx % GRADIENTS.length];
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => router.push(`/courses/classes/${item.id}`)}
-                        className="group relative cursor-pointer rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4"
-                      >
-                        {/* Cột thông tin chính: Icon gradient + Tên lớp + Mã lớp + Môn học */}
-                        <div className="flex items-center gap-3.5 min-w-0">
-                          <div className={`size-12 rounded-xl bg-gradient-to-tr ${gradient} grid place-items-center text-white shrink-0 shadow-xs group-hover:scale-105 transition-transform`}>
-                            <GraduationCap size={22} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-[11px] font-extrabold uppercase tracking-wide">
-                                {item.code}
-                              </span>
-                              {(item.grade || course?.grade) && (
-                                <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
-                                  Khối {item.grade ?? course?.grade}
-                                </span>
-                              )}
-                              {(item.subject || course?.subject) && (
-                                <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                                  {item.subject ?? course?.subject}
-                                </span>
-                              )}
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold">
-                                {item.term}
-                              </span>
-                            </div>
-                            <h3 className="mt-1 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
-                              {item.name || item.code}
-                            </h3>
-                            {course?.name && (
-                              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate">
-                                Khóa học: <span className="font-medium text-slate-700 dark:text-slate-300">{course.name}</span>
-                              </p>
-                            )}
-                          </div>
+            {/* GIAO DIỆN DẠNG DANH SÁCH THẺ HÀNG NGANG (CARD LIST ROWS) ĐỒNG BỘ CHO TẤT CẢ VAI TRÒ */}
+            {displayClasses.length === 0 ? (
+              <div className="py-16 text-center space-y-3 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8">
+                <GraduationCap className="mx-auto text-slate-300 dark:text-slate-600" size={48} />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  Không tìm thấy lớp học nào
+                </h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  {searchQuery ? "Thử tìm kiếm với từ khóa khác hoặc xóa ô tìm kiếm." : manager ? "Chưa có lớp học nào được mở trong hệ thống." : "Bạn hiện chưa tham gia lớp học nào."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {classPagination.pageItems.map((item, idx) => {
+                  const course = courses.find((c) => c.id === item.courseId);
+                  const gradient = GRADIENTS[idx % GRADIENTS.length];
+                  const classGrade = item.grade ?? course?.grade;
+                  const classSubject = item.subject ?? course?.subject;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => router.push(`/courses/classes/${item.id}`)}
+                      className="group relative cursor-pointer rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      {/* Cột thông tin chính: Icon gradient + Tên lớp + Mã lớp + Môn học + Khối */}
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className={`size-12 rounded-xl bg-gradient-to-tr ${gradient} grid place-items-center text-white shrink-0 shadow-xs group-hover:scale-105 transition-transform`}>
+                          <GraduationCap size={22} />
                         </div>
-
-                        {/* Cột thông tin phụ: Sĩ số + Ngày khai giảng + Trạng thái + Nút vào lớp */}
-                        <div className="flex items-center gap-5 sm:gap-6 flex-wrap md:flex-nowrap justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
-                          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <Users size={15} className="text-slate-400 shrink-0" />
-                            <span>
-                              Sĩ số: <strong className="text-slate-700 dark:text-slate-200">{item.learnerIds?.length ?? 0}/{item.capacity ?? 40}</strong>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-[11px] font-extrabold uppercase tracking-wide">
+                              {item.code}
+                            </span>
+                            {classGrade && (
+                              <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
+                                Khối {classGrade}
+                              </span>
+                            )}
+                            {classSubject && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                                {classSubject}
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold">
+                              {item.term}
                             </span>
                           </div>
-
-                          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <Calendar size={15} className="text-slate-400 shrink-0" />
-                            <span>
-                              Khai giảng: <strong className="text-slate-700 dark:text-slate-200">{new Date(item.startAt).toLocaleDateString(activeLocale())}</strong>
-                            </span>
-                          </div>
-
-                          <StatusBadge status={item.status} />
-
-                          <div className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/80 dark:border-blue-800/60 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-2xs">
-                            <span>Vào lớp</span>
-                            <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
-                          </div>
+                          <h3 className="mt-1 text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
+                            {item.name || item.code}
+                          </h3>
+                          {course?.name && (
+                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                              Khóa học: <span className="font-medium text-slate-700 dark:text-slate-300">{course.name}</span> · v{item.courseVersion}
+                            </p>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )
-            ) : (
-              /* GIAO DIỆN BẢNG DÀNH CHO MANAGER / INSTRUCTOR */
-              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[850px] text-left text-sm">
-                    <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
-                      <tr>
-                        <th className="px-4 py-2.5">Lớp học</th>
-                        <th className="px-3.5 py-2.5">Khối & Môn (K-12)</th>
-                        <th className="px-3.5 py-2.5">Học kỳ / Khóa</th>
-                        <th className="px-3 py-2.5 text-center">Giảng viên</th>
-                        <th className="px-3 py-2.5 text-center">Sĩ số</th>
-                        <th className="px-3.5 py-2.5">Khai giảng</th>
-                        <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
-                        <th className="px-4 py-2.5 text-right">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                      {classPagination.pageItems.map((item) => {
-                        const course = courses.find((c) => c.id === item.courseId);
-                        const classGrade = item.grade ?? course?.grade;
-                        const classSubject = item.subject ?? course?.subject;
-                        return (
-                          <tr
-                            key={item.id}
-                            className="hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition-colors"
+
+                      {/* Cột thông tin phụ: Giảng viên + Sĩ số + Khai giảng + Trạng thái + Nút vào lớp / Vào điều hành */}
+                      <div className="flex items-center gap-4 sm:gap-5 flex-wrap md:flex-nowrap justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
+                        {manager && (
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                            <UserCheck size={15} className="text-slate-400 shrink-0" />
+                            <span>
+                              GV: <strong className="text-slate-700 dark:text-slate-200">{item.instructorIds?.length ?? 0}</strong>
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          <Users size={15} className="text-slate-400 shrink-0" />
+                          <span>
+                            Sĩ số: <strong className="text-slate-700 dark:text-slate-200">{item.learnerIds?.length ?? 0}/{item.capacity ?? 40}</strong>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          <Calendar size={15} className="text-slate-400 shrink-0" />
+                          <span>
+                            Khai giảng: <strong className="text-slate-700 dark:text-slate-200">{new Date(item.startAt).toLocaleDateString(activeLocale())}</strong>
+                          </span>
+                        </div>
+
+                        <StatusBadge status={item.status} />
+
+                        {manager && item.status === "DRAFT" ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void activate(item);
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-200/80 dark:border-emerald-800/60 hover:bg-emerald-600 hover:text-white transition-all shadow-2xs cursor-pointer"
                           >
-                            <td className="px-4 py-2.5">
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex shrink-0 items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300">
-                                  {item.code}
-                                </span>
-                                <strong className="font-semibold text-slate-900 dark:text-slate-100 truncate max-w-xs" title={item.name}>
-                                  {item.name}
-                                </strong>
-                              </div>
-                              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                                {item.timezone} · {item.allowLateEnrollment ? "Cho ghi danh muộn" : "Khóa ghi danh muộn"}
-                              </p>
-                            </td>
-                            <td className="px-3.5 py-2.5 text-xs whitespace-nowrap">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {classGrade ? (
-                                  <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[11px] font-bold">
-                                    Khối {classGrade}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400 text-[11px]">Chưa gán</span>
-                                )}
-                                {classSubject && (
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
-                                    {classSubject}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-3.5 py-2.5 text-xs whitespace-nowrap">
-                              <p className="font-semibold text-slate-800 dark:text-slate-200">{item.term}</p>
-                              <p className="text-[11px] text-slate-400 dark:text-slate-500">{course?.code ?? "Khóa"} v{item.courseVersion}</p>
-                            </td>
-                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                              <span className="inline-flex items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                                {item.instructorIds.length}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                              <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-                                <span className="font-bold text-sky-600 dark:text-sky-400">{item.learnerIds.length}</span>
-                                <span className="text-slate-400">/{item.capacity}</span>
-                              </span>
-                            </td>
-                            <td className="px-3.5 py-2.5 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                              {new Date(item.startAt).toLocaleDateString(activeLocale())}
-                            </td>
-                            <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
-                              <StatusBadge status={item.status} />
-                            </td>
-                            <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end gap-1.5">
-                                {manager && item.status === "DRAFT" ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void activate(item)}
-                                    className="rounded-lg px-2 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
-                                  >
-                                    Kích hoạt
-                                  </button>
-                                ) : null}
-                                <Button
-                                  onClick={() => router.push(`/courses/classes/${item.id}`)}
-                                  variant="secondary"
-                                  className="h-8 px-2.5 text-xs font-semibold"
-                                >
-                                  Chi tiết
-                                  <ArrowRight size={13} />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                            Kích hoạt
+                          </button>
+                        ) : null}
+
+                        <div className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold border border-blue-200/80 dark:border-blue-800/60 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-2xs">
+                          <span>{manager ? "Vào điều hành" : "Vào lớp"}</span>
+                          <ArrowRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <Pagination className="mt-4" itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} />

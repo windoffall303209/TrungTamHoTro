@@ -168,50 +168,281 @@ export default function ClassOperationsPage() {
       <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
       <Tabs className="mt-3.5 mb-3" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materialSearch.total }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
 
-      {activeTab === "members" ? <section className="mt-3.5 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
-        <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 to-[var(--surface)] p-6">
-        <div className="flex items-center gap-3">
-          <UsersRound className="text-sky-700" />
-          <h2 className="font-heading text-xl font-extrabold">Thành viên lớp</h2>
-        </div>
-        <p className="mt-2 text-sm text-slate-500">Kiểm soát vai trò, tải giảng dạy, sĩ số và toàn bộ lịch sử thay đổi.</p>
-        <div className="mt-5 max-w-xl">
-          <Field label="Lớp học">
-            <SearchableSelect aria-label="Tìm và chọn lớp học" onChange={(value) => { setMember({ ...member, classId: value }); setImportResults([]); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={member.classId} />
-          </Field>
-        </div>
-        </div>
-        <div className="grid gap-px bg-slate-200 xl:grid-cols-2">
-          <div className="bg-[var(--surface)] p-6"><h3 className="font-heading text-lg font-extrabold">Đội ngũ giảng dạy</h3><div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]"><UserPicker classId={member.classId} label="Chọn giảng viên" onChange={(userId) => setMember({ ...member, instructorId: userId })} role="INSTRUCTOR" value={member.instructorId} /><Field label="Vai trò"><select className={inputClass} value={member.instructorRole} onChange={(event) => setMember({ ...member, instructorRole: event.target.value as InstructorRole })}><option value="PRIMARY">Giảng viên chính</option><option value="CO_INSTRUCTOR">Đồng giảng viên</option></select></Field><div className="flex items-end"><Button aria-label="Phân công giảng viên" disabled={!member.instructorId} onClick={() => void assign("instructors")}><UserPlus size={16} />Thêm</Button></div></div><div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">{roster?.instructors.map((item) => <div className="flex items-center justify-between gap-3 py-3" key={item.instructorId}><div className="min-w-0"><p className="truncate text-sm font-bold">{item.displayName ?? item.instructorId}</p><p className="truncate text-xs text-slate-500">{item.email ? `${item.email} · ` : ""}{item.role === "PRIMARY" ? "Giảng viên chính" : "Đồng giảng viên"}</p></div><Button aria-label={`Gỡ ${item.displayName ?? item.instructorId}`} onClick={() => void removeMember("instructors", item.instructorId)} variant="ghost"><Trash2 size={15} /></Button></div>)}</div></div>
-          <div className="bg-[var(--surface)] p-6"><h3 className="font-heading text-lg font-extrabold">Ghi danh học viên</h3><div className="mt-4 flex items-end gap-2"><div className="min-w-0 flex-1"><UserPicker classId={member.classId} label="Chọn học viên" onChange={(userId) => setMember({ ...member, learnerId: userId })} role="LEARNER" value={member.learnerId} /></div><Button aria-label="Ghi danh học viên" disabled={!member.learnerId} onClick={() => void assign("enrollments")}><UserPlus size={16} /></Button></div><div className="mt-4"><Field label="Nhập hàng loạt — mỗi email một dòng"><textarea className={inputClass} placeholder="hocvien1@example.com&#10;hocvien2@example.com" rows={3} value={bulkLearners} onChange={(event) => setBulkLearners(event.target.value)} /></Field><Button onClick={() => void importEnrollments()} variant="secondary"><Upload size={15} />Kiểm tra & nhập</Button></div>{importResults.length ? <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs">{importResults.map((item, index) => <p className={item.status === "ENROLLED" ? "text-emerald-700" : item.status === "FAILED" ? "text-rose-700" : "text-amber-700"} key={`${item.userId}-${index}`}>{item.userId}: {item.message}</p>)}</div> : null}<div className="mt-5 max-h-56 divide-y divide-[var(--rule)] overflow-auto border-y border-[var(--rule)]">{roster?.enrollments.filter((item) => item.status === "ACTIVE").map((item) => <div className="flex items-center justify-between gap-3 py-3" key={item.learnerId}><div className="min-w-0"><p className="truncate text-sm font-bold">{item.displayName ?? item.learnerId}</p><p className="truncate text-xs text-slate-500">{item.email ? `${item.email} · ` : ""}{item.source === "MANUAL" ? "Thủ công" : "Nhập hàng loạt"}</p></div><Button aria-label={`Gỡ ${item.displayName ?? item.learnerId}`} onClick={() => void removeMember("enrollments", item.learnerId)} variant="ghost"><Trash2 size={15} /></Button></div>)}</div></div>
-        </div>
-        {roster?.history.length ? <div className="border-t border-slate-100 p-6"><h3 className="flex items-center gap-2 text-sm font-extrabold"><History size={16} />Lịch sử thay đổi gần đây</h3><div className="mt-3 grid gap-2 md:grid-cols-2">{roster.history.slice(0, 6).map((item) => <div className="rounded-xl border border-slate-100 px-4 py-3 text-xs" key={item.id}><span className="font-bold">{item.memberId}</span> · {item.action}{item.reason ? ` — ${item.reason}` : ""}</div>)}</div></div> : null}
-      </section> : null}
+      {activeTab === "members" ? (
+        <section className="mt-4 space-y-4">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 grid place-items-center">
+                <UsersRound size={20} />
+              </div>
+              <div>
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Chọn lớp tác nghiệp</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Kiểm soát nhân sự, tải giảng dạy, sĩ số và toàn bộ lịch sử thay đổi.</p>
+              </div>
+            </div>
+            <div className="mt-4 max-w-xl">
+              <Field label="Lớp học">
+                <SearchableSelect
+                  aria-label="Tìm và chọn lớp học"
+                  onChange={(value) => {
+                    setMember({ ...member, classId: value });
+                    setImportResults([]);
+                  }}
+                  options={classes.map((item) => ({
+                    value: item.id,
+                    label: `${item.code} — ${item.name}`,
+                    description: `${item.term} · ${item.status}`,
+                    keywords: item.id,
+                  }))}
+                  placeholder="Gõ mã hoặc tên lớp để lọc…"
+                  value={member.classId}
+                />
+              </Field>
+            </div>
+          </div>
 
-      {activeTab === "materials" ? <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <h2 className="font-heading text-xl font-extrabold">Học liệu chờ duyệt</h2>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {/* Cột 1: Giảng viên */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <h3 className="font-heading text-base font-bold text-slate-900 dark:text-slate-100">Đội ngũ giảng dạy</h3>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px_auto]">
+                  <UserPicker
+                    classId={member.classId}
+                    label="Chọn giảng viên"
+                    onChange={(userId) => setMember({ ...member, instructorId: userId })}
+                    role="INSTRUCTOR"
+                    value={member.instructorId}
+                  />
+                  <Field label="Vai trò">
+                    <select
+                      className={inputClass}
+                      value={member.instructorRole}
+                      onChange={(event) => setMember({ ...member, instructorRole: event.target.value as InstructorRole })}
+                    >
+                      <option value="PRIMARY">Giảng viên chính</option>
+                      <option value="CO_INSTRUCTOR">Đồng giảng viên</option>
+                    </select>
+                  </Field>
+                  <div className="flex items-end">
+                    <Button
+                      aria-label="Phân công giảng viên"
+                      disabled={!member.instructorId}
+                      onClick={() => void assign("instructors")}
+                    >
+                      <UserPlus size={16} /> Thêm
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-5 divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">
+                  {roster?.instructors.length ? (
+                    roster.instructors.map((item) => (
+                      <div className="flex items-center justify-between gap-3 py-3" key={item.instructorId}>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="size-8 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-bold grid place-items-center text-xs shrink-0">
+                            {(item.displayName ?? item.instructorId).slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                              {item.displayName ?? item.instructorId}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {item.email ? `${item.email} · ` : ""}
+                              {item.role === "PRIMARY" ? "Giảng viên chính" : "Đồng giảng viên"}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          aria-label={`Gỡ ${item.displayName ?? item.instructorId}`}
+                          onClick={() => void removeMember("instructors", item.instructorId)}
+                          variant="ghost"
+                          className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-6 text-center text-xs text-slate-400">Chưa có giảng viên được phân công.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Cột 2: Ghi danh học viên */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+              <div>
+                <h3 className="font-heading text-base font-bold text-slate-900 dark:text-slate-100">Ghi danh học viên</h3>
+                <div className="mt-4 flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <UserPicker
+                      classId={member.classId}
+                      label="Chọn học viên"
+                      onChange={(userId) => setMember({ ...member, learnerId: userId })}
+                      role="LEARNER"
+                      value={member.learnerId}
+                    />
+                  </div>
+                  <Button
+                    aria-label="Ghi danh học viên"
+                    disabled={!member.learnerId}
+                    onClick={() => void assign("enrollments")}
+                  >
+                    <UserPlus size={16} /> Ghi danh
+                  </Button>
+                </div>
+
+                <div className="mt-4">
+                  <Field label="Nhập hàng loạt — mỗi email/mã một dòng">
+                    <textarea
+                      className={inputClass}
+                      placeholder="hocvien1@example.com&#10;hocvien2@example.com"
+                      rows={3}
+                      value={bulkLearners}
+                      onChange={(event) => setBulkLearners(event.target.value)}
+                    />
+                  </Field>
+                  <Button onClick={() => void importEnrollments()} variant="secondary" className="mt-2">
+                    <Upload size={15} /> Kiểm tra & nhập
+                  </Button>
+                </div>
+
+                {importResults.length ? (
+                  <div className="mt-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 p-3 text-xs space-y-1 max-h-32 overflow-y-auto">
+                    {importResults.map((item, index) => (
+                      <p
+                        className={
+                          item.status === "ENROLLED"
+                            ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+                            : item.status === "FAILED"
+                              ? "text-rose-600 dark:text-rose-400"
+                              : "text-amber-600 dark:text-amber-400"
+                        }
+                        key={`${item.userId}-${index}`}
+                      >
+                        {item.userId}: {item.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="mt-5 max-h-56 divide-y divide-slate-100 dark:divide-slate-800 overflow-auto border-t border-slate-100 dark:border-slate-800">
+                  {roster?.enrollments.filter((item) => item.status === "ACTIVE").map((item) => (
+                    <div className="flex items-center justify-between gap-3 py-2.5" key={item.learnerId}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="size-7 rounded-full bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 font-bold grid place-items-center text-xs shrink-0">
+                          {(item.displayName ?? item.learnerId).slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-bold text-slate-900 dark:text-slate-100">
+                            {item.displayName ?? item.learnerId}
+                          </p>
+                          <p className="truncate text-[11px] text-slate-500">
+                            {item.email ? `${item.email} · ` : ""}
+                            {item.source === "MANUAL" ? "Thủ công" : "Nhập hàng loạt"}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        aria-label={`Gỡ ${item.displayName ?? item.learnerId}`}
+                        onClick={() => void removeMember("enrollments", item.learnerId)}
+                        variant="ghost"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 p-1 h-auto"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {roster?.history.length ? (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                <History size={16} /> Lịch sử thay đổi gần đây
+              </h3>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {roster.history.slice(0, 6).map((item) => (
+                  <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-4 py-2.5 text-xs" key={item.id}>
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{item.memberId}</span> · {item.action}
+                    {item.reason ? ` — ${item.reason}` : ""}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {activeTab === "materials" ? (
+        <section className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+          <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">Học liệu chờ duyệt</h2>
           <MaterialSearchControls search={materialSearch} />
-          <div className="mt-4 space-y-3">
-            {materials.some((item) => item.visibility === "DRAFT") ? materials.filter((item) => item.visibility === "DRAFT").map((item) => (
-              <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4" key={item.id}>
-                <div><p className="text-sm font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.folder} · v{item.version}</p></div>
-                <div className="flex flex-wrap gap-1"><Button onClick={() => void previewMaterial(item)} type="button" variant="ghost"><Eye size={15} />Xem</Button><Button onClick={() => void reviewMaterial(item, "APPROVE")} type="button" variant="secondary"><CheckCheck size={15} />Duyệt</Button><Button onClick={() => void reviewMaterial(item, "REVOKE")} type="button" variant="ghost"><Undo2 size={15} />Thu hồi</Button></div>
-              </div>
-            )) : <p className="py-8 text-center text-sm text-slate-400">Không có học liệu chờ duyệt.</p>}
+          <div className="mt-4 space-y-2.5">
+            {materials.some((item) => item.visibility === "DRAFT") ? (
+              materials
+                .filter((item) => item.visibility === "DRAFT")
+                .map((item) => (
+                  <div
+                    className="flex items-center justify-between rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+                    key={item.id}
+                  >
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {item.folder} · v{item.version}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button onClick={() => void previewMaterial(item)} type="button" variant="ghost">
+                        <Eye size={15} /> Xem
+                      </Button>
+                      <Button onClick={() => void reviewMaterial(item, "APPROVE")} type="button" variant="secondary">
+                        <CheckCheck size={15} /> Duyệt
+                      </Button>
+                      <Button onClick={() => void reviewMaterial(item, "REVOKE")} type="button" variant="ghost">
+                        <Undo2 size={15} /> Thu hồi
+                      </Button>
+                    </div>
+                  </div>
+                ))
+            ) : (
+              <p className="py-8 text-center text-sm text-slate-400">Không có học liệu chờ duyệt.</p>
+            )}
           </div>
-        </section> : null}
+        </section>
+      ) : null}
 
-      {activeTab === "exams" ? <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <h2 className="font-heading text-xl font-extrabold">Đề thi chờ phê duyệt</h2>
-          <div className="mt-4 space-y-3">
-            {pendingExams.length ? pendingExams.map((item) => (
-              <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4" key={item.id}>
-                <div><p className="text-sm font-bold">{item.title}</p><p className="text-xs text-slate-500">Phiên bản {item.version} · {item.questionIds.length} câu · {item.totalScore} điểm</p></div>
-                <Button onClick={() => openExamReview(item)} variant="secondary"><CheckCheck size={15} />Xem xét</Button>
-              </div>
-            )) : <p className="py-8 text-center text-sm text-slate-400">Không có đề thi chờ phê duyệt.</p>}
+      {activeTab === "exams" ? (
+        <section className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+          <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">Đề thi chờ phê duyệt</h2>
+          <div className="mt-4 space-y-2.5">
+            {pendingExams.length ? (
+              pendingExams.map((item) => (
+                <div
+                  className="flex items-center justify-between rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5 hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+                  key={item.id}
+                >
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.title}</p>
+                    <p className="text-xs text-slate-500">
+                      Phiên bản {item.version} · {item.questionIds.length} câu · {item.totalScore} điểm
+                    </p>
+                  </div>
+                  <Button onClick={() => openExamReview(item)} variant="secondary">
+                    <CheckCheck size={15} /> Xem xét
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="py-8 text-center text-sm text-slate-400">Không có đề thi chờ phê duyệt.</p>
+            )}
           </div>
-        </section> : null}
+        </section>
+      ) : null}
 
       <Modal open={Boolean(reviewingExam)} onClose={() => setReviewingExam(null)} title="Phê duyệt đề thi" description={reviewingExam ? `${reviewingExam.title} · phiên bản ${reviewingExam.version}` : undefined}>
         <form className="space-y-4" onSubmit={(event) => void submitExamReview(event)}>
