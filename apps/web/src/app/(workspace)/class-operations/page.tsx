@@ -162,47 +162,156 @@ export default function ClassOperationsPage() {
 
   if (!canManage) return <AccessDenied />;
   const pendingExams = exams.filter((item) => item.status === "PENDING_REVIEW");
+  const selectedClassObj = classes.find((c) => c.id === member.classId);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-      <PageHeader eyebrow="Center Management" title="Điều hành lớp học" description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò." />
-      <Tabs className="mt-3.5 mb-3" items={[{ value: "members", label: "Thành viên lớp", count: (roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0) }, { value: "materials", label: "Học liệu chờ duyệt", count: materialSearch.total }, { value: "exams", label: "Đề thi chờ duyệt", count: pendingExams.length }]} label="Chọn nghiệp vụ điều hành" onChange={setActiveTab} value={activeTab} />
+    <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
+      <PageHeader
+        eyebrow="Center Management"
+        title="Điều hành lớp học"
+        description="Phân công, ghi danh, duyệt học liệu và phê duyệt đề thi theo đúng vai trò."
+      />
 
-      {activeTab === "members" ? (
-        <section className="mt-4 space-y-4">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 grid place-items-center">
-                <UsersRound size={20} />
-              </div>
-              <div>
-                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Chọn lớp tác nghiệp</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Kiểm soát nhân sự, tải giảng dạy, sĩ số và toàn bộ lịch sử thay đổi.</p>
-              </div>
+      {/* BỐ CỤC 2 CỘT: HEADER DỌC ĐIỀU HÀNH (TRÁI) + VÙNG TÁC NGHIỆP CHÍNH (PHẢI) */}
+      <div className="mt-4 flex flex-col lg:flex-row items-start gap-5">
+        {/* HEADER DỌC: 3 CHỨC NĂNG CON */}
+        <aside className="w-full lg:w-64 shrink-0 space-y-3.5">
+          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs space-y-1">
+            <div className="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+              Nghiệp vụ điều hành
             </div>
-            <div className="mt-4 max-w-xl">
-              <Field label="Lớp học">
-                <SearchableSelect
-                  aria-label="Tìm và chọn lớp học"
-                  onChange={(value) => {
-                    setMember({ ...member, classId: value });
-                    setImportResults([]);
-                  }}
-                  options={classes.map((item) => ({
-                    value: item.id,
-                    label: `${item.code} — ${item.name}`,
-                    description: `${item.term} · ${item.status}`,
-                    keywords: item.id,
-                  }))}
-                  placeholder="Gõ mã hoặc tên lớp để lọc…"
-                  value={member.classId}
-                />
-              </Field>
-            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("members")}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+                activeTab === "members"
+                  ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <UsersRound size={18} className={activeTab === "members" ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
+                <span className="truncate">Thành viên lớp</span>
+              </div>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                activeTab === "members"
+                  ? "bg-sky-200/60 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+              }`}>
+                {(roster?.instructors.length ?? 0) + (roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0)}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("materials")}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+                activeTab === "materials"
+                  ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Upload size={18} className={activeTab === "materials" ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
+                <span className="truncate">Duyệt học liệu</span>
+              </div>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                activeTab === "materials"
+                  ? "bg-sky-200/60 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+              }`}>
+                {materialSearch.total}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("exams")}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+                activeTab === "exams"
+                  ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <CheckCheck size={18} className={activeTab === "exams" ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
+                <span className="truncate">Duyệt đề thi</span>
+              </div>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
+                activeTab === "exams"
+                  ? "bg-sky-200/60 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+              }`}>
+                {pendingExams.length}
+              </span>
+            </button>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            {/* Cột 1: Giảng viên */}
+          {/* Widget tóm tắt nhỏ phía dưới để không bị trống trải */}
+          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-4 shadow-xs text-xs space-y-2.5 hidden lg:block">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Tóm tắt điều hành</div>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span>Tổng lớp:</span>
+              <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">{classes.length} lớp</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span>Học liệu chờ duyệt:</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400 tabular-nums">{materialSearch.total}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span>Đề thi chờ duyệt:</span>
+              <span className="font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">{pendingExams.length}</span>
+            </div>
+            {selectedClassObj && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 truncate">
+                Đang tác nghiệp: <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedClassObj.code}</span>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* CỘT PHẢI: VÙNG TÁC NGHIỆP CHÍNH */}
+        <main className="flex-1 min-w-0 w-full space-y-4">
+          {activeTab === "members" ? (
+            <section className="space-y-4">
+              {/* THANH CHỌN LỚP TÁC NGHIỆP CÙNG HÀNG (SINGLE ROW TOOLBAR) */}
+              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap sm:flex-nowrap items-center gap-3">
+                <div className="flex items-center gap-2 shrink-0">
+                  <UsersRound size={17} className="text-sky-600 dark:text-sky-400" />
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Lớp tác nghiệp:</span>
+                </div>
+                <div className="flex-1 min-w-[240px]">
+                  <SearchableSelect
+                    aria-label="Tìm và chọn lớp học"
+                    onChange={(value) => {
+                      setMember({ ...member, classId: value });
+                      setImportResults([]);
+                    }}
+                    options={classes.map((item) => ({
+                      value: item.id,
+                      label: `${item.code} — ${item.name}`,
+                      description: `${item.term} · ${item.status}`,
+                      keywords: item.id,
+                    }))}
+                    placeholder="Gõ mã hoặc tên lớp để lọc…"
+                    value={member.classId}
+                  />
+                </div>
+                {selectedClassObj && (
+                  <div className="shrink-0 flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-bold tabular-nums">
+                      {roster?.enrollments.filter((item) => item.status === "ACTIVE").length ?? 0} học viên
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-xs font-bold tabular-nums">
+                      {roster?.instructors.length ?? 0} giảng viên
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                {/* Cột 1: Giảng viên */}
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
               <div>
                 <h3 className="font-heading text-base font-bold text-slate-900 dark:text-slate-100">Đội ngũ giảng dạy</h3>
@@ -443,6 +552,8 @@ export default function ClassOperationsPage() {
           </div>
         </section>
       ) : null}
+      </main>
+    </div>
 
       <Modal open={Boolean(reviewingExam)} onClose={() => setReviewingExam(null)} title="Phê duyệt đề thi" description={reviewingExam ? `${reviewingExam.title} · phiên bản ${reviewingExam.version}` : undefined}>
         <form className="space-y-4" onSubmit={(event) => void submitExamReview(event)}>
