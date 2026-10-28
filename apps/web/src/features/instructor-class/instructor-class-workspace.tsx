@@ -2876,7 +2876,7 @@ export function InstructorClassWorkspace({
                   Lịch học của {item.name || item.code}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Theo dõi và quản lý các ca học, phòng học trực tuyến và điểm danh lớp này.
+                  Theo dõi và quản lý các ca học, phòng học trực tuyến của lớp này.
                 </p>
               </div>
 
@@ -2972,13 +2972,6 @@ export function InstructorClassWorkspace({
                         >
                           Vào phòng
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => notify("Mở danh sách điểm danh buổi học.", "info")}
-                          className="w-full py-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold transition-colors cursor-pointer"
-                        >
-                          Điểm danh
-                        </button>
                       </div>
                     )}
                   </div>
@@ -3027,13 +3020,6 @@ export function InstructorClassWorkspace({
                       >
                         <Play size={13} />
                         <span>Vào phòng</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => notify("Mở danh sách điểm danh buổi học.", "info")}
-                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                      >
-                        Điểm danh
                       </button>
                     </div>
                   </div>
