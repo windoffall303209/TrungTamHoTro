@@ -83,7 +83,7 @@ export default function SettingsScreen() {
   const activeMeta = settingsSections.find((item) => item.id === activeSection);
   return (
     <div
-      className={`mx-auto px-5 py-8 md:px-8 md:py-10 ${activeSection ? "max-w-5xl" : "max-w-7xl"}`}
+      className="w-full space-y-4"
     >
       {activeSection ? (
         <button

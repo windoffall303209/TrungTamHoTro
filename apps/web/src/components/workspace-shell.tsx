@@ -298,6 +298,19 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Danh sách điều hướng trung tâm dành riêng cho Quản trị viên hệ thống (Chức năng cha trên Header ngang)
+  const adminNavItems = useMemo(
+    () => [
+      { href: "/courses", label: "Lớp học", icon: GraduationCap },
+      { href: "/exams", label: "Khảo thí", icon: BookOpenCheck },
+      { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
+      { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
+      { href: "/admin/users", label: "Quản trị hệ thống", icon: ShieldCheck },
+      { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
+    ],
+    [],
+  );
+
   // Danh sách điều hướng trung tâm dành riêng cho Quản lý trung tâm (Chức năng cha trên Header ngang)
   const centerManagerNavItems = useMemo(
     () => [
@@ -636,7 +649,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         onMouseEnter={() => setProfileOpen(true)}
         onMouseLeave={() => setProfileOpen(false)}
       >
-        {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
+        {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN" ? (
           <button
             aria-expanded={profileOpen}
             aria-label={t("Mở menu tài khoản")}
@@ -683,7 +696,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
         {profileOpen ? (
           <div className="absolute right-0 top-full z-50 pt-1.5">
-            {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" ? (
+            {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN" ? (
               <section
                 className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
                 role="menu"
@@ -698,13 +711,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
-                        session.roleCode === "CENTER_MANAGER"
-                          ? "bg-indigo-600"
-                          : session.roleCode === "INSTRUCTOR"
-                            ? "bg-blue-600"
-                            : "bg-emerald-600"
+                        session.roleCode === "SYSTEM_ADMIN" ? "bg-rose-600" : session.roleCode === "CENTER_MANAGER" ? "bg-indigo-600" : session.roleCode === "INSTRUCTOR" ? "bg-blue-600" : "bg-emerald-600"
                       }`}>
-                        {session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
+                        {session.roleCode === "SYSTEM_ADMIN" ? "Quản trị viên" : session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
                       </span>
                       <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                         {session.user.name || "Quản trị viên"}
@@ -879,42 +888,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </Link>
 
-            {/* Desktop Category Navigation dành cho Quản trị viên hệ thống */}
-            {session.roleCode === "SYSTEM_ADMIN" && (
-              <nav className="hidden lg:flex items-center gap-1.5">
-                {sections.map((section) => {
-                  const isSelected = currentSection?.id === section.id;
-                  const targetHref = section.items[0]?.href ?? "/dashboard";
-                  const Icon = section.icon;
-
-                  return (
-                    <Link
-                      className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 ${
-                        isSelected
-                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
-                      }`}
-                      href={targetHref}
-                      key={section.id}
-                    >
-                      <Icon
-                        className={`shrink-0 ${
-                          isSelected
-                            ? "text-sky-600 dark:text-sky-400"
-                            : "text-slate-400 dark:text-slate-500"
-                        }`}
-                        size={16}
-                      />
-                      <span>{t(section.title)}</span>
-                    </Link>
-                  );
-                })}
-              </nav>
-            )}
+            
           </div>
 
           {/* Điều hướng trung tâm dành cho Học sinh, Giáo viên & Quản lý trung tâm (Chức năng cha trên Header ngang) */}
-          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER") && (
+          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN") && (
             <div className="hidden md:flex flex-1 items-center justify-center min-w-0 px-1 sm:px-3">
               <nav
                 aria-label={
@@ -922,7 +900,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     ? "Điều hướng giáo viên"
                     : session.roleCode === "CENTER_MANAGER"
                       ? "Điều hướng quản lý trung tâm"
-                      : "Điều hướng chính học sinh"
+                      : session.roleCode === "SYSTEM_ADMIN"
+                        ? "Điều hướng quản trị hệ thống"
+                        : "Điều hướng chính học sinh"
                 }
                 className="flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 shadow-2xs backdrop-blur-xs"
               >
@@ -930,13 +910,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   ? instructorNavItems
                   : session.roleCode === "CENTER_MANAGER"
                     ? centerManagerNavItems
-                    : learnerNavItems
+                    : session.roleCode === "SYSTEM_ADMIN"
+                      ? adminNavItems
+                      : learnerNavItems
                 ).map(
                   ({ href, label, icon: Icon }) => {
                     const isSelected =
                       href === "/dashboard"
                         ? pathname === "/dashboard"
-                        : pathname === href || pathname.startsWith(`${href}/`);
+                        : href === "/admin/users"
+                          ? pathname.startsWith("/admin")
+                          : href === "/exams"
+                            ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials"
+                            : href === "/class-operations"
+                              ? pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle"
+                              : pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link
                         className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-[13px] font-bold tracking-tight whitespace-nowrap transition-all duration-150 ${
@@ -968,44 +956,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           {renderRightActionBar(true)}
         </div>
 
-        {/* TẦNG 2: THANH ĐIỀU HƯỚNG TÍCH HỢP SUB-NAV (Chỉ dành cho SYSTEM_ADMIN) */}
-        {currentSection && session.roleCode === "SYSTEM_ADMIN" ? (
-          <div className="border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-[#090e1a]/80 backdrop-blur-sm overflow-x-auto">
-            <div className="flex h-11 w-full items-center px-5 sm:px-6 lg:px-8 gap-1.5 scrollbar-none">
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-2 shrink-0">
-                <Compass size={13} className="text-sky-500" />
-                {t(currentSection.title)}:
-              </span>
-              {currentSection.items.map(({ href, label, icon: Icon }) => {
-                const active = pathname === href || pathname.startsWith(`${href}/`);
-                const resolvedLabel =
-                  href === "/courses"
-                    ? session.roleCode === "LEARNER"
-                      ? "Lớp của tôi"
-                      : session.roleCode === "INSTRUCTOR"
-                        ? "Lớp giảng dạy"
-                        : label
-                    : label;
-
-                return (
-                  <Link
-                    aria-current={active ? "page" : undefined}
-                    className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all duration-150 ${
-                      active
-                        ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 font-bold border border-slate-200 dark:border-slate-700 shadow-2xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/40"
-                    }`}
-                    href={href}
-                    key={href}
-                  >
-                    <Icon size={13} className={active ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
-                    <span>{t(resolvedLabel)}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
+        
 
         {/* Điều hướng đầy đủ phục vụ trợ năng (Screen Readers & Quick Links) */}
         <nav aria-label={t("Điều hướng chức năng")} className="sr-only">
@@ -1107,6 +1058,39 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       href === "/dashboard"
                         ? pathname === "/dashboard"
                         : pathname === href || pathname.startsWith(`${href}/`);
+                    return (
+                      <Link
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          active
+                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                        href={href}
+                        key={href}
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <Icon size={16} />
+                        <span>{t(label)}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : session.roleCode === "SYSTEM_ADMIN" ? (
+                <div className="space-y-1">
+                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    Menu quản trị hệ thống
+                  </p>
+                  {adminNavItems.map(({ href, label, icon: Icon }) => {
+                    const active =
+                      href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : href === "/admin/users"
+                          ? pathname.startsWith("/admin")
+                          : href === "/exams"
+                            ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials"
+                            : href === "/class-operations"
+                              ? pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle"
+                              : pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${

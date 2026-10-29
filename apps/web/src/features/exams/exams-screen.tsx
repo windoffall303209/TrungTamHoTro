@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
 import { RequestError } from "@/components/request-error";
@@ -25,6 +26,9 @@ import {
   RotateCcw,
   Send,
   Sparkles,
+  BookOpenCheck,
+  Database,
+  FileQuestion,
 } from "lucide-react";
 import { ExamEditorDialog } from "./exam-editor-dialog";
 import { ExamPreviewDialog } from "./exam-preview-dialog";
@@ -103,6 +107,32 @@ export default function ExamsScreen() {
         }
       />
       <RequestError message={model.loadError} retry={() => void model.reload()} />
+      {/* Phân hệ Khảo thí & Học liệu: Chuyển đổi nhanh giữa Đề thi, Câu hỏi và Học liệu */}
+      {(instructor || !learner) && !attempt && (
+        <div className="mb-4 flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 w-fit">
+          <Link
+            href="/exams"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 text-sky-700 dark:text-sky-300 shadow-xs border border-slate-200/60 dark:border-slate-700"
+          >
+            <BookOpenCheck size={14} className="text-sky-600 dark:text-sky-400" />
+            <span>Đề thi & Kết quả</span>
+          </Link>
+          <Link
+            href="/questions"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
+          >
+            <FileQuestion size={14} className="text-slate-400" />
+            <span>Ngân hàng câu hỏi</span>
+          </Link>
+          <Link
+            href="/materials"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors"
+          >
+            <Database size={14} className="text-slate-400" />
+            <span>Kho học liệu</span>
+          </Link>
+        </div>
+      )}
       {attempt ? (
         <section className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">

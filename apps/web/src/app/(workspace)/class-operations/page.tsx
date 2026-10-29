@@ -1,6 +1,7 @@
 "use client";
 
-import { History, Trash2, UserPlus, UsersRound } from "lucide-react";
+import { Archive, History, Trash2, UserCheck, UserPlus, UsersRound } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AccessDenied } from "@/components/access-denied";
 import { PageHeader } from "@/components/page-header";
