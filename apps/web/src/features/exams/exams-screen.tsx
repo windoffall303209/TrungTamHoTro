@@ -354,20 +354,14 @@ export default function ExamsScreen() {
                               {instructor && item.status === "DRAFT" ? (
                                 <Button onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2.5 text-xs font-semibold">
                                   <Send size={13} />
-                                  Gửi phê duyệt
+                                  Phát hành đề
                                 </Button>
                               ) : null}
-                              {canReview && item.status === "PENDING_REVIEW" ? (
-                                <>
-                                  <Button loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2.5 text-xs font-semibold">
-                                    <CheckCircle2 size={13} />
-                                    Phê duyệt
-                                  </Button>
-                                  <Button disabled={reviewingId === item.id} onClick={() => { setReturnTarget(item); setReturnNote(""); }} variant="secondary" className="h-8 px-2.5 text-xs">
-                                    <RotateCcw size={13} />
-                                    Trả lại
-                                  </Button>
-                                </>
+                              {(instructor || canReview) && item.status === "PENDING_REVIEW" ? (
+                                <Button loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2.5 text-xs font-semibold">
+                                  <CheckCircle2 size={13} />
+                                  Phát hành ngay
+                                </Button>
                               ) : null}
                               {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
                                 <Button onClick={() => void start(item)} className="h-8 px-2.5 text-xs font-semibold">
@@ -577,12 +571,11 @@ export default function ExamsScreen() {
         onClose={() => {
           if (!publishing) setConfirmExam(null);
         }}
-        title="Xác nhận gửi duyệt đề"
-        description="Bạn xác nhận là phê duyệt toàn bộ câu hỏi chứ?"
+        title="Xác nhận phát hành đề thi"
+        description="Đề thi sẽ được công bố và học viên có thể làm bài theo lịch mở đề."
       >
         <p className="text-sm text-[var(--ink-soft)]">
-          Xác nhận sẽ phê duyệt các câu hỏi của bạn trong đề và gửi yêu cầu phê
-          duyệt đề. Cấu hình tự động duyệt đề của hệ thống vẫn được áp dụng.
+          Đề thi sẽ được phát hành ngay lập tức và các câu hỏi trong đề sẽ được kích hoạt cho học viên.
         </p>
         <div className="mt-5 flex justify-end gap-3">
           <Button
@@ -598,7 +591,7 @@ export default function ExamsScreen() {
               if (confirmExam) void publish(confirmExam);
             }}
           >
-            Xác nhận
+            Phát hành ngay
           </Button>
         </div>
       </Modal>

@@ -404,17 +404,15 @@ export async function createMaterial(
   return { ...item, tags: [...item.tags] };
 }
 
-/** Giảng viên chỉ ẩn hoặc gửi duyệt; chỉ quản lý mới phát hành, và tệp cách ly không được gửi duyệt. */
+/** Giảng viên tự phát hành và quản lý học liệu; tệp bị cách ly không được phát hành. */
 function assertInstructorVisibility(
   material: { quarantinedAt?: Date | string | null },
   visibility?: LearningMaterial["visibility"],
 ): void {
-  if (visibility === "PUBLISHED")
+  if (material.quarantinedAt && visibility && visibility !== "HIDDEN")
     throw new BadRequestException(
-      "Học liệu cần quản lý trung tâm duyệt trước khi phát hành.",
+      "Tệp đang bị cách ly nên không thể thay đổi trạng thái.",
     );
-  if (material.quarantinedAt && visibility === "DRAFT")
-    throw new BadRequestException("Tệp đang bị cách ly nên không thể gửi duyệt.");
 }
 
 /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
@@ -482,6 +480,12 @@ export async function updateMaterial(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  if (
+    item.classId &&
+    !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
+    !canEditMaterial(item, actorId)
+  )
+    throw new NotFoundException("Không tìm thấy học liệu.");
   if (!canEditMaterial(item, actorId))
     throw new ForbiddenException(
       "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
@@ -575,6 +579,12 @@ export async function deleteMaterial(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  if (
+    item.classId &&
+    !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
+    !canEditMaterial(item, actorId)
+  )
+    throw new NotFoundException("Không tìm thấy học liệu.");
   if (item.ownerId !== actorId)
     throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
   if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")

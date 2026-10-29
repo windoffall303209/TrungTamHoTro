@@ -7,12 +7,21 @@ import type { ConfigService } from "@nestjs/config";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Environment } from "../src/config/environment.js";
 import { LearningService } from "../src/learning/learning.service.js";
 import { SystemService } from "../src/system/system.service.js";
 
 describe("LearningService", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("chỉ trả học viên đang ghi danh trong lớp được phân công cho giảng viên", async () => {
     const service = new LearningService();
 

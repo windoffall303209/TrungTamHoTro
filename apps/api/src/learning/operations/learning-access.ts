@@ -42,8 +42,10 @@ export function isSharedForLearners(material: {
   scope?: string;
   visibility: string;
   quarantinedAt?: Date | string | null;
+  classId?: string | null;
 }): boolean {
   return (
+    !material.classId &&
     material.scope === "SHARED" &&
     material.visibility === "PUBLISHED" &&
     !material.quarantinedAt
@@ -69,6 +71,7 @@ export function assertMaterialReadAccess(
     scope?: string;
     visibility: string;
     quarantinedAt?: Date | string | null;
+  classId?: string | null;
     editors?: Array<{ userId: string }>;
     class: {
       enrollments: Array<{ learnerId: string; status: string }>;

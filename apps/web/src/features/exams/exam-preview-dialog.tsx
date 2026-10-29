@@ -78,7 +78,7 @@ export function ExamPreviewDialog({
                   }
                 }}
               >
-                Gửi phê duyệt
+                Phát hành đề thi
               </Button>
             </div>
           ) : null}
