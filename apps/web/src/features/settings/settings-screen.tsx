@@ -105,7 +105,7 @@ export default function SettingsScreen() {
       {!activeSection ? (
         <div
           aria-label="Danh sách chức năng cấu hình"
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 divide-y divide-slate-100 dark:divide-slate-800/70 overflow-hidden shadow-xs"
         >
           {settingsSections.map((item) => {
             const Icon = item.icon;
@@ -116,57 +116,62 @@ export default function SettingsScreen() {
                   : "Đang tắt"
                 : item.id === "exam-approval"
                   ? settings?.examApprovalMode === "MANUAL"
-                  ? "Duyệt thủ công"
-                  : "Tự động duyệt"
+                    ? "Duyệt thủ công"
+                    : "Tự động duyệt"
                 : item.id === "question-approval"
                   ? settings?.questionApprovalMode === "MANUAL"
                     ? "Duyệt thủ công"
                     : "Tự động duyệt"
-                  : item.id === "ai-providers"
-                    ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật`
-                    : item.id === "health"
-                      ? health?.status === "healthy"
-                        ? "Ổn định"
-                        : "Cần kiểm tra"
-                      : item.id === "storage"
-                        ? `${storage?.usagePercent ?? 0}% đã dùng`
-                        : item.id === "integrations"
-                          ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật`
-                          : item.id === "backups"
-                            ? `${backups.length} bản sao`
-                            : item.id === "history"
-                              ? `${history.length} phiên bản`
-                              : settings
-                                ? `Phiên bản ${settings.version}`
-                                : "Đang tải";
+                : item.id === "ai-providers"
+                  ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật`
+                  : item.id === "health"
+                    ? health?.status === "healthy"
+                      ? "Ổn định"
+                      : "Cần kiểm tra"
+                    : item.id === "storage"
+                      ? `${storage?.usagePercent ?? 0}% đã dùng`
+                      : item.id === "integrations"
+                        ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật`
+                        : item.id === "backups"
+                          ? `${backups.length} bản sao`
+                          : item.id === "history"
+                            ? `${history.length} phiên bản`
+                            : settings
+                              ? `Phiên bản ${settings.version}`
+                              : "Đang tải";
+
             return (
               <button
-                className="group flex flex-col justify-between rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 text-left shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 hover:shadow-md"
                 key={item.id}
-                onClick={() =>
-                  router.push(`/admin/settings?section=${item.id}`)
-                }
+                onClick={() => router.push(`/admin/settings?section=${item.id}`)}
                 type="button"
+                className="group w-full flex items-center justify-between p-4 sm:p-5 text-left transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50 cursor-pointer"
               >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="grid size-12 place-items-center rounded-2xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800">
-                      <Icon size={22} />
-                    </span>
-                    <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300">
-                      {summary}
-                    </span>
+                <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1 pr-4">
+                  <span className="grid size-11 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800/60 shrink-0 group-hover:scale-105 transition-transform">
+                    <Icon size={20} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="font-heading text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
+                        {item.title}
+                      </h3>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-1 sm:line-clamp-2">
+                      {item.description}
+                    </p>
                   </div>
-                  <h3 className="mt-4 font-heading text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 transition-colors">
-                    {item.title}
-                  </h3>
-                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                    {item.description}
-                  </p>
                 </div>
-                <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-sky-600 dark:text-sky-400">
-                  <span>Thiết lập</span>
-                  <ChevronRight size={14} className="transition-transform group-hover:translate-x-1" />
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {summary}
+                  </span>
+                  <div className="hidden sm:flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400">
+                    <span>Thiết lập</span>
+                    <ChevronRight size={15} className="transition-transform group-hover:translate-x-1" />
+                  </div>
+                  <ChevronRight size={18} className="text-slate-400 group-hover:text-sky-600 transition-colors sm:hidden" />
                 </div>
               </button>
             );

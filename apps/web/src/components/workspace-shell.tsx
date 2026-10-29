@@ -305,7 +305,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       { href: "/exams", label: "Khảo thí", icon: BookOpenCheck },
       { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
       { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
-      { href: "/admin/users", label: "Quản trị hệ thống", icon: ShieldCheck },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
@@ -764,6 +763,26 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       </p>
                     </div>
                   </Link>
+                  {session.roleCode === "SYSTEM_ADMIN" && (
+                    <Link
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                      href="/admin/users"
+                      onClick={() => setProfileOpen(false)}
+                      role="menuitem"
+                    >
+                      <div className="size-7 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 grid place-items-center shrink-0">
+                        <Settings size={15} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Quản trị & Cấu hình
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          Người dùng, vai trò & hệ thống
+                        </p>
+                      </div>
+                    </Link>
+                  )}
                 </div>
 
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />

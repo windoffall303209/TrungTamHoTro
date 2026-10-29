@@ -26,6 +26,10 @@ import type { AccountStatus } from "./identity.types.js";
 export class UserListQueryDto {
   @IsOptional() @IsString() @MaxLength(200)
   query?: string;
+  @IsOptional() @IsIn(ROLE_CODES)
+  roleCode?: RoleCode;
+  @IsOptional() @IsIn(["ACTIVE", "LOCKED", "PENDING"])
+  status?: AccountStatus;
   @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(10000)
   page = 1;
   @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(50)
