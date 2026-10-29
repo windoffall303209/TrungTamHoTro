@@ -94,7 +94,7 @@ export default function OperationsScreen() {
 
   if (!canConfigure) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="w-full space-y-4">
       <PageHeader
         title="Vận hành và tuân thủ"
         description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
