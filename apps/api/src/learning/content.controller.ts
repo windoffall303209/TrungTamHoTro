@@ -206,7 +206,11 @@ export class ContentController {
   /** Người tải lên và người được cấp quyền sửa xem quyết định kiểm duyệt kèm lý do. */
   listOwnMaterialReviews(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId, session.user.id); }
 
-  @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage")
+  @Patch("instructor/materials/:materialId/review") @RequirePermissions("material:manage")
+  /** Giảng viên tự kiểm duyệt, công bố hoặc thu hồi học liệu của mình. */
+  reviewOwnMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }
+
+  @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage", "material:manage")
   /** Quản lý duyệt, ẩn hoặc cách ly học liệu và lưu lý do. */
   reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }
 

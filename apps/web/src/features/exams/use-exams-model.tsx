@@ -637,17 +637,13 @@ export function useExamsModel() {
           }),
         },
       );
-      notify(
-        updated.status === "PUBLISHED"
-          ? "Đề đã được tự động phê duyệt và phát hành."
-          : "Đã gửi đề sang hàng chờ phê duyệt.",
-      );
+      notify("Đề thi đã được phát hành thành công và sẵn sàng cho học viên.");
       setConfirmExam(null);
       setPreviewExam(null);
       await load();
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "Không gửi duyệt được.",
+        error instanceof Error ? error.message : "Không phát hành được đề thi.",
         "error",
       );
     } finally {

@@ -26,8 +26,9 @@ export async function getExamApprovalMode(
   serviceContext: LearningServiceContext,
 ): Promise<ExamApprovalMode> {
   // Các unit test khởi tạo service độc lập vẫn giữ quy trình thủ công cũ;
-  // trong ứng dụng thực tế SystemService luôn được inject và mặc định là AUTO.
+  // trong ứng dụng thực tế SystemService luôn được inject.
   if (!serviceContext.system) return "MANUAL";
+
   return (await serviceContext.system.getSettings()).examApprovalMode;
 }
 
@@ -35,6 +36,7 @@ export async function getExamApprovalMode(
 export async function getQuestionApprovalMode(
   serviceContext: LearningServiceContext,
 ): Promise<ExamApprovalMode> {
+
   if (!serviceContext.system) return "AUTO";
   return (await serviceContext.system.getSettings()).questionApprovalMode;
 }

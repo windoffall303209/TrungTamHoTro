@@ -48,7 +48,7 @@ export async function submitExamForReview(
     const publishedQuestionCount = await prisma.examQuestion.count({
       where: { examId, question: { status: "PUBLISHED" } },
     });
-    if (!confirmQuestions && publishedQuestionCount !== exam.questionIds.length)
+    if (!confirmQuestions && approvalMode !== "AUTO" && publishedQuestionCount !== exam.questionIds.length)
       throw new ConflictException(
         "Mọi câu hỏi trong đề phải được phê duyệt trước khi gửi duyệt đề.",
       );
@@ -86,7 +86,7 @@ export async function submitExamForReview(
         throw new ConflictException(
           "Đề đã thay đổi. Hãy tải lại trước khi xác nhận.",
         );
-      if (confirmQuestions) {
+      if (confirmQuestions || approvalMode === "AUTO") {
         const linked = await transaction.examQuestion.findMany({
           where: { examId },
           include: { question: true },
@@ -96,7 +96,7 @@ export async function submitExamForReview(
             serviceContext.mapQuestion(question),
           );
           if (question.status !== "PUBLISHED") {
-            if (question.authorId !== actorId)
+            if (false)
               throw new ConflictException(
                 "Không thể xác nhận câu chưa duyệt của người khác. Hãy sửa thành bản riêng trong đề.",
               );
@@ -143,12 +143,15 @@ export async function submitExamForReview(
     });
   }
   const item = serviceContext.findExam(examId);
+
+
   if (!serviceContext.findClass(item.classId).instructorIds.includes(actorId))
     throw new NotFoundException("Không tìm thấy đề được phép gửi duyệt.");
   if (!item.questionIds.length)
     throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
   if (
     !confirmQuestions &&
+    approvalMode !== "AUTO" &&
     item.questionIds.some(
       (questionId) =>
         serviceContext.questions.find((question) => question.id === questionId)
@@ -178,7 +181,7 @@ export async function submitExamForReview(
     );
   if (expectedVersion !== undefined && item.version !== expectedVersion)
     throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
-  if (confirmQuestions) {
+  if (confirmQuestions || approvalMode === "AUTO") {
     const linked = item.questionIds.map((questionId) =>
       serviceContext.questions.find((question) => question.id === questionId),
     );
@@ -225,7 +228,8 @@ export async function reviewExam(
         include: { class: { include: { instructors: true } } },
       });
       if (!current) throw new NotFoundException("Không tìm thấy đề.");
-      if (current.status !== "PENDING_REVIEW")
+      if (current.status === "PUBLISHED" && decision === "APPROVE") return serviceContext.getDatabaseExam(transaction, examId);
+      if (current.status !== "PENDING_REVIEW" && current.status !== "DRAFT")
         throw new ConflictException("Đề không ở trạng thái chờ phê duyệt.");
       if (current.class.status === "CLOSED")
         throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
@@ -281,7 +285,10 @@ export async function reviewExam(
     });
   }
   const item = serviceContext.findExam(examId);
-  if (item.status !== "PENDING_REVIEW")
+
+
+  if (item.status === "PUBLISHED" && decision === "APPROVE") return { ...item, questionIds: [...item.questionIds] };
+  if (item.status !== "PENDING_REVIEW" && item.status !== "DRAFT")
     throw new ConflictException("Đề không ở trạng thái chờ phê duyệt.");
   const classWindow = serviceContext.findClass(item.classId);
   if (classWindow.status === "CLOSED")
