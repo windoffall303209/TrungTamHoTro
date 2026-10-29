@@ -135,11 +135,36 @@ export class IdentityService {
     if (!Number.isInteger(page) || page < 1 || page > 10000 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50 || (input.query?.length ?? 0) > 200) throw new BadRequestException("Tham số phân trang không hợp lệ.");
     const prisma = this.database();
     if (!prisma) {
-      const all = await this.listUsers(input.query);
+      let all = await this.listUsers(input.query);
+      if (input.roleCode) {
+        all = all.filter((u) => u.roleCodes?.includes(input.roleCode!) || u.roleCode === input.roleCode);
+      }
+      if (input.status) {
+        all = all.filter((u) => u.status === input.status);
+      }
       return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, active: all.filter((user) => user.status === "ACTIVE").length, locked: all.filter((user) => user.status === "LOCKED").length, page, pageSize };
     }
     const query = input.query?.trim();
-    const where: Prisma.UserWhereInput = query ? { OR: [{ username: { contains: query, mode: "insensitive" } }, { displayName: { contains: query, mode: "insensitive" } }, { email: { contains: query, mode: "insensitive" } }] } : {};
+    const where: Prisma.UserWhereInput = {};
+    if (query) {
+      where.OR = [
+        { username: { contains: query, mode: "insensitive" } },
+        { displayName: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+      ];
+    }
+    if (input.roleCode) {
+      where.roles = {
+        some: {
+          role: {
+            code: input.roleCode,
+          },
+        },
+      };
+    }
+    if (input.status) {
+      where.status = input.status;
+    }
     const [rows, total, active, locked] = await prisma.$transaction([
       prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
       prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),

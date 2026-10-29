@@ -3,11 +3,14 @@
 import {
   Eye,
   EyeOff,
+  Filter,
   LockKeyhole,
   Plus,
+  RotateCcw,
   Search,
   UnlockKeyhole,
   UserRoundCog,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/page-header";
@@ -96,6 +99,8 @@ export default function UsersPage() {
   ]);
   const [users, setUsers] = useState<IdentityUser[]>([]);
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleCode | "">("");
+  const [statusFilter, setStatusFilter] = useState<IdentityUser["status"] | "">("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -124,13 +129,21 @@ export default function UsersPage() {
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [handoffQuery, impact?.requiresHandoff, session.roleCode]);
 
-  /** Nạp danh sách người dùng theo truy vấn tìm kiếm hiện tại. */
+  /** Nạp danh sách người dùng theo truy vấn tìm kiếm và bộ lọc hiện tại. */
   const loadUsers = useCallback(async () => {
     const version = ++requestVersion.current;
     setLoading(true);
     try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+      });
+      if (query.trim()) params.set("query", query.trim());
+      if (roleFilter) params.set("roleCode", roleFilter);
+      if (statusFilter) params.set("status", statusFilter);
+
       const data = await apiRequest<{ items: IdentityUser[]; total: number; active: number; locked: number }>(
-        `/admin/users?page=${page}&pageSize=${pageSize}&query=${encodeURIComponent(query)}`,
+        `/admin/users?${params.toString()}`,
         { roleCode: session.roleCode },
       );
       if (version !== requestVersion.current) return;
@@ -147,7 +160,7 @@ export default function UsersPage() {
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
-  }, [notify, query, page, pageSize, session.roleCode]);
+  }, [notify, query, roleFilter, statusFilter, page, pageSize, session.roleCode]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadUsers(), 220);
@@ -486,33 +499,161 @@ export default function UsersPage() {
         description="Tạo, cập nhật, khóa và khôi phục tài khoản. Mọi thay đổi đều được ghi lại để truy vết."
         title="Quản lý người dùng"
       />
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100">{totals.total}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng tài khoản</p>
+        </div>
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
           <p className="tabular text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">{totals.active}</p>
           <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đang hoạt động</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center col-span-2 sm:col-span-1">
           <p className="tabular text-2xl sm:text-3xl font-extrabold text-rose-600 dark:text-rose-400">{totals.locked}</p>
           <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đã khóa</p>
         </div>
       </section>
-      <div className="mt-6 flex items-center gap-3">
-        <div className="relative max-w-md flex-1">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            size={17}
-          />
-          <input
-            aria-label="Tìm kiếm người dùng"
-            className={`${inputClass} pl-10`}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Tìm theo tài khoản, tên hoặc email…"
-            value={query}
-          />
+
+      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[240px] flex-1">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              size={17}
+            />
+            <input
+              aria-label="Tìm kiếm người dùng"
+              className={`${inputClass} pl-10 pr-9`}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Tìm theo tài khoản, tên hoặc email…"
+              value={query}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                aria-label="Xóa từ khóa tìm kiếm"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[170px]">
+              <select
+                aria-label="Lọc theo vai trò"
+                className={`${inputClass} font-medium text-xs sm:text-sm cursor-pointer`}
+                value={roleFilter}
+                onChange={(e) => {
+                  setRoleFilter(e.target.value as RoleCode | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả vai trò</option>
+                {roles.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative min-w-[170px]">
+              <select
+                aria-label="Lọc theo trạng thái"
+                className={`${inputClass} font-medium text-xs sm:text-sm cursor-pointer`}
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as IdentityUser["status"] | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="ACTIVE">Đang hoạt động</option>
+                <option value="LOCKED">Đã khóa</option>
+                <option value="PENDING">Chưa xác thực</option>
+              </select>
+            </div>
+
+            {(Boolean(query) || Boolean(roleFilter) || Boolean(statusFilter)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setRoleFilter("");
+                  setStatusFilter("");
+                  setPage(1);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 transition-colors"
+              >
+                <RotateCcw size={13} />
+                Đặt lại
+              </button>
+            )}
+          </div>
         </div>
+
+        {(Boolean(query) || Boolean(roleFilter) || Boolean(statusFilter)) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+            <span className="font-semibold text-slate-700 dark:text-slate-300">Đang lọc:</span>
+            {query && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-sky-50 dark:bg-sky-950/50 px-2 py-1 text-sky-700 dark:text-sky-300 font-medium">
+                Từ khóa: &quot;{query}&quot;
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    setPage(1);
+                  }}
+                  className="hover:text-sky-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {roleFilter && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 px-2 py-1 text-indigo-700 dark:text-indigo-300 font-medium">
+                Vai trò: {roleLabel[roleFilter as RoleCode] || roleFilter}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoleFilter("");
+                    setPage(1);
+                  }}
+                  className="hover:text-indigo-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {statusFilter && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 text-emerald-700 dark:text-emerald-300 font-medium">
+                Trạng thái: {statusFilter === "ACTIVE" ? "Đang hoạt động" : statusFilter === "LOCKED" ? "Đã khóa" : "Chưa xác thực"}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("");
+                    setPage(1);
+                  }}
+                  className="hover:text-emerald-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <span className="ml-auto text-xs text-slate-500 font-medium">
+              Tìm thấy <strong className="text-slate-800 dark:text-slate-200">{totals.total}</strong> tài khoản
+            </span>
+          </div>
+        )}
       </div>
       <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
         <div className="overflow-x-auto">

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Settings, ShieldCheck, ShieldEllipsis, Users, Activity, Database, Server } from "lucide-react";
+import { Settings, ShieldCheck, ShieldEllipsis, Users } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { hasAnyPermission } from "@/lib/access-control";
@@ -99,42 +99,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 );
               })}
             </nav>
-          </div>
-
-          {/* WIDGET TÓM TẮT HẠ TẦNG AN NINH & VẬN HÀNH */}
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-4 shadow-xs text-xs space-y-2.5 hidden lg:block">
-            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              <span>Hạ tầng hệ thống</span>
-              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Ổn định
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Server size={13} className="text-slate-400" />
-                Máy chủ:
-              </span>
-              <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">Trực tuyến (99.9%)</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Database size={13} className="text-slate-400" />
-                Cơ sở dữ liệu:
-              </span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">Kết nối tốt</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Activity size={13} className="text-slate-400" />
-                Bảo mật & Audit:
-              </span>
-              <span className="font-bold text-sky-600 dark:text-sky-400">Tuân thủ v2.4</span>
-            </div>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-              <span>Nền tảng:</span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">EduTech Cloud</span>
-            </div>
           </div>
         </aside>
 
