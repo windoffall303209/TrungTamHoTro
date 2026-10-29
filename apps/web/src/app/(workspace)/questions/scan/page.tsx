@@ -82,7 +82,7 @@ export default function ScanQuestionsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+    <div className="w-full space-y-4">
       <button className="mb-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs sm:text-sm font-bold text-[var(--ink-soft)] hover:bg-[var(--surface-muted)] cursor-pointer" onClick={() => router.push("/questions")} type="button"><ArrowLeft size={16} />Quay lại Ngân hàng câu hỏi</button>
       <PageHeader title="Quét ảnh tạo câu hỏi" description="Tải ảnh đề, để AI nhận diện rồi rà soát nội dung, đáp án, Markdown và LaTeX trước khi lưu." />
       <section className="grid gap-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-5 shadow-xs lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
