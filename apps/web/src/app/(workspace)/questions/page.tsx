@@ -216,7 +216,7 @@ export default function QuestionsPage() {
 
   if (!canView) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+    <div className="w-full space-y-4">
       <PageHeader title="Ngân hàng câu hỏi" description="Soạn câu hỏi đa môn, định dạng chữ và công thức, kiểm tra trước khi đưa vào đề." actions={canManage ? <><Link className="inline-flex min-h-9.5 items-center gap-2 rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] px-3.5 text-xs sm:text-sm font-bold text-[var(--ink)] hover:border-[var(--accent)]" href="/questions/scan"><ImagePlus size={16} />Quét ảnh đề</Link><Button onClick={() => setImportOpen(true)} variant="secondary" className="h-9.5 text-xs sm:text-sm"><Upload size={16} />Nhập JSONL</Button><Button onClick={openCreate} className="h-9.5 text-xs sm:text-sm"><Plus size={16} />Soạn câu hỏi</Button></> : undefined} />
       <section className="my-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-6">
