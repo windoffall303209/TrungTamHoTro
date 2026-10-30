@@ -1,10 +1,10 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { AiGradingOperations } from "@/components/ai-grading-operations";
-import { AiTaskSettings } from "@/components/ai-task-settings";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { AiGradingOperations } from "@/roles/admin/ai-grading-operations";
+import { AiTaskSettings } from "@/roles/admin/ai-task-settings";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, Modal, StatusBadge } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
   Activity,

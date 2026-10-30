@@ -2,14 +2,14 @@ import { createHash } from "node:crypto";
 import { testGradingStore } from "./ai-grading-store.fixture.js";
 import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 import { describe, expect, it, vi } from "vitest";
-import { AcademicService } from "../src/learning/academic.service.js";
-import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
+import { AcademicService } from "../src/domains/learning/academic.service.js";
+import { AiGradingAssistService } from "../src/domains/learning/ai-grading-assist.service.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 import type { AntivirusService } from "../src/infrastructure/antivirus.service.js";
-import type { AiProviderService } from "../src/system/ai-provider.service.js";
-import { GRADING_DOCX_MIME } from "../src/learning/ai-grading-source.js";
+import type { AiProviderService } from "../src/domains/system/ai-provider.service.js";
+import { GRADING_DOCX_MIME } from "../src/domains/learning/ai-grading-source.js";
 import { docxFixture } from "./docx.fixture.js";
 
 const session = { user: { id: "teacher" }, roleCode: "INSTRUCTOR", permissions: ["exam:manage"] } as AuthenticatedSession;

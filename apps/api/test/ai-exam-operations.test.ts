@@ -6,7 +6,7 @@ import { AuthService, type AuthenticatedSession } from "../src/auth/auth.service
 import { PermissionGuard } from "../src/auth/permission.guard.js";
 import { PrismaService } from "../src/database/prisma.service.js";
 import { Prisma } from "../src/generated/prisma/client.js";
-import { AiGradingOperationsController, AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import { AiGradingOperationsController, AiGradingOperationsService } from "../src/domains/learning/ai-grading-operations.js";
 import { createHash } from "node:crypto";
 
 const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: "admin" } } as AuthenticatedSession;

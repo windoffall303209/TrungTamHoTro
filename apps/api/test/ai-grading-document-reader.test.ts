@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { AiGradingDocumentReader } from "../src/learning/ai-grading-document-reader.js";
-import { AiDocumentExtractionStore } from "../src/learning/ai-document-extraction-store.js";
-import { GRADING_DOCX_MIME, type VerifiedGradingAttachment } from "../src/learning/ai-grading-source.js";
-import type { AiProviderService } from "../src/system/ai-provider.service.js";
+import { AiGradingDocumentReader } from "../src/domains/learning/ai-grading-document-reader.js";
+import { AiDocumentExtractionStore } from "../src/domains/learning/ai-document-extraction-store.js";
+import { GRADING_DOCX_MIME, type VerifiedGradingAttachment } from "../src/domains/learning/ai-grading-source.js";
+import type { AiProviderService } from "../src/domains/system/ai-provider.service.js";
 import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 import { docxFixture } from "./docx.fixture.js";
 

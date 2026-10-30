@@ -8,7 +8,7 @@ async function login(page: Page) {
   await page.getByPlaceholder("admin@wind.edu.vn").fill("instructor@wind.edu.vn");
   await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/(dashboard|courses)$/, { timeout: 20_000 });
 }
 
 test("lỗi tải đề có thông báo và thử lại lấy được dữ liệu thật", async ({ page }) => {

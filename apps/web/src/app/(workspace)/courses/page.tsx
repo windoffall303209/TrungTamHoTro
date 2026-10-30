@@ -5,11 +5,11 @@ import { activeLocale } from "@/i18n/runtime";
 import { Archive, ArrowRight, BookOpen, Calendar, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SectionState } from "@/components/section-state";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, Tabs, usePagination } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionState } from "@/shared/ui/section-state";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, Tabs, usePagination } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -333,7 +333,7 @@ export default function CoursesPage() {
         {/* HEADER DỌC: MÔN HỌC / LỚP HỌC */}
         <aside className="w-full lg:w-64 shrink-0 space-y-3.5">
           <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs space-y-1">
-            <div className="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+            <div className="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
               Chức năng đào tạo
             </div>
 
@@ -343,11 +343,11 @@ export default function CoursesPage() {
               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
                 activeTab === "classes"
                   ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
+                  : "text-slate-600 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <GraduationCap size={18} className={activeTab === "classes" ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
+                <GraduationCap size={18} className={activeTab === "classes" ? "text-sky-600 dark:text-sky-400" : "text-slate-600"} />
                 <span className="truncate">Lớp học</span>
               </div>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
@@ -366,11 +366,11 @@ export default function CoursesPage() {
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
                   activeTab === "courses"
                     ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
+                    : "text-slate-600 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <BookOpen size={18} className={activeTab === "courses" ? "text-sky-600 dark:text-sky-400" : "text-slate-400"} />
+                  <BookOpen size={18} className={activeTab === "courses" ? "text-sky-600 dark:text-sky-400" : "text-slate-600"} />
                   <span className="truncate">Môn học</span>
                 </div>
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums ${
@@ -386,18 +386,18 @@ export default function CoursesPage() {
 
           {/* Widget tóm tắt nhỏ phía dưới */}
           <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-4 shadow-xs text-xs space-y-2.5 hidden lg:block">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Chỉ số danh mục</div>
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Chỉ số danh mục</div>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-600">
               <span>Tổng lớp học:</span>
               <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">{classes.length}</span>
             </div>
             {manager && (
-              <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <div className="flex items-center justify-between text-slate-600 dark:text-slate-600">
                 <span>Tổng môn học:</span>
                 <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">{courses.length}</span>
               </div>
             )}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-600">
               Hệ thống hỗ trợ phân cấp chuẩn Khối 1 - 12 & theo Môn học.
             </div>
           </div>
@@ -409,7 +409,7 @@ export default function CoursesPage() {
           <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap lg:flex-nowrap items-center gap-2.5">
             {/* Ô tìm kiếm */}
             <div className="relative flex-1 min-w-[200px]">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
@@ -419,7 +419,7 @@ export default function CoursesPage() {
                   coursePagination.resetPage();
                 }}
                 placeholder={activeTab === "courses" ? "Tìm kiếm môn học theo tên, mã, mô tả..." : "Tìm kiếm lớp học theo tên, mã lớp, học kỳ..."}
-                className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-all"
+                className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-600 focus:outline-hidden focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-all"
               />
               {searchQuery && (
                 <button
@@ -429,7 +429,7 @@ export default function CoursesPage() {
                     classPagination.resetPage();
                     coursePagination.resetPage();
                   }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                   title="Xóa tìm kiếm"
                 >
                   <X size={14} />
@@ -546,7 +546,7 @@ export default function CoursesPage() {
                   <div className="flex items-center justify-between gap-5 border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
                     <div>
                       <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Danh mục môn học</h2>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">Nội dung đào tạo và phiên bản đang được sử dụng.</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-600">Nội dung đào tạo và phiên bản đang được sử dụng.</p>
                     </div>
                     <span className="shrink-0 text-xs font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-3 py-1 rounded-full border border-sky-200/80 dark:border-sky-800/60 tabular-nums">
                       {displayCourses.length} môn học
@@ -573,12 +573,12 @@ export default function CoursesPage() {
                               )}
                             </div>
                             <h3 className="mt-1.5 text-base font-bold text-slate-900 dark:text-slate-100">{course.name}</h3>
-                            <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400 max-w-3xl">{course.description}</p>
+                            <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-600 max-w-3xl">{course.description}</p>
                           </div>
                           <StatusBadge status={course.status} />
                         </div>
                         <div className="rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3">
-                          <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                          <p className="text-xs font-bold text-slate-600 dark:text-slate-600">
                             {`Lớp trực thuộc (${classes.filter((item) => item.courseId === course.id).length})`}
                           </p>
                           {classes.some((item) => item.courseId === course.id) ? (
@@ -597,7 +597,7 @@ export default function CoursesPage() {
                               ))}
                             </ul>
                           ) : (
-                            <p className="mt-1 text-xs text-slate-400">Chưa có lớp nào mở cho môn học này.</p>
+                            <p className="mt-1 text-xs text-slate-600">Chưa có lớp nào mở cho môn học này.</p>
                           )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
@@ -655,7 +655,7 @@ export default function CoursesPage() {
                       <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
                         Không tìm thấy lớp học nào
                       </h3>
-                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      <p className="text-xs text-slate-600 max-w-sm mx-auto">
                         {searchQuery ? "Thử tìm kiếm với từ khóa khác hoặc xóa ô tìm kiếm." : manager ? "Chưa có lớp học nào được mở trong hệ thống." : "Bạn hiện chưa tham gia lớp học nào."}
                       </p>
                     </div>
@@ -692,7 +692,7 @@ export default function CoursesPage() {
                                       {classSubject}
                                     </span>
                                   )}
-                                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold">
+                                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-600 text-[10px] font-semibold">
                                     {item.term}
                                   </span>
                                 </div>
@@ -700,7 +700,7 @@ export default function CoursesPage() {
                                   {item.name || item.code}
                                 </h3>
                                 {course?.name && (
-                                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-600 truncate">
                                     Môn học: <span className="font-medium text-slate-700 dark:text-slate-300">{course.name}</span> · v{item.courseVersion}
                                   </p>
                                 )}
@@ -710,23 +710,23 @@ export default function CoursesPage() {
                             {/* Cột thông tin phụ: Giảng viên + Sĩ số + Khai giảng + Trạng thái + Nút vào lớp / Vào điều hành */}
                             <div className="flex items-center gap-4 sm:gap-5 flex-wrap md:flex-nowrap justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
                               {manager && (
-                                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                  <UserCheck size={15} className="text-slate-400 shrink-0" />
+                                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-600">
+                                  <UserCheck size={15} className="text-slate-600 shrink-0" />
                                   <span>
                                     GV: <strong className="text-slate-700 dark:text-slate-200">{item.instructorIds?.length ?? 0}</strong>
                                   </span>
                                 </div>
                               )}
 
-                              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                <Users size={15} className="text-slate-400 shrink-0" />
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-600">
+                                <Users size={15} className="text-slate-600 shrink-0" />
                                 <span>
                                   Sĩ số: <strong className="text-slate-700 dark:text-slate-200">{item.learnerIds?.length ?? 0}/{item.capacity ?? 40}</strong>
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                <Calendar size={15} className="text-slate-400 shrink-0" />
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-600">
+                                <Calendar size={15} className="text-slate-600 shrink-0" />
                                 <span>
                                   Khai giảng: <strong className="text-slate-700 dark:text-slate-200">{new Date(item.startAt).toLocaleDateString(activeLocale())}</strong>
                                 </span>
@@ -861,7 +861,7 @@ export default function CoursesPage() {
           {/* Hiển thị Khối & Môn theo môn học được chọn */}
           {classForm.courseId && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 text-xs">
-              <span className="font-bold text-slate-500 dark:text-slate-400">Phân cấp K-12 kế thừa:</span>
+              <span className="font-bold text-slate-500 dark:text-slate-600">Phân cấp K-12 kế thừa:</span>
               {classForm.grade ? (
                 <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 text-purple-700 dark:text-purple-300 font-bold">
                   Khối {classForm.grade}

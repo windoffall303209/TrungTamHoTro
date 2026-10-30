@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Environment } from "../src/config/environment.js";
-import { LearningService } from "../src/learning/learning.service.js";
-import { SystemService } from "../src/system/system.service.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 describe("LearningService", () => {
   beforeEach(() => {

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
-import { SystemService } from "../src/system/system.service.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 type RetentionInternals = {
   countRetentionRows(prisma: PrismaService, category: string, cutoffAt: Date): Promise<number>;

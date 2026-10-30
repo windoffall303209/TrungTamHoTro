@@ -1,4 +1,4 @@
-import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learning/ai-grading-store.service.js";
+import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/domains/learning/ai-grading-store.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
 /** Mô phỏng ràng buộc cơ sở dữ liệu cho kiểm thử đơn vị, không thêm đường dự phòng RAM vào sản phẩm. */

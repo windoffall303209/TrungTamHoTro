@@ -1,11 +1,11 @@
 "use client";
 
-import { AccessDenied } from "@/components/access-denied";
-import { SectionState } from "@/components/section-state";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { SectionState } from "@/shared/ui/section-state";
 import { useClassDetailModel } from "./use-class-detail-model";
-import { LearnerClassWorkspace } from "@/features/learner-class/learner-class-workspace";
-import { InstructorClassWorkspace } from "@/features/instructor-class/instructor-class-workspace";
-import { ManagerClassWorkspace } from "@/features/operations/manager-class-workspace";
+import { LearnerClassWorkspace } from "@/roles/learner/class/learner-class-workspace";
+import { InstructorClassWorkspace } from "@/roles/instructor/class/instructor-class-workspace";
+import { ManagerClassWorkspace } from "@/roles/manager/manager-class-workspace";
 
 /** Lắp ghép màn hình chi tiết lớp theo từng vai trò người dùng (Learner, Instructor, Manager). */
 export default function ClassDetailScreen() {

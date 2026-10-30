@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Modal } from "./ui";
+import { Modal } from "@/shared/ui/ui";
 
 describe("Modal keyboard containment", () => {
   it("cô lập nền, kéo focus ngoài về modal và trả trạng thái khi đóng", () => {

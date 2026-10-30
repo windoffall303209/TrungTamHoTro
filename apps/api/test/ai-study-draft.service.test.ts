@@ -1,8 +1,8 @@
 import { testStudyDraft } from "./ai-study-draft.fixture.js";
-import { AiStudyDraftService } from "../src/learning/ai-study-draft.service.js";
+import { AiStudyDraftService } from "../src/domains/learning/ai-study-draft.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import { describe, expect, it, vi } from "vitest";
-import { type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
+import { type SavedStudyGuide } from "../src/domains/learning/ai-study-draft.service.js";
 
 const identity = { ownerId: "teacher", materialId: "material", sourceVersion: 1, options: { cardCount: 1, language: "VI" as const } };
 const result: SavedStudyGuide = { insufficientContext: true, summary: [], flashcards: [], version: 1, warning: "Review source", coverage: { totalChunks: 1, selectedChunks: 1, selectedPages: [1], partial: false, fromPage: null, toPage: null } };

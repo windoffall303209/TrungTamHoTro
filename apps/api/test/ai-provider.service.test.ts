@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
 import type { Environment } from "../src/config/environment.js";
-import { AiProviderService } from "../src/system/ai-provider.service.js";
+import { AiProviderService } from "../src/domains/system/ai-provider.service.js";
 import { decryptSecret, encryptSecret } from "../src/infrastructure/secret-vault.js";
-import { chunkDocument } from "../src/system/ai-document-context.js";
+import { chunkDocument } from "../src/domains/system/ai-document-context.js";
 
 const encryptionSecret = "test-encryption-secret-at-least-32-characters";
 const config = { get: (key: string) => key === "AUTH_ENCRYPTION_SECRET" ? encryptionSecret : undefined } as unknown as ConfigService<Environment, true>;

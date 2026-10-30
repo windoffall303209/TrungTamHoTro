@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
-import { chunkDocument } from "../src/system/ai-document-context.js";
-import { parseStudyGuide, selectStudyContext, validateStudyGuideOptions } from "../src/system/ai-study-guide.js";
-import { MaterialStudyGuideDto } from "../src/learning/learning.dto.js";
+import { chunkDocument } from "../src/domains/system/ai-document-context.js";
+import { parseStudyGuide, selectStudyContext, validateStudyGuideOptions } from "../src/domains/system/ai-study-guide.js";
+import { MaterialStudyGuideDto } from "../src/domains/learning/learning.dto.js";
 
 const chunks = chunkDocument({ materialId: "material", version: 2, checksum: "verified", name: "notes.pdf" }, Array.from({ length: 20 }, (_, index) => ({ page: index + 1, text: `Page ${index + 1}: ${"Learning material ".repeat(80)}` })));
 const options = { cardCount: 2, language: "VI" as const };

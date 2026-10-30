@@ -3,10 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { LearningService } from "../src/learning/learning.service.js";
-import { AiGenerationRequestService } from "../src/learning/ai-generation-request.service.js";
-import type { GeneratedExamDraft } from "../src/system/ai-provider.service.js";
-import type { AiGeneratedExamResult } from "../src/learning/learning.types.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
+import { AiGenerationRequestService } from "../src/domains/learning/ai-generation-request.service.js";
+import type { GeneratedExamDraft } from "../src/domains/system/ai-provider.service.js";
+import type { AiGeneratedExamResult } from "../src/domains/learning/learning.types.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 

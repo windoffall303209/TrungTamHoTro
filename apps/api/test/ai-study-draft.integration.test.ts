@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { AiStudyDraftService, type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
-import { AiGradingOperationsService } from "../src/learning/ai-grading-operations.js";
+import { AiStudyDraftService, type SavedStudyGuide } from "../src/domains/learning/ai-study-draft.service.js";
+import { AiGradingOperationsService } from "../src/domains/learning/ai-grading-operations.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";

@@ -51,8 +51,10 @@ test("học viên làm bài, lưu đáp án, nộp và nhận điểm thật", a
       expect(approved.ok()).toBe(true);
     }
     await page.goto("/exams");
-    const card = page.locator("article").filter({ hasText: title });
-    await card.getByRole("button", { name: "Bắt đầu làm bài", exact: true }).click();
+    const card = page.getByText(title, { exact: true }).locator("xpath=ancestor::*[self::article or self::tr][1]");
+    await expect(card).toContainText(title);
+    await expect(card.getByRole("button", { name: /Bắt đầu làm bài|Tiếp tục làm bài/, exact: true })).toBeVisible({ timeout: 20_000 });
+    await card.getByRole("button", { name: /Bắt đầu làm bài|Tiếp tục làm bài/, exact: true }).click();
     const saved = page.waitForResponse((response) => response.url().endsWith("/answers") && response.request().method() === "PATCH");
     await page.getByRole("radio", { name: question.correctAnswers[0], exact: true }).check();
     expect((await saved).ok()).toBe(true);

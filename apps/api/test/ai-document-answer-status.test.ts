@@ -4,11 +4,11 @@ import { APP_GUARD } from "@nestjs/core";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { AuthService } from "../src/auth/auth.service.js";
 import { PermissionGuard } from "../src/auth/permission.guard.js";
-import { ContentController } from "../src/learning/content.controller.js";
-import { LearningService } from "../src/learning/learning.service.js";
-import { AiProviderService } from "../src/system/ai-provider.service.js";
-import { AiGenerationRequestService } from "../src/learning/ai-generation-request.service.js";
-import { AiMaterialContextService } from "../src/learning/ai-material-context.service.js";
+import { ContentController } from "../src/domains/learning/content.controller.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
+import { AiProviderService } from "../src/domains/system/ai-provider.service.js";
+import { AiGenerationRequestService } from "../src/domains/learning/ai-generation-request.service.js";
+import { AiMaterialContextService } from "../src/domains/learning/ai-material-context.service.js";
 
 let app: INestApplication;
 let url: string;

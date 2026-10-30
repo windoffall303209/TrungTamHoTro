@@ -2,9 +2,9 @@
 
 import { Save, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { AccessDenied } from "@/components/access-denied";
-import { Button } from "@/components/ui";
+import { PageHeader } from "@/shared/ui/page-header";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { Button } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { IdentityRole, PermissionCode, RoleCode } from "@/lib/app-types";

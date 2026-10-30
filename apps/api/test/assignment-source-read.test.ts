@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { AcademicService } from "../src/learning/academic.service.js";
+import { AcademicService } from "../src/domains/learning/academic.service.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";

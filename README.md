@@ -122,25 +122,40 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 TestDoAn/
 ├── apps/
 │   ├── api/
-│   │   ├── prisma/          # Schema, migration và seed PostgreSQL
-│   │   ├── scripts/         # Công cụ database thử độc lập
-│   │   ├── src/auth/        # Session, OAuth, xác minh và MFA
-│   │   ├── src/identity/    # Người dùng, vai trò và quyền
-│   │   ├── src/learning/    # Học vụ, đánh giá, chat và lớp trực tuyến
-│   │   ├── src/infrastructure/ # Email, storage, backup và antivirus
-│   │   └── src/system/      # AI provider và vận hành hệ thống
+│   │   ├── prisma/             # Schema, migration và seed PostgreSQL
+│   │   ├── scripts/            # Công cụ database thử độc lập
+│   │   ├── src/auth/           # Session, OAuth, xác minh, MFA và RBAC
+│   │   ├── src/identity/       # Người dùng, vai trò và quyền
+│   │   ├── src/domains/
+│   │   │   ├── learning/       # Khóa học, lớp, học liệu, khảo thí, chat, báo cáo
+│   │   │   │   └── operations/ # Use case theo nghiệp vụ, giữ transaction/CAS/idempotency
+│   │   │   └── system/         # Cấu hình, AI provider và vận hành hệ thống
+│   │   │       └── operations/ # Audit, backup, export, retention và worker
+│   │   ├── src/infrastructure/ # Email, storage, backup, outbox và antivirus
+│   │   └── src/observability/  # Metrics và telemetry
 │   └── web/
-│       ├── src/app/         # Route Next.js
-│       ├── src/components/  # Giao diện dùng chung và nghiệp vụ
-│       ├── src/i18n/        # Runtime và catalog Việt–Anh
-│       └── e2e/             # Playwright E2E
-├── packages/contracts/      # Hợp đồng dùng chung
-├── docs/                    # Tài liệu kỹ thuật chuyên đề
-├── scripts/                 # Load test và công cụ workspace
-├── CHECK_TASKS.md           # Trạng thái triển khai và nghiệm thu
-├── BUSINESS_FLOW_REVIEW.md  # Rà soát luồng nghiệp vụ
-└── .env.example             # Mẫu cấu hình không chứa API key thật
+│       ├── src/app/            # Route adapter Next.js, giữ nguyên public URL
+│       ├── src/features/       # Capability dùng chung nhiều role
+│       ├── src/roles/          # Composition theo admin, manager, instructor, learner
+│       ├── src/shared/         # UI, auth và layout dùng chung
+│       ├── src/components/     # Thành phần cũ đang chờ phân loại, không thêm mới
+│       ├── src/i18n/            # Runtime và catalog Việt–Anh
+│       └── e2e/                # Playwright E2E
+├── packages/contracts/         # Hợp đồng dùng chung
+├── docs/                       # Tài liệu kỹ thuật chuyên đề
+├── scripts/                    # Load test và công cụ workspace
+├── CHECK_TASKS.md              # Trạng thái triển khai và nghiệm thu
+├── BUSINESS_FLOW_REVIEW.md     # Rà soát luồng nghiệp vụ
+└── .env.example                # Mẫu cấu hình không chứa API key thật
 ```
+
+### Quy tắc phụ thuộc sau refactor
+
+- `src/app` của web chỉ làm route adapter; màn hình và trạng thái nằm trong `src/features` hoặc `src/roles`.
+- `src/shared` không import ngược từ `src/roles`; feature dùng chung không phụ thuộc vào một role cụ thể.
+- API `src/domains/learning` và `src/domains/system` giữ nghiệp vụ theo bounded context; quyền vẫn kiểm tra ở guard và service, không suy ra từ vị trí thư mục.
+- `prisma/`, migration, generated client, `.env` và API route contract không thuộc phạm vi đổi cấu trúc.
+- `src/components` chỉ nhận code mới khi thành phần thực sự được dùng bởi nhiều capability; code nghiệp vụ mới phải đặt trong feature/role owner.
 
 Dự án chạy trực tiếp trên máy, không yêu cầu Docker.
 

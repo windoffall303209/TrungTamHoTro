@@ -1,5 +1,5 @@
 "use client";
-import { QuestionImage } from "@/components/question-image";
+import { QuestionImage } from "@/features/questions/question-image";
 import {
   Button,
   Field,
@@ -7,7 +7,7 @@ import {
   Modal,
   RichText,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { AlertTriangle, CheckCircle2, ListOrdered, Pencil, Send } from "lucide-react";
 import type { useExamsModel } from "./use-exams-model";
 

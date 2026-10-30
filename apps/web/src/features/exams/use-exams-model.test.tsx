@@ -22,7 +22,7 @@ vi.mock("@/providers/app-provider", () => ({
 vi.mock("@/providers/i18n-provider", () => ({
   useI18n: () => ({ t: (text: string) => text }),
 }));
-vi.mock("@/components/material-search", () => ({
+vi.mock("@/features/materials/material-search", () => ({
   useMaterialSearch: () => ({ items: [] }),
 }));
 

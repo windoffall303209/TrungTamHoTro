@@ -10,8 +10,8 @@ import {
   Send,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { SectionState } from "@/components/section-state";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionState } from "@/shared/ui/section-state";
 import {
   Button,
   Field,
@@ -20,7 +20,7 @@ import {
   Pagination,
   StatusBadge,
   usePagination,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type {
   LearningNotification,

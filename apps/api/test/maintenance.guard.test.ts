@@ -1,7 +1,7 @@
 import { ServiceUnavailableException, type ExecutionContext } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
-import { MaintenanceGuard } from "../src/system/maintenance.guard.js";
-import { SystemService } from "../src/system/system.service.js";
+import { MaintenanceGuard } from "../src/domains/system/maintenance.guard.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 /** Tạo ExecutionContext HTTP tối thiểu cho guard mà không cần khởi động Nest. */
 function requestContext(method: string, path: string): ExecutionContext {

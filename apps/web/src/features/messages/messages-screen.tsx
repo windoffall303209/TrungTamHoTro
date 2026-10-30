@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Field, inputClass, Modal } from "@/components/ui";
+import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import {
   shouldSendChatMessage,
   shouldStartChatTimeGroup,

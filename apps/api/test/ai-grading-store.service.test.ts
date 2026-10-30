@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/learning/ai-grading-store.service.js";
+import { AiGradingStoreService, type SavedGradingSuggestion } from "../src/domains/learning/ai-grading-store.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import { testGradingStore as testStore } from "./ai-grading-store.fixture.js";
 

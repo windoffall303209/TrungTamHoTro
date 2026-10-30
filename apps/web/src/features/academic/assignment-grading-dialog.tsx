@@ -1,6 +1,6 @@
 "use client";
-import { AssignmentAiGrading } from "@/components/assignment-ai-grading";
-import { Button, Field, inputClass, Modal } from "@/components/ui";
+import { AssignmentAiGrading } from "@/features/academic/assignment-ai-grading";
+import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { Download, Eye } from "lucide-react";
 import type { useAcademicModel } from "./use-academic-model";

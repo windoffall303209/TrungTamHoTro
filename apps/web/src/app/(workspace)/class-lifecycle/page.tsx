@@ -4,10 +4,10 @@ import { activeLocale } from "@/i18n/runtime";
 
 import { Archive, ArrowUpRight, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, StatusBadge } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, StatusBadge } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { ClassClosureReadiness, LearningClass } from "@/lib/learning-types";

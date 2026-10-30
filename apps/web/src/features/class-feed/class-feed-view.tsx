@@ -21,7 +21,7 @@ import {
 import { useApp } from "@/providers/app-provider";
 import type { ClassPost, PostComment, ClassFeedViewProps } from "./class-feed-types";
 import { loadClassFeedPosts, saveClassFeedPosts } from "./class-feed-storage";
-import { UserAvatar } from "@/components/user-avatar";
+import { UserAvatar } from "@/shared/ui/user-avatar";
 
 /**
  * Component Bảng tin & Diễn đàn lớp học dùng chung cho cả Học sinh và Giáo viên

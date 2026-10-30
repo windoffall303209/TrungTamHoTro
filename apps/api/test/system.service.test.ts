@@ -1,7 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { EmailDeliveryService } from "../src/infrastructure/email-delivery.service.js";
-import { SystemService } from "../src/system/system.service.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 describe("SystemService", () => {
   it("không giả lập backup khi hạ tầng thật chưa hoạt động", async () => {

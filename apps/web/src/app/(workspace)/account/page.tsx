@@ -20,12 +20,12 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { Button, Field, StatusBadge, inputClass } from "@/components/ui";
+import { PageHeader } from "@/shared/ui/page-header";
+import { Button, Field, StatusBadge, inputClass } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
-import { UserAvatar } from "@/components/user-avatar";
+import { UserAvatar } from "@/shared/ui/user-avatar";
 import { useI18n } from "@/providers/i18n-provider";
 import { activeLocale } from "@/i18n/runtime";
 
@@ -453,7 +453,7 @@ function AccountContent() {
             />
             <div className="min-w-0 flex-1 text-center sm:text-left">
               <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Ảnh đại diện</h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-600">
                 Hỗ trợ định dạng PNG, JPEG hoặc WebP; dung lượng tối đa 3 MB.
               </p>
               <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
@@ -510,12 +510,12 @@ function AccountContent() {
 
             <Field label="Tên tài khoản đăng nhập">
               <input className={inputClass} disabled readOnly value={profile.username} />
-              <span className="mt-1 block text-xs text-slate-400">Tên định danh cố định không thể sửa.</span>
+              <span className="mt-1 block text-xs text-slate-600">Tên định danh cố định không thể sửa.</span>
             </Field>
 
-            <Field label="Địa chỉ Email">
-              <input className={inputClass} disabled readOnly value={profile.email ?? ""} />
-              <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+            <Field label="Email">
+              <input aria-label="Email" className={inputClass} disabled readOnly value={profile.email ?? ""} />
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
                 {profile.emailVerifiedAt ? (
                   <>
                     <MailCheck size={14} className="text-emerald-500" />
@@ -570,7 +570,7 @@ function AccountContent() {
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
             <div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-600">
                 Tham gia hệ thống từ:{" "}
                 <strong className="text-slate-700 dark:text-slate-300">
                   {profile.createdAt ? formatDateTime(profile.createdAt) : "—"}
@@ -596,7 +596,7 @@ function AccountContent() {
               </div>
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Đổi mật khẩu</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
                   Sau khi đổi mật khẩu, các phiên đăng nhập khác sẽ được đóng để bảo vệ tài khoản.
                 </p>
               </div>
@@ -644,7 +644,7 @@ function AccountContent() {
                       type="password"
                       value={passwords.newPassword}
                     />
-                    <span className="mt-1 block text-[11px] text-slate-400">
+                    <span className="mt-1 block text-[11px] text-slate-600">
                       Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.
                     </span>
                   </Field>
@@ -707,7 +707,7 @@ function AccountContent() {
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     Xác thực hai bước (2FA)
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
                     Bảo vệ tài khoản bằng mã bảo mật 6 số từ Google Authenticator hoặc ứng dụng TOTP.
                   </p>
                 </div>
@@ -744,7 +744,7 @@ function AccountContent() {
                       {mfaQrCode ? (
                         <Image alt="Mã QR TOTP" height={180} src={mfaQrCode} unoptimized width={180} />
                       ) : (
-                        <RefreshCw className="animate-spin text-slate-400" size={24} />
+                        <RefreshCw className="animate-spin text-slate-600" size={24} />
                       )}
                     </div>
                   </div>
@@ -853,7 +853,7 @@ function AccountContent() {
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     Thiết bị đăng nhập ({sessions.length})
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
                     Kiểm tra và quản lý các thiết bị đang đăng nhập vào tài khoản của bạn.
                   </p>
                 </div>
@@ -891,7 +891,7 @@ function AccountContent() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-600 mt-0.5">
                           IP: {item.ipAddress} · Hoạt động {new Date(item.lastSeenAt).toLocaleString(activeLocale())}
                         </p>
                       </div>

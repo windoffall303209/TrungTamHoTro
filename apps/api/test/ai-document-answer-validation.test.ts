@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../src/database/prisma.service.js";
-import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/learning/ai-document-answer-store.js";
+import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/domains/learning/ai-document-answer-store.js";
 
 const identity = { ownerId: "owner", materialId: "material", version: 2, question: "Explain this?", language: "VI" as const };
 const request = { materialId: identity.materialId, version: identity.version, question: identity.question, language: identity.language };

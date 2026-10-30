@@ -1,6 +1,6 @@
 "use client";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal } from "@/components/ui";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import { Plus } from "lucide-react";
 import type { useAcademicModel } from "./use-academic-model";
 

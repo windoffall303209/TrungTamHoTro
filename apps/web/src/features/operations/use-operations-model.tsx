@@ -1,10 +1,10 @@
 "use client";
-import { usePagination } from "@/components/ui";
+import { usePagination } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { OperationsView } from "./operations-navigation";
+import type { OperationsView } from "@/roles/manager/operations-navigation";
 import {
   Audit,
   Backup,

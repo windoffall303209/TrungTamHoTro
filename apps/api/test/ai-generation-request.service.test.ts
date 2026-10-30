@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { AiGenerationRequestService } from "../src/learning/ai-generation-request.service.js";
+import { AiGenerationRequestService } from "../src/domains/learning/ai-generation-request.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
-import type { GeneratedExamDraft } from "../src/system/ai-provider.service.js";
-import type { AiGeneratedExamResult } from "../src/learning/learning.types.js";
+import type { GeneratedExamDraft } from "../src/domains/system/ai-provider.service.js";
+import type { AiGeneratedExamResult } from "../src/domains/learning/learning.types.js";
 
 const prepared = { courseId: "course-1", generated: { model: "test" } as GeneratedExamDraft };
 const result = { exam: { id: "exam-1" } } as AiGeneratedExamResult;

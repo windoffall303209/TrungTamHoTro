@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gotoWorkspace } from "./navigation";
 import { eligibleExamQuestions } from "../src/lib/exam-question-selection";
 import type { LearningClass, Question } from "../src/lib/learning-types";
 
 test("chuyển trang đề bằng API và mở liên kết đến đúng trang", async ({ page }) => {
   await login(page, "manager");
   const initial = page.waitForResponse((response) => response.url().includes("/exams/page?"));
-  await page.goto("/exams");
+  await gotoWorkspace(page, "/exams");
   const first = (await (await initial).json()).data;
   expect(first.total).toBeGreaterThan(10);
   expect(first.items).toHaveLength(10);
@@ -16,7 +17,7 @@ test("chuyển trang đề bằng API và mở liên kết đến đúng trang",
   expect(second.items.some((item: { id: string }) => first.items.some((prior: { id: string }) => prior.id === item.id))).toBe(false);
   const target = second.items[0].id;
   await expect(page.locator(`[id="exam-${target}"]`)).toBeVisible();
-  await page.goto(`/exams?examId=${encodeURIComponent(target)}`);
+  await gotoWorkspace(page, `/exams?examId=${encodeURIComponent(target)}`);
   await expect(page.locator(`[id="exam-${target}"]`)).toBeVisible();
   await expect(page.getByRole("button", { name: "Trang 2", exact: true })).toHaveAttribute("aria-current", "page");
 });
@@ -29,7 +30,7 @@ test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page 
     // Dashboard có thể hoàn tất request sau điều hướng; không tính nguồn riêng của dashboard vào màn vận hành.
     if (url.pathname.startsWith("/api/v1/system/") && url.pathname !== "/api/v1/system/health-overview") paths.push(url.pathname);
   });
-  await page.goto("/admin/operations");
+  await gotoWorkspace(page, "/admin/operations");
   await expect.poll(() => paths.length).toBe(2);
   expect(paths.sort()).toEqual(["/api/v1/system/alerts", "/api/v1/system/audit"]);
   paths.length = 0;
@@ -49,7 +50,7 @@ async function login(page: Page, account: string) {
     .fill(account + "@wind.edu.vn");
   await page.getByLabel("Mật khẩu", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/(dashboard|courses)$/, { timeout: 20_000 });
 }
 
 for (const [account, routes] of Object.entries({
@@ -65,7 +66,7 @@ for (const [account, routes] of Object.entries({
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     for (const route of routes) {
-      await page.goto(route);
+      await gotoWorkspace(page, route);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await expect
         .poll(() => page.locator('[aria-label="Đang đồng bộ dữ liệu"]').count())
@@ -88,13 +89,13 @@ test("phục hồi bản nháp sau chuyển trang/tải lại và tạo đề th
   page,
 }) => {
   await login(page, "instructor");
-  await page.goto("/exams");
+  await gotoWorkspace(page, "/exams");
   await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
   const title = `Kiểm thử phục hồi ${Date.now()}`;
   await page.getByRole("textbox", { name: "Tên đề", exact: true }).fill(title);
-  await page.goto("/academic");
+  await gotoWorkspace(page, "/academic");
   await page.reload();
-  await page.goto("/exams");
+  await gotoWorkspace(page, "/exams");
   await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "Tên đề", exact: true }),

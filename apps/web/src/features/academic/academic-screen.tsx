@@ -1,8 +1,8 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { RequestError } from "@/components/request-error";
-import { SearchableSelect } from "@/components/searchable-select";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { RequestError } from "@/shared/ui/request-error";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
   Field,
@@ -10,7 +10,7 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
   BookOpenCheck,
