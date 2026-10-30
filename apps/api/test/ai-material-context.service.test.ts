@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { testStudyDraft } from "./ai-study-draft.fixture.js";
 import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 import { NotFoundException } from "@nestjs/common";
-import { AiMaterialContextService } from "../src/learning/ai-material-context.service.js";
-import type { LearningService } from "../src/learning/learning.service.js";
-import type { AiProviderService } from "../src/system/ai-provider.service.js";
-import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/learning/ai-document-answer-store.js";
+import { AiMaterialContextService } from "../src/domains/learning/ai-material-context.service.js";
+import type { LearningService } from "../src/domains/learning/learning.service.js";
+import type { AiProviderService } from "../src/domains/system/ai-provider.service.js";
+import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../src/domains/learning/ai-document-answer-store.js";
 
 /** Tạo mock biên quyền và đọc file, không bỏ qua kiểm tra trước/sau extraction. */
 function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; createMaterialVersionAccess: ReturnType<typeof vi.fn>; readMaterialVersionDownload: ReturnType<typeof vi.fn> }; ai: { resolveTask: ReturnType<typeof vi.fn>; extractDocumentPages: ReturnType<typeof vi.fn<() => Promise<unknown>>>; createStudyGuide: ReturnType<typeof vi.fn> }; material: { id: string; version: number; name: string }; service: AiMaterialContextService } {

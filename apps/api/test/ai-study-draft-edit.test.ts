@@ -1,7 +1,7 @@
 import { testStudyDraft } from "./ai-study-draft.fixture.js";
 import { describe, expect, it, vi } from "vitest";
-import { type SavedStudyGuide } from "../src/learning/ai-study-draft.service.js";
-import { validateStudyDraftEdit } from "../src/learning/ai-study-draft-edit.js";
+import { type SavedStudyGuide } from "../src/domains/learning/ai-study-draft.service.js";
+import { validateStudyDraftEdit } from "../src/domains/learning/ai-study-draft-edit.js";
 
 const source = { id: "chunk", materialId: "material", version: 1, checksum: "checksum", name: "Lesson", page: 1, start: 0, end: 8, text: "Evidence" };
 const original: SavedStudyGuide = { insufficientContext: false, summary: [{ text: "Original", citations: [source] }], flashcards: [{ front: "Question", back: "Answer", citations: [source] }], version: 1, warning: "Check source", coverage: { totalChunks: 1, selectedChunks: 1, selectedPages: [1], partial: false, fromPage: null, toPage: null } };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineGradingSources, decodeGradingText } from "../src/learning/ai-grading-source.js";
+import { combineGradingSources, decodeGradingText } from "../src/domains/learning/ai-grading-source.js";
 
 describe("complete UTF-8 grading sources", () => {
   it("decodes Vietnamese, emoji, BOM and original whitespace without truncating", () => {

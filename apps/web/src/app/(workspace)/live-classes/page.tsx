@@ -16,10 +16,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SectionState } from "@/components/section-state";
-import { SearchableSelect } from "@/components/searchable-select";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionState } from "@/shared/ui/section-state";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
   Field,
@@ -28,7 +28,7 @@ import {
   Pagination,
   StatusBadge,
   usePagination,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";

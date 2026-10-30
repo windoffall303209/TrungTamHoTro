@@ -1,5 +1,5 @@
 "use client";
-import { usePagination } from "@/components/ui";
+import { usePagination } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import type {

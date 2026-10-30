@@ -1,5 +1,6 @@
 import pg from 'pg';
 
+/** Đảm nhiệm seedK12 trong phạm vi module hiện tại. */
 async function seedK12() {
   const client = new pg.Client({
     connectionString: 'postgresql://postgres:admin@localhost:5432/trung_tam_giang_day'

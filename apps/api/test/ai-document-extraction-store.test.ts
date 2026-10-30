@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { AiDocumentExtractionStore } from "../src/learning/ai-document-extraction-store.js";
-import type { DocumentPage } from "../src/system/ai-document-context.js";
+import { AiDocumentExtractionStore } from "../src/domains/learning/ai-document-extraction-store.js";
+import type { DocumentPage } from "../src/domains/system/ai-document-context.js";
 import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 
 const key = `ai-doc:${"a".repeat(64)}`;

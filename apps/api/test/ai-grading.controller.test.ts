@@ -2,9 +2,9 @@ import { ConflictException, UnauthorizedException, ValidationPipe, type INestApp
 import { APP_GUARD } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { AcademicController } from "../src/learning/academic.controller.js";
-import { AcademicService } from "../src/learning/academic.service.js";
-import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
+import { AcademicController } from "../src/domains/learning/academic.controller.js";
+import { AcademicService } from "../src/domains/learning/academic.service.js";
+import { AiGradingAssistService } from "../src/domains/learning/ai-grading-assist.service.js";
 import { AuthService, type AuthenticatedSession } from "../src/auth/auth.service.js";
 import { PermissionGuard } from "../src/auth/permission.guard.js";
 

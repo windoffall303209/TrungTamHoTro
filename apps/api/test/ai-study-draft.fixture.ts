@@ -1,4 +1,4 @@
-import { AiStudyDraftService } from "../src/learning/ai-study-draft.service.js";
+import { AiStudyDraftService } from "../src/domains/learning/ai-study-draft.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 
 type Row = Record<string, unknown>;

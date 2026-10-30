@@ -1,7 +1,7 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { RequestError } from "@/components/request-error";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { RequestError } from "@/shared/ui/request-error";
 import {
   Button,
   Field,
@@ -9,7 +9,7 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { downloadApiFile } from "@/lib/api-client";
 import {
@@ -26,7 +26,7 @@ import { useState } from "react";
 import {
   OperationsNavigation,
   type OperationsView,
-} from "./operations-navigation";
+} from "@/roles/manager/operations-navigation";
 
 /** Lắp ghép màn hình vận hành từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function OperationsScreen() {

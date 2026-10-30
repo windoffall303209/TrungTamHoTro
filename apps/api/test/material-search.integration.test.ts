@@ -2,7 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { LearningService } from "../src/learning/learning.service.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("PostgreSQL paginated material search", () => {

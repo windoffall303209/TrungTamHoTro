@@ -2,7 +2,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { ChatService } from "../src/learning/chat.service.js";
+import { ChatService } from "../src/domains/learning/chat.service.js";
 import { AppModule } from "../src/app.module.js";
 
 const instructor: AuthenticatedSession = { sessionId: "chat-instructor", user: { id: "usr-instructor", username: "instructor", name: "Trần Giảng Viên", email: "instructor@wind.edu.vn", roleName: "Giảng viên" }, roleCode: "INSTRUCTOR", permissions: [], availableRoles: [{ code: "INSTRUCTOR", name: "Giảng viên" }] };

@@ -4,10 +4,10 @@ import { ArrowLeft, Check, ImagePlus, ScanLine, Sparkles, Trash2 } from "lucide-
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, FormattedTextarea, inputClass, RichText } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, FormattedTextarea, inputClass, RichText } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import type { Course, Question, QuestionImportResult } from "@/lib/learning-types";

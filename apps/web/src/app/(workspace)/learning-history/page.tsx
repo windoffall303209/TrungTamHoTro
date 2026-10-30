@@ -4,9 +4,9 @@ import { activeLocale } from "@/i18n/runtime";
 
 import { Clock3, ExternalLink, History, Video } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";

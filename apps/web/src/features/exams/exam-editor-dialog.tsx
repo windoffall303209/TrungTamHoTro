@@ -1,6 +1,6 @@
 "use client";
-import { MaterialSearchControls } from "@/components/material-search";
-import { SearchableSelect } from "@/components/searchable-select";
+import { MaterialSearchControls } from "@/features/materials/material-search";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
   Field,
@@ -8,7 +8,7 @@ import {
   Modal,
   RichText,
   Tabs,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import {
   BookOpenCheck,
   Globe2,

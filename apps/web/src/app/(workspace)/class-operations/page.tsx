@@ -3,11 +3,11 @@
 import { Archive, History, Trash2, UserCheck, UserPlus, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass } from "@/components/ui";
-import { UserPicker } from "@/components/user-picker";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass } from "@/shared/ui/ui";
+import { UserPicker } from "@/shared/ui/user-picker";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { ClassRoster, EnrollmentImportResult, InstructorRole, LearningClass } from "@/lib/learning-types";

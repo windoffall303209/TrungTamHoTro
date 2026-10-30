@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useState } from "react";
-import { Pagination, Tabs, usePagination } from "./ui";
+import { Pagination, Tabs, usePagination } from "@/shared/ui/ui";
 
 /** Dựng màn hình nhỏ để kiểm tra danh sách và thao tác phân trang. */
 function Harness() {

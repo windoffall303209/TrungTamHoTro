@@ -6,8 +6,8 @@ import type { PrismaService } from "../src/database/prisma.service.js";
 import type { Environment } from "../src/config/environment.js";
 import type { EmailDeliveryService } from "../src/infrastructure/email-delivery.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
-import { ownedJobWhere, startOperationalLease } from "../src/system/operational-lease.js";
-import { SystemService } from "../src/system/system.service.js";
+import { ownedJobWhere, startOperationalLease } from "../src/domains/system/operational-lease.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 afterEach(() => vi.useRealTimers());
 

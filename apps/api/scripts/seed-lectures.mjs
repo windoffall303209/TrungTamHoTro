@@ -8,6 +8,7 @@ config({ path: new URL("../../../.env", import.meta.url) });
 const adapter = new PrismaPg({ connectionString: buildDatabaseUrl(process.env), max: 4 });
 const prisma = new PrismaClient({ adapter });
 
+/** Đảm nhiệm seedPhysicalLectures trong phạm vi module hiện tại. */
 async function seedPhysicalLectures() {
   console.log("Bắt đầu sinh dữ liệu bài giảng và bài tập lưu vật lý vào PostgreSQL...");
 

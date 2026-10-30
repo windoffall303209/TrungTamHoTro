@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { testGradingStore } from "./ai-grading-store.fixture.js";
-import type { AiGradingStoreService } from "../src/learning/ai-grading-store.service.js";
-import { AcademicService } from "../src/learning/academic.service.js";
-import { AiGradingAssistService } from "../src/learning/ai-grading-assist.service.js";
+import type { AiGradingStoreService } from "../src/domains/learning/ai-grading-store.service.js";
+import { AcademicService } from "../src/domains/learning/academic.service.js";
+import { AiGradingAssistService } from "../src/domains/learning/ai-grading-assist.service.js";
 import type { PrismaService } from "../src/database/prisma.service.js";
 import type { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 import type { AntivirusService } from "../src/infrastructure/antivirus.service.js";
-import type { AiProviderService } from "../src/system/ai-provider.service.js";
+import type { AiProviderService } from "../src/domains/system/ai-provider.service.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 
 const session = { roleCode: "INSTRUCTOR", permissions: ["exam:manage"], user: { id: "teacher" } } as AuthenticatedSession;

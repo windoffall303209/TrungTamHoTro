@@ -33,7 +33,7 @@ export default defineConfig({
     {
       command: "pnpm --dir ../.. dev:api",
       url: "http://127.0.0.1:4400/api/v1/health",
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
       timeout: 120_000,
       env: {
         API_PORT: "4400",
@@ -52,6 +52,6 @@ export default defineConfig({
         RESEND_FROM: "",
       },
     },
-    { command: "pnpm exec next dev --port 3300", url: "http://127.0.0.1:3300/login", reuseExistingServer: false, timeout: 120_000, env: { NEXT_PUBLIC_API_URL: "http://localhost:4400/api/v1" } },
+    { command: "pnpm exec next dev --port 3300", url: "http://127.0.0.1:3300/login", reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1", timeout: 120_000, env: { NEXT_PUBLIC_API_URL: "http://localhost:4400/api/v1" } },
   ],
 });

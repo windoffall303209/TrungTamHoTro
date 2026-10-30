@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkDocument, resolveContextCitations, retrieveDocumentContext } from "../src/system/ai-document-context.js";
+import { chunkDocument, resolveContextCitations, retrieveDocumentContext } from "../src/domains/system/ai-document-context.js";
 
 const source = { materialId: "material-1", version: 1, checksum: "hash-of-file", name: "Bài học" };
 describe("document context primitives", () => {

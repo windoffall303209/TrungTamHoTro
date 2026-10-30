@@ -1,9 +1,9 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { RequestError } from "@/components/request-error";
-import { QuestionImage } from "@/components/question-image";
-import { SectionState } from "@/components/section-state";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { RequestError } from "@/shared/ui/request-error";
+import { QuestionImage } from "@/features/questions/question-image";
+import { SectionState } from "@/shared/ui/section-state";
 import {
   Button,
   Field,
@@ -13,7 +13,7 @@ import {
   RichText,
   StatusBadge,
   Tabs,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
   CheckCircle2,

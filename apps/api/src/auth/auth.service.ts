@@ -347,7 +347,7 @@ export class AuthService {
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
     return {
       id: user.id, username: user.username, displayName: user.displayName, email: user.email, phone: user.phone ?? "", timezone: user.timezone,
-      locale: user.locale, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt, user.id), status: user.status, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
+      locale: user.locale, avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt), status: user.status, emailVerifiedAt: user.emailVerifiedAt?.toISOString() ?? null,
       mfaEnabled: Boolean(user.mfaEnabledAt), hasPassword: Boolean(user.passwordHash), createdAt: user.createdAt.toISOString(),
     };
   }
@@ -723,7 +723,7 @@ export class AuthService {
     if (!selected) throw new ForbiddenException("Vai trò của phiên không còn hợp lệ.");
     return {
       sessionId,
-      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, locale: user.locale as "vi-VN" | "en-US", avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt, user.id) },
+      user: { id: user.id, username: user.username, name: user.displayName, email: user.email, roleName: selected.name, locale: user.locale as "vi-VN" | "en-US", avatarUrl: this.avatarUrl(user.avatarObjectKey, user.avatarUpdatedAt) },
       roleCode,
       permissions: selected.permissions.map(({ permission }) => permission.code as PermissionCode),
       availableRoles: user.roles.map(({ role }) => ({ code: role.code as RoleCode, name: role.name })),
@@ -733,10 +733,10 @@ export class AuthService {
   /** Băm token bí mật trước khi dùng làm khóa tra cứu trong cơ sở dữ liệu. */
   private hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
   /** Tạo URL avatar có cache-buster theo lần cập nhật gần nhất. */
-  private avatarUrl(objectKey: string | null, updatedAt: Date | null, userId?: string): string | null {
+  private avatarUrl(objectKey: string | null, updatedAt: Date | null): string | null {
     if (!objectKey) return null;
     const v = updatedAt?.getTime() ?? 0;
-    return userId ? `/account/users/${userId}/avatar?v=${v}` : `/account/avatar?v=${v}`;
+    return `/account/avatar?v=${v}`;
   }
   /** Đối chiếu kích thước, MIME và magic bytes để không tin riêng metadata upload. */
   private validateAvatar(upload: { mimeType: string; size: number; buffer: Buffer }): "png" | "jpg" | "webp" {

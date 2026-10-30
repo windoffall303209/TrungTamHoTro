@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { LearningService } from "../src/learning/learning.service.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
 import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
-import { SystemService } from "../src/system/system.service.js";
+import { SystemService } from "../src/domains/system/system.service.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test");
 const suite = describe.skipIf(!enabled);

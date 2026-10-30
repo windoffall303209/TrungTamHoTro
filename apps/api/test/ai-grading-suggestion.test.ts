@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGradingSuggestion, validateGradingInput } from "../src/system/ai-grading-suggestion.js";
+import { parseGradingSuggestion, validateGradingInput } from "../src/domains/system/ai-grading-suggestion.js";
 
 const input = { instructions: "Explain the water cycle.", answer: "Water evaporates. Water condenses.", language: "EN" as const, rubric: [{ id: "accuracy", title: "Accuracy", description: "Explain evaporation correctly.", maxPoints: 3.5 }, { id: "clarity", title: "Clarity", description: "Use clear language.", maxPoints: 1.5 }] };
 const output = { insufficientEvidence: false, feedback: "Add precipitation.", criteria: [{ criterionId: "clarity", suggestedPoints: 1.25, reasoning: "Clear sentences.", evidence: ["Water condenses."] }, { criterionId: "accuracy", suggestedPoints: 2.5, reasoning: "Evaporation mentioned.", evidence: ["Water evaporates."] }] };

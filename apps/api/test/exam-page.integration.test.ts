@@ -1,8 +1,8 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
-import { LearningService } from "../src/learning/learning.service.js";
-import { parseExamPageQuery } from "../src/learning/operations/learning-exam-page.js";
+import { LearningService } from "../src/domains/learning/learning.service.js";
+import { parseExamPageQuery } from "../src/domains/learning/operations/learning-exam-page.js";
 
 describe("Giới hạn query phân trang đề", () => {
   it("nhận mặc định và biên hợp lệ", () => {

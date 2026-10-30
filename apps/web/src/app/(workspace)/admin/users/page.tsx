@@ -13,8 +13,8 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { AccessDenied } from "@/components/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { AccessDenied } from "@/shared/auth/access-denied";
 import {
   Button,
   Field,
@@ -22,7 +22,7 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { hasEveryPermission, hasPermission } from "@/lib/access-control";
 import type { IdentityUser, RoleCode } from "@/lib/app-types";

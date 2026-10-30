@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module.js";
 import type { AuthenticatedSession } from "../src/auth/auth.service.js";
 import { PrismaService } from "../src/database/prisma.service.js";
-import { AcademicService } from "../src/learning/academic.service.js";
+import { AcademicService } from "../src/domains/learning/academic.service.js";
 import { AntivirusService } from "../src/infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../src/infrastructure/object-storage.service.js";
 

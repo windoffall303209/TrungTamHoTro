@@ -1,5 +1,5 @@
 "use client";
-import { useMaterialSearch } from "@/components/material-search";
+import { useMaterialSearch } from "@/features/materials/material-search";
 import { hasPermission } from "@/lib/access-control";
 import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
