@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, GraduationCap, LoaderCircle, MailCheck, PencilLine, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LoaderCircle, MailCheck, PencilLine, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
+import { BrandLogo } from "@/shared/ui/brand-logo";
 
 const fieldClass = "mt-1.5 min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 shadow-2xs";
 
@@ -231,7 +232,7 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
   return <main className="relative grid min-h-screen place-items-center bg-[var(--canvas)] px-5 py-10 text-[var(--ink)]">
     <div className="absolute right-5 top-5 z-20 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
     <section className="w-full max-w-[31rem] border-y border-[var(--rule-strong)] bg-[var(--surface)]/75 px-5 py-8 sm:px-8">
-      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
+      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><BrandLogo className="rounded-lg" size={30} />Wind EDU</Link>
       {done ? <div aria-live="polite">
         <CheckCircle2 className="text-[var(--success)]" size={34} />
         <h1 className="mt-5 text-3xl font-bold tracking-[-0.03em]">{mode === "forgot" ? "Hãy kiểm tra hộp thư" : mode === "reset" ? "Đã đổi mật khẩu" : "Email đã được xác minh"}</h1>

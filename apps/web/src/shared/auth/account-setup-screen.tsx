@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Eye, EyeOff, GraduationCap, LoaderCircle, MailCheck, PencilLine, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, LoaderCircle, MailCheck, PencilLine, RefreshCw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { clearAccountSetup, readAccountSetup, saveAccountSetup, type AccountSetupState } from "@/lib/account-setup";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
+import { BrandLogo } from "@/shared/ui/brand-logo";
 
 const fieldClass = "mt-1.5 min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 shadow-2xs";
 const alertClass = "rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-rose-700 dark:text-rose-300";
@@ -165,7 +166,7 @@ export function AccountSetupScreen() {
   return <main className="relative grid min-h-screen place-items-center bg-[var(--canvas)] px-5 py-10 text-[var(--ink)]">
     <div className="absolute right-5 top-5 z-20 sm:right-10 sm:top-8"><LanguageSwitcher /></div>
     <section className="w-full max-w-[31rem] border-y border-[var(--rule-strong)] bg-[var(--surface)]/75 px-5 py-8 sm:px-8">
-      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><GraduationCap className="text-[var(--accent)]" size={24} />Wind EDU</Link>
+      <Link className="mb-9 inline-flex items-center gap-2 font-bold" href="/login"><BrandLogo className="rounded-lg" size={30} />Wind EDU</Link>
       {!ready ? <p aria-live="polite" className="flex items-center gap-2 text-sm font-semibold"><LoaderCircle className="animate-spin" size={18} />Đang tải…</p> : !setup ? <div aria-live="polite">
         <ShieldCheck className="text-[var(--accent)]" size={32} />
         <h1 className="mt-5 text-3xl font-bold tracking-[-0.03em]">Xác thực tài khoản</h1>
