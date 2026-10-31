@@ -181,7 +181,7 @@ function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: strin
   if (href === "/dashboard") return pathname === "/dashboard";
   if (roleCode === "SYSTEM_ADMIN") {
     if (href === "/admin/users") return pathname.startsWith("/admin");
-    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials";
+    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/");
     if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/class-lifecycle";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -915,7 +915,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         : href === "/admin/users"
                           ? pathname.startsWith("/admin")
                           : href === "/exams"
-                            ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials"
+                            ? pathname === "/exams" || pathname.startsWith("/exams/")
                             : href === "/class-operations"
                               ? pathname === "/class-operations" || pathname === "/class-lifecycle"
                               : pathname === href || pathname.startsWith(`${href}/`);

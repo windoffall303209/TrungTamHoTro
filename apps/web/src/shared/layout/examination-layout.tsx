@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenCheck, Database, FileQuestion, Sparkles } from "lucide-react";
+import { BookOpenCheck, Database, FileQuestion } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { WorkspaceSubNavigation, type WorkspaceSubNavItem } from "./workspace-sub-navigation";
 
@@ -17,14 +17,6 @@ const examSubNavItems: WorkspaceSubNavItem[] = [
     label: "Ngân hàng câu hỏi",
     description: "Kho câu hỏi & ma trận đề",
     icon: FileQuestion,
-    exact: true,
-  },
-  {
-    href: "/questions/scan",
-    label: "Quét đề bằng AI",
-    description: "Số hóa câu hỏi từ ảnh & PDF",
-    icon: Sparkles,
-    badge: "AI",
     exact: true,
   },
   {

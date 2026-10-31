@@ -47,7 +47,8 @@ export function WorkspaceSubNavigation({
               <Link
                 key={href}
                 href={href}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
+                aria-current={active ? "page" : undefined}
+                className={`w-full min-h-14 flex items-center justify-between px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer ${
                   active
                     ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 shadow-2xs"
                     : "text-slate-600 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent"

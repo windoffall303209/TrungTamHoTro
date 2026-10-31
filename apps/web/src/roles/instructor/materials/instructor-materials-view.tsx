@@ -1266,7 +1266,8 @@ export function InstructorMaterialsView() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                 {/* Cách 1: Tải lên tài liệu */}
-                <div
+                <button
+                  type="button"
                   onClick={() => {
                     setUploadForm((prev) => ({
                       ...prev,
@@ -1278,7 +1279,7 @@ export function InstructorMaterialsView() {
                     setSelectedUploadFile(null);
                     setUploadModalStep("FORM");
                   }}
-                  className="p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition cursor-pointer space-y-2 group shadow-2xs"
+                  className="w-full p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition cursor-pointer space-y-2 group shadow-2xs text-left"
                 >
                   <div className="size-11 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 grid place-items-center group-hover:scale-105 transition-transform">
                     <BookOpen size={22} />
@@ -1289,10 +1290,11 @@ export function InstructorMaterialsView() {
                   <p className="text-[11px] text-slate-500 leading-relaxed">
                     Học liệu số, giáo trình, bài tập, đề cương dạng PDF, Word hoặc hình ảnh.
                   </p>
-                </div>
+                </button>
 
                 {/* Cách 2: Tải lên bài giảng */}
-                <div
+                <button
+                  type="button"
                   onClick={() => {
                     setUploadForm((prev) => ({
                       ...prev,
@@ -1304,7 +1306,7 @@ export function InstructorMaterialsView() {
                     setSelectedUploadFile(null);
                     setUploadModalStep("FORM");
                   }}
-                  className="p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-purple-500 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 transition cursor-pointer space-y-2 group shadow-2xs"
+                  className="w-full p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-purple-500 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 transition cursor-pointer space-y-2 group shadow-2xs text-left"
                 >
                   <div className="size-11 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-400 grid place-items-center group-hover:scale-105 transition-transform">
                     <Video size={22} />
@@ -1315,7 +1317,7 @@ export function InstructorMaterialsView() {
                   <p className="text-[11px] text-slate-500 leading-relaxed">
                     Video bài học chuyên đề từ tệp MP4, PDF hoặc Word trên máy.
                   </p>
-                </div>
+                </button>
               </div>
             </div>
           )}
@@ -1402,37 +1404,34 @@ export function InstructorMaterialsView() {
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       Tệp tài liệu (PDF, Word, hình ảnh):
                     </label>
-                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30">
+                    <label className="block cursor-pointer border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30 hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition">
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
+                        className="sr-only"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setSelectedUploadFile(file);
+                            setUploadForm({
+                              ...uploadForm,
+                              title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
+                              fileName: file.name,
+                              fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                            });
+                          }
+                        }}
+                      />
                       <FileText size={28} className="mx-auto text-blue-600" />
                       <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                        Bấm để{" "}
-                        <label className="text-blue-600 font-bold hover:underline cursor-pointer">
-                          chọn tệp từ máy
-                          <input
-                            type="file"
-                            accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                setSelectedUploadFile(file);
-                                setUploadForm({
-                                  ...uploadForm,
-                                  title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
-                                  fileName: file.name,
-                                  fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-                                });
-                              }
-                            }}
-                          />
-                        </label>
+                        Bấm để <span className="text-blue-600 font-bold">chọn tệp từ máy</span>
                       </div>
                       {uploadForm.fileName && (
                         <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2.5 rounded-lg inline-block">
                           ✓ Đã chọn: {uploadForm.fileName} ({uploadForm.fileSize})
                         </div>
                       )}
-                    </div>
+                    </label>
                   </div>
 
                   <div>
