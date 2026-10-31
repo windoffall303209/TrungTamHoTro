@@ -135,9 +135,7 @@ export function AuthScreen() {
           </div>
         </div>
 
-        <p className="relative text-xs text-slate-500">
-          Wind EDU · Thiết kế Tối giản Hiện đại · Theme Sky Blue
-        </p>
+
       </section>
 
       {/* Cột phải: Form đăng nhập */}
