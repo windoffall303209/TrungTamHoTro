@@ -5051,12 +5051,12 @@ export function InstructorClassWorkspace({
 
             {/* Danh sách 5 phương thức */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Cách 1: Soạn câu hỏi thủ công */}
+              {/* Cách 1: Tạo đề thủ công */}
               <button
                 type="button"
                 onClick={() => {
                   setCreationHubOpen(false);
-                  setAuthoringModalOpen(true);
+                  setManualExamModalOpen(true);
                 }}
                 className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-slate-800/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
               >
@@ -5064,10 +5064,10 @@ export function InstructorClassWorkspace({
                   <Edit3 size={18} />
                 </div>
                 <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                  1. Soạn câu hỏi thủ công
+                    1. Tạo đề thủ công
                 </strong>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Nhập câu hỏi trắc nghiệm hoặc tự luận, tùy biến các lựa chọn A/B/C/D, đáp án đúng và lời giải chi tiết.
+                    Chọn câu hỏi trong ngân hàng, sắp xếp thành đề thi và cấu hình thời lượng, hạn nộp.
                 </p>
               </button>
 
@@ -5091,7 +5091,7 @@ export function InstructorClassWorkspace({
                 </p>
               </button>
 
-              {/* Cách 3: Tạo đề thi bằng AI */}
+              {/* Cách 3: Tạo đề bằng AI */}
               <button
                 type="button"
                 onClick={() => {
@@ -5104,7 +5104,7 @@ export function InstructorClassWorkspace({
                   <Wand2 size={18} />
                 </div>
                 <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                  3. Tạo đề thi bằng AI
+                  3. Tạo đề bằng AI
                 </strong>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   Chỉ cần nhập môn học và chủ đề bài học, AI tự động sinh đề trắc nghiệm chuẩn kiến thức kèm lời giải đầy đủ.

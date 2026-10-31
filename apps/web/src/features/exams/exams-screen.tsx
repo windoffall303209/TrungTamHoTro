@@ -21,10 +21,8 @@ import {
   Eye,
   Pencil,
   Play,
-  Plus,
   RotateCcw,
   Send,
-  Sparkles,
 } from "lucide-react";
 import { ExamEditorDialog } from "./exam-editor-dialog";
 import { ExamPreviewDialog } from "./exam-preview-dialog";
@@ -65,7 +63,6 @@ export default function ExamsScreen() {
     confirmExam,
     setConfirmExam,
     publishing,
-    openCreate,
     openEdit,
     publish,
     preview,
@@ -87,20 +84,7 @@ export default function ExamsScreen() {
             ? "Làm các đề đã được công bố và theo dõi kết quả học tập của bạn."
             : "Thiết kế, công bố và theo dõi kết quả đánh giá của lớp."
         }
-        actions={
-          instructor ? (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => openCreate("AI")}>
-                <Sparkles size={17} />
-                Tạo đề bằng AI
-              </Button>
-              <Button onClick={() => openCreate("MANUAL")} variant="secondary">
-                <Plus size={17} />
-                Tạo thủ công
-              </Button>
-            </div>
-          ) : undefined
-        }
+        actions={undefined}
       />
       <RequestError message={model.loadError} retry={() => void model.reload()} />
       {attempt ? (
