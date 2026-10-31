@@ -4,7 +4,7 @@ import { BookOpenCheck, Database, FileQuestion } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { WorkspaceSubNavigation, type WorkspaceSubNavItem } from "./workspace-sub-navigation";
 
-const examSubNavItems: WorkspaceSubNavItem[] = [
+const learningSubNavItems: WorkspaceSubNavItem[] = [
   {
     href: "/exams",
     label: "Đề thi & Kết quả",
@@ -44,7 +44,7 @@ export function ExaminationLayout({ children }: { children: React.ReactNode }) {
         <WorkspaceSubNavigation
           title="Chức năng khảo thí"
           ariaLabel="Menu chức năng khảo thí"
-          items={examSubNavItems}
+          items={learningSubNavItems}
           asideClassName="w-full lg:w-64 shrink-0 space-y-3.5 lg:sticky lg:top-[85px]"
           showBadges
         />

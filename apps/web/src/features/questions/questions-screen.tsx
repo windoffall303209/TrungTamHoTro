@@ -2,6 +2,7 @@
 
 import { Check, CheckCircle2, CirclePlus, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Undo2, Upload } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
@@ -72,6 +73,8 @@ function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: st
 /** Quản lý ngân hàng câu hỏi, editor theo loại, ảnh minh họa, nhập hàng loạt và phê duyệt. */
 export default function QuestionsPage() {
   const { session, notify } = useApp();
+  const searchParams = useSearchParams();
+  const selectedCourseId = searchParams.get("courseId") ?? "";
   const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
   const canManage = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:manage");
   const canReview = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
@@ -79,7 +82,7 @@ export default function QuestionsPage() {
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState({ courseId: "", type: "", difficulty: "", tag: "" });
+  const [filters, setFilters] = useState({ courseId: selectedCourseId, type: "", difficulty: "", tag: "" });
   const [loading, setLoading] = useState(true);
   const pagination = usePagination(items);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -98,6 +101,10 @@ export default function QuestionsPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const loadRequestId = useRef(0);
+
+  useEffect(() => {
+    setFilters((current) => current.courseId === selectedCourseId ? current : { ...current, courseId: selectedCourseId });
+  }, [selectedCourseId]);
 
   // Giải phóng URL ảnh tạm khi thay ảnh hoặc rời khỏi màn hình câu hỏi.
   useEffect(() => () => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); }, [imagePreviewUrl]);
@@ -226,7 +233,7 @@ export default function QuestionsPage() {
       <section className="my-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-6">
           <div className="relative md:col-span-2"><Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input aria-label="Tìm câu hỏi" className={`${inputClass} pl-9 text-xs sm:text-sm`} placeholder="Tìm nội dung hoặc thẻ…" value={query} onChange={(event) => { setQuery(event.target.value); pagination.resetPage(); }} /></div>
-          <SearchableSelect aria-label="Tìm và lọc khóa học" onChange={(value) => { setFilters({ ...filters, courseId: value }); pagination.resetPage(); }} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Mọi khóa học" value={filters.courseId} />
+          {!selectedCourseId ? <SearchableSelect aria-label="Tìm và lọc khóa học" onChange={(value) => { setFilters({ ...filters, courseId: value }); pagination.resetPage(); }} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Mọi khóa học" value={filters.courseId} /> : null}
           <select aria-label="Lọc dạng câu hỏi" className={`${inputClass} text-xs sm:text-sm`} value={filters.type} onChange={(event) => { setFilters({ ...filters, type: event.target.value }); pagination.resetPage(); }}><option value="">Mọi dạng</option>{Object.entries(typeMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
           <select aria-label="Lọc độ khó" className={`${inputClass} text-xs sm:text-sm`} value={filters.difficulty} onChange={(event) => { setFilters({ ...filters, difficulty: event.target.value }); pagination.resetPage(); }}><option value="">Mọi độ khó</option><option value="1">Dễ</option><option value="2">Trung bình</option><option value="3">Khó</option></select>
           <input aria-label="Lọc chính xác theo thẻ" className={`${inputClass} text-xs sm:text-sm`} placeholder="Lọc chính xác theo thẻ…" value={filters.tag} onChange={(event) => { setFilters({ ...filters, tag: event.target.value }); pagination.resetPage(); }} />

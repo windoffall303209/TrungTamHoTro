@@ -179,9 +179,10 @@ const allNavItems: NavigationItem[] = [
 /** Giữ nguyên cách xác định mục đang mở, kể cả nhóm tuyến đặc biệt của quản trị viên. */
 function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
+  if (href === "/materials") return pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/");
   if (roleCode === "SYSTEM_ADMIN") {
     if (href === "/admin/users") return pathname.startsWith("/admin");
-    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/");
+    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/materials" || pathname.startsWith("/materials/");
     if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/class-lifecycle";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -914,8 +915,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         ? pathname === "/dashboard"
                         : href === "/admin/users"
                           ? pathname.startsWith("/admin")
-                          : href === "/exams"
-                            ? pathname === "/exams" || pathname.startsWith("/exams/")
+                          : href === "/materials"
+                            ? pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/")
+                            : href === "/exams"
+                              ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/materials" || pathname.startsWith("/materials/")
                             : href === "/class-operations"
                               ? pathname === "/class-operations" || pathname === "/class-lifecycle"
                               : pathname === href || pathname.startsWith(`${href}/`);
