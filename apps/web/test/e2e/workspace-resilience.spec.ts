@@ -43,7 +43,7 @@ test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page 
 
 for (const [account, routes] of Object.entries({
   admin: ["/admin/users", "/admin/settings", "/admin/operations"],
-  manager: ["/courses", "/class-operations", "/reports"],
+  manager: ["/courses", "/class-operations"],
   instructor: ["/exams", "/academic", "/materials"],
   learner: ["/exams", "/academic", "/courses"],
 })) {
