@@ -13,11 +13,14 @@ interface ApiEnvelope<T> {
   meta: { requestId: string; timestamp: string };
 }
 
+const SSE_METADATA_KEY = "__sse__";
+
 @Injectable()
 /** Bọc dữ liệu thành công trong envelope thống nhất mà không can thiệp file stream. */
-export class ResponseInterceptor<T> implements NestInterceptor<T, ApiEnvelope<T> | StreamableFile> {
-  /** Gắn request ID và timestamp cho JSON response; StreamableFile được trả nguyên vẹn. */
-  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiEnvelope<T> | StreamableFile> {
+export class ResponseInterceptor<T> implements NestInterceptor<T, T | ApiEnvelope<T> | StreamableFile> {
+  /** Giữ nguyên sự kiện SSE và file stream; chỉ bọc phản hồi JSON thành envelope. */
+  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<T | ApiEnvelope<T> | StreamableFile> {
+    if (Reflect.getMetadata(SSE_METADATA_KEY, context.getHandler())) return next.handle();
     const request = context.switchToHttp().getRequest<RequestWithId>();
 
     return next.handle().pipe(

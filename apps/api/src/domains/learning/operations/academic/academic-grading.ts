@@ -132,7 +132,23 @@ export async function gradebook(
   classId: string,
   session: AuthenticatedSession,
 ): Promise<GradebookRow[]> {
-  await serviceContext.requireTeachingAccess(classId, session);
+  if (session.roleCode === "LEARNER") {
+    const access = await serviceContext.prisma.learningClass.findUnique({
+      where: { id: classId },
+      select: {
+        allowPeerGradeViewing: true,
+        enrollments: {
+          where: { learnerId: session.user.id, status: "ACTIVE" },
+          select: { learnerId: true },
+        },
+      },
+    });
+    if (!access?.allowPeerGradeViewing || !access.enrollments.length) {
+      throw new ForbiddenException("Lớp chưa cho phép học viên xem bảng điểm chung.");
+    }
+  } else {
+    await serviceContext.requireTeachingAccess(classId, session);
+  }
   const classItem = await serviceContext.prisma.learningClass.findUnique({
     where: { id: classId },
     include: {

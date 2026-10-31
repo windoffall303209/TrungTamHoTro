@@ -3,7 +3,7 @@ import type { Material } from "../../../src/lib/learning-types";
 import { isMaterialForClass, loadAllMaterials } from "../../../src/lib/materials";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
-vi.mock("./api-client", () => ({ apiRequest: request }));
+vi.mock("@/lib/api-client", () => ({ apiRequest: request }));
 
 describe("loadAllMaterials", () => {
   beforeEach(() => request.mockReset());

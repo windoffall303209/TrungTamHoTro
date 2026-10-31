@@ -1,6 +1,7 @@
 export interface ChatDirectoryEntry {
   id: string;
   displayName: string;
+  avatarUrl?: string;
   roleCode: "SYSTEM_ADMIN" | "CENTER_MANAGER" | "INSTRUCTOR" | "LEARNER";
   sharedClasses: Array<{ id: string; code: string; name: string }>;
 }
@@ -8,6 +9,7 @@ export interface ChatDirectoryEntry {
 interface ChatMemberView {
   userId: string;
   displayName: string;
+  avatarUrl?: string;
   roleCode: string;
   status: "ACTIVE" | "REMOVED";
 }
@@ -17,6 +19,7 @@ export interface ChatMessageView {
   conversationId: string;
   senderId: string;
   senderName: string;
+  senderAvatarUrl?: string;
   clientMessageId: string;
   content: string;
   replyTo?: { id: string; senderName: string; content: string };

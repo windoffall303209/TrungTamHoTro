@@ -6,7 +6,7 @@ type BrandLogoProps = {
   size?: number;
 };
 
-/** Renders the supplied Wind EDU brand artwork at the requested size. */
+/** Hiển thị logo Wind EDU theo kích thước và ưu tiên tải ảnh được truyền vào. */
 export function BrandLogo({ className, priority = false, size = 42 }: BrandLogoProps) {
   return (
     <Image

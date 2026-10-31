@@ -260,7 +260,7 @@ export async function createClass(
 export async function updateClass(
   serviceContext: LearningServiceContext,
   classId: string,
-  input: { name?: string; capacity?: number; allowLateEnrollment?: boolean },
+  input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
   actorId = "usr-manager",
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
@@ -276,6 +276,7 @@ export async function updateClass(
     if (input.name !== undefined) dataToUpdate.name = input.name.trim();
     if (input.capacity !== undefined) dataToUpdate.capacity = input.capacity;
     if (input.allowLateEnrollment !== undefined) dataToUpdate.allowLateEnrollment = input.allowLateEnrollment;
+    if (input.allowPeerGradeViewing !== undefined) dataToUpdate.allowPeerGradeViewing = input.allowPeerGradeViewing;
 
     const row = await prisma.learningClass.update({
       where: { id: classId },
@@ -299,5 +300,6 @@ export async function updateClass(
   if (input.name !== undefined) item.name = input.name.trim();
   if (input.capacity !== undefined) item.capacity = input.capacity;
   if (input.allowLateEnrollment !== undefined) item.allowLateEnrollment = input.allowLateEnrollment;
+  if (input.allowPeerGradeViewing !== undefined) item.allowPeerGradeViewing = input.allowPeerGradeViewing;
   return item;
 }

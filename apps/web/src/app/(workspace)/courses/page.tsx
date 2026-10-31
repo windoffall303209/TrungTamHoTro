@@ -2,7 +2,7 @@
 
 import { activeLocale } from "@/i18n/runtime";
 
-import { Archive, ArrowRight, BookOpen, Calendar, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/shared/ui/page-header";
@@ -720,7 +720,7 @@ export default function CoursesPage() {
                               </div>
                             </div>
 
-                            {/* Cột thông tin phụ: Giảng viên + Sĩ số + Khai giảng + Trạng thái + Nút vào lớp / Vào điều hành */}
+                            {/* Cột thông tin phụ: Giảng viên + Sĩ số + Trạng thái + Nút vào lớp / Vào điều hành */}
                             <div className="flex items-center gap-4 sm:gap-5 flex-wrap md:flex-nowrap justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800 shrink-0">
                               {manager && (
                                 <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-600">
@@ -735,13 +735,6 @@ export default function CoursesPage() {
                                 <Users size={15} className="text-slate-600 shrink-0" />
                                 <span>
                                   Sĩ số: <strong className="text-slate-700 dark:text-slate-200">{item.learnerIds?.length ?? 0}/{item.capacity ?? 40}</strong>
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-600">
-                                <Calendar size={15} className="text-slate-600 shrink-0" />
-                                <span>
-                                  Khai giảng: <strong className="text-slate-700 dark:text-slate-200">{new Date(item.startAt).toLocaleDateString(activeLocale())}</strong>
                                 </span>
                               </div>
 

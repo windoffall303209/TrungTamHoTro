@@ -1,6 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { timer, type Observable } from "rxjs";
+import { concatMap, distinctUntilChanged, map } from "rxjs/operators";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
@@ -70,6 +72,16 @@ export class EngagementController {
   /** Dùng cùng kho thông báo cho mọi vai trò đã xác thực. */
   listRoleNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> {
     return this.learning.listNotifications(session.user.id);
+  }
+
+  /** Đồng bộ thay đổi thông báo qua SSE theo đúng tài khoản đăng nhập, kể cả giữa nhiều thiết bị. */
+  @Sse("notifications/events") @RequireAuthentication()
+  watchRoleNotifications(@CurrentSession() session: AuthenticatedSession): Observable<{ data: LearningNotification[] }> {
+    return timer(0, 2500).pipe(
+      concatMap(() => this.learning.listNotifications(session.user.id)),
+      distinctUntilChanged((previous, current) => JSON.stringify(previous) === JSON.stringify(current)),
+      map((notifications) => ({ data: notifications })),
+    );
   }
 
   @Patch("notifications/:notificationId/read") @RequireAuthentication()

@@ -96,6 +96,7 @@ export default function UsersPage() {
     "user:update",
     "user:suspend",
   ]);
+  /** Chỉ cho phép quản lý chỉnh sửa người dùng không thuộc nhóm quản trị. */
   const canEditUser = (user: IdentityUser) =>
     session.roleCode === "SYSTEM_ADMIN" ||
     (session.roleCode === "CENTER_MANAGER" &&

@@ -70,6 +70,47 @@ describe("ChatService SSE subscriptions", () => {
     }
   });
 
+  it("tiếp tục từ ID sự kiện cuối khi kết nối SSE bị ngắt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-31T09:00:10.000Z"));
+    const firstTime = new Date("2026-10-31T09:00:01.000Z");
+    const secondTime = new Date("2026-10-31T09:00:04.000Z");
+    const findFirst = vi.fn().mockResolvedValue({ id: "message-1", createdAt: firstTime });
+    const findMany = vi.fn((query: {
+      where: { OR: Array<{ createdAt: Date | { gt: Date }; id?: { gt: string } }> };
+    }) => {
+      const cursorTime = query.where.OR[0]?.createdAt as { gt: Date };
+      const cursorId = query.where.OR[1]?.id?.gt ?? "";
+      return Promise.resolve([
+        { id: "message-1", createdAt: firstTime },
+        { id: "message-2", createdAt: secondTime },
+      ].filter((row) => row.createdAt > cursorTime.gt || (
+        row.createdAt.getTime() === cursorTime.gt.getTime() && row.id > cursorId
+      )));
+    });
+    const service = createService({ findFirst, findMany });
+    vi.spyOn(service as unknown as {
+      mapMessageForActor: (row: { id: string; createdAt: Date }) => Promise<ChatMessageView>;
+    }, "mapMessageForActor").mockImplementation((row) => Promise.resolve({
+      id: row.id, createdAt: row.createdAt.toISOString(),
+    } as ChatMessageView));
+
+    const received: Array<{ id: string; data: ChatMessageView }> = [];
+    const subscription = service.watchMessages("conversation-1", session, "message-1")
+      .subscribe((event) => received.push(event));
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(received.map((event) => event.id)).toEqual(["message-2"]);
+      expect(received[0]?.id).toBe(received[0]?.data.id);
+      expect(findFirst).toHaveBeenCalledWith({
+        where: { id: "message-1", conversationId: "conversation-1" },
+        select: { id: true, createdAt: true },
+      });
+    } finally {
+      subscription.unsubscribe();
+    }
+  });
+
   it("giữ trạng thái đang xem đến khi tất cả kết nối cùng người dùng đóng", async () => {
     vi.useFakeTimers();
     const service = createService();

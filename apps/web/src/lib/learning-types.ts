@@ -41,6 +41,7 @@ export interface LearningClass {
   capacity: number;
   timezone: string;
   allowLateEnrollment: boolean;
+  allowPeerGradeViewing?: boolean;
   status: "DRAFT" | "ACTIVE" | "CLOSED";
   instructorIds: string[];
   learnerIds: string[];
@@ -674,6 +675,7 @@ export interface TicketComment {
 export interface ChatDirectoryEntry {
   id: string;
   displayName: string;
+  avatarUrl?: string;
   roleCode: "SYSTEM_ADMIN" | "CENTER_MANAGER" | "INSTRUCTOR" | "LEARNER";
   sharedClasses: Array<{ id: string; code: string; name: string }>;
 }
@@ -682,6 +684,7 @@ export interface ChatMessage {
   conversationId: string;
   senderId: string;
   senderName: string;
+  senderAvatarUrl?: string;
   clientMessageId: string;
   content: string;
   replyTo?: { id: string; senderName: string; content: string };
@@ -709,6 +712,7 @@ export interface ChatConversation {
   members: Array<{
     userId: string;
     displayName: string;
+    avatarUrl?: string;
     roleCode: string;
     status: "ACTIVE" | "REMOVED";
   }>;

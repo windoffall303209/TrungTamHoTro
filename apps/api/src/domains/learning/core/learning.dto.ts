@@ -134,6 +134,7 @@ export class UpdateClassDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(200) name?: string;
   @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
   @IsOptional() @IsBoolean() allowLateEnrollment?: boolean;
+  @IsOptional() @IsBoolean() allowPeerGradeViewing?: boolean;
 }
 
 export class AssignUserDto {

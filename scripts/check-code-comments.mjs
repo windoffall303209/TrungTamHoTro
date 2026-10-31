@@ -106,7 +106,9 @@ function main() {
     "typescript",
   );
   const files = sourceRoots.flatMap((root) =>
-    sourceFiles(path.join(projectRoot, root)),
+    fs.existsSync(path.join(projectRoot, root))
+      ? sourceFiles(path.join(projectRoot, root))
+      : [],
   );
   const results = files.map((file) => inspectFile(ts, file));
   const report = {
