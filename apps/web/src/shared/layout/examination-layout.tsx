@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenCheck, Database, FileQuestion } from "lucide-react";
+import { BookOpenCheck, Database } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { WorkspaceSubNavigation, type WorkspaceSubNavItem } from "./workspace-sub-navigation";
 
@@ -10,13 +10,6 @@ const learningSubNavItems: WorkspaceSubNavItem[] = [
     label: "Đề thi & Kết quả",
     description: "Tạo đề, giao bài & bảng điểm",
     icon: BookOpenCheck,
-    exact: true,
-  },
-  {
-    href: "/questions",
-    label: "Ngân hàng câu hỏi",
-    description: "Kho câu hỏi & ma trận đề",
-    icon: FileQuestion,
     exact: true,
   },
   {
