@@ -42,6 +42,7 @@ import { ThemeToggle } from "@/shared/layout/theme-toggle";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
 import { useI18n } from "@/providers/i18n-provider";
 import { MiniChatWidget } from "@/shared/layout/mini-chat-widget";
+import { BrandLogo } from "@/shared/ui/brand-logo";
 
 interface NavigationItem {
   href: string;
@@ -891,9 +892,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           {/* Logo & Category Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 shrink-0">
             <Link aria-label="Wind EDU — về trang lớp học" className="flex items-center gap-2.5 shrink-0" href="/courses">
-              <span className="grid size-[42px] place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white shadow-sm shadow-sky-600/25">
-                <GraduationCap size={22} />
-              </span>
+              <BrandLogo className="shadow-sm shadow-sky-600/25" priority size={42} />
               <div className="hidden sm:block">
                 <span className="font-extrabold text-[17.5px] tracking-tight text-slate-900 dark:text-white">
                   Wind EDU
@@ -994,9 +993,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className="fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-white dark:bg-[#0c1220] p-5 shadow-2xl flex flex-col z-10 border-r border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
-                <span className="grid size-8 place-items-center rounded-lg bg-sky-600 text-white">
-                  <GraduationCap size={18} />
-                </span>
+                <BrandLogo className="rounded-lg" size={32} />
                 <span className="font-bold text-base text-slate-900 dark:text-white">Wind EDU</span>
               </div>
               <button

@@ -6,7 +6,6 @@ import {
   BookOpenCheck,
   Eye,
   EyeOff,
-  GraduationCap,
   KeyRound,
   LoaderCircle,
   ShieldCheck,
@@ -19,6 +18,7 @@ import { ApiError } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
 import { ThemeToggle } from "@/shared/layout/theme-toggle";
+import { BrandLogo } from "@/shared/ui/brand-logo";
 
 const fieldClass =
   "mt-1.5 min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 text-sm text-slate-900 dark:text-slate-100 outline-none transition placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs";
@@ -103,9 +103,7 @@ export function AuthScreen() {
         <div className="absolute right-0 bottom-1/4 size-96 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
 
         <Link className="relative inline-flex items-center gap-3" href="/login">
-          <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 text-white font-bold shadow-md shadow-sky-600/30">
-            <GraduationCap size={20} />
-          </span>
+          <BrandLogo className="shadow-md shadow-sky-600/30" priority size={40} />
           <span>
             <strong className="block text-lg font-bold text-white tracking-tight">Wind EDU</strong>
             <small className="text-sky-400 text-xs font-semibold">Nền tảng Giảng dạy & Học tập Số</small>
@@ -151,9 +149,7 @@ export function AuthScreen() {
 
         <div className="w-full max-w-[28rem]">
           <Link className="mb-8 inline-flex items-center gap-2.5 font-bold lg:hidden" href="/login">
-            <span className="grid size-9 place-items-center rounded-lg bg-sky-600 text-white">
-              <GraduationCap size={18} />
-            </span>
+            <BrandLogo className="rounded-lg" size={36} />
             <span className="text-lg font-bold">Wind EDU</span>
           </Link>
 
