@@ -56,6 +56,7 @@ function localizeElement(element: Element, locale: SupportedLocale): void {
 
 /** Áp locale lên toàn bộ cây DOM hiện hữu trong một lượt duyệt. */
 function localizeTree(root: Node, locale: SupportedLocale): void {
+  if (shouldSkip(root)) return;
   if (root instanceof Text) localizeTextNode(root, locale);
   if (root instanceof Element) localizeElement(root, locale);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
@@ -72,7 +73,12 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<SupportedLocale>(DEFAULT_LOCALE);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    let stored: string | null;
+    try {
+      stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    } catch {
+      return;
+    }
     if (!isSupportedLocale(stored)) return;
 
     const frame = window.requestAnimationFrame(() => setLocaleState(stored));
@@ -97,7 +103,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   /** Lưu locale hợp lệ và cập nhật UI ngay trong cùng phiên. */
   const setLocale = useCallback((nextLocale: SupportedLocale) => {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
+    try {
+      window.localStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
+    } catch {
+      // Keep the language switch usable when persistent browser storage is disabled.
+    }
     document.cookie = `wind-edu-locale=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
     setLocaleState(nextLocale);
   }, []);

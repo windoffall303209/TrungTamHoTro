@@ -3,7 +3,7 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { Archive, ArrowUpRight, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -24,37 +24,51 @@ export default function ClassLifecyclePage() {
   const [closeForm, setCloseForm] = useState({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
   const [reopenReason, setReopenReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [readinessRefresh, setReadinessRefresh] = useState(0);
+  const readinessRequestVersion = useRef(0);
 
   const selected = classes.find((item) => item.id === selectedId);
 
   /** Kiểm tra các điều kiện nghiệp vụ còn thiếu trước khi lớp được phép đóng. */
-  const loadReadiness = useCallback(async (classId: string) => {
-    if (!classId) return;
+  const loadReadiness = useCallback(async (classId: string, signal?: AbortSignal) => {
+    const requestVersion = ++readinessRequestVersion.current;
+    if (!classId) { setReadiness(null); return; }
+    setReadiness(null);
     try {
-      setReadiness(await apiRequest<ClassClosureReadiness>(`/manager/classes/${classId}/closure-readiness`, { roleCode: session.roleCode }));
+      const data = await apiRequest<ClassClosureReadiness>(`/manager/classes/${classId}/closure-readiness`, { roleCode: session.roleCode, signal });
+      if (requestVersion === readinessRequestVersion.current && !signal?.aborted) setReadiness(data);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không kiểm tra được điều kiện đóng lớp.", "error");
+      if (requestVersion === readinessRequestVersion.current && !signal?.aborted) {
+        notify(error instanceof Error ? error.message : "Không kiểm tra được điều kiện đóng lớp.", "error");
+      }
     }
   }, [notify, session.roleCode]);
 
-  /** Nạp danh sách lớp quản lý và báo cáo sẵn sàng của lớp đang chọn. */
-  const load = useCallback(async () => {
+  /** Nạp danh sách lớp mà không tải lại mỗi khi người dùng đổi lựa chọn. */
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (!canManage) return;
     try {
-      const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
+      const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal });
+      if (signal?.aborted) return;
       setClasses(data);
-      const nextId = selectedId || data.find((item) => item.id === requestedClassId)?.id || data[0]?.id || "";
-      setSelectedId(nextId);
-      if (nextId) await loadReadiness(nextId);
+      setSelectedId((current) => current || data.find((item) => item.id === requestedClassId)?.id || data[0]?.id || "");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
+      if (!signal?.aborted) notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
     }
-  }, [canManage, loadReadiness, notify, requestedClassId, selectedId, session.roleCode]);
+  }, [canManage, notify, requestedClassId, session.roleCode]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
+
+  // Chỉ giữ kết quả kiểm tra điều kiện của lớp hiện đang được chọn.
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadReadiness(selectedId, controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); readinessRequestVersion.current += 1; };
+  }, [loadReadiness, readinessRefresh, selectedId]);
 
   /** Đóng lớp với lý do nghiệp vụ sau khi máy chủ xác nhận đủ điều kiện. */
   const closeClass = async (event: FormEvent<HTMLFormElement>) => {
@@ -70,6 +84,7 @@ export default function ClassLifecyclePage() {
       notify("Đã đóng, lưu trữ và chuyển lớp sang chỉ đọc.");
       setCloseForm({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
       await load();
+      setReadinessRefresh((current) => current + 1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không đóng được lớp.", "error");
     } finally {
@@ -91,6 +106,7 @@ export default function ClassLifecyclePage() {
       notify("Đã mở lại lớp và ghi lịch sử kiểm toán.");
       setReopenReason("");
       await load();
+      setReadinessRefresh((current) => current + 1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không mở lại được lớp.", "error");
     } finally {
@@ -118,7 +134,7 @@ export default function ClassLifecyclePage() {
 
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <Field label="Lớp cần quản lý">
-          <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); void loadReadiness(value); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
+          <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); setReadiness(null); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
         </Field>
         {selected ? (
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-5">

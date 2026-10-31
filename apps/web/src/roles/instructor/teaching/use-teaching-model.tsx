@@ -13,7 +13,7 @@ import type {
   RegradeRequest,
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình chấm thi; giữ nguyên thứ tự hook. */
 export function useTeachingModel() {
@@ -29,6 +29,8 @@ export function useTeachingModel() {
 
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [instructorClasses, setInstructorClasses] = useState<LearningClass[]>([]);
+  const loadRequestRef = useRef(0);
+  const learnersRequestRef = useRef(0);
 
   // Bộ lọc chuẩn K-12 dành cho giáo viên: Khối -> Môn -> Lớp
   const [gradeFilter, setGradeFilter] = useState<string>("");
@@ -154,6 +156,7 @@ export function useTeachingModel() {
   /** Nạp lớp, bài nộp và buổi học thuộc phạm vi giảng viên hiện tại. */
   const load = useCallback(async () => {
     if (!canManageTeaching) return;
+    const requestId = ++loadRequestRef.current;
     try {
       const [
         attemptData,
@@ -161,7 +164,7 @@ export function useTeachingModel() {
         sessionData,
         regradeData,
         queueData,
-        classData,
+        classResult,
       ] = await Promise.all([
         apiRequest<ExamAttempt[]>("/instructor/exam-attempts", {
           roleCode: session.roleCode,
@@ -178,10 +181,24 @@ export function useTeachingModel() {
         }),
         apiRequest<LearningClass[]>("/instructor/classes", {
           roleCode: session.roleCode,
-        }).catch(() => [] as LearningClass[]),
+        }).then(
+          (classes) => ({ ok: true as const, classes }),
+          (error: unknown) => ({ ok: false as const, error }),
+        ),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setAttempts(attemptData);
-      setInstructorClasses(classData);
+      if (classResult.ok) {
+        setInstructorClasses(classResult.classes);
+      } else {
+        console.error("Không tải được danh sách lớp của giảng viên:", classResult.error);
+        notify(
+          classResult.error instanceof Error
+            ? classResult.error.message
+            : "Không tải được danh sách lớp của giảng viên.",
+          "error",
+        );
+      }
       setRegrades(
         regradeData.filter(
           (item) => item.status === "OPEN" || item.status === "IN_REVIEW",
@@ -205,6 +222,7 @@ export function useTeachingModel() {
           "",
       }));
     } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
       notify(
         error instanceof Error
           ? error.message
@@ -217,6 +235,7 @@ export function useTeachingModel() {
   /** Chọn buổi học và nạp bảng điểm danh chi tiết để chỉnh sửa. */
   const selectAttendanceSession = useCallback(
     async (sessionId: string) => {
+      const requestId = ++learnersRequestRef.current;
       setAttendance((current) => ({ ...current, sessionId, learnerId: "" }));
       const classId = sessions.find((item) => item.id === sessionId)?.classId;
       if (!classId) {
@@ -225,14 +244,15 @@ export function useTeachingModel() {
         return;
       }
       try {
-        setLearners(
-          await apiRequest<DirectoryUser[]>(
-            `/instructor/classes/${classId}/learners`,
-            { roleCode: session.roleCode },
-          ),
+        const data = await apiRequest<DirectoryUser[]>(
+          `/instructor/classes/${classId}/learners`,
+          { roleCode: session.roleCode },
         );
+        if (requestId !== learnersRequestRef.current) return;
+        setLearners(data);
         setLearnersSessionId(sessionId);
       } catch (error) {
+        if (requestId !== learnersRequestRef.current) return;
         setLearners([]);
         setLearnersSessionId(sessionId);
         notify(
@@ -267,8 +287,14 @@ export function useTeachingModel() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestRef.current += 1;
+    };
   }, [load]);
+
+  // Vô hiệu hóa các yêu cầu điểm danh còn chạy khi rời màn hình.
+  useEffect(() => () => { learnersRequestRef.current += 1; }, []);
 
   /** Mở toàn bộ đề và đáp án của một lượt thi trước khi cho điểm. */
   const openGrade = async (
@@ -528,7 +554,6 @@ export function useTeachingModel() {
     session,
     canManageTeaching,
     attempts,
-    gradingQueue,
     filteredGradingQueue,
     instructorClasses,
     gradeFilter,

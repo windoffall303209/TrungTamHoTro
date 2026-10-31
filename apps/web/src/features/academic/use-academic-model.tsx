@@ -13,7 +13,7 @@ import type {
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emptyAssignment } from "./academic.shared";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình học vụ; giữ nguyên thứ tự hook. */
@@ -33,6 +33,8 @@ export function useAcademicModel() {
   const [announcements, setAnnouncements] = useState<ClassAnnouncement[]>([]);
 
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const loadRequestId = useRef(0);
+  const gradebookRequestId = useRef(0);
 
   const [selectedClassId, setSelectedClassId] = useState("");
 
@@ -99,6 +101,7 @@ export function useAcademicModel() {
 
   /** Nạp các lớp và dữ liệu học vụ tương ứng với vai trò, sau đó chọn lớp khả dụng đầu tiên. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!allowed) return;
     setDataReady(false);
     setLoadError("");
@@ -118,6 +121,7 @@ export function useAcademicModel() {
             roleCode: session.roleCode,
           }),
         ]);
+      if (requestId !== loadRequestId.current) return;
       setClasses(classData);
       setAssignments(assignmentData);
       setEvents(calendarData);
@@ -147,22 +151,29 @@ export function useAcademicModel() {
         ...value,
         classId: value.classId || first,
       }));
-      if (canTeach && first)
-        setGradebook(
-          await apiRequest<GradebookRow[]>(
-            `/academic/classes/${first}/gradebook`,
-            { roleCode: session.roleCode },
-          ),
+      if (canTeach && first) {
+        const gradebookId = ++gradebookRequestId.current;
+        const rows = await apiRequest<GradebookRow[]>(
+          `/academic/classes/${first}/gradebook`,
+          { roleCode: session.roleCode },
         );
-      setDataReady(true);
+        if (
+          requestId !== loadRequestId.current ||
+          gradebookId !== gradebookRequestId.current
+        ) return;
+        setGradebook(rows);
+      }
+      if (requestId === loadRequestId.current) setDataReady(true);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Không tải được dữ liệu học vụ.");
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được dữ liệu học vụ.",
-        "error",
-      );
+      if (requestId === loadRequestId.current) {
+        setLoadError(error instanceof Error ? error.message : "Không tải được dữ liệu học vụ.");
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được dữ liệu học vụ.",
+          "error",
+        );
+      }
     }
   }, [
     allowed,
@@ -175,7 +186,11 @@ export function useAcademicModel() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+      gradebookRequestId.current += 1;
+    };
   }, [load]);
 
   /** Đưa đối tượng từ lịch hoặc thông báo vào vùng nhìn sau khi dữ liệu đã sẵn sàng. */
@@ -193,22 +208,24 @@ export function useAcademicModel() {
 
   /** Chuyển ngữ cảnh lớp và tải lại bài tập/thông báo gắn với lớp đó. */
   async function changeClass(classId: string): Promise<void> {
+    const requestId = ++gradebookRequestId.current;
     setSelectedClassId(classId);
     assignmentPagination.resetPage();
     gradebookPagination.resetPage();
     if (canTeach && classId)
       try {
-        setGradebook(
-          await apiRequest<GradebookRow[]>(
-            `/academic/classes/${classId}/gradebook`,
-            { roleCode: session.roleCode },
-          ),
+        const rows = await apiRequest<GradebookRow[]>(
+          `/academic/classes/${classId}/gradebook`,
+          { roleCode: session.roleCode },
         );
+        if (requestId === gradebookRequestId.current) setGradebook(rows);
       } catch (error) {
-        notify(
-          error instanceof Error ? error.message : "Không tải được sổ điểm.",
-          "error",
-        );
+        if (requestId === gradebookRequestId.current) {
+          notify(
+            error instanceof Error ? error.message : "Không tải được sổ điểm.",
+            "error",
+          );
+        }
       }
   }
 

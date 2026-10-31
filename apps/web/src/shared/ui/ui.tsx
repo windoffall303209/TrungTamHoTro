@@ -67,7 +67,7 @@ export function Field({
 export const inputClass =
   "min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 py-2 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 shadow-2xs";
 
-export const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
+const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50] as const;
 
 /** Thanh tab tối giản với số lượng, nhãn accessible và hỗ trợ bàn phím mũi tên. */
 export function Tabs<T extends string>({

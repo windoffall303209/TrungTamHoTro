@@ -5,7 +5,6 @@ import {
   MessageSquare,
   ThumbsUp,
   MessageCircle,
-  Share2,
   Send,
   X,
   ImageIcon,
@@ -16,19 +15,20 @@ import {
   Bell,
   History,
   Flag,
-  Smile,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import type { ClassPost, PostComment, ClassFeedViewProps } from "./class-feed-types";
 import { loadClassFeedPosts, saveClassFeedPosts } from "./class-feed-storage";
+import { createClassFeedId } from "./class-feed-ids";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 
-/**
- * Component Bảng tin & Diễn đàn lớp học dùng chung cho cả Học sinh và Giáo viên
- * Hỗ trợ tạo bài viết kèm hình ảnh, tương tác Like, và hệ thống Bình luận phân cấp đa tầng (Nested Comments)
- * Dữ liệu được lưu trữ bền vững vào localStorage theo từng lớp học, giữ nguyên vẹn qua các lần F5 reload.
- */
-export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall" }: ClassFeedViewProps) {
+/** Tạo instance độc lập cho từng lớp để trạng thái tương tác không rò sang lớp khác. */
+export function ClassFeedView(props: ClassFeedViewProps) {
+  return <ClassFeedContent key={props.classItem.id} {...props} />;
+}
+
+/** Bảng tin của một lớp với bài đăng, bình luận và dữ liệu lưu theo mã lớp. */
+function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedViewProps) {
   const { session, notify } = useApp();
 
   // Xác định thông tin người dùng hiện tại đang đăng nhập
@@ -84,6 +84,13 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
   const [replyText, setReplyText] = useState("");
   const replyInputRef = useRef<HTMLInputElement>(null);
 
+  // Mở khung phản hồi cho cả hai cấp bình luận và chuyển tiêu điểm sau khi ô nhập được dựng.
+  const handleBeginReply = (commentId: string, authorName: string) => {
+    setReplyingTo({ commentId, authorName });
+    setReplyText("");
+    setTimeout(() => replyInputRef.current?.focus(), 80);
+  };
+
   // Nạp dữ liệu bảng tin bền vững từ localStorage khi mount hoặc đổi lớp
   useEffect(() => {
     const loaded = loadClassFeedPosts(classItem.id, classItem.name, teacherName);
@@ -94,14 +101,18 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
   useEffect(() => {
     if (selectedPost) {
       const fresh = posts.find((p) => p.id === selectedPost.id);
-      if (fresh) setSelectedPost(fresh);
+      if (fresh && fresh !== selectedPost) setSelectedPost(fresh);
     }
-  }, [posts, selectedPost?.id]);
+  }, [posts, selectedPost]);
 
-  /** Hàm tiện ích lưu danh sách bài viết cập nhật */
+  /** Chỉ cập nhật bảng tin khi đã lưu thành công để tránh mất thay đổi sau khi tải lại. */
   const persistPosts = (updatedPosts: ClassPost[]) => {
+    if (!saveClassFeedPosts(classItem.id, updatedPosts)) {
+      notify("Không thể lưu bảng tin. Vui lòng kiểm tra dung lượng lưu trữ và thử lại.", "error");
+      return false;
+    }
     setPosts(updatedPosts);
-    saveClassFeedPosts(classItem.id, updatedPosts);
+    return true;
   };
 
   /** Hiển thị Avatar chuẩn cho người dùng (có ảnh đại diện hoặc chữ viết tắt) */
@@ -136,7 +147,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
       reader.onload = (uploadEvent) => {
         const result = uploadEvent.target?.result as string;
         if (result) {
-          setNewPostImages((prev) => [...prev, result]);
+          setNewPostImages((prev) => prev.length < 5 ? [...prev, result] : prev);
         }
       };
       reader.readAsDataURL(file);
@@ -151,7 +162,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
     if (!trimmed && newPostImages.length === 0) return;
 
     const newPost: ClassPost = {
-      id: `post-${Date.now()}`,
+      id: createClassFeedId("post"),
       authorName: currentUserName,
       authorAvatar: currentUserInitials,
       authorAvatarUrl: currentUserAvatarUrl,
@@ -165,7 +176,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
     };
 
     const updated = [newPost, ...posts];
-    persistPosts(updated);
+    if (!persistPosts(updated)) return;
     setNewPostContent("");
     setNewPostImages([]);
     notify("Đã đăng bài viết mới lên bảng tin!", "success");
@@ -175,7 +186,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
   const handleDeletePost = (postId: string) => {
     if (!window.confirm("Bạn có chắc chắn muốn xóa bài viết này không?")) return;
     const updated = posts.filter((p) => p.id !== postId);
-    persistPosts(updated);
+    if (!persistPosts(updated)) return;
     if (selectedPost?.id === postId) setSelectedPost(null);
     notify("Đã xóa bài viết thành công.", "info");
   };
@@ -213,7 +224,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
       return p;
     });
 
-    persistPosts(updated);
+    if (!persistPosts(updated)) return;
     setEditingPostId(null);
     notify("Đã cập nhật bài viết thành công.", "success");
   };
@@ -239,7 +250,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
     if (!selectedPost || !mainCommentText.trim()) return;
 
     const newComment: PostComment = {
-      id: `cmt-${Date.now()}`,
+      id: createClassFeedId("cmt"),
       authorName: currentUserName,
       authorAvatar: currentUserInitials,
       authorAvatarUrl: currentUserAvatarUrl,
@@ -261,7 +272,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
       return p;
     });
 
-    persistPosts(updated);
+    if (!persistPosts(updated)) return;
     setMainCommentText("");
   };
 
@@ -270,7 +281,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
     if (!selectedPost || !replyText.trim() || !replyingTo) return;
 
     const newReply: PostComment = {
-      id: `reply-${Date.now()}`,
+      id: createClassFeedId("reply"),
       authorName: currentUserName,
       authorAvatar: currentUserInitials,
       authorAvatarUrl: currentUserAvatarUrl,
@@ -300,7 +311,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
       return p;
     });
 
-    persistPosts(updated);
+    if (!persistPosts(updated)) return;
     setReplyText("");
     setReplyingTo(null);
   };
@@ -793,11 +804,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
                           {/* Nút Trả lời: Mở khung phản hồi con ngay bên dưới */}
                           <button
                             type="button"
-                            onClick={() => {
-                              setReplyingTo({ commentId: cmt.id, authorName: cmt.authorName });
-                              setReplyText("");
-                              setTimeout(() => replyInputRef.current?.focus(), 80);
-                            }}
+                            onClick={() => handleBeginReply(cmt.id, cmt.authorName)}
                             className="font-semibold text-slate-300 hover:text-white hover:underline transition-colors cursor-pointer"
                           >
                             Trả lời
@@ -854,11 +861,7 @@ export function ClassFeedView({ classItem, courseName, teacherName = "Wind Fall"
 
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setReplyingTo({ commentId: cmt.id, authorName: reply.authorName });
-                                    setReplyText("");
-                                    setTimeout(() => replyInputRef.current?.focus(), 80);
-                                  }}
+                                  onClick={() => handleBeginReply(cmt.id, reply.authorName)}
                                   className="font-semibold text-slate-300 hover:text-white hover:underline transition-colors cursor-pointer"
                                 >
                                   Trả lời

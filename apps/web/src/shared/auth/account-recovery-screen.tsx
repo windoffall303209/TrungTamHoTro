@@ -11,12 +11,26 @@ const fieldClass = "mt-1.5 min-h-10 w-full rounded-lg border border-slate-200 da
 /** Phát trạng thái xác minh sang các tab bằng localStorage và BroadcastChannel. */
 function announceVerification(verificationId: string): void {
   const message = { verificationId, verifiedAt: new Date().toISOString() };
-  localStorage.setItem("wind-edu:email-verified", JSON.stringify(message));
-  if ("BroadcastChannel" in window) {
-    const channel = new BroadcastChannel("wind-edu:email-verification");
-    channel.postMessage(message);
-    channel.close();
+  try {
+    localStorage.setItem("wind-edu:email-verified", JSON.stringify(message));
+  } catch (error) {
+    console.warn("Không thể thông báo xác minh email qua localStorage.", error);
   }
+  if ("BroadcastChannel" in window) {
+    try {
+      const channel = new BroadcastChannel("wind-edu:email-verification");
+      try { channel.postMessage(message); }
+      finally { channel.close(); }
+    } catch (error) {
+      console.warn("Không thể thông báo xác minh email qua BroadcastChannel.", error);
+    }
+  }
+}
+
+/** Kiểm tra dữ liệu xác minh từ tab khác trước khi cập nhật giao diện. */
+function matchesVerification(value: unknown, verificationId: string): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && "verificationId" in value && value.verificationId === verificationId;
 }
 
 /** Che phần tên email nhưng giữ domain để người dùng nhận biết hộp thư. */
@@ -52,12 +66,15 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
 
   // Link token được xử lý một lần; luồng mã số polling và nghe thông báo chéo tab theo best-effort.
   useEffect(() => {
-    if (mode !== "verify") return;
+    // Ngừng polling và kênh thông báo ngay khi trạng thái xác minh đã hoàn tất.
+    if (mode !== "verify" || done) return;
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token") ?? "";
     const id = params.get("verificationId") ?? "";
     const pendingEmail = params.get("email") ?? "";
+    let active = true;
     window.queueMicrotask(() => {
+      if (!active) return;
       setEmail(pendingEmail);
       setVerificationId(id);
       if (params.get("emailChanged") === "1") setNotice("Đã cập nhật email và gửi một mã xác minh mới.");
@@ -65,27 +82,39 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
 
     if (token) {
       apiRequest<{ verified: true; verificationId: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) })
-        .then((result) => finishVerification(result.verificationId, true))
-        .catch((caught: unknown) => { setError(caught instanceof Error ? caught.message : "Không thể xác minh email."); setLoading(false); });
-      return;
+        .then((result) => { if (active) finishVerification(result.verificationId, true); })
+        .catch((caught: unknown) => {
+          if (!active) return;
+          setError(caught instanceof Error ? caught.message : "Không thể xác minh email.");
+          setLoading(false);
+        });
+      return () => { active = false; };
     }
     if (!id) {
       window.queueMicrotask(() => {
+        if (!active) return;
         setError("Phiên xác minh không hợp lệ. Hãy đăng nhập lại để tiếp tục xác minh.");
         setLoading(false);
       });
-      return;
+      return () => { active = false; };
     }
-    window.queueMicrotask(() => setLoading(false));
+    window.queueMicrotask(() => { if (active) setLoading(false); });
 
+    let checking = false;
     /** Thăm dò trạng thái challenge để tab hiện tại nhận biết xác minh hoàn tất ở tab khác. */
     const checkStatus = async () => {
+      // Chỉ một request đang chạy; bỏ qua kết quả khi effect đã được dọn dẹp.
+      if (!active || checking) return;
+      checking = true;
       try {
         const result = await apiRequest<{ verified: boolean; expired: boolean }>(`/auth/verification-status?verificationId=${encodeURIComponent(id)}`);
+        if (!active) return;
         if (result.verified) finishVerification(id);
         else if (result.expired) setError("Mã xác minh đã hết hạn. Hãy yêu cầu gửi mã mới.");
       } catch {
         // Polling is best-effort; direct code submission still reports actionable errors.
+      } finally {
+        checking = false;
       }
     };
     void checkStatus();
@@ -94,23 +123,29 @@ export function AccountRecoveryScreen({ mode }: { mode: "forgot" | "reset" | "ve
     const onStorage = (event: StorageEvent) => {
       if (event.key !== "wind-edu:email-verified" || !event.newValue) return;
       try {
-        const message = JSON.parse(event.newValue) as { verificationId?: string };
-        if (message.verificationId === id) finishVerification(id);
+        const message: unknown = JSON.parse(event.newValue);
+        if (matchesVerification(message, id)) finishVerification(id);
       } catch {
         // Ignore malformed cross-tab messages.
       }
     };
-    const channel = "BroadcastChannel" in window ? new BroadcastChannel("wind-edu:email-verification") : null;
-    if (channel) channel.onmessage = (event: MessageEvent<{ verificationId?: string }>) => {
-      if (event.data.verificationId === id) finishVerification(id);
+    let channel: BroadcastChannel | null = null;
+    try {
+      if ("BroadcastChannel" in window) channel = new BroadcastChannel("wind-edu:email-verification");
+    } catch (error) {
+      console.warn("Không thể lắng nghe xác minh email qua BroadcastChannel.", error);
+    }
+    if (channel) channel.onmessage = (event: MessageEvent<unknown>) => {
+      if (matchesVerification(event.data, id)) finishVerification(id);
     };
     window.addEventListener("storage", onStorage);
     return () => {
+      active = false;
       window.clearInterval(timer);
       window.removeEventListener("storage", onStorage);
       channel?.close();
     };
-  }, [finishVerification, mode]);
+  }, [done, finishVerification, mode]);
 
   /** Điều phối submit theo mode và thay URL khi đổi sang phiên xác minh email mới. */
   async function submit(event: FormEvent): Promise<void> {

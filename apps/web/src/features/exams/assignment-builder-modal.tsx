@@ -4,22 +4,17 @@ import { useState, useMemo } from "react";
 import {
   AlertTriangle,
   ArrowRight,
-  BookOpen,
   Check,
   ChevronRight,
-  Clock,
   Database,
   Edit3,
-  FileCheck2,
   FileText,
   Image as ImageIcon,
   Music,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
   Type,
-  Upload,
   UploadCloud,
   Video,
   X,
@@ -37,6 +32,15 @@ export interface ParsedQuestionItem {
   score: number;
   solutionVideoUrl?: string;
   hint?: string;
+}
+
+/** Hình dạng câu hỏi do endpoint quét đề thi trả về. */
+interface ScannedQuestion {
+  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER" | "ESSAY";
+  content: string;
+  options: string[];
+  correctAnswers: string[];
+  warnings: string[];
 }
 
 export interface AssignmentBuilderModalProps {
@@ -71,6 +75,12 @@ export interface AssignmentBuilderModalProps {
   }) => void | Promise<void>;
 }
 
+// Tạo chuỗi ngày giờ địa phương phù hợp với trường nhập datetime-local.
+function defaultLocalDateTime(daysFromNow: number): string {
+  const date = new Date(Date.now() + daysFromNow * 86400000);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 /** Trích xuất câu hỏi và các phương án thực tế từ nội dung văn bản tệp tải lên */
 function parseQuestionsFromRawText(text: string): ParsedQuestionItem[] {
   if (!text || text.trim().length < 10) return [];
@@ -88,13 +98,8 @@ function parseQuestionsFromRawText(text: string): ParsedQuestionItem[] {
           id: `q-parsed-${Date.now()}-${order}`,
           order: order++,
           content: currentQuestion.content,
-          options: currentQuestion.options && currentQuestion.options.length > 0 ? currentQuestion.options : [
-            { key: "A", text: "Phương án A" },
-            { key: "B", text: "Phương án B" },
-            { key: "C", text: "Phương án C" },
-            { key: "D", text: "Phương án D" },
-          ],
-          correctAnswer: currentQuestion.correctAnswer || "A",
+          options: currentQuestion.options || [],
+          correctAnswer: currentQuestion.correctAnswer || "",
           type: "Trắc nghiệm một đáp án",
           score: 2,
           hint: currentQuestion.hint || "",
@@ -104,7 +109,7 @@ function parseQuestionsFromRawText(text: string): ParsedQuestionItem[] {
       currentQuestion = {
         content: content.trim(),
         options: [],
-        correctAnswer: "A",
+        correctAnswer: "",
       };
       continue;
     }
@@ -134,13 +139,8 @@ function parseQuestionsFromRawText(text: string): ParsedQuestionItem[] {
       id: `q-parsed-${Date.now()}-${order}`,
       order: order,
       content: currentQuestion.content,
-      options: currentQuestion.options && currentQuestion.options.length > 0 ? currentQuestion.options : [
-        { key: "A", text: "Phương án A" },
-        { key: "B", text: "Phương án B" },
-        { key: "C", text: "Phương án C" },
-        { key: "D", text: "Phương án D" },
-      ],
-      correctAnswer: currentQuestion.correctAnswer || "A",
+      options: currentQuestion.options || [],
+      correctAnswer: currentQuestion.correctAnswer || "",
       type: "Trắc nghiệm một đáp án",
       score: 2,
       hint: currentQuestion.hint || "",
@@ -175,7 +175,6 @@ export function AssignmentBuilderModal({
 
   // Danh sách câu hỏi đã tách (Khởi tạo rỗng, nạp từ tệp tải lên hoặc soạn thảo)
   const [questions, setQuestions] = useState<ParsedQuestionItem[]>([]);
-  const [activeTabRight, setActiveTabRight] = useState<"1. Đáp án" | "2. Mở rộng" | "3. Thông tin phần">("1. Đáp án");
   const [isRandomQuestions, setIsRandomQuestions] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [attemptedSave, setAttemptedSave] = useState(false);
@@ -190,9 +189,9 @@ export function AssignmentBuilderModal({
   const [hasDuration, setHasDuration] = useState(true);
   const [durationMinutes, setDurationMinutes] = useState(45);
   const [hasStartAt, setHasStartAt] = useState(false);
-  const [startAt, setStartAt] = useState("2026-10-28T08:00");
+  const [startAt, setStartAt] = useState(() => defaultLocalDateTime(0));
   const [hasDueAt, setHasDueAt] = useState(true);
-  const [dueAt, setDueAt] = useState("2026-11-05T23:59");
+  const [dueAt, setDueAt] = useState(() => defaultLocalDateTime(7));
   const [allowLateSubmission, setAllowLateSubmission] = useState(false);
   const [isExamLabel, setIsExamLabel] = useState(false);
   const [blockReviewAfterSubmit, setBlockReviewAfterSubmit] = useState(false);
@@ -229,10 +228,13 @@ export function AssignmentBuilderModal({
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await apiRequest<{ questions: any[] }>("/instructor/question-bank/scan-image", {
+        const res = await apiRequest<{ questions: ScannedQuestion[] }>("/instructor/question-bank/scan-image", {
           method: "POST",
           body: formData,
-        }).catch(() => null);
+        }).catch((error: unknown) => {
+          console.warn("Không thể quét câu hỏi từ tệp; sẽ thử đọc nội dung văn bản:", error);
+          return null;
+        });
 
         if (res?.questions && Array.isArray(res.questions) && res.questions.length > 0) {
           const mapped: ParsedQuestionItem[] = res.questions.map((q, idx) => ({
@@ -243,8 +245,12 @@ export function AssignmentBuilderModal({
               key: String.fromCharCode(65 + oIdx),
               text: opt,
             })),
-            correctAnswer: q.correctAnswers?.[0] || "A",
-            type: q.type === "ESSAY" ? "Trắc nghiệm một đáp án" : "Trắc nghiệm một đáp án",
+            correctAnswer: (() => {
+              const answer = q.correctAnswers?.[0];
+              const index = (q.options || []).findIndex((option: string) => option === answer);
+              return index >= 0 ? String.fromCharCode(65 + index) : "";
+            })(),
+            type: q.type === "MULTIPLE_CHOICE" ? "Nhiều đáp án" : q.type === "TRUE_FALSE" ? "Đúng / Sai" : q.type === "SINGLE_CHOICE" ? "Trắc nghiệm một đáp án" : "Điền khuyết",
             score: Number((10 / Math.max(1, res.questions.length)).toFixed(1)),
             hint: q.warnings?.join(" ") || "",
           }));
@@ -265,7 +271,7 @@ export function AssignmentBuilderModal({
             notify(`Đã nhận tệp '${file.name}'. Hãy bấm '+ Thêm câu hỏi' để hoàn thiện đề thi.`, "info");
           }
         }
-      } catch (err) {
+      } catch {
         notify("Không thể trích xuất tự động từ tệp. Bạn có thể thêm câu hỏi thủ công.", "info");
       } finally {
         setIsAiProcessing(false);
@@ -288,17 +294,17 @@ export function AssignmentBuilderModal({
     const newQ: ParsedQuestionItem = {
       id: `q-ai-new-${Date.now()}`,
       order: nextOrder,
-      content: `Câu hỏi ${nextOrder}: Điền nội dung câu hỏi trắc nghiệm...`,
+      content: "",
       options: [
-        { key: "A", text: "Phương án A" },
-        { key: "B", text: "Phương án B" },
-        { key: "C", text: "Phương án C" },
-        { key: "D", text: "Phương án D" },
+        { key: "A", text: "" },
+        { key: "B", text: "" },
+        { key: "C", text: "" },
+        { key: "D", text: "" },
       ],
-      correctAnswer: "A",
+      correctAnswer: "",
       type: "Trắc nghiệm một đáp án",
       score: 2,
-      hint: "Gợi ý làm bài cho câu hỏi này.",
+      hint: "",
     };
     setQuestions((prev) => [...prev, newQ]);
     setEditingQuestionId(newQ.id);
@@ -321,11 +327,30 @@ export function AssignmentBuilderModal({
 
   // Hoàn tất lưu bài tập trực tiếp vào cơ sở dữ liệu
   const handleFinishSave = async () => {
-    if (!title.trim()) {
+    if (title.trim().length < 3) {
       setAttemptedSave(true);
-      notify("Vui lòng đặt tên cho bài tập!", "error");
+      notify("Tên bài tập cần ít nhất 3 ký tự.", "error");
       return;
     }
+    if (assignmentType === "MULTIPLE_CHOICE") {
+      if (questions.length === 0) {
+        notify("Cần ít nhất một câu hỏi để tạo đề trắc nghiệm.", "error");
+        return;
+      }
+      for (const [index, question] of questions.entries()) {
+        const options = question.options.filter((option) => option.text.trim());
+        const correct = question.correctAnswer.trim().toUpperCase();
+        if (question.type !== "Trắc nghiệm một đáp án") {
+          notify(`Câu ${index + 1}: loại câu hỏi này chưa được hỗ trợ khi nhập vào ngân hàng.`, "error");
+          return;
+        }
+        if (question.content.trim().length < 5 || new Set(options.map((option) => option.text.trim())).size < 2 || !options.some((option) => option.key === correct)) {
+          notify(`Câu ${index + 1}: cần nội dung từ 5 ký tự, ít nhất 2 phương án khác nhau và một đáp án đúng hợp lệ.`, "error");
+          return;
+        }
+      }
+    }
+    if (isSaving) return;
     setIsSaving(true);
     try {
       await onSaveAssignment({
@@ -354,9 +379,9 @@ export function AssignmentBuilderModal({
         attachedFile: uploadedFile || undefined,
       });
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error("Lỗi hoàn tất tạo bài tập:", err);
-      notify(err?.message || "Không thể lưu bài tập", "error");
+      notify(err instanceof Error ? err.message : "Không thể lưu bài tập", "error");
     } finally {
       setIsSaving(false);
     }
@@ -490,7 +515,7 @@ export function AssignmentBuilderModal({
                     Cách 2: Thêm từ kho học liệu
                   </h3>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Chọn các đề đã có sẵn từ cây thư mục Kho học liệu phân cấp theo Khối, Môn hoặc từ mục "Đề chưa phân loại".
+                    Chọn các đề đã có sẵn từ cây thư mục Kho học liệu phân cấp theo Khối, Môn hoặc từ mục &quot;Đề chưa phân loại&quot;.
                   </p>
                 </div>
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] font-bold text-blue-600">
@@ -741,7 +766,28 @@ export function AssignmentBuilderModal({
                     </p>
                   )}
 
-                  {/* Bảng các phương án lựa chọn (A, B, C, D) dạng khung lưới chuẩn Ảnh 3 */}
+                  {/* Các phương án nhập từ tệp hoặc do giáo viên bổ sung. */}
+                  {editingQuestionId === q.id && (
+                    <div className="space-y-2">
+                      {q.options.map((option, index) => (
+                        <label key={option.key} className="flex items-center gap-2 text-xs">
+                          <span className="w-5 font-semibold">{option.key}.</span>
+                          <input
+                            type="text"
+                            value={option.text}
+                            onChange={(e) => handleUpdateQuestion(q.id, { options: q.options.map((item, itemIndex) => itemIndex === index ? { ...item, text: e.target.value } : item) })}
+                            className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-2"
+                            aria-label={`Phương án ${option.key} câu ${q.order}`}
+                          />
+                        </label>
+                      ))}
+                      {q.options.length < 6 && (
+                        <button type="button" onClick={() => handleUpdateQuestion(q.id, { options: [...q.options, { key: String.fromCharCode(65 + q.options.length), text: "" }] })} className="text-xs font-semibold text-blue-600">
+                          + Thêm phương án
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <div className="border border-slate-300 dark:border-slate-700 rounded-lg overflow-hidden text-xs">
                     <div className="grid grid-cols-2 divide-x divide-slate-300 dark:divide-slate-700 border-b border-slate-300 dark:border-slate-700">
                       <div className="p-2 font-bold text-slate-800 dark:text-slate-200">
@@ -867,7 +913,7 @@ export function AssignmentBuilderModal({
                       <span className="text-slate-500 font-semibold">Loại</span>
                       <select
                         value={q.type}
-                        onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })}
+                        onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as ParsedQuestionItem["type"] })}
                         className="col-span-2 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium"
                       >
                         <option value="Điền khuyết">Điền khuyết</option>

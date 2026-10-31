@@ -13,8 +13,14 @@ export interface AccountSetupState {
 export function readAccountSetup(): AccountSetupState | null {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    const value = raw ? JSON.parse(raw) as Partial<AccountSetupState> : null;
-    return value && typeof value.setupToken === "string" && typeof value.username === "string" ? value as AccountSetupState : null;
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const state = value as Record<string, unknown>;
+    if (typeof state.setupToken !== "string" || typeof state.username !== "string") return null;
+    if (state.email !== undefined && typeof state.email !== "string") return null;
+    if (state.challengeId !== undefined && typeof state.challengeId !== "string") return null;
+    if (state.resendAvailableAt !== undefined && (typeof state.resendAvailableAt !== "number" || !Number.isFinite(state.resendAvailableAt))) return null;
+    return { ...state, setupToken: state.setupToken, username: state.username };
   } catch {
     return null;
   }

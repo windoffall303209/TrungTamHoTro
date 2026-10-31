@@ -13,8 +13,8 @@ import type {
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DetailTab, RemoveTarget, roleLabel } from "./class-detail.shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RemoveTarget, roleLabel } from "./class-detail.shared";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình chi tiết lớp; giữ nguyên thứ tự hook. */
 export function useClassDetailModel() {
@@ -54,9 +54,8 @@ export function useClassDetailModel() {
     null,
   );
 
-  const [activeTab, setActiveTab] = useState<DetailTab>("overview");
-
   const [loading, setLoading] = useState(true);
+  const loadRequestId = useRef(0);
 
   const [saving, setSaving] = useState(false);
 
@@ -112,10 +111,10 @@ export function useClassDetailModel() {
 
   const learnerPagination = usePagination(activeEnrollments);
 
-  const historyPagination = usePagination(roster?.history ?? []);
 
   /** Nạp song song chi tiết lớp, roster và danh sách người dùng có thể được thêm. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!allowed || !classId) return;
     setLoading(true);
     try {
@@ -125,6 +124,7 @@ export function useClassDetailModel() {
           roleCode: session.roleCode,
         }),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setCapabilities(capabilityData);
       const selected =
         classData.find((candidate) => candidate.id === classId) ?? null;
@@ -144,6 +144,7 @@ export function useClassDetailModel() {
             roleCode: session.roleCode,
           }),
         ]);
+        if (requestId !== loadRequestId.current) return;
         setRoster(rosterData);
         setReadiness(readinessData);
         setCourse(
@@ -152,18 +153,23 @@ export function useClassDetailModel() {
         );
       }
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được hồ sơ lớp.",
-        "error",
-      );
+      if (requestId === loadRequestId.current) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được hồ sơ lớp.",
+          "error",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [allowed, canManage, classId, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+    };
   }, [load]);
 
   /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR đúng hợp đồng API. */
@@ -341,15 +347,11 @@ export function useClassDetailModel() {
   return {
     router,
     session,
-    classId,
     allowed,
-    canManage,
     item,
     course,
     roster,
     readiness,
-    activeTab,
-    setActiveTab,
     loading,
     saving,
     instructorForm,
@@ -371,7 +373,6 @@ export function useClassDetailModel() {
     instructors,
     primaryInstructor,
     learnerPagination,
-    historyPagination,
     assignInstructor,
     transferPrimary,
     enrollLearner,

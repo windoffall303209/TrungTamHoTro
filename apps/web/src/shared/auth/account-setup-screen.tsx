@@ -3,7 +3,7 @@
 import { ArrowLeft, ArrowRight, Eye, EyeOff, GraduationCap, LoaderCircle, MailCheck, PencilLine, RefreshCw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { clearAccountSetup, readAccountSetup, saveAccountSetup, type AccountSetupState } from "@/lib/account-setup";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
@@ -24,6 +24,8 @@ function isSetupExpired(error: unknown): boolean {
 /** Hai bước xác thực tài khoản được cấp: nhập email, rồi nhập OTP cùng tài khoản và mật khẩu mới. */
 export function AccountSetupScreen() {
   const router = useRouter();
+  const mounted = useRef(false);
+  const requestInFlight = useRef(false);
   const [setup, setSetup] = useState<AccountSetupState | null>(null);
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
@@ -39,7 +41,9 @@ export function AccountSetupScreen() {
 
   // Khôi phục trạng thái của thẻ hiện tại khi tải lại trang; không có trạng thái thì phải đăng nhập lại.
   useEffect(() => {
+    mounted.current = true;
     window.queueMicrotask(() => {
+      if (!mounted.current) return;
       const stored = readAccountSetup();
       setSetup(stored);
       setEmail(stored?.email ?? "");
@@ -47,6 +51,7 @@ export function AccountSetupScreen() {
       setNow(Date.now());
       setReady(true);
     });
+    return () => { mounted.current = false; };
   }, []);
 
   const resendAt = setup?.resendAvailableAt ?? 0;
@@ -68,6 +73,12 @@ export function AccountSetupScreen() {
     setSetup(next);
   }
 
+  /** Ngăn phản hồi của phiên cũ ghi đè khi một phiên xác thực khác đã được lưu. */
+  function ownsStoredSession(setupToken: string): boolean {
+    const current = readAccountSetup();
+    return !current || current.setupToken === setupToken;
+  }
+
   /** Hiển thị lỗi; phiên xác thực hết hạn thì xóa trạng thái để hướng dẫn đăng nhập lại. */
   function showError(caught: unknown, fallback: string): void {
     if (isSetupExpired(caught)) {
@@ -79,22 +90,25 @@ export function AccountSetupScreen() {
 
   /** Gửi mã OTP tới email; dùng chung cho bước nhập email và nút nhận mã mới. */
   async function requestOtp(targetEmail: string): Promise<boolean> {
-    if (!setup) return false;
+    if (!setup || requestInFlight.current) return false;
+    requestInFlight.current = true;
     setLoading(true);
     setError("");
     setNotice("");
     try {
       const result = await apiRequest<OtpResult>("/auth/account-setup/otp", { method: "POST", body: JSON.stringify({ setupToken: setup.setupToken, email: targetEmail }) });
+      if (!mounted.current || !ownsStoredSession(setup.setupToken)) return false;
       const sentAt = Date.now();
       setNow(sentAt);
       updateSetup({ ...setup, email: result.email, challengeId: result.challengeId, resendAvailableAt: sentAt + result.resendAfterSeconds * 1000 });
       setCode("");
       return true;
     } catch (caught) {
-      showError(caught, "Không gửi được mã OTP. Hãy thử lại.");
+      if (mounted.current && ownsStoredSession(setup.setupToken)) showError(caught, "Không gửi được mã OTP. Hãy thử lại.");
       return false;
     } finally {
-      setLoading(false);
+      requestInFlight.current = false;
+      if (mounted.current) setLoading(false);
     }
   }
 
@@ -121,24 +135,28 @@ export function AccountSetupScreen() {
   /** Bước 2: kiểm tra mật khẩu nhập lại, hoàn tất xác thực rồi về trang đăng nhập. */
   async function submitSetup(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!setup?.challengeId || !setup.email) return;
+    if (!setup?.challengeId || !setup.email || requestInFlight.current) return;
     setError("");
     setNotice("");
     if (password !== confirmPassword) {
       setError("Mật khẩu xác nhận chưa trùng khớp.");
       return;
     }
+    requestInFlight.current = true;
     setLoading(true);
     try {
       await apiRequest("/auth/account-setup/complete", {
         method: "POST",
         body: JSON.stringify({ setupToken: setup.setupToken, challengeId: setup.challengeId, email: setup.email, code, username, newPassword: password }),
       });
-      clearAccountSetup();
-      router.replace("/login?verified=1");
+      if (!ownsStoredSession(setup.setupToken)) return;
+      if (readAccountSetup()?.setupToken === setup.setupToken) clearAccountSetup();
+      if (mounted.current) router.replace("/login?verified=1");
     } catch (caught) {
-      showError(caught, "Không thể hoàn tất xác thực. Hãy thử lại.");
-      setLoading(false);
+      if (mounted.current && ownsStoredSession(setup.setupToken)) showError(caught, "Không thể hoàn tất xác thực. Hãy thử lại.");
+    } finally {
+      requestInFlight.current = false;
+      if (mounted.current) setLoading(false);
     }
   }
 

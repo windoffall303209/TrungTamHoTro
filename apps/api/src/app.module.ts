@@ -8,11 +8,11 @@ import { DatabaseModule } from "./database/database.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { IdentityModule } from "./identity/identity.module.js";
-import { LearningModule } from "./domains/learning/learning.module.js";
-import { SystemModule } from "./domains/system/system.module.js";
+import { LearningModule } from "./domains/learning/core/learning.module.js";
+import { SystemModule } from "./domains/system/core/system.module.js";
 import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
-import { MaintenanceGuard } from "./domains/system/maintenance.guard.js";
+import { MaintenanceGuard } from "./domains/system/operations/maintenance.guard.js";
 
 @Module({
   imports: [

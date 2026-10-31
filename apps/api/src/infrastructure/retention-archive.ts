@@ -41,14 +41,18 @@ async function* readLines(source: Readable): AsyncGenerator<string> {
   const decoder = new StringDecoder("utf8");
   let pending = "";
   for await (const chunk of source) {
-    pending += decoder.write(chunk as Buffer);
-    let position: number;
-    while ((position = pending.indexOf("\n")) >= 0) {
-      const line = pending.slice(0, position);
+    const decoded = decoder.write(chunk as Buffer);
+    let start = 0;
+    let position = decoded.indexOf("\n", start);
+    while (position >= 0) {
+      const line = pending + decoded.slice(start, position);
       if (Buffer.byteLength(line) > MAX_LINE_BYTES) throw new Error("Dòng archive quá lớn.");
       yield line;
-      pending = pending.slice(position + 1);
+      pending = "";
+      start = position + 1;
+      position = decoded.indexOf("\n", start);
     }
+    pending += decoded.slice(start);
     if (Buffer.byteLength(pending) > MAX_LINE_BYTES) throw new Error("Dòng archive quá lớn.");
   }
   pending += decoder.end();

@@ -9,15 +9,9 @@ export default defineConfig([
   // với các màn hình client hiện hữu được tắt để không biến lint thành refactor nghiệp vụ.
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-      "react/no-unescaped-entities": "off",
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/purity": "off",
-      "react-hooks/immutability": "off",
-      "react-hooks/preserve-manual-memoization": "off",
-      "@typescript-eslint/no-unused-vars": "off",
       "@next/next/no-img-element": "off",
-      "react-hooks/exhaustive-deps": "off",
     },
   },
   // Bỏ qua mã sinh tự động của build và báo cáo kiểm thử trình duyệt.

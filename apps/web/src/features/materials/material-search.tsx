@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import type { RoleCode } from "@/lib/app-types";
 import type { Material } from "@/lib/learning-types";
@@ -12,15 +12,12 @@ export function useMaterialSearch(roleCode: RoleCode, filters: Record<string, st
   const [query, setQuery] = useState("");
   const [requested, setRequested] = useState({ scope: "", page: 1 });
   const [pageSize, setPageSize] = useState(20);
-  const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ key: string; items: Material[]; total: number }>({ key: "", items: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const pageScope = `${actorId}:${roleCode}:${scope}:${query}:${pageSize}`;
   const page = requested.scope === pageScope ? requested.page : 1;
-  const key = `${pageScope}:${page}:${revision}`;
-  /** Tăng phiên tải để yêu cầu lại trang học liệu hiện tại. */
-  const refresh = useCallback(() => setRevision((value) => value + 1), []);
+  const key = `${pageScope}:${page}`;
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -42,7 +39,7 @@ export function useMaterialSearch(roleCode: RoleCode, filters: Record<string, st
   return {
     items: enabled && result.key === key ? result.items : [], total: enabled && result.key === key ? result.total : 0,
     page, pageSize, query, setQuery, setPageSize, setPage: (value: number) => setRequested({ scope: pageScope, page: value }),
-    loading, error, refresh,
+    loading, error,
   };
 }
 

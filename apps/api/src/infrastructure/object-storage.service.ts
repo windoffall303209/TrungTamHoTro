@@ -6,7 +6,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { hashFile, streamToFile } from "./file-streams.js";
-import { mkdir, open, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, unlink } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { Environment } from "../config/environment.js";
 
@@ -51,18 +51,18 @@ export class ObjectStorageService {
    */
   async put(objectKey: string, buffer: Buffer): Promise<StoredObject> {
     this.assertObjectKey(objectKey);
-    const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
     if (this.provider === "local") {
       const target = this.resolveLocalPath(objectKey);
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, buffer, { flag: "wx" }).catch((error: unknown) => {
+      const result = await streamToFile(Readable.from([buffer]), target, Number.MAX_SAFE_INTEGER, 0o666).catch((error: unknown) => {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") throw new ConflictException("Khóa lưu trữ đã tồn tại.");
         throw new ServiceUnavailableException("Không thể ghi tệp vào kho local.");
       });
-      return { objectKey, checksum };
+      return { objectKey, checksum: result.checksum };
     }
 
     this.assertCloudinaryConfigured();
+    const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
     const publicId = `${this.cloudinaryFolder}/${objectKey}`;
     const result = await this.uploadCloudinary(publicId, buffer);
     return { objectKey: `cloudinary:${encodeURIComponent(result.public_id)}`, checksum };
@@ -74,7 +74,12 @@ export class ObjectStorageService {
     if (this.provider === "local") {
       const target = this.resolveLocalPath(objectKey);
       await mkdir(dirname(target), { recursive: true });
-      const result = await streamToFile(createReadStream(path), target);
+      const result = await streamToFile(createReadStream(path), target).catch((error: unknown) => {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
+          throw new ConflictException("Khóa lưu trữ đã tồn tại.");
+        }
+        throw error;
+      });
       return { objectKey, checksum: result.checksum };
     }
     this.assertCloudinaryConfigured();
@@ -134,8 +139,12 @@ export class ObjectStorageService {
       await response.body?.cancel();
       response = await fetch(privateUrl, { signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
     }
-    if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
-    if (!response.ok) throw new ServiceUnavailableException(`Cloudinary trả về lỗi tải tệp (${response.status}).`);
+    if (!response.ok) {
+      // Giải phóng response lỗi để kết nối HTTP không bị giữ đến khi hết timeout.
+      await response.body?.cancel();
+      if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
+      throw new ServiceUnavailableException(`Cloudinary trả về lỗi tải tệp (${response.status}).`);
+    }
     if (!response.body) throw new ServiceUnavailableException("Cloudinary trả về tệp rỗng.");
     return Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
   }

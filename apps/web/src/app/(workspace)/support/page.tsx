@@ -47,6 +47,8 @@ export default function SupportPage() {
   const [clientRequestId, setClientRequestId] = useState("");
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
+  const loadRequestId = useRef(0);
+  const conversationRequestId = useRef(0);
   const [uploadRetry, setUploadRetry] = useState<{
     ticketId: string;
     file: File;
@@ -64,6 +66,7 @@ export default function SupportPage() {
   };
   /** Nạp danh sách phiếu theo vai trò và cập nhật hội thoại đang mở nếu cần. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     try {
       const [tickets, notifications] = await Promise.all([
@@ -76,20 +79,26 @@ export default function SupportPage() {
             })
           : Promise.resolve([]),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setItems(tickets);
       setAlerts(notifications.filter((item) => item.type === "SUPPORT_P0"));
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được yêu cầu.",
-        "error",
+      if (requestId === loadRequestId.current) notify(
+        error instanceof Error ? error.message : "Không tải được yêu cầu.", "error",
       );
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [admin, notify, session.roleCode]);
   useEffect(() => {
+    const loadSequence = loadRequestId;
+    const conversationSequence = conversationRequestId;
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadSequence.current++;
+      conversationSequence.current++;
+    };
   }, [load]);
   /** Mở đúng phiếu từ thông báo sau khi kiểm tra phạm vi trả về của API. */
   useEffect(() => {
@@ -276,18 +285,18 @@ export default function SupportPage() {
   };
   /** Chọn phiếu và nạp lịch sử trao đổi đầy đủ của phiếu đó. */
   const openConversation = async (item: Ticket) => {
+    const requestId = ++conversationRequestId.current;
+    if (selected?.id !== item.id) setComments([]);
+    setSelected(item);
     try {
-      setSelected(item);
-      setComments(
-        await apiRequest<TicketComment[]>(
-          `/support/tickets/${item.id}/comments`,
-          { roleCode: session.roleCode },
-        ),
+      const rows = await apiRequest<TicketComment[]>(
+        `/support/tickets/${item.id}/comments`,
+        { roleCode: session.roleCode },
       );
+      if (requestId === conversationRequestId.current) setComments(rows);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được trao đổi.",
-        "error",
+      if (requestId === conversationRequestId.current) notify(
+        error instanceof Error ? error.message : "Không tải được trao đổi.", "error",
       );
     }
   };
@@ -539,7 +548,7 @@ export default function SupportPage() {
       </Modal>
       <Modal
         open={Boolean(selected)}
-        onClose={() => setSelected(null)}
+        onClose={() => { conversationRequestId.current++; setSelected(null); setComments([]); }}
         title="Trao đổi yêu cầu hỗ trợ"
         description={
           selected

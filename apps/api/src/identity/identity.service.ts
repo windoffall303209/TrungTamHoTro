@@ -6,8 +6,10 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
-import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
+import { isPrismaUniqueConstraintError } from "../infrastructure/prisma-errors.js";
+import { asPrismaJsonRecord } from "../infrastructure/prisma-json.js";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   type PermissionCode,
@@ -30,13 +32,6 @@ import type {
 
 /** Lấy thời điểm hiện tại theo định dạng ISO để lưu và trả về nhất quán. */
 const now = (): string => new Date().toISOString();
-/** Nhận diện lỗi ràng buộc duy nhất của Prisma để chuyển thành thông báo nghiệp vụ. */
-const isUniqueConstraintError = (error: unknown): boolean =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "P2002";
-
 type UserWithRoles = Prisma.UserGetPayload<{
   include: { roles: { include: { role: true } } };
 }>;
@@ -254,7 +249,7 @@ export class IdentityService {
         });
         return this.mapUser(row);
       } catch (error) {
-        if (isUniqueConstraintError(error))
+        if (isPrismaUniqueConstraintError(error))
           throw new ConflictException(
             "Tên tài khoản đã được sử dụng. Hãy chọn tên khác.",
           );
@@ -594,7 +589,7 @@ export class IdentityService {
         take: 200,
       });
       return rows.map((row) => {
-        const context = this.asRecord(row.context);
+        const context = asPrismaJsonRecord(row.context);
         return {
           id: row.id.toString(),
           actorId: row.actorId ?? "system",
@@ -634,47 +629,38 @@ export class IdentityService {
         : currentRoleCodes;
     const nextRoleCode = nextRoleCodes[0] ?? currentRoleCode;
     const nextStatus = target.status ?? user.status;
-    const [
-      assignments,
-      regrades,
-      interventions,
-      supportTickets,
-      moderationReports,
-      upcomingSessions,
-      activeSessions,
-    ] = await Promise.all([
-      transaction.classInstructor.findMany({
-        where: {
-          instructorId: userId,
-          class: { status: { in: ["DRAFT", "ACTIVE"] } },
-        },
-        include: {
-          class: { select: { id: true, code: true, name: true, status: true } },
-        },
-        orderBy: { class: { code: "asc" } },
-      }),
-      transaction.regradeRequest.count({
-        where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
-      }),
-      transaction.progressIntervention.count({
-        where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-      }),
-      transaction.supportTicket.count({
-        where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-      }),
-      transaction.contentReport.count({
-        where: {
-          assignedToId: userId,
-          status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-        },
-      }),
-      transaction.liveSession.count({
-        where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
-      }),
-      transaction.authSession.count({
-        where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
-      }),
-    ]);
+    // Prisma dùng một kết nối cho transaction; đọc lần lượt để tránh truy vấn chồng nhau.
+    const assignments = await transaction.classInstructor.findMany({
+      where: {
+        instructorId: userId,
+        class: { status: { in: ["DRAFT", "ACTIVE"] } },
+      },
+      include: {
+        class: { select: { id: true, code: true, name: true, status: true } },
+      },
+      orderBy: { class: { code: "asc" } },
+    });
+    const regrades = await transaction.regradeRequest.count({
+      where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
+    });
+    const interventions = await transaction.progressIntervention.count({
+      where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+    });
+    const supportTickets = await transaction.supportTicket.count({
+      where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+    });
+    const moderationReports = await transaction.contentReport.count({
+      where: {
+        assignedToId: userId,
+        status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
+      },
+    });
+    const upcomingSessions = await transaction.liveSession.count({
+      where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
+    });
+    const activeSessions = await transaction.authSession.count({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
     const classes = assignments.map((item) => ({
       id: item.class.id,
       code: item.class.code,
@@ -837,37 +823,36 @@ export class IdentityService {
         ],
       });
     }
-    await Promise.all([
-      transaction.regradeRequest.updateMany({
-        where: {
-          assignedToId: fromUserId,
-          status: { in: ["OPEN", "IN_REVIEW"] },
-        },
-        data: { assignedToId: toUserId },
-      }),
-      transaction.progressIntervention.updateMany({
-        where: { ownerId: fromUserId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-        data: { ownerId: toUserId },
-      }),
-      transaction.liveSession.updateMany({
-        where: { hostId: fromUserId, status: { in: ["SCHEDULED", "LIVE"] } },
-        data: { hostId: toUserId },
-      }),
-      transaction.supportTicket.updateMany({
-        where: {
-          assigneeId: fromUserId,
-          status: { in: ["OPEN", "IN_PROGRESS"] },
-        },
-        data: { assigneeId: toUserId },
-      }),
-      transaction.contentReport.updateMany({
-        where: {
-          assignedToId: fromUserId,
-          status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-        },
-        data: { assignedToId: toUserId },
-      }),
-    ]);
+    // Mọi cập nhật thuộc cùng transaction, phải chờ truy vấn trước hoàn tất.
+    await transaction.regradeRequest.updateMany({
+      where: {
+        assignedToId: fromUserId,
+        status: { in: ["OPEN", "IN_REVIEW"] },
+      },
+      data: { assignedToId: toUserId },
+    });
+    await transaction.progressIntervention.updateMany({
+      where: { ownerId: fromUserId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+      data: { ownerId: toUserId },
+    });
+    await transaction.liveSession.updateMany({
+      where: { hostId: fromUserId, status: { in: ["SCHEDULED", "LIVE"] } },
+      data: { hostId: toUserId },
+    });
+    await transaction.supportTicket.updateMany({
+      where: {
+        assigneeId: fromUserId,
+        status: { in: ["OPEN", "IN_PROGRESS"] },
+      },
+      data: { assigneeId: toUserId },
+    });
+    await transaction.contentReport.updateMany({
+      where: {
+        assignedToId: fromUserId,
+        status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
+      },
+      data: { assignedToId: toUserId },
+    });
     await transaction.auditLog.create({
       data: {
         actorId,
@@ -934,13 +919,6 @@ export class IdentityService {
     };
   }
 
-  /** Tạo hash ngẫu nhiên không thể đăng nhập cho tài khoản quản trị tạo mà chưa đặt mật khẩu. */
-  private createDisabledPasswordHash(): string {
-    const salt = randomBytes(16).toString("hex");
-    const hash = scryptSync(randomBytes(32), salt, 64).toString("hex");
-    return `scrypt:${salt}:${hash}`;
-  }
-
   /** Ghi audit vào cùng transaction nghiệp vụ để thay đổi và dấu vết luôn nhất quán. */
   private async writeDatabaseAudit(
     transaction: Prisma.TransactionClient,
@@ -958,13 +936,6 @@ export class IdentityService {
         context: { summary },
       },
     });
-  }
-
-  /** Thu hẹp Prisma JSON thành object trước khi đọc trường summary. */
-  private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
   }
 
   /** Thêm sự kiện audit vào đầu danh sách fallback in-memory. */

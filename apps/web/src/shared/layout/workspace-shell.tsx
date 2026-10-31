@@ -25,11 +25,8 @@ import {
   UserCheck,
   Users,
   LogOut,
-  UserRoundCog,
   UserRound,
   ChevronDown,
-  Compass,
-  Sparkles,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -194,6 +191,16 @@ const allNavItems: NavigationItem[] = [
   },
 ];
 
+/** Giữ nguyên cách xác định mục đang mở, kể cả nhóm tuyến đặc biệt của quản trị viên. */
+function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: string): boolean {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  if (roleCode === "SYSTEM_ADMIN") {
+    if (href === "/admin/users") return pathname.startsWith("/admin");
+    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials";
+    if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle";
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 // Bố cục ứng dụng hoàn toàn mới: Thanh điều hướng Top-Nav đa tầng tối ưu không gian chiều ngang và đồng bộ song ngữ.
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -269,13 +276,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     ].filter((s) => s.items.length > 0);
   }, [availableItems]);
 
-  // Xác định chuyên mục hiện tại theo route
-  const currentSection = useMemo(() => {
-    const found = sections.find((s) =>
-      s.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)),
-    );
-    return found ?? sections[0];
-  }, [sections, pathname]);
   // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Lịch học, Tin nhắn
   const learnerNavItems = useMemo(
     () => [
@@ -323,27 +323,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  // Tính toán chữ cái đầu và tên hiển thị ngắn của học sinh
-  const initials = useMemo(() => {
-    const name = session.user.name?.trim() || "";
-    if (!name) return "TN";
-    const parts = name.split(/\s+/).filter(Boolean);
-    const first = parts[0]?.[0] ?? "";
-    const last = parts[parts.length - 1]?.[0] ?? "";
-    if (first && last && parts.length >= 2) {
-      return (first + last).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase() || "TN";
-  }, [session.user.name]);
 
-  const shortName = useMemo(() => {
-    const name = session.user.name?.trim() || "";
-    if (!name) return "Nam";
-    const parts = name.split(/\s+/).filter(Boolean);
-    return parts[parts.length - 1] ?? "Nam";
-  }, [session.user.name]);
-
-
+  const mobileRoleNavigation =
+    session.roleCode === "CENTER_MANAGER"
+      ? { title: "Menu quản lý trung tâm", items: centerManagerNavItems }
+      : session.roleCode === "INSTRUCTOR"
+        ? { title: "Menu giáo viên", items: instructorNavItems }
+        : session.roleCode === "LEARNER"
+          ? { title: "Menu học sinh", items: learnerNavItems }
+          : session.roleCode === "SYSTEM_ADMIN"
+            ? { title: "Menu quản trị hệ thống", items: adminNavItems }
+            : null;
   // Tải danh sách thông báo
   const loadNotifications = useCallback(async () => {
     setNotificationLoading(true);
@@ -669,11 +659,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               priority
               className="size-8 rounded-full text-[13px]"
             />
-            <span className="text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[110px] sm:max-w-[140px]">
+            <span className="hidden sm:block text-[13px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[110px] sm:max-w-[140px]">
               {session.user.name}
             </span>
             <ChevronDown
-              className={`text-slate-500 transition-transform ${
+              className={`hidden sm:block text-slate-500 transition-transform ${
                 profileOpen ? "rotate-180" : ""
               }`}
               size={14}
@@ -1020,103 +1010,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <nav className="flex-1 overflow-y-auto py-4 space-y-4">
-              {session.roleCode === "CENTER_MANAGER" ? (
+              {mobileRoleNavigation ? (
                 <div className="space-y-1">
                   <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                    Menu quản lý trung tâm
+                    {mobileRoleNavigation.title}
                   </p>
-                  {centerManagerNavItems.map(({ href, label, icon: Icon }) => {
-                    const active =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <Link
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          active
-                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        href={href}
-                        key={href}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Icon size={16} />
-                        <span>{t(label)}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              ) : session.roleCode === "INSTRUCTOR" ? (
-                <div className="space-y-1">
-                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                    Menu giáo viên
-                  </p>
-                  {instructorNavItems.map(({ href, label, icon: Icon }) => {
-                    const active =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <Link
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          active
-                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        href={href}
-                        key={href}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Icon size={16} />
-                        <span>{t(label)}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              ) : session.roleCode === "LEARNER" ? (
-                <div className="space-y-1">
-                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                    Menu học sinh
-                  </p>
-                  {learnerNavItems.map(({ href, label, icon: Icon }) => {
-                    const active =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <Link
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          active
-                            ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
-                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
-                        href={href}
-                        key={href}
-                        onClick={() => setMenuOpen(false)}
-                      >
-                        <Icon size={16} />
-                        <span>{t(label)}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              ) : session.roleCode === "SYSTEM_ADMIN" ? (
-                <div className="space-y-1">
-                  <p className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                    Menu quản trị hệ thống
-                  </p>
-                  {adminNavItems.map(({ href, label, icon: Icon }) => {
-                    const active =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : href === "/admin/users"
-                          ? pathname.startsWith("/admin")
-                          : href === "/exams"
-                            ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials"
-                            : href === "/class-operations"
-                              ? pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle"
-                              : pathname === href || pathname.startsWith(`${href}/`);
+                  {mobileRoleNavigation.items.map(({ href, label, icon: Icon }) => {
+                    const active = isMobileRoleNavActive(session.roleCode, href, pathname);
                     return (
                       <Link
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${

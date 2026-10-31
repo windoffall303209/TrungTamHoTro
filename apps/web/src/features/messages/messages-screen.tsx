@@ -11,7 +11,6 @@ import {
   Bell,
   BellOff,
   Download,
-  Eye,
   LoaderCircle,
   MessageCircle,
   Mic,
@@ -75,7 +74,6 @@ export default function MessagesScreen() {
     query,
     setQuery,
     loading,
-    searching,
     sending,
     recording,
     replyTo,
@@ -94,8 +92,6 @@ export default function MessagesScreen() {
     setBlockOpen,
     blockReason,
     setBlockReason,
-    pendingContext,
-    setPendingContext,
     bottomRef,
     messagePaneRef,
     selected,
@@ -385,12 +381,16 @@ export default function MessagesScreen() {
               {/* Vùng hiển thị toàn bộ tin nhắn cuộn */}
               <div
                 className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-white dark:bg-[#18191a] scrollbar-thin"
-                onScroll={(event) =>
-                  window.sessionStorage.setItem(
-                    `wind-chat-scroll:${session.user.id}:${selected.id}`,
-                    String(event.currentTarget.scrollTop),
-                  )
-                }
+                onScroll={(event) => {
+                  try {
+                    window.sessionStorage.setItem(
+                      `wind-chat-scroll:${session.user.id}:${selected.id}`,
+                      String(event.currentTarget.scrollTop),
+                    );
+                  } catch {
+                    // Không để quyền truy cập storage làm gián đoạn thao tác cuộn.
+                  }
+                }}
                 ref={messagePaneRef}
               >
                 {/* Banner đầu trang hội thoại */}

@@ -3,7 +3,6 @@
 import {
   Eye,
   EyeOff,
-  Filter,
   LockKeyhole,
   Plus,
   RotateCcw,
@@ -121,12 +120,14 @@ export default function UsersPage() {
   // Tìm người nhận độc lập với trang tài khoản đang hiển thị.
   useEffect(() => {
     if (!impact?.requiresHandoff) return;
+    let active = true;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void apiRequest<{ items: IdentityUser[] }>(`/admin/users?pageSize=50&query=${encodeURIComponent(handoffQuery)}`, { roleCode: session.roleCode, signal: controller.signal })
-        .then((data) => setHandoffUsers(data.items)).catch(() => { if (!controller.signal.aborted) setHandoffUsers([]); });
+        .then((data) => { if (active && !controller.signal.aborted) setHandoffUsers(data.items); })
+        .catch(() => { if (active && !controller.signal.aborted) setHandoffUsers([]); });
     }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
   }, [handoffQuery, impact?.requiresHandoff, session.roleCode]);
 
   /** Nạp danh sách người dùng theo truy vấn tìm kiếm và bộ lọc hiện tại. */
@@ -151,12 +152,14 @@ export default function UsersPage() {
       setTotals(data);
       if (page > 1 && !data.items.length) setPage(Math.max(1, Math.ceil(data.total / pageSize)));
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được danh sách người dùng.",
-        "error",
-      );
+      if (version === requestVersion.current) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được danh sách người dùng.",
+          "error",
+        );
+      }
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
@@ -164,7 +167,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadUsers(), 220);
-    return () => window.clearTimeout(timeout);
+    return () => { window.clearTimeout(timeout); requestVersion.current += 1; };
   }, [loadUsers]);
 
   /** Mở hộp thoại tạo với biểu mẫu người dùng rỗng. */

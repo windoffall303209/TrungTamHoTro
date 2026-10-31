@@ -3,24 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
+import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
+import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
 import { ExamTakingModal, type ExamTakingData } from "@/roles/learner/class/exam-taking-modal";
 import {
-  AlertCircle,
   ArrowLeft,
   Award,
-  BookOpen,
   Calendar,
   CalendarDays,
-  Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
-  Copy,
   Download,
   Edit2,
   Edit3,
-  ExternalLink,
   Eye,
   FileCheck2,
   FileQuestion,
@@ -30,35 +27,24 @@ import {
   FolderOpen,
   FolderPlus,
   FolderInput,
-  Globe,
-  GraduationCap,
   Info,
   Layers,
   LayoutGrid,
   Link as LinkIcon,
   List,
   ListChecks,
-  Lock,
   MessageCircle,
   MessageSquare,
-  MoreHorizontal,
-  MoreVertical,
-  Paperclip,
   Play,
   Plus,
   Printer,
   RefreshCw,
   Search,
-  Send,
   Settings,
   Share2,
-  ShieldAlert,
-  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  ThumbsUp,
   Trash2,
-  Upload,
   UploadCloud,
   UserCheck,
   UserPlus,
@@ -70,21 +56,43 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AiGeneratedExamResult,
   Assignment,
+  AssignmentSubmission,
   Course,
   DirectoryUser,
   Exam,
-  ExamAttempt,
+  GradebookRow,
   LearningClass,
-  LiveSession,
   Material,
   Question,
+  QuestionImportResult,
 } from "@/lib/learning-types";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, downloadApiFile } from "@/lib/api-client";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/exam-question-selection";
+import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
-import { Button, Modal } from "@/shared/ui/ui";
-import { AssignmentBuilderModal } from "@/features/exams/assignment-builder-modal";
+import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
+import {
+  detectLectureLinkPlatform,
+  exportAssignmentsCsv,
+  exportGradebookCsv,
+  filterClassQuestions,
+  filterClassResources,
+  getClassFolderNames,
+  getClassQuestionStats,
+  getScoreColorClass,
+  getLectureYoutubeId,
+  isLectureMaterial,
+  toClassQuestion,
+  toLectureItem,
+  toMaterialDisplayItem,
+  type ClassQuestion,
+  type LectureItem,
+  type MaterialDisplayItem,
+} from "./instructor-class-workspace.helpers";
 
 export interface InstructorClassWorkspaceProps {
   item: LearningClass;
@@ -93,7 +101,7 @@ export interface InstructorClassWorkspaceProps {
     instructorId: string;
     role?: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     avatarUrl?: string;
   }>;
   onBack?: () => void;
@@ -111,101 +119,15 @@ export type InstructorSubTab =
   | "questions"
   | "settings";
 
-interface ClassPost {
-  id: string;
-  authorName: string;
-  authorAvatar?: string;
-  authorRole: string;
-  createdAt: string;
-  content: string;
-  images?: string[];
-  likes: number;
-  isLiked?: boolean;
-  comments: Array<{
-    id: string;
-    authorName: string;
-    authorAvatar?: string;
-    content: string;
-    createdAt: string;
-  }>;
-}
+const invalidLectureLinkMessage = "Chỉ chấp nhận liên kết từ YouTube, Facebook hoặc Google Drive!";
 
-interface LectureItem {
-  id: string;
-  title: string;
-  description?: string;
-  sourceType: "LINK" | "FILE";
-  sourceUrl?: string;
-  youtubeId?: string;
-  platform?: "YOUTUBE" | "FACEBOOK" | "DRIVE" | "DIRECT" | "INVALID";
-  fileType?: "mp4" | "mp3" | "pptx";
-  duration?: string;
-  teacher?: string;
-  fileName?: string;
-  fileSize?: string;
-  folder: string;
-  uploadedAt: string;
-  authorName: string;
-  progressPercent?: number;
-  viewsCount?: number;
-  assignmentIds?: string[];
-  materialIds?: string[];
-  attachedExamId?: string;
-  attachedExamTitle?: string;
-}
-
-interface MaterialDisplayItem {
-  id: string;
-  title: string;
-  fileType: "pdf" | "doc" | "word" | "xlsx";
-  size: string;
-  uploadedAt: string;
-  folder: string;
-  pageCount?: number;
-  downloadsCount?: number;
-  description?: string;
-  url?: string;
-}
-
-interface StudentAttemptStat {
-  id: string;
-  learnerId: string;
-  learnerName: string;
-  learnerEmail: string;
-  attemptCount: number;
-  bestScore: number;
-  maxScore: number;
-  durationMinutes: number;
-  submittedAt: string;
-  attempts: Array<{
-    attemptNo: number;
-    score: number;
-    maxScore: number;
-    submittedAt: string;
-    durationMinutes: number;
-    answers?: Array<{
-      questionId: string;
-      questionContent: string;
-      learnerAnswer: string;
-      correctAnswer: string;
-      isCorrect: boolean;
-      score: number;
-      maxScore: number;
-    }>;
-  }>;
-}
-
-/** Trả về màu sắc giao diện theo thang điểm K-12: < 5 đỏ cảnh báo, 8.5-10 xanh lá, còn lại xanh lam */
-function getScoreColorClass(score: number, maxScore = 10): string {
-  const normalized = (score / (maxScore || 10)) * 10;
-  if (normalized < 5) {
-    return "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/80";
-  }
-  if (normalized >= 8.5) {
-    return "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/80";
-  }
-  return "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-200/80 dark:border-sky-800/80";
-}
+type AssignmentPreview = Assignment & {
+  folder?: string;
+  durationMinutes?: number;
+  totalQuestions?: number;
+  questions?: ClassQuestion[];
+  questionIds?: string[];
+};
 
 /** Đảm nhiệm InstructorClassWorkspace trong phạm vi module hiện tại. */
 export function InstructorClassWorkspace({
@@ -260,19 +182,15 @@ export function InstructorClassWorkspace({
 
   // Dữ liệu lớp học
   const [learners, setLearners] = useState<DirectoryUser[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [sessions, setSessions] = useState<LiveSession[]>([]);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [assignments, setAssignments] = useState<AssignmentPreview[]>([]);
+  const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [submissionsByAssignment, setSubmissionsByAssignment] = useState<Record<string, AssignmentSubmission[]>>({});
 
   // Chế độ xem lịch học: dạng tuần (lưới) hoặc dạng tháng (danh sách)
   const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
 
   // Bộ lọc và tìm kiếm chung
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterType, setFilterType] = useState("ALL");
 
   // Quản lý thư mục cho Bài tập, Bài giảng, Tài liệu
   const [selectedFolder, setSelectedFolder] = useState<string>("Tất cả");
@@ -284,27 +202,6 @@ export function InstructorClassWorkspace({
   ]);
   const [newFolderInput, setNewFolderInput] = useState("");
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
-
-  // Bảng tin lớp học
-  const [posts, setPosts] = useState<ClassPost[]>([
-    {
-      id: "post-welcome",
-      authorName: session.user.name || "Giáo viên phụ trách",
-      authorRole: "Giảng viên",
-      createdAt: "Vừa xong",
-      content: `Chào mừng các em học sinh đến với lớp ${item.name} (${item.code}). Đề nghị các em theo dõi lịch học và nộp bài tập đúng hạn.`,
-      likes: 8,
-      comments: [
-        {
-          id: "cmt-1",
-          authorName: "Nguyễn Văn Nam",
-          content: "Dạ em chào thầy cô ạ!",
-          createdAt: "5 phút trước",
-        },
-      ],
-    },
-  ]);
-  const [newPostContent, setNewPostContent] = useState("");
 
   // Chế độ xem bài tập: "list" (danh sách 3 cột theo Ảnh 2) hoặc "detail" (chi tiết & bảng điểm theo Ảnh 1)
   const [assignmentViewMode, setAssignmentViewMode] = useState<"list" | "detail">("list");
@@ -318,129 +215,39 @@ export function InstructorClassWorkspace({
   const [assignmentListDisplayMode, setAssignmentListDisplayMode] = useState<"list" | "grid">("list");
 
   // Bài tập được chọn ở Cột 3
-  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<AssignmentPreview | null>(null);
   const [previewExam, setPreviewExam] = useState<ExamTakingData | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareScope, setShareScope] = useState<"CLASS_ONLY" | "PUBLIC">("CLASS_ONLY");
   const [statsModalOpen, setStatsModalOpen] = useState(false);
-  const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<StudentAttemptStat | null>(null);
+  const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<AssignmentSubmission | null>(null);
 
-  // Danh sách Bài giảng phong phú đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý qua localStorage)
-  const [lectures, setLectures] = useState<LectureItem[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`wind_lectures_${item.id}`);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
-      {
-        id: "lec-03",
-        title: "Bài giảng 03: Hình học không gian - Thể tích khối đa diện",
-        fileType: "mp4",
-        duration: "45 phút",
-        teacher: session.user.name || "Wind Fall",
-        uploadedAt: "27 tháng 10 lúc 16:58",
-        folder: "Hình học",
-        progressPercent: 75,
-        viewsCount: 38,
-        description: "Nắm vững lý thuyết tính thể tích lăng trụ, chóp cụt và ứng dụng phân chia khối đa diện.",
-        youtubeId: "jfKfPfyJRdk",
-        sourceType: "LINK",
-        sourceUrl: "https://www.youtube.com/watch?v=jfKfPfyJRdk",
-        platform: "YOUTUBE",
-        authorName: session.user.name || "Wind Fall",
-      },
-      {
-        id: "lec-pptx",
-        title: "Phiếu bài tập trắc nghiệm toán học tách câu & slide tóm tắt",
-        fileType: "pptx",
-        duration: "45 phút",
-        teacher: session.user.name || "Wind Fall",
-        uploadedAt: "27 tháng 10 lúc 16:58",
-        folder: "Toán 1",
-        progressPercent: 75,
-        viewsCount: 42,
-        description: "Phiếu bài tập trắc nghiệm phân loại chi tiết và tổng hợp công thức toán học trọng tâm.",
-        sourceType: "FILE",
-        platform: "DIRECT",
-        authorName: session.user.name || "Wind Fall",
-      },
-      {
-        id: "lec-02",
-        title: "Bài giảng 02: Kỹ thuật phân tích đồ thị và tương giao hàm số",
-        fileType: "mp4",
-        duration: "45 phút",
-        teacher: session.user.name || "Wind Fall",
-        uploadedAt: "27 tháng 10 lúc 16:33",
-        folder: "Toán 1",
-        progressPercent: 75,
-        viewsCount: 32,
-        description: "Phương pháp tương giao đồ thị và các bài toán biện luận tham số nâng cao.",
-        youtubeId: "kJQP7kiw5Fk",
-        sourceType: "LINK",
-        sourceUrl: "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
-        platform: "YOUTUBE",
-        authorName: session.user.name || "Wind Fall",
-      },
-      {
-        id: "lec-01",
-        title: "Bài giảng 01: Đại cương về Hàm số bậc nhất và bậc hai",
-        fileType: "mp4",
-        duration: "45 phút",
-        teacher: session.user.name || "Wind Fall",
-        uploadedAt: "27 tháng 10 lúc 15:34",
-        folder: "Toán 1",
-        progressPercent: 75,
-        viewsCount: 50,
-        description: "Khái niệm hàm số, tập xác định, tính đơn điệu và vẽ bảng biến thiên hàm số.",
-        youtubeId: "dQw4w9WgXcQ",
-        sourceType: "LINK",
-        sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        platform: "YOUTUBE",
-        authorName: session.user.name || "Wind Fall",
-      },
-    ];
-  });
+  // Bài giảng được nạp từ danh sách học liệu của API, cùng nguồn với học viên.
+  const [lectures, setLectures] = useState<LectureItem[]>([]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_lectures_${item.id}`, JSON.stringify(lectures));
-      } catch (e) {}
-    }
-  }, [lectures, item.id]);
-
-  const [selectedLecture, setSelectedLecture] = useState<LectureItem | null>(null);
   const [selectedLectureForPage, setSelectedLectureForPage] = useState<LectureItem | null>(null);
-  const [selectedLectureId, setSelectedLectureId] = useState<string>("lec-pptx");
+  const [selectedLectureId, setSelectedLectureId] = useState<string>("");
   const [lectureSearch, setLectureSearch] = useState("");
   const [lectureSort, setLectureSort] = useState<"alpha" | "newest" | "type">("newest");
   const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
-  const [lectureFolderExpanded, setLectureFolderExpanded] = useState<Record<string, boolean>>({
-    "Hình học": true,
-    "Toán 1": true,
-  });
+  const [lectureFolderExpanded, setLectureFolderExpanded] = useState<Record<string, boolean>>({});
 
   // Modal tạo & chỉnh sửa Bài giảng 2 vùng (Two-Pane Creator)
   const [addLectureModalOpen, setAddLectureModalOpen] = useState(false);
   const [editLectureModalOpen, setEditLectureModalOpen] = useState(false);
   const [editingLecture, setEditingLecture] = useState<LectureItem | null>(null);
-  const [lectureMethod, setLectureMethod] = useState<"LINK" | "FILE">("LINK");
+  const [lectureMethod, setLectureMethod] = useState<"LINK" | "FILE">("FILE");
   const [lectureInputUrl, setLectureInputUrl] = useState("");
   const [lectureUrlError, setLectureUrlError] = useState("");
   const [lectureDetectedPlatform, setLectureDetectedPlatform] = useState<
     "YOUTUBE" | "FACEBOOK" | "DRIVE" | "INVALID"
   >("INVALID");
-  const [lectureUploadProgress, setLectureUploadProgress] = useState(0);
-  const [lectureIntegrityChecking, setLectureIntegrityChecking] = useState(false);
-  const [lecturePreviewReady, setLecturePreviewReady] = useState(false);
   const [lectureFileObj, setLectureFileObj] = useState<File | null>(null);
+  const [lectureSaving, setLectureSaving] = useState(false);
   const [lectureFormTitle, setLectureFormTitle] = useState("");
   const [lectureFormDesc, setLectureFormDesc] = useState("");
   const [lectureFormFolder, setLectureFormFolder] = useState("Toán 1");
   const [lectureAttachedAssignments, setLectureAttachedAssignments] = useState<string[]>([]);
-  const [lectureAttachedMaterials, setLectureAttachedMaterials] = useState<string[]>([]);
 
   // State chỉnh sửa bài giảng 2 vùng (y hệt tạo mới)
   const [editLectureMethod, setEditLectureMethod] = useState<"LINK" | "FILE">("LINK");
@@ -449,9 +256,6 @@ export function InstructorClassWorkspace({
   const [editLectureDetectedPlatform, setEditLectureDetectedPlatform] = useState<
     "YOUTUBE" | "FACEBOOK" | "DRIVE" | "INVALID"
   >("INVALID");
-  const [editLectureUploadProgress, setEditLectureUploadProgress] = useState(0);
-  const [editLectureIntegrityChecking, setEditLectureIntegrityChecking] = useState(false);
-  const [editLecturePreviewReady, setEditLecturePreviewReady] = useState(true);
   const [editLectureFileObj, setEditLectureFileObj] = useState<File | null>(null);
   const [editLectureFormTitle, setEditLectureFormTitle] = useState("");
   const [editLectureFormDesc, setEditLectureFormDesc] = useState("");
@@ -459,11 +263,6 @@ export function InstructorClassWorkspace({
 
   // Modal tạo Bài tập mới
   const [addAssignmentModalOpen, setAddAssignmentModalOpen] = useState(false);
-  const [assignmentFormTitle, setAssignmentFormTitle] = useState("");
-  const [assignmentFormDesc, setAssignmentFormDesc] = useState("");
-  const [assignmentFormDue, setAssignmentFormDue] = useState("");
-  const [assignmentFormMaxScore, setAssignmentFormMaxScore] = useState(10);
-  const [assignmentFormFolder, setAssignmentFormFolder] = useState("Tuần 1 - Nhập môn");
 
   // Modal Chỉnh sửa Bài tập (áp dụng tương tự)
   const [editAssignmentModalOpen, setEditAssignmentModalOpen] = useState(false);
@@ -473,7 +272,7 @@ export function InstructorClassWorkspace({
   const [editAssignmentInstructions, setEditAssignmentInstructions] = useState("");
   const [editAssignmentDue, setEditAssignmentDue] = useState("");
   const [editAssignmentMaxScore, setEditAssignmentMaxScore] = useState(10);
-  const [editAssignmentFolder, setEditAssignmentFolder] = useState("Tuần 1 - Nhập môn");
+  const [editAssignmentSaving, setEditAssignmentSaving] = useState(false);
 
   // Modal Hub điều phối 5 cách tạo Bài tập & Soạn câu hỏi
   const [creationHubOpen, setCreationHubOpen] = useState(false);
@@ -491,47 +290,24 @@ export function InstructorClassWorkspace({
     "Phương án D",
   ]);
   const [authoringCorrect, setAuthoringCorrect] = useState<number[]>([0]);
-  const [authoringSolution, setAuthoringSolution] = useState("");
-  const [authoringSaveAsAssignment, setAuthoringSaveAsAssignment] = useState(false);
-  const [authoringAssignmentTitle, setAuthoringAssignmentTitle] = useState("");
+  const [authoringSaving, setAuthoringSaving] = useState(false);
 
   // Cách 2: Quét đề bằng AI OCR
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [scanProvider, setScanProvider] = useState("Gemini 1.5 Pro (Khuyên dùng)");
+  const [scanFile, setScanFile] = useState<File | null>(null);
   const [scanStatus, setScanStatus] = useState<"IDLE" | "SCANNING" | "DONE">("IDLE");
-  const [scanSampleImg, setScanSampleImg] = useState<string | null>(null);
-  const [scannedExamQuestions, setScannedExamQuestions] = useState<
-    Array<{ id: string; content: string; options: string[]; correctKey: string; score: number }>
-  >([
-    {
-      id: "scan-q1",
-      content: "Câu 1: Cho hàm số y = ax³ + bx² + cx + d có đồ thị như hình vẽ. Mệnh đề nào dưới đây đúng?",
-      options: ["a > 0, b < 0, c > 0, d < 0", "a > 0, b > 0, c < 0, d > 0", "a < 0, b < 0, c > 0, d > 0", "a > 0, b < 0, c < 0, d > 0"],
-      correctKey: "A",
-      score: 1.0,
-    },
-    {
-      id: "scan-q2",
-      content: "Câu 2: Thể tích của khối lăng trụ có diện tích đáy B và chiều cao h được tính theo công thức nào?",
-      options: ["V = B.h", "V = 1/3 B.h", "V = 1/2 B.h", "V = 4/3 B.h"],
-      correctKey: "A",
-      score: 1.0,
-    },
-    {
-      id: "scan-q3",
-      content: "Câu 3: Số nghiệm nguyên của bất phương trình log₂(x² - 3x) ≤ 2 là bao nhiêu?",
-      options: ["3 nghiệm", "4 nghiệm", "2 nghiệm", "5 nghiệm"],
-      correctKey: "B",
-      score: 1.0,
-    },
-    {
-      id: "scan-q4",
-      content: "Câu 4: Tìm nguyên hàm của hàm số f(x) = sin 2x?",
-      options: ["-1/2 cos 2x + C", "1/2 cos 2x + C", "-cos 2x + C", "2 cos 2x + C"],
-      correctKey: "A",
-      score: 1.0,
-    },
-  ]);
+  const [scanSaving, setScanSaving] = useState(false);
+  const [scannedExamQuestions, setScannedExamQuestions] = useState<Array<{
+    type: Question["type"];
+    content: string;
+    options: string[];
+    correctAnswers: string[];
+    difficulty: Question["difficulty"];
+    tags: string[];
+    confidence: number;
+    warnings: string[];
+  }>>([]);
+  const [scanProviderLabel, setScanProviderLabel] = useState("");
 
   // Cách 3: Tạo đề thi bằng AI
   const [aiExamModalOpen, setAiExamModalOpen] = useState(false);
@@ -540,16 +316,16 @@ export function InstructorClassWorkspace({
   const [aiQuestionCount, setAiQuestionCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">("MEDIUM");
   const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiGeneratedItems, setAiGeneratedItems] = useState<
-    Array<{ id: string; content: string; options: string[]; correctKey: string; explanation: string }>
-  >([]);
+  const aiRequestRef = useRef<{ signature: string; id: string } | null>(null);
+  const [aiGeneratedExam, setAiGeneratedExam] = useState<AiGeneratedExamResult | null>(null);
 
   // Cách 4: Tạo đề thi từ ngân hàng câu hỏi (3 kiểu: 1. Thủ công, 2. Chọn mốc để AI chọn, 3. Ngẫu nhiên)
   const [manualExamModalOpen, setManualExamModalOpen] = useState(false);
   const [examCreationMode, setExamCreationMode] = useState<"MANUAL" | "AI_CRITERIA" | "RANDOM">("MANUAL");
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDuration, setManualExamDuration] = useState(45);
-  const [manualExamDueAt, setManualExamDueAt] = useState("2026-11-05T23:59");
+  const [manualExamDueAt, setManualExamDueAt] = useState("");
+  const [examSaving, setExamSaving] = useState(false);
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
   const [manualExamFilterScope, setManualExamFilterScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
 
@@ -561,7 +337,7 @@ export function InstructorClassWorkspace({
   const [aiRatioHard, setAiRatioHard] = useState(20);
   const [aiRatioVeryHard, setAiRatioVeryHard] = useState(10);
   const [aiCriteriaScope, setAiCriteriaScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
-  const [aiCriteriaPreviewList, setAiCriteriaPreviewList] = useState<any[]>([]);
+  const [aiCriteriaPreviewList, setAiCriteriaPreviewList] = useState<ClassQuestion[]>([]);
 
   // Kiểu 3: Ngẫu nhiên
   const [randomQuestionCount, setRandomQuestionCount] = useState(10);
@@ -575,6 +351,7 @@ export function InstructorClassWorkspace({
 
   // Chỉnh sửa câu hỏi trong ngân hàng
   const [editingQuestionModalOpen, setEditingQuestionModalOpen] = useState(false);
+  const [editingQuestionSaving, setEditingQuestionSaving] = useState(false);
   const [editingQuestionData, setEditingQuestionData] = useState<{
     id: string;
     content: string;
@@ -586,86 +363,37 @@ export function InstructorClassWorkspace({
     solution: string;
   } | null>(null);
 
-  // Ngân hàng câu hỏi riêng của lớp học (lưu vật lý qua localStorage)
-  const [classQuestions, setClassQuestions] = useState<
-    Array<{
-      id: string;
-      content: string;
-      type: string;
-      difficulty: string;
-      source: string;
-      options?: string[];
-      correctAnswers?: number[];
-      solution?: string;
-      createdAt: string;
-    }>
-  >(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`wind_questions_${item.id}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch (e) {}
-    }
-    return [];
-  });
+  // Ngân hàng chỉ lấy từ API để không giữ các bản ghi giả hoặc dữ liệu đã lỗi thời.
+  const [classQuestions, setClassQuestions] = useState<ClassQuestion[]>([]);
 
-  // Tự động lưu Ngân hàng câu hỏi riêng vào localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_questions_${item.id}`, JSON.stringify(classQuestions));
-      } catch (e) {}
-    }
-  }, [classQuestions, item.id]);
+  // Chỉ dùng câu hỏi đã xuất bản khi lập đề; câu nháp vẫn hiển thị trong ngân hàng.
+  const publishedClassQuestions = useMemo(
+    () => classQuestions.filter((question) => question.status === "PUBLISHED"),
+    [classQuestions],
+  );
+  const aiCriteriaPreviewIsCurrent = useMemo(
+    () => isExamQuestionPreviewCurrent(aiCriteriaPreviewList, classQuestions),
+    [aiCriteriaPreviewList, classQuestions],
+  );
+  const manualExamVisibleQuestions = useMemo(
+    () => filterClassQuestions(publishedClassQuestions, manualExamFilterScope),
+    [publishedClassQuestions, manualExamFilterScope],
+  );
+  const manualExamAllVisibleSelected = manualExamVisibleQuestions.length > 0 &&
+    manualExamVisibleQuestions.every((question) => manualExamSelectedQuestions.includes(question.id));
+  const publishedQuestionStats = useMemo(() => getClassQuestionStats(publishedClassQuestions), [publishedClassQuestions]);
 
   // Thống kê phân loại Ngân hàng câu hỏi riêng của lớp
-  const classQuestionStats = useMemo(() => {
-    const total = classQuestions.length;
-    const multipleChoice = classQuestions.filter((q) => q.type !== "Tự luận").length;
-    const essay = classQuestions.filter((q) => q.type === "Tự luận").length;
-    return { total, multipleChoice, essay };
-  }, [classQuestions]);
+  const classQuestionStats = useMemo(() => getClassQuestionStats(classQuestions), [classQuestions]);
 
   // Danh sách câu hỏi sau lọc trong Tab 9
   const filteredClassQuestions = useMemo(() => {
-    return classQuestions.filter((q) => {
-      if (questionBankTab === "MULTIPLE_CHOICE" && q.type === "Tự luận") return false;
-      if (questionBankTab === "ESSAY" && q.type !== "Tự luận") return false;
-      if (questionBankDifficulty !== "ALL" && q.difficulty !== questionBankDifficulty) return false;
-      if (questionBankSearch.trim()) {
-        const kw = questionBankSearch.toLowerCase().trim();
-        return q.content.toLowerCase().includes(kw) || q.source?.toLowerCase().includes(kw);
-      }
-      return true;
-    });
+    return filterClassQuestions(classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch);
   }, [classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch]);
 
-  // Danh sách Tài liệu đồng bộ chuẩn 100% với học sinh (lưu trữ vật lý từ CSDL)
-  const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`wind_materials_${item.id}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch (e) {}
-    }
-    return [];
-  });
+  // API là nguồn dữ liệu duy nhất để tránh hiện tài liệu đã xóa/di chuyển hoặc bản ghi giả.
+  const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_materials_${item.id}`, JSON.stringify(materialsList));
-      } catch (e) {}
-    }
-  }, [materialsList, item.id]);
-
-  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>("");
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
@@ -682,19 +410,14 @@ export function InstructorClassWorkspace({
 
   const [materialFormTitle, setMaterialFormTitle] = useState("");
   const [materialFormFolder, setMaterialFormFolder] = useState("Toán 1");
-  const [materialFormFileType, setMaterialFormFileType] = useState<"pdf" | "xlsx" | "doc">("pdf");
-  const [materialFormSize, setMaterialFormSize] = useState("2.5 MB");
-  const [materialFormPageCount, setMaterialFormPageCount] = useState(10);
+  const [materialUploadFile, setMaterialUploadFile] = useState<File | null>(null);
+  const [materialSaving, setMaterialSaving] = useState(false);
   const [materialFormDesc, setMaterialFormDesc] = useState("");
 
   // State chỉnh sửa tài liệu (hỗ trợ thay tệp mới từ máy)
   const [editMaterialFileObj, setEditMaterialFileObj] = useState<File | null>(null);
-  const [editMaterialUploadProgress, setEditMaterialUploadProgress] = useState(0);
   const [editMaterialFormTitle, setEditMaterialFormTitle] = useState("");
   const [editMaterialFormFolder, setEditMaterialFormFolder] = useState("Toán 1");
-  const [editMaterialFormFileType, setEditMaterialFormFileType] = useState<"pdf" | "xlsx" | "doc">("pdf");
-  const [editMaterialFormSize, setEditMaterialFormSize] = useState("");
-  const [editMaterialFormPageCount, setEditMaterialFormPageCount] = useState(10);
   const [editMaterialFormDesc, setEditMaterialFormDesc] = useState("");
 
   // Modal Di chuyển Bài giảng & Tài liệu sang lớp khác hoặc Cần phân cấp lại
@@ -704,11 +427,18 @@ export function InstructorClassWorkspace({
   const [allInstructorClasses, setAllInstructorClasses] = useState<LearningClass[]>([]);
 
   useEffect(() => {
-    apiRequest<LearningClass[]>("/instructor/classes", { roleCode: session.roleCode })
+    const controller = new AbortController();
+    apiRequest<LearningClass[]>("/instructor/classes", {
+      roleCode: session.roleCode,
+      signal: controller.signal,
+    })
       .then((data) => {
-        if (Array.isArray(data)) setAllInstructorClasses(data);
+        if (!controller.signal.aborted && Array.isArray(data)) setAllInstructorClasses(data);
       })
-      .catch((err) => console.warn("Lỗi nạp danh sách lớp:", err));
+      .catch((err) => {
+        if (!controller.signal.aborted) console.warn("Lỗi nạp danh sách lớp:", err);
+      });
+    return () => controller.abort();
   }, [session.roleCode]);
 
 /** Đảm nhiệm handleOpenMoveItem trong phạm vi module hiện tại. */
@@ -734,9 +464,9 @@ export function InstructorClassWorkspace({
 
       if (targetDestinationClassId !== item.id) {
         if (itemForMove.kind === "LECTURE") {
-          setLectures((prev: any[]) => prev.filter((l: any) => l.id !== itemForMove.id));
+          setLectures((prev) => prev.filter((l) => l.id !== itemForMove.id));
         } else {
-          setMaterialsList((prev: any[]) => prev.filter((m: any) => m.id !== itemForMove.id));
+          setMaterialsList((prev) => prev.filter((m) => m.id !== itemForMove.id));
         }
       }
 
@@ -756,168 +486,161 @@ export function InstructorClassWorkspace({
   const [classSettings, setClassSettings] = useState({
     displayName: item.name,
     description: course?.description || "Lớp học tiêu chuẩn theo chương trình phổ thông.",
-    coverUrl: "",
     allowStudentPost: true,
     allowLateSubmission: false,
     maxAttempts: 2,
-    announcement: "Lịch kiểm tra 15 phút vào thứ Sáu tuần này.",
   });
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (settingsSaveTimer.current !== null) clearTimeout(settingsSaveTimer.current);
+  }, []);
 
   // Modal thêm đồng giáo viên
   const [addCoInstructorOpen, setAddCoInstructorOpen] = useState(false);
   const [coInstructorRole, setCoInstructorRole] = useState<"CO_INSTRUCTOR" | "ASSISTANT">("CO_INSTRUCTOR");
   const [selectedInstructorId, setSelectedInstructorId] = useState("");
   const [allAvailableInstructors, setAllAvailableInstructors] = useState<DirectoryUser[]>([]);
+  const classDataRequestRef = useRef(0);
+  const classDataControllerRef = useRef<AbortController | null>(null);
 
   /** Tải dữ liệu toàn diện của lớp học từ cơ sở dữ liệu vật lý */
   const loadClassData = useCallback(async () => {
-    setLoading(true);
+    const requestId = ++classDataRequestRef.current;
+    classDataControllerRef.current?.abort();
+    const controller = new AbortController();
+    classDataControllerRef.current = controller;
     try {
-      const [learnersData, assignmentsData, examsData, materialsData, sessionsData, dbQuestionsData] =
-        await Promise.all([
+      const [learnersResult, assignmentsResult, materialsResult, questionsResult, gradebookResult] =
+        await Promise.allSettled([
           apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
             roleCode: session.roleCode,
-          }).catch(() => [] as DirectoryUser[]),
+            signal: controller.signal,
+          }),
           apiRequest<Assignment[]>(`/academic/assignments?classId=${item.id}`, {
             roleCode: session.roleCode,
-          }).catch(() => [] as Assignment[]),
-          apiRequest<Exam[]>(`/exams?classId=${item.id}`, {
+            signal: controller.signal,
+          }),
+          loadAllMaterials<Material>("/materials", {
             roleCode: session.roleCode,
-          }).catch(() => [] as Exam[]),
-          apiRequest<Material[]>(`/materials?classId=${item.id}`, {
-            roleCode: session.roleCode,
-          }).catch(() => [] as Material[]),
-          apiRequest<LiveSession[]>(`/sessions?classId=${item.id}`, {
-            roleCode: session.roleCode,
-          }).catch(() => [] as LiveSession[]),
-          apiRequest<any[]>(
+            signal: controller.signal,
+          }),
+          apiRequest<Array<Question & { solution?: string; createdAt?: string }>>(
             item.courseId ? `/instructor/question-bank/questions?courseId=${item.courseId}` : `/instructor/question-bank/questions`,
-            { roleCode: session.roleCode }
-          ).catch(() => [] as any[]),
+            { roleCode: session.roleCode, signal: controller.signal }
+          ),
+          apiRequest<GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
+            roleCode: session.roleCode,
+            signal: controller.signal,
+          }),
         ]);
 
-      setLearners(learnersData);
-      let finalAssignments = assignmentsData;
-      if (typeof window !== "undefined") {
-        try {
-          const saved = localStorage.getItem(`wind_assignments_${item.id}`);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const existingIds = new Set(assignmentsData.map((a) => a.id));
-              const extra = parsed.filter((p: any) => !existingIds.has(p.id));
-              finalAssignments = [...assignmentsData, ...extra];
-            }
-          }
-        } catch (e) {}
+      if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
+      const failedSources = [
+        ["học viên", learnersResult],
+        ["bài tập", assignmentsResult],
+        ["tài liệu", materialsResult],
+        ["ngân hàng câu hỏi", questionsResult],
+        ["bảng điểm", gradebookResult],
+      ] as const;
+      for (const [source, result] of failedSources) {
+        if (result.status === "rejected") console.warn(`Không tải được ${source} của lớp:`, result.reason);
       }
-      setAssignments(finalAssignments);
-      setExams(examsData);
-      setMaterials(materialsData);
-      setSessions(sessionsData);
+      if (failedSources.some(([, result]) => result.status === "rejected")) {
+        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
+      }
+      if (learnersResult.status === "fulfilled") setLearners(learnersResult.value);
+      if (gradebookResult.status === "fulfilled") setGradebook(gradebookResult.value);
+      // API is authoritative; legacy local entries may contain fabricated IDs or stale publication states.
+      if (assignmentsResult.status === "fulfilled") setAssignments(assignmentsResult.value);
 
       // Đồng bộ câu hỏi thật từ CSDL vào ngân hàng câu hỏi riêng của lớp
-      if (Array.isArray(dbQuestionsData) && dbQuestionsData.length > 0) {
-        const mappedQuestions = dbQuestionsData.map((q: any) => ({
-          id: q.id,
-          content: q.content,
-          type: q.type === "SINGLE_CHOICE" ? "Trắc nghiệm một đáp án" : q.type === "MULTIPLE_CHOICE" ? "Trắc nghiệm nhiều đáp án" : q.type === "ESSAY" ? "Tự luận" : "Trắc nghiệm",
-          difficulty: q.difficulty === 1 ? "Cơ bản" : q.difficulty === 2 ? "Thông hiểu" : q.difficulty === 3 ? "Vận dụng" : "Vận dụng cao",
-          source: q.tags?.join(", ") || "Ngân hàng câu hỏi CSDL",
-          options: q.options || [],
-          correctAnswers: q.correctAnswers?.map((ans: string) => {
-            const idx = ["A", "B", "C", "D"].indexOf(ans);
-            return idx >= 0 ? idx : 0;
-          }) || [0],
-          solution: q.solution || "",
-          createdAt: q.createdAt ? new Date(q.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
-        }));
-        setClassQuestions((prev) => {
-          const existingIds = new Set(mappedQuestions.map((m) => m.id));
-          const localOnly = prev.filter((p) => !existingIds.has(p.id));
-          return [...mappedQuestions, ...localOnly];
-        });
+      if (questionsResult.status === "fulfilled") {
+        setClassQuestions(questionsResult.value.map(toClassQuestion));
       }
 
       // Đồng bộ tài liệu thật từ CSDL vào danh sách tài liệu lớp
-      if (Array.isArray(materialsData) && materialsData.length > 0) {
-        const mappedMats: MaterialDisplayItem[] = materialsData.map((m: any) => {
-          const rawName = m.name || m.title || "Tài liệu học tập";
-          const ext = rawName.split(".").pop()?.toLowerCase() || "pdf";
-          const fType = ext.includes("doc") ? "doc" : ext.includes("xls") ? "xlsx" : "pdf";
-          const sizeMb = m.sizeBytes ? `${(m.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "1.5 MB";
-          return {
-            id: m.id,
-            title: rawName,
-            fileType: fType,
-            size: sizeMb,
-            uploadedAt: m.createdAt ? new Date(m.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
-            folder: m.folder || "Tài liệu chung",
-            pageCount: 10,
-            downloadsCount: 0,
-            description: m.tags?.join(", ") || "Tài liệu học tập lưu trữ vật lý trong cơ sở dữ liệu.",
-          };
-        });
-        setMaterialsList((prev) => {
-          const existingIds = new Set(mappedMats.map((m) => m.id));
-          const localOnly = prev.filter((p) => !existingIds.has(p.id));
-          return [...mappedMats, ...localOnly];
-        });
-        if (mappedMats.length > 0 && mappedMats[0] && !selectedMaterialId) {
-          setSelectedMaterialId(mappedMats[0].id);
-        }
+      if (materialsResult.status === "fulfilled") {
+        const classMaterials = materialsResult.value.filter((m) => isMaterialForClass(m, item.id, item.courseId));
+        const mappedLectures = classMaterials.filter(isLectureMaterial)
+          .map((material) => toLectureItem(material, session.user.name || "Giảng viên"));
+        setLectures(mappedLectures);
+        setSelectedLectureId((current) => mappedLectures.some((lecture) => lecture.id === current) ? current : (mappedLectures[0]?.id ?? ""));
+        setSelectedLectureForPage((current) => mappedLectures.find((lecture) => lecture.id === current?.id) ?? null);
+        const mappedMats = classMaterials.map(toMaterialDisplayItem);
+        setMaterialsList(mappedMats);
+        setSelectedMaterialId((current) => mappedMats.some((m) => m.id === current) ? current : (mappedMats[0]?.id ?? ""));
       }
 
-      if (finalAssignments.length > 0 && !selectedAssignment) {
-        setSelectedAssignment(finalAssignments[0] ?? null);
-      }
-      if (materialsData.length > 0 && !selectedMaterial) {
-        setSelectedMaterial(materialsData[0] ?? null);
+      if (assignmentsResult.status === "fulfilled") {
+        setSelectedAssignment((current) => assignmentsResult.value.find((assignment) => assignment.id === current?.id) ?? assignmentsResult.value[0] ?? null);
       }
 
       // Tải danh sách giáo viên có thể mời làm đồng giáo viên
-      const directoryInstructors = await apiRequest<DirectoryUser[]>("/users?role=INSTRUCTOR", {
-        roleCode: session.roleCode,
-      }).catch(() => [] as DirectoryUser[]);
-      setAllAvailableInstructors(directoryInstructors);
+      let directoryInstructors: DirectoryUser[] | null = null;
+      try {
+        directoryInstructors = await apiRequest<DirectoryUser[]>("/users?role=INSTRUCTOR", {
+          roleCode: session.roleCode,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (!controller.signal.aborted) console.warn("Không tải được danh sách giáo viên:", error);
+      }
+      if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
+      if (directoryInstructors !== null) setAllAvailableInstructors(directoryInstructors);
     } catch (error) {
-      notify("Không tải được toàn bộ dữ liệu lớp học", "error");
-    } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) console.error("Lỗi tải dữ liệu lớp học:", error);
+      if (requestId === classDataRequestRef.current && !controller.signal.aborted) {
+        notify("Không tải được toàn bộ dữ liệu lớp học", "error");
+      }
     }
-  }, [item.id, item.courseId, session.roleCode, selectedAssignment, selectedMaterial, selectedMaterialId, notify]);
+  }, [item.id, item.courseId, session.roleCode, session.user.name, notify]);
 
   useEffect(() => {
     void loadClassData();
+    return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
   }, [loadClassData]);
+
+  const assignmentIds = assignments.map((assignment) => assignment.id).join("|");
+
+  // Tải bài nộp theo từng bài tập để thống kê chính xác và tránh dùng dữ liệu giả.
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const ids = assignmentIds ? assignmentIds.split("|") : [];
+    if (ids.length === 0) {
+      setSubmissionsByAssignment({});
+      return;
+    }
+    void Promise.allSettled(ids.map((id) => apiRequest<AssignmentSubmission[]>(
+      `/instructor/assignments/${id}/submissions`, { roleCode: session.roleCode, signal: controller.signal },
+    ))).then((results) => {
+      if (!active) return;
+      const next: Record<string, AssignmentSubmission[]> = {};
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") next[ids[index]!] = result.value;
+        else console.warn(`Không tải được bài nộp của ${ids[index]}:`, result.reason);
+      });
+      setSubmissionsByAssignment(next);
+    });
+    return () => { active = false; controller.abort(); };
+  // Chỉ tải lại khi danh sách ID thực sự thay đổi, không phụ thuộc identity của mảng assignments.
+  }, [assignmentIds, session.roleCode]);
+
+  const selectedSubmissions = selectedAssignment
+    ? submissionsByAssignment[selectedAssignment.id] ?? []
+    : [];
 
   // Phân tích đường link bài giảng (YouTube, Facebook, Google Drive)
   const handleLinkChange = (value: string) => {
     setLectureInputUrl(value);
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setLectureUrlError("");
-      setLectureDetectedPlatform("INVALID");
-      return;
-    }
-
-    if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) {
-      setLectureDetectedPlatform("YOUTUBE");
-      setLectureUrlError("");
-    } else if (trimmed.includes("facebook.com") || trimmed.includes("fb.watch")) {
-      setLectureDetectedPlatform("FACEBOOK");
-      setLectureUrlError("");
-    } else if (trimmed.includes("drive.google.com")) {
-      setLectureDetectedPlatform("DRIVE");
-      setLectureUrlError("");
-    } else {
-      setLectureDetectedPlatform("INVALID");
-      setLectureUrlError("Chỉ chấp nhận liên kết từ YouTube, Facebook hoặc Google Drive!");
-    }
+    const platform = detectLectureLinkPlatform(value);
+    setLectureDetectedPlatform(platform);
+    setLectureUrlError(value.trim() && platform === "INVALID" ? invalidLectureLinkMessage : "");
   };
 
-  // Giả lập tiến trình tải tệp và kiểm tra toàn vẹn
+  // Kiểm tra lựa chọn tệp; quá trình tải lên chỉ diễn ra khi lưu.
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -930,374 +653,203 @@ export function InstructorClassWorkspace({
     }
 
     setLectureFileObj(file);
-    setLectureUploadProgress(10);
-    setLectureIntegrityChecking(false);
-    setLecturePreviewReady(false);
-
-    // Tiến trình tải lên
-    const interval = setInterval(() => {
-      setLectureUploadProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(interval);
-          setLectureIntegrityChecking(true);
-          setTimeout(() => {
-            setLectureIntegrityChecking(false);
-            setLecturePreviewReady(true);
-          }, 600);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 120);
   };
 
-  // Trích xuất YouTube ID an toàn
-  const getLectureYoutubeId = (url?: string): string | null => {
-    if (!url) return null;
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-    return match && match[1] ? match[1] : null;
-  };
-
-  // Lưu bài giảng mới trực tiếp vào cơ sở dữ liệu PostgreSQL
+  // Lưu tệp bài giảng qua API multipart và chỉ báo thành công sau khi máy chủ xác nhận.
   const handleSaveLecture = async () => {
+    if (lectureSaving) return;
     if (!lectureFormTitle.trim()) {
       notify("Vui lòng nhập tên bài giảng!", "error");
       return;
     }
-
+    if (lectureMethod === "LINK") {
+      notify("Máy chủ chưa hỗ trợ lưu liên kết bài giảng. Hãy chọn tệp để lưu lên lớp.", "error");
+      return;
+    }
+    if (!lectureFileObj || lectureFileObj.size === 0) {
+      notify("Vui lòng chọn tệp bài giảng hợp lệ.", "error");
+      return;
+    }
+    setLectureSaving(true);
+    let uploadedId: string | null = null;
     try {
-      notify("Đang lưu bài giảng vào cơ sở dữ liệu...", "info");
-      const ytId = getLectureYoutubeId(lectureInputUrl);
-      await apiRequest<Material>(
-        `/instructor/classes/${item.id}/materials`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            name: lectureFormTitle.trim(),
-            mimeType: lectureMethod === "LINK" ? "video/youtube" : "video/mp4",
-            folder: lectureFormFolder,
-            tags: ["Bài giảng", lectureDetectedPlatform],
-            scope: "CLASS",
-            description: lectureFormDesc.trim(),
-            url: lectureMethod === "LINK" ? lectureInputUrl.trim() : undefined,
-          }),
-        }
-      ).catch((err) => {
-        console.warn("API tạo material yêu cầu multipart hoặc scope riêng:", err);
+      const tags = ["LECTURE", ...(lectureFormDesc.trim() ? [`Mô tả: ${lectureFormDesc.trim().replace(/,/g, "，")}`] : []),
+        ...lectureAttachedAssignments.map((id) => `assignmentId:${id}`)];
+      const form = new FormData();
+      form.append("file", lectureFileObj);
+      form.append("folder", lectureFormFolder);
+      form.append("tags", tags.join(","));
+      form.append("scope", "CLASS");
+      const created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
+        method: "POST", roleCode: session.roleCode, body: form,
       });
-
-      const newLec: LectureItem = {
-        id: `lec-${Date.now()}`,
-        title: lectureFormTitle.trim(),
-        description: lectureFormDesc.trim(),
-        sourceType: lectureMethod,
-        sourceUrl: lectureMethod === "LINK" ? lectureInputUrl : undefined,
-        youtubeId: ytId || (lectureInputUrl.includes("watch") ? "dQw4w9WgXcQ" : undefined),
-        platform: lectureMethod === "LINK" ? lectureDetectedPlatform : "DIRECT",
-        fileName: lectureFileObj?.name,
-        folder: lectureFormFolder,
-        uploadedAt: new Date().toLocaleDateString("vi-VN"),
-        authorName: session.user.name || "Giảng viên",
-        assignmentIds: lectureAttachedAssignments,
-        materialIds: lectureAttachedMaterials,
-      };
-
-      setLectures((prev) => [newLec, ...prev]);
-      setSelectedLecture(newLec);
+      if (!created?.id) throw new Error("Máy chủ không trả về ID bài giảng vừa tải lên.");
+      uploadedId = created.id;
+      if (lectureFormTitle.trim() !== created.name) {
+        await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
+          method: "PATCH", roleCode: session.roleCode,
+          body: JSON.stringify({ name: lectureFormTitle.trim() }),
+        });
+      }
       await loadClassData();
+      setSelectedLectureId(created.id);
       setAddLectureModalOpen(false);
-      notify("Đã thêm và xuất bản bài giảng mới thành công!", "success");
+      notify("Đã tải bài giảng lên máy chủ ở trạng thái nháp.", "success");
 
       // Reset form
       setLectureFormTitle("");
       setLectureFormDesc("");
       setLectureInputUrl("");
       setLectureFileObj(null);
-      setLecturePreviewReady(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Lỗi khi lưu bài giảng:", err);
-      notify(err?.message || "Không thể lưu bài giảng vào cơ sở dữ liệu", "error");
+      if (uploadedId) await loadClassData();
+      const detail = err instanceof Error ? err.message : "Không thể lưu bài giảng vào cơ sở dữ liệu";
+      notify(uploadedId ? `Tệp đã tải lên nhưng chưa hoàn tất cập nhật: ${detail}` : detail, "error");
+    } finally {
+      setLectureSaving(false);
     }
   };
 
-  // Lưu bài tập mới trực tiếp vào cơ sở dữ liệu PostgreSQL
-  const handleSaveAssignment = async () => {
-    if (!assignmentFormTitle.trim()) {
-      notify("Vui lòng nhập tiêu đề bài tập!", "error");
-      return;
+  // Kiểm tra dữ liệu từ biểu mẫu và lưu bài thi hoặc bài tự luận qua API.
+  const handleSaveFromBuilder = async (data: Parameters<AssignmentBuilderModalProps["onSaveAssignment"]>[0]) => {
+    const title = data.title.trim();
+    if (title.length < 3) throw new Error("Tên bài cần ít nhất 3 ký tự.");
+    if (item.status === "CLOSED") throw new Error("Lớp đã đóng, không thể tạo bài mới.");
+
+    const now = Date.now();
+    const classEnd = new Date(item.endAt).getTime();
+    const openAt = data.settings.hasStartAt ? new Date(data.settings.startAt).getTime() : now;
+    const dueAt = data.settings.hasDueAt
+      ? new Date(data.settings.dueAt).getTime()
+      : Math.min(now + 7 * 86400000, classEnd);
+    if (![classEnd, openAt, dueAt].every(Number.isFinite) || classEnd <= now ||
+      dueAt <= now || dueAt <= openAt || dueAt > classEnd) {
+      throw new Error("Ngày bắt đầu và hạn nộp phải hợp lệ, nằm trong thời gian lớp và hạn nộp phải ở tương lai.");
     }
 
-    try {
-      const createdAssign = await apiRequest<Assignment>(
-        `/instructor/classes/${item.id}/assignments`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            title: assignmentFormTitle.trim(),
-            description: assignmentFormDesc.trim() || "Bài tập do giáo viên phân công cho lớp.",
-            instructions: "Học sinh hoàn thành bài làm theo hướng dẫn và nộp đúng hạn.",
-            dueAt: assignmentFormDue || new Date(Date.now() + 7 * 86400000).toISOString(),
-            maxScore: Number(assignmentFormMaxScore) || 10,
-            rubric: [
-              {
-                title: "Nội dung bài làm",
-                description: "Đáp ứng đầy đủ yêu cầu của bài tập",
-                maxPoints: Number(assignmentFormMaxScore) || 10,
-              },
-            ],
-          }),
-        }
-      );
-
-      // Công bố bài tập để học sinh có thể thấy và nộp
-      if (createdAssign?.id) {
-        await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
-          method: "POST",
-          roleCode: session.roleCode,
-        }).catch((err) => console.warn("Lỗi tự động xuất bản:", err));
+    if (data.type === "MULTIPLE_CHOICE") {
+      if (!item.courseId) throw new Error("Lớp chưa liên kết khóa học để tạo đề trắc nghiệm.");
+      if (data.questions.length === 0) throw new Error("Đề cần có ít nhất một câu hỏi.");
+      const durationMinutes = data.settings.hasDuration ? data.settings.durationMinutes : 45;
+      if (!Number.isInteger(durationMinutes) || durationMinutes < 1) {
+        throw new Error("Thời lượng đề thi phải là số phút nguyên dương.");
+      }
+      if (!Number.isInteger(data.settings.maxAttempts) || data.settings.maxAttempts < 1 || data.settings.maxAttempts > 10) {
+        throw new Error("Số lượt làm bài phải nằm trong khoảng từ 1 đến 10.");
       }
 
-      await loadClassData();
-      setAddAssignmentModalOpen(false);
-      setAssignmentFormTitle("");
-      setAssignmentFormDesc("");
-      notify("Đã tạo và công bố bài tập mới vào cơ sở dữ liệu!", "success");
-    } catch (err: any) {
-      console.error("Lỗi tạo bài tập:", err);
-      notify(err?.message || "Không thể tạo bài tập vào cơ sở dữ liệu", "error");
-    }
-  };
-
-  // Nhận bài tập từ AssignmentBuilderModal và lưu trực tiếp vào PostgreSQL (hỗ trợ cả trắc nghiệm AI và tự luận)
-  const handleSaveFromBuilder = async (data: any) => {
-    try {
-      notify("Đang lưu bài tập và cấu hình vào cơ sở dữ liệu...", "info");
-
-      if (data.type === "MULTIPLE_CHOICE" && data.questions && data.questions.length > 0) {
-        // Luồng Trắc nghiệm:
-        // Bước 1: Lưu câu hỏi vào Question Bank (nếu có courseId)
-        let questionIds: string[] = [];
-        if (course?.id) {
-          try {
-            const formattedQuestions = data.questions.map((q: any) => ({
-              courseId: course.id,
-              content: q.content || "Nội dung câu hỏi",
-              type: "SINGLE_CHOICE",
-              options: q.options && q.options.length > 0 ? q.options : ["A", "B", "C", "D"],
-              correctAnswers: [q.correctAnswer || "A"],
-              difficulty: 2,
-              tags: ["Trắc nghiệm", "AI Tách câu"],
-            }));
-
-            const importedQuestions = await apiRequest<any[]>(
-              "/instructor/question-bank/questions/import",
-              {
-                method: "POST",
-                roleCode: session.roleCode,
-                body: JSON.stringify({
-                  courseId: course.id,
-                  questions: formattedQuestions,
-                }),
-              }
-            ).catch(() => [] as any[]);
-
-            questionIds = importedQuestions.map((q) => q.id);
-          } catch (qErr) {
-            console.warn("Không thể import câu hỏi vào ngân hàng:", qErr);
-          }
+      const questions = data.questions.map((question, index) => {
+        const validOptions = question.options
+          .filter((option) => option.text.trim())
+          .map((option) => ({ key: option.key.trim().toUpperCase(), value: option.key.trim().toUpperCase() + ". " + option.text.trim() }));
+        const answer = validOptions.find((option) => option.key === question.correctAnswer.trim().toUpperCase());
+        if (question.type !== "Trắc nghiệm một đáp án" ||
+          question.content.trim().length < 5 ||
+          validOptions.length < 2 ||
+          new Set(validOptions.map((option) => option.key)).size !== validOptions.length ||
+          new Set(validOptions.map((option) => option.value.slice(option.value.indexOf(".") + 1).trim())).size !== validOptions.length ||
+          !answer) {
+          throw new Error("Câu " + (index + 1) + ": cần nội dung hợp lệ, phương án khác nhau và đáp án đúng.");
         }
-
-        // Bước 2: Tạo đề thi Exam nếu có câu hỏi
-        if (questionIds.length > 0) {
-          try {
-            const createdExam = await apiRequest<any>("/instructor/exams", {
-              method: "POST",
-              roleCode: session.roleCode,
-              body: JSON.stringify({
-                classId: item.id,
-                title: data.title || "Bài kiểm tra trắc nghiệm",
-                questionIds,
-                durationMinutes: Number(data.settings?.durationMinutes) || 45,
-                totalScore: Number(data.settings?.totalScore) || 10,
-                openAt: data.settings?.openAt || new Date().toISOString(),
-                closeAt: data.settings?.dueAt ? new Date(data.settings.dueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
-                attemptLimit: Number(data.settings?.attemptLimit) || 1,
-                shuffleQuestions: Boolean(data.settings?.shuffleQuestions),
-              }),
-            });
-
-            if (createdExam?.id) {
-              await apiRequest(`/instructor/exams/${createdExam.id}/publish`, {
-                method: "POST",
-                roleCode: session.roleCode,
-              }).catch(() => null);
-            }
-          } catch (examErr) {
-            console.warn("Không thể tạo đề thi riêng:", examErr);
-          }
+        if (!Number.isFinite(question.score) || question.score < 0.01 ||
+          Math.abs(Math.round(question.score * 100) - question.score * 100) > 0.000001) {
+          throw new Error("Câu " + (index + 1) + ": điểm phải từ 0,01 và có tối đa hai chữ số thập phân.");
         }
-
-        // Bước 3: Tạo bản ghi Assignment trong lớp
-        const createdAssign = await apiRequest<Assignment>(
-          `/instructor/classes/${item.id}/assignments`,
-          {
-            method: "POST",
-            roleCode: session.roleCode,
-            body: JSON.stringify({
-              title: data.title || "Bài kiểm tra trắc nghiệm",
-              description: data.description || `Đề thi trắc nghiệm gồm ${data.questions.length} câu hỏi.`,
-              instructions: "Đề thi trắc nghiệm tách câu. Học sinh chọn đáp án đúng cho từng câu hỏi.",
-              dueAt: data.settings?.hasDueAt && data.settings?.dueAt
-                ? new Date(data.settings.dueAt).toISOString()
-                : new Date(Date.now() + 7 * 86400000).toISOString(),
-              maxScore: Number(data.settings?.totalScore) || 10,
-              rubric: [
-                {
-                  title: "Trắc nghiệm tự động",
-                  description: "Hệ thống chấm điểm tự động",
-                  maxPoints: Number(data.settings?.totalScore) || 10,
-                },
-              ],
-            }),
-          }
-        );
-
-        if (createdAssign?.id) {
-          await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
-            method: "POST",
-            roleCode: session.roleCode,
-          }).catch(() => null);
-        }
-      } else {
-        // Luồng Tự luận
-        const createdAssign = await apiRequest<Assignment>(
-          `/instructor/classes/${item.id}/assignments`,
-          {
-            method: "POST",
-            roleCode: session.roleCode,
-            body: JSON.stringify({
-              title: data.title || "Bài tập tự luận mới",
-              description: data.description || "Học sinh hoàn thành bài làm theo tài liệu đính kèm.",
-              instructions: data.attachedFile ? `Tệp đính kèm: ${data.attachedFile.name}` : "Nộp bài viết hoặc file đính kèm theo đúng hạn.",
-              dueAt: data.settings?.hasDueAt && data.settings?.dueAt
-                ? new Date(data.settings.dueAt).toISOString()
-                : new Date(Date.now() + 7 * 86400000).toISOString(),
-              maxScore: Number(data.maxScore) || 10,
-              rubric: [
-                {
-                  title: "Nội dung bài làm",
-                  description: "Đầy đủ và chính xác theo yêu cầu đề bài",
-                  maxPoints: Number(data.maxScore) || 10,
-                },
-              ],
-            }),
-          }
-        );
-
-        if (createdAssign?.id) {
-          await apiRequest(`/instructor/assignments/${createdAssign.id}/publish`, {
-            method: "POST",
-            roleCode: session.roleCode,
-          }).catch(() => null);
-        }
-      }
-
-      // ĐỒNG BỘ CÂU HỎI VÀO NGÂN HÀNG CÂU HỎI LỚP (TRẮC NGHIỆM / TỰ LUẬN)
-      if (data.type === "MULTIPLE_CHOICE" && data.questions && data.questions.length > 0) {
-        const newExtracted = data.questions.map((q: any, idx: number) => ({
-          id: `cq-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-          content: q.content,
-          type: q.type || "Trắc nghiệm một đáp án",
-          difficulty: "Thông hiểu",
-          source: data.title || "Tách câu tự động (AI)",
-          options: q.options?.map((opt: any) => (typeof opt === "string" ? opt : opt.text)) || ["A", "B", "C", "D"],
-          correctAnswers: [q.correctAnswer === "B" ? 1 : q.correctAnswer === "C" ? 2 : q.correctAnswer === "D" ? 3 : 0],
-          solution: q.hint || q.solutionVideoUrl || `Đáp án đúng: ${q.correctAnswer || "A"}`,
-          createdAt: new Date().toLocaleDateString("vi-VN"),
-        }));
-        setClassQuestions((prev) => [...newExtracted, ...prev]);
-      } else {
-        const newEssayQuestion = {
-          id: `cq-${Date.now()}-essay`,
-          content: data.title + (data.description ? `: ${data.description}` : ""),
-          type: "Tự luận",
-          difficulty: "Vận dụng",
-          source: data.title || "Đề bài tự luận",
-          solution: data.attachedFile
-            ? `Tệp đính kèm: ${data.attachedFile.name}`
-            : data.submissionMethods?.length
-            ? `Hình thức nộp: ${data.submissionMethods.join(", ")}`
-            : "Nộp bài theo yêu cầu đề bài",
-          createdAt: new Date().toLocaleDateString("vi-VN"),
+        return {
+          courseId: item.courseId,
+          content: question.content.trim(),
+          type: "SINGLE_CHOICE" as const,
+          options: validOptions.map((option) => option.value),
+          correctAnswers: [answer.value],
+          difficulty: 2,
+          tags: ["Trắc nghiệm", "Tạo đề trong lớp"],
         };
-        setClassQuestions((prev) => [newEssayQuestion, ...prev]);
+      });
+      const totalScore = data.questions.reduce((sum, question) => sum + question.score, 0);
+      if (!Number.isFinite(totalScore) || totalScore < 1) {
+        throw new Error("Tổng điểm đề thi phải ít nhất 1 điểm.");
       }
 
-      // Tạo bản ghi Assignment hoàn chỉnh hiển thị ngay lập tức
-      const localAssign: Assignment = {
-        id: `assign-${Date.now()}`,
-        classId: item.id,
-        classCode: item.code,
-        title: data.title || (data.type === "MULTIPLE_CHOICE" ? "Bài kiểm tra trắc nghiệm" : "Bài tập tự luận"),
-        description:
-          data.description ||
-          (data.type === "MULTIPLE_CHOICE"
-            ? `Đề thi trắc nghiệm gồm ${data.questions?.length || 0} câu hỏi.`
-            : "Học sinh hoàn thành bài làm theo tệp đề bài đính kèm."),
-        instructions: data.attachedFile
-          ? `Tệp đề bài: ${data.attachedFile.name}. Hình thức nộp: ${data.submissionMethods?.join(", ") || "Tải tệp / chụp ảnh"}`
-          : data.submissionMethods?.length
-          ? `Hình thức nộp bài: ${data.submissionMethods.join(", ")}`
-          : "Học sinh hoàn thành bài làm và nộp trước hạn.",
-        dueAt:
-          data.settings?.hasDueAt && data.settings?.dueAt
-            ? new Date(data.settings.dueAt).toISOString()
-            : new Date(Date.now() + 7 * 86400000).toISOString(),
-        maxScore: Number(data.settings?.totalScore || data.maxScore) || 10,
-        rubric: [
-          {
-            id: `rb-${Date.now()}-1`,
-            title: data.type === "MULTIPLE_CHOICE" ? "Trắc nghiệm tự động" : "Bài làm tự luận",
-            description: "Đánh giá theo đáp án chuẩn",
-            maxPoints: Number(data.settings?.totalScore || data.maxScore) || 10,
-          },
-        ],
-        status: "PUBLISHED",
-        version: 1,
-        createdById: session.user.id || "instructor-1",
-        createdAt: new Date().toISOString(),
-      };
-      (localAssign as any).durationMinutes = Number(data.settings?.durationMinutes) || 45;
-      (localAssign as any).totalQuestions = data.questions?.length || 1;
-      (localAssign as any).submissionMethods = data.submissionMethods || [];
-      (localAssign as any).attachedFile = data.attachedFile;
-      (localAssign as any).questions = data.questions || [];
-
-      setAssignments((prev) => {
-        const nextList = [localAssign, ...prev];
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-            if (data.questions && data.questions.length > 0) {
-              localStorage.setItem(`wind_exam_questions_${localAssign.id}`, JSON.stringify(data.questions));
-            }
-          } catch (e) {}
-        }
-        return nextList;
+      const imported = await apiRequest<Array<{
+        row: number;
+        status: "IMPORTED" | "FAILED";
+        questionId?: string;
+        message: string;
+      }>>("/instructor/question-bank/questions/import", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ questions }),
       });
-      setSelectedAssignment(localAssign);
+      const successful = imported.filter((result) => result.status === "IMPORTED" && result.questionId);
+      if (successful.length !== questions.length || imported.length !== questions.length) {
+        const failed = imported.filter((result) => result.status !== "IMPORTED" || !result.questionId)
+          .map((result) => "Câu " + result.row + ": " + result.message).join("; ");
+        throw new Error("Chỉ nhập được " + successful.length + "/" + questions.length + " câu. ID đã lưu: " + (successful.map((result) => result.questionId).join(", ") || "không có") + ". " + failed + " Kiểm tra ngân hàng trước khi thử lại để tránh nhập trùng.");
+      }
+      const questionIds = successful.map((result) => result.questionId!);
+      const published = await Promise.allSettled(questionIds.map((questionId) =>
+        apiRequest<{ status: string }>("/instructor/question-bank/questions/" + questionId + "/publish", {
+          method: "POST",
+          roleCode: session.roleCode,
+        }),
+      ));
+      const unpublished = published.flatMap((result, index) =>
+        result.status === "fulfilled" && result.value.status === "PUBLISHED" ? [] : [questionIds[index]!],
+      );
+      if (unpublished.length) {
+        throw new Error("Đã nhập câu hỏi nhưng các câu " + unpublished.join(", ") + " chưa được xuất bản. Hãy kiểm tra quy trình duyệt câu hỏi trước khi tạo đề.");
+      }
 
-      await loadClassData();
-      setAddAssignmentModalOpen(false);
-      notify(`Đã lưu và xuất bản bài tập '${data.title}' thành công!`, "success");
-    } catch (err: any) {
-      console.error("Lỗi khi lưu bài tập từ builder:", err);
-      notify(err?.message || "Không thể lưu bài tập vào cơ sở dữ liệu", "error");
+      await apiRequest<Exam>("/instructor/exams", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: item.id,
+          title,
+          questionIds,
+          durationMinutes,
+          totalScore,
+          openAt: new Date(openAt).toISOString(),
+          closeAt: new Date(dueAt).toISOString(),
+          attemptLimit: data.settings.maxAttempts,
+          shuffleQuestions: data.settings.shuffleQuestions,
+          scoreAllocations: questionIds.map((questionId, index) => ({
+            questionId,
+            score: data.questions[index]!.score,
+          })),
+        }),
+      });
+      notify("Đã tạo đề trắc nghiệm dạng nháp. Hãy kiểm tra và phát hành đề trước khi giao cho học viên.", "success");
+    } else {
+      if (data.attachedFile) {
+        throw new Error("Tệp đề tự luận chưa thể được lưu qua trình tạo này. Hãy nhập nội dung yêu cầu trực tiếp để tránh thất lạc tệp.");
+      }
+      const description = data.description.trim() || "Bài tập tự luận: " + title;
+      const instructions = [description, ...data.submissionMethods].filter(Boolean).join("\n");
+      const created = await apiRequest<Assignment>("/instructor/classes/" + item.id + "/assignments", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title,
+          description: description.length >= 10 ? description : "Bài tập tự luận: " + title,
+          instructions: instructions.length >= 5 ? instructions : "Hoàn thành bài tập: " + title,
+          dueAt: new Date(dueAt).toISOString(),
+          maxScore: 10,
+          rubric: [{
+            title: "Mức độ hoàn thành",
+            description: "Đánh giá chất lượng và mức độ hoàn thành bài làm.",
+            maxPoints: 10,
+          }],
+        }),
+      });
+      setSelectedAssignment(created);
+      notify("Đã lưu bài tập tự luận ở trạng thái nháp. Hãy kiểm tra và phát hành trước khi giao học viên.", "success");
     }
-  };
 
+    await loadClassData();
+    setAddAssignmentModalOpen(false);
+  };
   // Tạo thư mục mới
   const handleCreateFolder = () => {
     if (!newFolderInput.trim()) return;
@@ -1312,107 +864,14 @@ export function InstructorClassWorkspace({
     notify("Đã tạo thư mục mới!", "success");
   };
 
-  // Dữ liệu mẫu danh sách lượt làm bài của học sinh đối với bài tập/bài thi
-  const studentAttemptStats: StudentAttemptStat[] = useMemo(() => {
-    const list = learners.length > 0 ? learners : [
-      { id: "usr-1", displayName: "Nguyễn Văn Nam", email: "nam.nv@wind.edu.vn" },
-      { id: "usr-2", displayName: "Trần Thị Lan", email: "lan.tt@wind.edu.vn" },
-      { id: "usr-3", displayName: "Lê Hoàng Phúc", email: "phuc.lh@wind.edu.vn" },
-      { id: "usr-4", displayName: "Phạm Minh Đức", email: "duc.pm@wind.edu.vn" },
-      { id: "usr-5", displayName: "Hoàng Mai Chi", email: "chi.hm@wind.edu.vn" },
-    ];
-
-    return list.map((l, index) => {
-      const attemptsCount = (index % 3) + 1;
-      const scores = [6.5, 9.0, 4.5, 8.5, 7.0, 9.5];
-      const baseScore = scores[index % scores.length] ?? 7.0;
-      const maxScore = selectedAssignment?.maxScore || 10;
-
-      const subAttempts = Array.from({ length: attemptsCount }).map((_, aIdx) => {
-        const score = Math.min(maxScore, Math.max(3, baseScore + aIdx * 1.5 - 0.5));
-        return {
-          attemptNo: aIdx + 1,
-          score: Number(score.toFixed(1)),
-          maxScore,
-          submittedAt: `26/10/2026 1${aIdx + 4}:20`,
-          durationMinutes: 25 + aIdx * 5,
-          answers: [
-            {
-              questionId: "q1",
-              questionContent: "Tìm tập nghiệm của phương trình đã cho?",
-              learnerAnswer: "x = 4 và x = -2",
-              correctAnswer: "x = 4 và x = -2",
-              isCorrect: true,
-              score: 2.5,
-              maxScore: 2.5,
-            },
-            {
-              questionId: "q2",
-              questionContent: "Giá trị nhỏ nhất của biểu thức bậc hai bằng bao nhiêu?",
-              learnerAnswer: "Min = 3 khi x = 1",
-              correctAnswer: "Min = 3 khi x = 1",
-              isCorrect: true,
-              score: 2.5,
-              maxScore: 2.5,
-            },
-            {
-              questionId: "q3",
-              questionContent: "Chứng minh ba điểm thẳng hàng trong không gian?",
-              learnerAnswer: "Sử dụng tính chất vectơ cùng phương",
-              correctAnswer: "Sử dụng tính chất vectơ cùng phương",
-              isCorrect: score > 5,
-              score: score > 5 ? 3.0 : 1.0,
-              maxScore: 5.0,
-            },
-          ],
-        };
-      });
-
-      const best = Math.max(...subAttempts.map((a) => a.score));
-
-      return {
-        id: `stat-${l.id}`,
-        learnerId: l.id,
-        learnerName: l.displayName,
-        learnerEmail: l.email || "student@wind.edu.vn",
-        attemptCount: attemptsCount,
-        bestScore: best,
-        maxScore,
-        durationMinutes: 30,
-        submittedAt: "26/10/2026 15:45",
-        attempts: subAttempts,
-      };
-    });
-  }, [learners, selectedAssignment]);
-
   // Thư mục bài giảng
-  const lectureFolders = useMemo(() => {
-    const folders = new Set<string>();
-    lectures.forEach((l) => {
-      if (l.folder) folders.add(l.folder);
-    });
-    return Array.from(folders);
-  }, [lectures]);
+  const lectureFolders = useMemo(() => getClassFolderNames(lectures), [lectures]);
 
   // Danh sách bài giảng lọc
-  const filteredLectures = useMemo(() => {
-    let result = [...lectures];
-    if (selectedLectureFolder !== "__ALL__") {
-      result = result.filter((l) => l.folder === selectedLectureFolder);
-    }
-    if (lectureSearch.trim()) {
-      const q = lectureSearch.toLowerCase();
-      result = result.filter(
-        (l) => l.title.toLowerCase().includes(q) || (l.description && l.description.toLowerCase().includes(q))
-      );
-    }
-    if (lectureSort === "alpha") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (lectureSort === "type") {
-      result.sort((a, b) => (a.fileType || "").localeCompare(b.fileType || ""));
-    }
-    return result;
-  }, [lectures, selectedLectureFolder, lectureSearch, lectureSort]);
+  const filteredLectures = useMemo(
+    () => filterClassResources(lectures, selectedLectureFolder, lectureSearch, lectureSort, false),
+    [lectures, selectedLectureFolder, lectureSearch, lectureSort],
+  );
 
   // Bài giảng đang được chọn ở Cột 3
   const activeLectureItem = useMemo(() => {
@@ -1421,35 +880,13 @@ export function InstructorClassWorkspace({
   }, [filteredLectures, selectedLectureId]);
 
   // Thư mục tài liệu
-  const materialFolders = useMemo(() => {
-    const folders = new Set<string>();
-    materialsList.forEach((m) => {
-      if (m.folder) folders.add(m.folder);
-    });
-    return Array.from(folders);
-  }, [materialsList]);
+  const materialFolders = useMemo(() => getClassFolderNames(materialsList), [materialsList]);
 
   // Danh sách tài liệu lọc
-  const filteredMaterials = useMemo(() => {
-    let result = [...materialsList];
-    if (selectedMaterialFolder !== "__ALL__") {
-      result = result.filter((m) => m.folder === selectedMaterialFolder);
-    }
-    if (materialSearch.trim()) {
-      const q = materialSearch.toLowerCase();
-      result = result.filter(
-        (m) => m.title.toLowerCase().includes(q) || (m.description && m.description.toLowerCase().includes(q))
-      );
-    }
-    if (materialSort === "alpha") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (materialSort === "type") {
-      result.sort((a, b) => (a.fileType || "").localeCompare(b.fileType || ""));
-    } else if (materialSort === "newest") {
-      result.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
-    }
-    return result;
-  }, [materialsList, selectedMaterialFolder, materialSearch, materialSort]);
+  const filteredMaterials = useMemo(
+    () => filterClassResources(materialsList, selectedMaterialFolder, materialSearch, materialSort, true),
+    [materialsList, selectedMaterialFolder, materialSearch, materialSort],
+  );
 
   // Tài liệu đang được chọn ở Cột 3
   const activeMaterialItem = useMemo(() => {
@@ -1457,42 +894,36 @@ export function InstructorClassWorkspace({
     return filteredMaterials.find((m) => m.id === selectedMaterialId) || filteredMaterials[0] || null;
   }, [filteredMaterials, selectedMaterialId]);
 
-  // Xóa bài giảng
-  const handleDeleteLecture = (lectureId: string, lectureTitle: string) => {
-    if (window.confirm(`Bạn có chắc muốn xóa bài giảng "${lectureTitle}" không?`)) {
-      setLectures((prev) => prev.filter((l) => l.id !== lectureId));
+  // Xóa học liệu bài giảng tại máy chủ rồi đồng bộ lại danh sách.
+  const handleDeleteLecture = async (lectureId: string, lectureTitle: string) => {
+    if (lectureSaving || !window.confirm(`Bạn có chắc muốn xóa bài giảng "${lectureTitle}" không?`)) return;
+    setLectureSaving(true);
+    try {
+      await apiRequest(`/instructor/materials/${encodeURIComponent(lectureId)}`, {
+        method: "DELETE", roleCode: session.roleCode,
+      });
+      await loadClassData();
       if (selectedLectureForPage?.id === lectureId) {
         setSelectedLectureForPage(null);
       }
       notify("Đã xóa bài giảng thành công!", "success");
+    } catch (error) {
+      console.error("Lỗi xóa bài giảng:", error);
+      notify(error instanceof Error ? error.message : "Không thể xóa bài giảng.", "error");
+    } finally {
+      setLectureSaving(false);
     }
   };
 
   // Xử lý thay đổi liên kết bài giảng khi chỉnh sửa
   const handleEditLectureLinkChange = (value: string) => {
     setEditLectureInputUrl(value);
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setEditLectureUrlError("");
-      setEditLectureDetectedPlatform("INVALID");
-      return;
-    }
-    if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) {
-      setEditLectureDetectedPlatform("YOUTUBE");
-      setEditLectureUrlError("");
-    } else if (trimmed.includes("facebook.com") || trimmed.includes("fb.watch")) {
-      setEditLectureDetectedPlatform("FACEBOOK");
-      setEditLectureUrlError("");
-    } else if (trimmed.includes("drive.google.com")) {
-      setEditLectureDetectedPlatform("DRIVE");
-      setEditLectureUrlError("");
-    } else {
-      setEditLectureDetectedPlatform("INVALID");
-      setEditLectureUrlError("Chỉ chấp nhận liên kết từ YouTube, Facebook hoặc Google Drive!");
-    }
+    const platform = detectLectureLinkPlatform(value);
+    setEditLectureDetectedPlatform(platform);
+    setEditLectureUrlError(value.trim() && platform === "INVALID" ? invalidLectureLinkMessage : "");
   };
 
-  // Xử lý chọn tệp từ máy tính khi chỉnh sửa bài giảng
+  // Ghi nhận tệp thay thế; chỉ gửi lên máy chủ khi người dùng lưu.
   const handleEditLectureFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1503,24 +934,6 @@ export function InstructorClassWorkspace({
       return;
     }
     setEditLectureFileObj(file);
-    setEditLectureUploadProgress(15);
-    setEditLectureIntegrityChecking(false);
-    setEditLecturePreviewReady(false);
-
-    const interval = setInterval(() => {
-      setEditLectureUploadProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(interval);
-          setEditLectureIntegrityChecking(true);
-          setTimeout(() => {
-            setEditLectureIntegrityChecking(false);
-            setEditLecturePreviewReady(true);
-          }, 500);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 100);
   };
 
   // Mở modal sửa bài giảng với đầy đủ dữ liệu nguồn (Link hoặc File)
@@ -1530,94 +943,105 @@ export function InstructorClassWorkspace({
     setEditLectureFormDesc(lec.description || "");
     setEditLectureFormFolder(lec.folder);
     setEditLectureFileObj(null);
-    setEditLectureUploadProgress(0);
 
     if (lec.youtubeId || (lec.sourceUrl && (lec.sourceUrl.startsWith("http") || lec.fileType === "mp4"))) {
       setEditLectureMethod("LINK");
       const url = lec.sourceUrl || (lec.youtubeId ? `https://www.youtube.com/watch?v=${lec.youtubeId}` : "");
       setEditLectureInputUrl(url);
-      if (url.includes("youtube.com") || url.includes("youtu.be")) {
-        setEditLectureDetectedPlatform("YOUTUBE");
-      } else if (url.includes("facebook.com") || url.includes("fb.watch")) {
-        setEditLectureDetectedPlatform("FACEBOOK");
-      } else if (url.includes("drive.google.com")) {
-        setEditLectureDetectedPlatform("DRIVE");
-      } else {
-        setEditLectureDetectedPlatform("INVALID");
-      }
-      setEditLecturePreviewReady(true);
+      setEditLectureDetectedPlatform(detectLectureLinkPlatform(url));
     } else {
       setEditLectureMethod("FILE");
       setEditLectureInputUrl("");
       setEditLectureDetectedPlatform("INVALID");
-      setEditLecturePreviewReady(true);
     }
     setEditLectureModalOpen(true);
   };
 
-  // Lưu chỉnh sửa bài giảng (áp dụng thay đổi Link hoặc File từ máy)
-  const handleSaveEditLecture = () => {
+  // Ghi phiên bản tệp mới và metadata vào API, giữ trạng thái khi lưu thất bại.
+  const handleSaveEditLecture = async () => {
+    if (lectureSaving) return;
     if (!editingLecture || !editLectureFormTitle.trim()) {
       notify("Vui lòng nhập tên bài giảng!", "error");
       return;
     }
-
-    let updatedYtId: string | undefined = undefined;
-    let updatedSourceUrl: string | undefined = editingLecture.sourceUrl;
-    let updatedFileType: "mp4" | "pptx" | "mp3" = editingLecture.fileType || "mp4";
-    let updatedSourceType: "LINK" | "FILE" = editingLecture.sourceType || "LINK";
-
     if (editLectureMethod === "LINK") {
-      if (!editLectureInputUrl.trim()) {
-        notify("Vui lòng nhập liên kết bài giảng hợp lệ!", "error");
+      const originalId = editingLecture.youtubeId;
+      if (!originalId || getLectureYoutubeId(editLectureInputUrl) !== originalId) {
+        notify("Máy chủ chưa hỗ trợ thay đổi nguồn sang liên kết mới.", "error");
         return;
       }
-      const parsedYt = getLectureYoutubeId(editLectureInputUrl);
-      updatedYtId = parsedYt || undefined;
-      updatedSourceUrl = editLectureInputUrl.trim();
-      updatedFileType = "mp4";
-      updatedSourceType = "LINK";
-    } else {
+    } else if (editingLecture.sourceType === "LINK" && !editLectureFileObj) {
+      notify("Cần chọn tệp để thay thế nguồn liên kết hiện tại.", "error");
+      return;
+    }
+    const tags = (editingLecture.tags ?? []).filter((tag) =>
+      !tag.startsWith("Mô tả: ") && !(editLectureFileObj && tag.startsWith("youtube:")));
+    if (!tags.some((tag) => /^(lecture|bài giảng)$/i.test(tag))) tags.push("LECTURE");
+    if (editLectureFormDesc.trim()) tags.push(`Mô tả: ${editLectureFormDesc.trim().replace(/,/g, "，")}`);
+    setLectureSaving(true);
+    let versionUploaded = false;
+    try {
+      const path = `/instructor/materials/${encodeURIComponent(editingLecture.id)}`;
       if (editLectureFileObj) {
-        updatedSourceUrl = editLectureFileObj.name;
-        const ext = editLectureFileObj.name.toLowerCase();
-        if (ext.endsWith(".pptx") || ext.endsWith(".ppt")) {
-          updatedFileType = "pptx";
-        } else {
-          updatedFileType = "mp4";
-        }
+        if (editLectureFileObj.size === 0) throw new Error("Tệp thay thế không có dữ liệu.");
+        const form = new FormData();
+        form.append("file", editLectureFileObj);
+        form.append("folder", editLectureFormFolder);
+        form.append("tags", tags.join(","));
+        await apiRequest<Material>(`${path}/versions`, {
+          method: "POST", roleCode: session.roleCode, body: form,
+        });
+        versionUploaded = true;
       }
-      updatedYtId = undefined;
-      updatedSourceType = "FILE";
+      await apiRequest<Material>(path, {
+        method: "PATCH", roleCode: session.roleCode,
+        body: JSON.stringify({ name: editLectureFormTitle.trim(), folder: editLectureFormFolder, tags }),
+      });
+      await loadClassData();
+      setEditLectureModalOpen(false);
+      setEditingLecture(null);
+      setEditLectureFileObj(null);
+      notify("Đã cập nhật bài giảng thành công!", "success");
+    } catch (error) {
+      console.error("Lỗi cập nhật bài giảng:", error);
+      if (versionUploaded) await loadClassData();
+      const detail = error instanceof Error ? error.message : "Lỗi API";
+      notify(versionUploaded ? `Đã tải phiên bản mới nhưng metadata chưa lưu xong: ${detail}` : detail, "error");
+    } finally {
+      setLectureSaving(false);
     }
-
-    const updatedLecture: LectureItem = {
-      ...editingLecture,
-      title: editLectureFormTitle.trim(),
-      description: editLectureFormDesc.trim(),
-      folder: editLectureFormFolder,
-      fileType: updatedFileType,
-      sourceType: updatedSourceType,
-      sourceUrl: updatedSourceUrl,
-      youtubeId: updatedYtId,
-    };
-
-    setLectures((prev) =>
-      prev.map((l) => (l.id === updatedLecture.id ? updatedLecture : l))
-    );
-    if (selectedLectureForPage?.id === updatedLecture.id) {
-      setSelectedLectureForPage(updatedLecture);
-    }
-    setEditLectureModalOpen(false);
-    setEditingLecture(null);
-    notify("Đã cập nhật toàn bộ thông tin bài giảng thành công!", "success");
   };
 
-  // Xóa tài liệu khỏi danh sách
-  const handleDeleteMaterial = (materialId: string, materialTitle: string) => {
-    if (window.confirm(`Bạn có chắc muốn xóa tài liệu "${materialTitle}" không?`)) {
+  // Xóa tài liệu thực tế trên máy chủ rồi đồng bộ lại danh sách.
+  const handleDeleteMaterial = async (materialId: string, materialTitle: string) => {
+    if (materialSaving || !window.confirm(`Bạn có chắc muốn xóa tài liệu "${materialTitle}" không?`)) return;
+    setMaterialSaving(true);
+    try {
+      await apiRequest(`/instructor/materials/${encodeURIComponent(materialId)}`, {
+        method: "DELETE", roleCode: session.roleCode,
+      });
       setMaterialsList((prev) => prev.filter((m) => m.id !== materialId));
+      setSelectedMaterialId((current) => current === materialId ? "" : current);
       notify("Đã xóa tài liệu thành công!", "success");
+    } catch (error) {
+      console.error("Lỗi xóa tài liệu:", error);
+      notify(error instanceof Error ? error.message : "Không thể xóa tài liệu.", "error");
+    } finally {
+      setMaterialSaving(false);
+    }
+  };
+
+  // Lấy URL truy cập hợp lệ rồi tải tệp thật từ máy chủ.
+  const handleDownloadMaterial = async (materialId: string) => {
+    try {
+      const access = await apiRequest<{ url: string }>(
+        `/materials/${encodeURIComponent(materialId)}/access?action=DOWNLOAD`,
+        { roleCode: session.roleCode },
+      );
+      await downloadApiFile(access.url, session.roleCode);
+    } catch (error) {
+      console.error("Không tải được tài liệu:", error);
+      notify(error instanceof Error ? error.message : "Không tải được tài liệu.", "error");
     }
   };
 
@@ -1628,18 +1052,6 @@ export function InstructorClassWorkspace({
 
     setEditMaterialFileObj(file);
     const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-    setEditMaterialFormSize(`${sizeMb} MB`);
-
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith(".pdf")) {
-      setEditMaterialFormFileType("pdf");
-    } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-      setEditMaterialFormFileType("xlsx");
-    } else {
-      setEditMaterialFormFileType("doc");
-    }
-
-    setEditMaterialUploadProgress(100);
     notify(`Đã nhận diện tệp mới: ${file.name} (${sizeMb} MB)`, "info");
   };
 
@@ -1648,90 +1060,110 @@ export function InstructorClassWorkspace({
     setEditingMaterial({ ...mat });
     setEditMaterialFormTitle(mat.title);
     setEditMaterialFormFolder(mat.folder);
-    const validFileType = (mat.fileType === "word" ? "doc" : mat.fileType) as "pdf" | "xlsx" | "doc";
-    setEditMaterialFormFileType(validFileType);
-    setEditMaterialFormSize(mat.size);
-    setEditMaterialFormPageCount(mat.pageCount || 10);
     setEditMaterialFormDesc(mat.description || "");
     setEditMaterialFileObj(null);
-    setEditMaterialUploadProgress(0);
     setEditMaterialModalOpen(true);
   };
 
   // Lưu chỉnh sửa tài liệu bao gồm tệp thay thế từ máy tính
-  const handleSaveEditMaterial = () => {
+  const handleSaveEditMaterial = async () => {
+    if (materialSaving) return;
     if (!editingMaterial || !editMaterialFormTitle.trim()) {
       notify("Vui lòng nhập tên tài liệu!", "error");
       return;
     }
-
-    const updatedMat: MaterialDisplayItem = {
-      ...editingMaterial,
-      title: editMaterialFormTitle.trim(),
-      folder: editMaterialFormFolder,
-      fileType: editMaterialFormFileType,
-      size: editMaterialFormSize || editingMaterial.size,
-      pageCount: Number(editMaterialFormPageCount) || editingMaterial.pageCount,
-      description: editMaterialFormDesc.trim(),
-    };
-
-    setMaterialsList((prev) =>
-      prev.map((m) => (m.id === updatedMat.id ? updatedMat : m))
-    );
-    setEditMaterialModalOpen(false);
-    setEditingMaterial(null);
-    notify("Đã cập nhật toàn bộ tài liệu thành công!", "success");
+    setMaterialSaving(true);
+    let versionUploaded = false;
+    try {
+      const path = `/instructor/materials/${encodeURIComponent(editingMaterial.id)}`;
+      const tags = editMaterialFormDesc.trim().split(",").map((tag) => tag.trim()).filter(Boolean);
+      if (editMaterialFileObj) {
+        const form = new FormData();
+        form.append("file", editMaterialFileObj);
+        form.append("folder", editMaterialFormFolder);
+        form.append("tags", tags.join(","));
+        await apiRequest<Material>(`${path}/versions`, { method: "POST", roleCode: session.roleCode, body: form });
+        versionUploaded = true;
+      }
+      await apiRequest<Material>(path, {
+        method: "PATCH", roleCode: session.roleCode,
+        body: JSON.stringify({ name: editMaterialFormTitle.trim(), folder: editMaterialFormFolder, tags }),
+      });
+      await loadClassData();
+      setEditMaterialModalOpen(false);
+      setEditingMaterial(null);
+      setEditMaterialFileObj(null);
+      notify("Đã cập nhật tài liệu thành công!", "success");
+    } catch (error) {
+      console.error("Lỗi cập nhật tài liệu:", error);
+      if (versionUploaded) await loadClassData();
+      const detail = error instanceof Error ? error.message : "Lỗi API";
+      notify(versionUploaded ? `Tệp đã được thay thế nhưng chưa lưu được thông tin: ${detail}` : detail, "error");
+    } finally {
+      setMaterialSaving(false);
+    }
   };
 
-  // Mở modal chỉnh sửa bài tập
+  // Chỉ cho sửa nội dung bài nháp theo hợp đồng của API.
   const handleOpenEditAssignment = (assign: Assignment) => {
+    if (assign.status !== "DRAFT") {
+      notify("Chỉ bài tập nháp mới có thể chỉnh sửa nội dung.", "error");
+      return;
+    }
     setEditingAssignment({ ...assign });
     setEditAssignmentTitle(assign.title);
     setEditAssignmentDesc(assign.description || "");
     setEditAssignmentInstructions(assign.instructions || "");
-    setEditAssignmentDue(assign.dueAt ? assign.dueAt.slice(0, 16) : "");
-    setEditAssignmentMaxScore(assign.maxScore || 10);
-    setEditAssignmentFolder((assign as any).folder || "Tuần 1 - Nhập môn");
+    const due = new Date(assign.dueAt);
+    setEditAssignmentDue(Number.isFinite(due.getTime())
+      ? new Date(due.getTime() - due.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+      : "");
+    setEditAssignmentMaxScore(assign.maxScore);
     setEditAssignmentModalOpen(true);
   };
 
-  // Lưu chỉnh sửa bài tập và cập nhật bền vững
-  const handleSaveEditAssignment = () => {
-    if (!editingAssignment || !editAssignmentTitle.trim()) {
-      notify("Vui lòng nhập tiêu đề bài tập!", "error");
+  // Lưu bài nháp qua API với expectedVersion và chỉ báo thành công khi máy chủ xác nhận.
+  const handleSaveEditAssignment = async () => {
+    if (!editingAssignment || editAssignmentSaving) return;
+    const title = editAssignmentTitle.trim();
+    const description = editAssignmentDesc.trim();
+    const instructions = editAssignmentInstructions.trim();
+    const dueAt = new Date(editAssignmentDue);
+    const maxScore = editAssignmentMaxScore;
+    if (title.length < 3 || title.length > 255 || description.length < 10 || description.length > 5000 ||
+      instructions.length < 5 || instructions.length > 10_000 || !Number.isFinite(dueAt.getTime()) ||
+      dueAt.getTime() <= Date.now() || !Number.isFinite(maxScore) || maxScore < 0.25 || maxScore > 1000 ||
+      Math.round(maxScore * 100) !== maxScore * 100) {
+      notify("Kiểm tra tiêu đề (3–255 ký tự), mô tả (10–5000), hướng dẫn (5–10000), hạn nộp tương lai và thang điểm hợp lệ.", "error");
       return;
     }
-
-    const updatedAssignments = assignments.map((a) =>
-      a.id === editingAssignment.id
-        ? {
-            ...a,
-            title: editAssignmentTitle.trim(),
-            description: editAssignmentDesc.trim(),
-            instructions: editAssignmentInstructions.trim(),
-            dueAt: editAssignmentDue ? new Date(editAssignmentDue).toISOString() : a.dueAt,
-            maxScore: Number(editAssignmentMaxScore) || 10,
-            folder: editAssignmentFolder,
-          }
-        : a
-    );
-
-    setAssignments(updatedAssignments);
-    if (selectedAssignment?.id === editingAssignment.id) {
-      setSelectedAssignment(
-        updatedAssignments.find((a) => a.id === editingAssignment.id) || null
-      );
+    if (editingAssignment.status !== "DRAFT") {
+      notify("Bài tập đã công bố không thể sửa nội dung.", "error");
+      return;
     }
-
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(updatedAssignments));
-      } catch (e) {}
+    const rubric = editingAssignment.rubric.map(({ title: rubricTitle, description: rubricDescription, maxPoints }) => ({
+      title: rubricTitle, description: rubricDescription, maxPoints,
+    }));
+    if (rubric.length === 1) rubric[0]!.maxPoints = maxScore;
+    if (!rubric.length || Math.abs(rubric.reduce((sum, criterion) => sum + criterion.maxPoints, 0) - maxScore) > 0.001) {
+      notify("Tổng điểm các tiêu chí chấm phải bằng điểm tối đa. Không thể đổi thang điểm của rubric nhiều tiêu chí tại đây.", "error");
+      return;
     }
-
-    setEditAssignmentModalOpen(false);
-    setEditingAssignment(null);
-    notify("Đã cập nhật bài tập thành công!", "success");
+    setEditAssignmentSaving(true);
+    try {
+      await apiRequest<Assignment>(`/instructor/assignments/${encodeURIComponent(editingAssignment.id)}`, {
+        method: "PATCH", roleCode: session.roleCode,
+        body: JSON.stringify({ title, description, instructions, dueAt: dueAt.toISOString(), maxScore, rubric, expectedVersion: editingAssignment.version }),
+      });
+      await loadClassData();
+      setEditAssignmentModalOpen(false);
+      setEditingAssignment(null);
+      notify("Đã cập nhật bài tập trên máy chủ.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể lưu bài tập.", "error");
+    } finally {
+      setEditAssignmentSaving(false);
+    }
   };
 
   // Mở Hub điều phối chọn 1 trong 5 cách tạo Bài tập hoặc Soạn câu hỏi
@@ -1740,251 +1172,167 @@ export function InstructorClassWorkspace({
     setCreationHubOpen(true);
   };
 
-  // Lưu câu hỏi thủ công (Cách 1) vào ngân hàng hoặc tạo bài tập
-  const handleSaveManualQuestion = () => {
-    if (!authoringContent.trim()) {
-      notify("Vui lòng nhập nội dung câu hỏi!", "error");
+  /** Lưu câu hỏi vào ngân hàng thật; câu mới bắt đầu ở trạng thái nháp chờ duyệt. */
+  const handleSaveManualQuestion = async () => {
+    if (authoringSaving) return;
+    if (!item.courseId) {
+      notify("Lớp chưa gắn với khóa học nên không thể lưu câu hỏi.", "error");
       return;
     }
-
-    const newQuestion = {
-      id: `cq-${Date.now()}`,
-      content: authoringContent.trim(),
-      type:
-        authoringType === "SINGLE_CHOICE"
-          ? "Trắc nghiệm một đáp án"
-          : authoringType === "MULTIPLE_CHOICE"
-          ? "Trắc nghiệm nhiều đáp án"
-          : "Tự luận",
-      difficulty:
-        authoringDifficulty === "EASY"
-          ? "Cơ bản"
-          : authoringDifficulty === "MEDIUM"
-          ? "Thông hiểu"
-          : "Vận dụng",
-      source: "Soạn thủ công",
-      options: authoringType !== "ESSAY" ? authoringOptions.filter(Boolean) : undefined,
-      correctAnswers: authoringType !== "ESSAY" ? authoringCorrect : undefined,
-      solution: authoringSolution.trim() || undefined,
-      createdAt: new Date().toLocaleDateString("vi-VN"),
-    };
-
-    setClassQuestions((prev) => [newQuestion, ...prev]);
-
-    // Nếu chọn tạo thành bài tập hoặc đang mở từ tab Bài tập
-    if (authoringSaveAsAssignment || creationTarget === "ASSIGNMENT") {
-      const assignTitle =
-        authoringAssignmentTitle.trim() ||
-        `Bài tập trắc nghiệm: ${authoringContent.slice(0, 35)}...`;
-      const newAssign: Assignment = {
-        id: `assign-${Date.now()}`,
-        classId: item.id,
-        classCode: item.code,
-        title: assignTitle,
-        description: `Bài tập được tạo từ câu hỏi soạn thủ công. Độ khó: ${newQuestion.difficulty}`,
-        instructions: "Học sinh chọn phương án đúng nhất và nộp bài trước hạn.",
-        dueAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-        maxScore: 10,
-        rubric: [],
-        status: "PUBLISHED",
-        version: 1,
-        createdById: session.user.id || "instructor-1",
-        createdAt: new Date().toISOString(),
-      };
-      const nextList = [newAssign, ...assignments];
-      setAssignments(nextList);
-      setSelectedAssignment(newAssign);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        } catch (e) {}
-      }
+    if (authoringContent.trim().length < 5) {
+      notify("Nội dung câu hỏi cần ít nhất 5 ký tự.", "error");
+      return;
     }
-
-    setAuthoringModalOpen(false);
-    setAuthoringContent("");
-    setAuthoringSolution("");
-    notify(
-      authoringSaveAsAssignment || creationTarget === "ASSIGNMENT"
-        ? "Đã lưu câu hỏi vào ngân hàng và tạo bài tập cho lớp thành công!"
-        : "Đã lưu câu hỏi vào ngân hàng câu hỏi riêng của lớp!",
-      "success"
-    );
-  };
-
-  // Kích hoạt quét đề AI OCR (Cách 2)
-  const handleTriggerScanExam = () => {
-    setScanStatus("SCANNING");
-    setTimeout(() => {
-      setScanStatus("DONE");
-      notify("Đã quét và bóc tách thành công 4 câu hỏi từ tệp đề thi!", "success");
-    }, 800);
-  };
-
-  // Lưu các câu hỏi từ đề quét OCR vào ngân hàng hoặc tạo bài tập
-  const handleSaveScannedExam = (asAssignment = false) => {
-    const newItems = scannedExamQuestions.map((q) => ({
-      id: `cq-${Date.now()}-${q.id}`,
-      content: q.content,
-      type: "Trắc nghiệm một đáp án",
-      difficulty: "Thông hiểu",
-      source: "Quét AI (OCR)",
-      options: q.options,
-      correctAnswers: [q.correctKey === "A" ? 0 : q.correctKey === "B" ? 1 : q.correctKey === "C" ? 2 : 3],
-      solution: `Đáp án đúng được quét tự động là: ${q.correctKey}`,
-      createdAt: new Date().toLocaleDateString("vi-VN"),
-    }));
-
-    setClassQuestions((prev) => [...newItems, ...prev]);
-
-    if (asAssignment || creationTarget === "ASSIGNMENT") {
-      const newAssign: Assignment = {
-        id: `assign-${Date.now()}`,
-        classId: item.id,
-        classCode: item.code,
-        title: "Đề kiểm tra trắc nghiệm bóc tách từ Quét AI (OCR)",
-        description: "Đề thi gồm 4 câu hỏi trắc nghiệm được AI OCR trích xuất tự động.",
-        instructions: "Làm trực tiếp trên hệ thống và nộp bài trước hạn.",
-        dueAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-        maxScore: 10,
-        rubric: [],
-        status: "PUBLISHED",
-        version: 1,
-        createdById: session.user.id || "instructor-1",
-        createdAt: new Date().toISOString(),
-      };
-      const nextList = [newAssign, ...assignments];
-      setAssignments(nextList);
-      setSelectedAssignment(newAssign);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        } catch (e) {}
-      }
-    }
-
-    setScanModalOpen(false);
-    notify(
-      asAssignment || creationTarget === "ASSIGNMENT"
-        ? "Đã lưu 4 câu hỏi vào ngân hàng và tạo bài tập cho lớp!"
-        : "Đã lưu 4 câu hỏi quét AI vào ngân hàng thành công!",
-      "success"
-    );
-  };
-
-  // Kích hoạt sinh đề thông minh bằng AI (Cách 3)
-  const handleTriggerAiExamGen = () => {
-    setAiGenerating(true);
-    setAiGeneratedItems([]);
-
-    const generated = [
-      {
-        id: "ai-1",
-        content: `Câu 1 (${aiSubject}): Cho hàm số y = f(x) có đạo hàm f'(x) = x(x-1)³(x+2)². Số điểm cực trị của hàm số là?`,
-        options: ["1 điểm", "2 điểm", "3 điểm", "4 điểm"],
-        correctKey: "B",
-        explanation: "Điểm cực trị là nghiệm bội lẻ của f'(x) = 0, gồm x = 0 và x = 1. Do đó có 2 điểm cực trị.",
-      },
-      {
-        id: "ai-2",
-        content: `Câu 2 (${aiSubject}): Tiệm cận đứng của đồ thị hàm số y = (2x + 1) / (x - 3) là đường thẳng nào?`,
-        options: ["x = 3", "x = -3", "y = 2", "y = 3"],
-        correctKey: "A",
-        explanation: "Mẫu số x - 3 = 0 <=> x = 3 là tiệm cận đứng.",
-      },
-      {
-        id: "ai-3",
-        content: `Câu 3 (${aiSubject}): Tìm giá trị lớn nhất của hàm số f(x) = x³ - 3x + 2 trên đoạn [0; 2]?`,
-        options: ["max = 4", "max = 2", "max = 0", "max = 1"],
-        correctKey: "A",
-        explanation: "f'(x) = 3x² - 3 = 0 <=> x = 1. f(0) = 2, f(1) = 0, f(2) = 4 => GTLN là 4 tại x = 2.",
-      },
-      {
-        id: "ai-4",
-        content: `Câu 4 (${aiSubject}): Đồ thị hàm số y = x⁴ - 2x² + 3 có bao nhiêu điểm cực trị?`,
-        options: ["3 điểm", "1 điểm", "2 điểm", "0 điểm"],
-        correctKey: "A",
-        explanation: "Hàm trùng phương có a.b = 1.(-2) = -2 < 0 nên có đúng 3 điểm cực trị.",
-      },
-      {
-        id: "ai-5",
-        content: `Câu 5 (${aiSubject}): Thể tích khối lập phương có cạnh bằng 3a là?`,
-        options: ["27a³", "9a³", "3a³", "18a³"],
-        correctKey: "A",
-        explanation: "V = (3a)³ = 27a³.",
-      },
+    const options = authoringType === "ESSAY" ? [] : authoringOptions.map((option) => option.trim());
+    const correctAnswers = authoringType === "ESSAY" ? [] : [
+      ...new Set(authoringCorrect.map((index) => options[index]).filter((answer): answer is string => Boolean(answer))),
     ];
-
-    generated.forEach((q, idx) => {
-      setTimeout(() => {
-        setAiGeneratedItems((prev) => [...prev, q]);
-        if (idx === generated.length - 1) {
-          setAiGenerating(false);
-          notify(`AI đã tạo thành công ${generated.length} câu hỏi theo chủ đề "${aiTopic}"!`, "success");
-        }
-      }, (idx + 1) * 80);
-    });
-  };
-
-  // Lưu đề thi do AI tạo vào ngân hàng hoặc tạo bài tập
-  const handleSaveAiExam = (asAssignment = false) => {
-    if (aiGeneratedItems.length === 0) {
-      notify("Chưa có câu hỏi nào được sinh từ AI!", "error");
+    if (authoringType !== "ESSAY" && (options.some((option) => !option) || options.length < 2 || correctAnswers.length === 0)) {
+      notify("Câu trắc nghiệm phải có ít nhất 2 phương án và 1 đáp án đúng hợp lệ.", "error");
       return;
     }
-
-    const newItems = aiGeneratedItems.map((q) => ({
-      id: `cq-${Date.now()}-${q.id}`,
-      content: q.content,
-      type: "Trắc nghiệm một đáp án",
-      difficulty:
-        aiDifficulty === "EASY" ? "Cơ bản" : aiDifficulty === "MEDIUM" ? "Thông hiểu" : "Vận dụng",
-      source: `Tạo đề AI (${aiTopic})`,
-      options: q.options,
-      correctAnswers: [q.correctKey === "A" ? 0 : q.correctKey === "B" ? 1 : q.correctKey === "C" ? 2 : 3],
-      solution: q.explanation,
-      createdAt: new Date().toLocaleDateString("vi-VN"),
-    }));
-
-    setClassQuestions((prev) => [...newItems, ...prev]);
-
-    if (asAssignment || creationTarget === "ASSIGNMENT") {
-      const newAssign: Assignment = {
-        id: `assign-${Date.now()}`,
-        classId: item.id,
-        classCode: item.code,
-        title: `Bài kiểm tra AI: ${aiTopic} (${aiSubject})`,
-        description: `Đề thi ${aiGeneratedItems.length} câu trắc nghiệm được AI tạo tự động theo chuyên đề ${aiTopic}.`,
-        instructions: "Thời gian làm bài khuyến nghị: 45 phút. Chọn đáp án đúng nhất.",
-        dueAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-        maxScore: 10,
-        rubric: [],
-        status: "PUBLISHED",
-        version: 1,
-        createdById: session.user.id || "instructor-1",
-        createdAt: new Date().toISOString(),
-      };
-      const nextList = [newAssign, ...assignments];
-      setAssignments(nextList);
-      setSelectedAssignment(newAssign);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        } catch (e) {}
-      }
+    setAuthoringSaving(true);
+    try {
+      await apiRequest<Question>("/instructor/question-bank/questions", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          courseId: item.courseId,
+          type: authoringType,
+          content: authoringContent.trim(),
+          options,
+          correctAnswers,
+          difficulty: authoringDifficulty === "EASY" ? 1 : authoringDifficulty === "MEDIUM" ? 2 : 3,
+          tags: ["Soạn thủ công"],
+        }),
+      });
+      await loadClassData();
+      setAuthoringModalOpen(false);
+      setAuthoringContent("");
+      notify("Đã lưu câu hỏi nháp vào ngân hàng. Cần duyệt và xuất bản trước khi tạo đề thi.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error");
+    } finally {
+      setAuthoringSaving(false);
     }
+  };
 
-    setAiExamModalOpen(false);
-    notify(
-      asAssignment || creationTarget === "ASSIGNMENT"
-        ? `Đã tạo bài tập và thêm ${aiGeneratedItems.length} câu hỏi vào ngân hàng!`
-        : `Đã lưu ${aiGeneratedItems.length} câu hỏi AI vào ngân hàng câu hỏi riêng!`,
-      "success"
-    );
+  /** Đọc tệp ảnh thực tế bằng API OCR; giữ kết quả nguyên vẹn để kiểm tra trước khi nhập. */
+  const handleTriggerScanExam = async () => {
+    if (scanStatus === "SCANNING") return;
+    if (!scanFile || !scanFile.type.startsWith("image/") || scanFile.size > 12 * 1024 * 1024) {
+      notify("Chọn một ảnh đề thi hợp lệ, dung lượng tối đa 12 MB.", "error");
+      return;
+    }
+    setScanStatus("SCANNING");
+    setScannedExamQuestions([]);
+    try {
+      const data = new FormData();
+      data.append("file", scanFile);
+      const result = await apiRequest<{
+        questions: typeof scannedExamQuestions;
+        provider: string;
+        model: string;
+        warnings: string[];
+      }>("/instructor/question-bank/scan-image", {
+        method: "POST", roleCode: session.roleCode, body: data,
+      });
+      setScannedExamQuestions(result.questions);
+      setScanProviderLabel(`${result.provider} / ${result.model}`);
+      setScanStatus("DONE");
+      notify(`Đã bóc tách ${result.questions.length} câu. Hãy kiểm tra đáp án trước khi nhập.`, "success");
+      if (result.warnings.length) console.warn("Cảnh báo OCR:", result.warnings);
+    } catch (error) {
+      setScanStatus("IDLE");
+      notify(error instanceof Error ? error.message : "Không quét được ảnh đề thi.", "error");
+    }
+  };
+
+  /** Nhập bản nháp OCR vào ngân hàng thật và báo rõ các dòng không nhập được. */
+  const handleSaveScannedExam = async () => {
+    if (scanSaving || scanStatus !== "DONE" || !scannedExamQuestions.length) return;
+    if (!item.courseId) {
+      notify("Lớp chưa gắn môn học để nhập câu hỏi.", "error");
+      return;
+    }
+    setScanSaving(true);
+    try {
+      const results = await apiRequest<QuestionImportResult[]>("/instructor/question-bank/questions/import", {
+        method: "POST", roleCode: session.roleCode,
+        body: JSON.stringify({ questions: scannedExamQuestions.map((q) => ({
+          courseId: item.courseId,
+          type: q.type,
+          content: q.content,
+          options: q.options,
+          correctAnswers: q.correctAnswers,
+          difficulty: q.difficulty,
+          tags: q.tags,
+        })) }),
+      });
+      const imported = results.filter((r) => r.status === "IMPORTED").length;
+      const failed = results.filter((r) => r.status === "FAILED");
+      await loadClassData();
+      notify(`Đã nhập ${imported}/${results.length} câu hỏi nháp.${failed.length ? ` Lỗi: ${failed.map((r) => `dòng ${r.row}: ${r.message}`).join("; ")}` : ""}`, failed.length ? "error" : "success");
+      if (!failed.length) {
+        setScanModalOpen(false);
+        setScannedExamQuestions([]);
+        setScanStatus("IDLE");
+      } else {
+        const failedRows = new Set(failed.map((r) => r.row));
+        setScannedExamQuestions((current) => current.filter((_, i) => failedRows.has(i + 1)));
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không nhập được câu hỏi OCR.", "error");
+    } finally {
+      setScanSaving(false);
+    }
+  };
+
+  /** Sinh đề AI bằng API thật; dùng cùng request ID khi người dùng thử lại cùng cấu hình. */
+  const handleTriggerAiExamGen = async () => {
+    if (aiGenerating) return;
+    const topic = aiTopic.trim();
+    if (topic.length < 5 || !Number.isInteger(aiQuestionCount) || aiQuestionCount < 1 || aiQuestionCount > 50) {
+      notify("Chuyên đề phải có ít nhất 5 ký tự và số câu trong khoảng 1–50.", "error");
+      return;
+    }
+    const signature = JSON.stringify([item.id, aiSubject, topic, aiQuestionCount, aiDifficulty]);
+    if (aiRequestRef.current?.signature !== signature) {
+      aiRequestRef.current = { signature, id: crypto.randomUUID() };
+    }
+    const openAt = new Date();
+    setAiGeneratedExam(null);
+    setAiGenerating(true);
+    try {
+      const result = await apiRequest<AiGeneratedExamResult>("/instructor/exams/ai-generate", {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: item.id,
+          title: `Đề AI: ${topic} (${aiSubject})`,
+          focus: `${aiSubject}: ${topic}`,
+          difficulty: aiDifficulty === "EASY" ? 1 : aiDifficulty === "MEDIUM" ? 2 : 3,
+          distribution: [{ type: "SINGLE_CHOICE", count: aiQuestionCount }],
+          durationMinutes: 45,
+          totalScore: 10,
+          openAt: openAt.toISOString(),
+          closeAt: new Date(openAt.getTime() + 7 * 86400000).toISOString(),
+          attemptLimit: 1,
+          clientRequestId: aiRequestRef.current.id,
+        }),
+      });
+      setAiGeneratedExam(result);
+      await loadClassData();
+      notify(`Đã tạo đề nháp ${result.generatedQuestionCount} câu. Cần kiểm tra câu hỏi và gửi duyệt trước khi xuất bản.`, "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tạo được đề thi AI.", "error");
+    } finally {
+      setAiGenerating(false);
+    }
   };
 
   // Mở modal chỉnh sửa câu hỏi trong ngân hàng lớp
-  const handleOpenEditQuestion = (q: any) => {
+  const handleOpenEditQuestion = (q: ClassQuestion) => {
     setEditingQuestionData({
       id: q.id,
       content: q.content,
@@ -1998,360 +1346,206 @@ export function InstructorClassWorkspace({
     setEditingQuestionModalOpen(true);
   };
 
-  // Lưu câu hỏi sau khi giáo viên chỉnh sửa
-  const handleSaveEditedQuestion = () => {
-    if (!editingQuestionData) return;
+  // Lưu câu hỏi tại chỗ hoặc chờ API tạo version mới rồi mới xác nhận thành công.
+  const handleSaveEditedQuestion = async () => {
+    if (!editingQuestionData || editingQuestionSaving) return;
     if (!editingQuestionData.content.trim()) {
       notify("Vui lòng nhập nội dung câu hỏi!", "error");
       return;
     }
 
-    // Cập nhật câu hỏi vào CSDL PostgreSQL
     try {
-      void apiRequest(`/instructor/question-bank/questions/${editingQuestionData.id}`, {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          content: editingQuestionData.content.trim(),
-          type: editingQuestionData.type === "Tự luận" ? "ESSAY" : "SINGLE_CHOICE",
-          options: editingQuestionData.options?.filter(Boolean) || [],
-          correctAnswers: editingQuestionData.correctAnswers?.map((idx) => ["A", "B", "C", "D"][idx] || "A") || ["A"],
-          difficulty: editingQuestionData.difficulty === "Cơ bản" ? 1 : editingQuestionData.difficulty === "Thông hiểu" ? 2 : 3,
-        }),
-      }).catch((err) => console.warn("Lỗi đồng bộ CSDL:", err));
-    } catch (e) {}
+        setEditingQuestionSaving(true);
+        const options = editingQuestionData.options.map((option) => option.trim()).filter(Boolean);
+        const correctAnswers = editingQuestionData.type === "Tự luận" ? [] : [
+          ...new Set(editingQuestionData.correctAnswers.map((idx) => editingQuestionData.options[idx]?.trim()).filter((answer): answer is string => Boolean(answer))),
+        ];
+        const questionType = editingQuestionData.type === "Tự luận" ? "ESSAY"
+          : ["Nhiều đáp án", "Trắc nghiệm nhiều đáp án"].includes(editingQuestionData.type) ? "MULTIPLE_CHOICE"
+          : editingQuestionData.type === "Đúng / Sai" ? "TRUE_FALSE"
+          : editingQuestionData.type === "Điền khuyết" ? "SHORT_ANSWER" : "SINGLE_CHOICE";
+        await apiRequest<{ id: string }>(`/instructor/question-bank/questions/${editingQuestionData.id}`, {
+          method: "PATCH",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            courseId: item.courseId,
+            content: editingQuestionData.content.trim(),
+            type: questionType,
+            options,
+            correctAnswers,
+            difficulty: editingQuestionData.difficulty === "Cơ bản" ? 1 : editingQuestionData.difficulty === "Thông hiểu" ? 2 : 3,
+            tags: editingQuestionData.source.split(",").map((tag) => tag.trim()).filter(Boolean),
+          }),
+        });
+        await loadClassData();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể cập nhật câu hỏi.", "error");
+      return;
+    } finally {
+      setEditingQuestionSaving(false);
+    }
 
-    setClassQuestions((prev) =>
-      prev.map((q) =>
-        q.id === editingQuestionData.id
-          ? {
-              ...q,
-              content: editingQuestionData.content.trim(),
-              type: editingQuestionData.type,
-              difficulty: editingQuestionData.difficulty,
-              source: editingQuestionData.source.trim() || "Ngân hàng câu hỏi",
-              options: editingQuestionData.type !== "Tự luận" ? editingQuestionData.options.filter(Boolean) : undefined,
-              correctAnswers: editingQuestionData.type !== "Tự luận" ? editingQuestionData.correctAnswers : undefined,
-              solution: editingQuestionData.solution.trim() || undefined,
-            }
-          : q
-      )
-    );
     setEditingQuestionModalOpen(false);
     setEditingQuestionData(null);
     notify("Đã cập nhật câu hỏi thành công!", "success");
   };
 
-  // Kiểu 1: Soạn đề thủ công từ các câu hỏi giáo viên tick chọn
-  const handleCreateExamManual = async () => {
-    if (!manualExamTitle.trim()) {
-      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
-      return;
+  /** Trộn danh sách độc lập bằng Fisher–Yates để mọi hoán vị có cơ hội như nhau. */
+  const shuffleQuestionPool = (questions: ClassQuestion[]): ClassQuestion[] => {
+    const result = [...questions];
+    for (let index = result.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      const current = result[index]!;
+      result[index] = result[swapIndex]!;
+      result[swapIndex] = current;
     }
-    if (manualExamSelectedQuestions.length === 0) {
-      notify("Vui lòng tick chọn ít nhất 1 câu hỏi từ ngân hàng!", "error");
-      return;
+    return result;
+  };
+
+  /** Tạo đề thi DRAFT thật; chỉ chấp nhận câu hỏi đã xuất bản và thông báo lỗi từ API. */
+  const persistAndCacheExam = async (
+    title: string,
+    selectedQuestions: ClassQuestion[],
+    shuffleQuestions = false,
+  ): Promise<boolean> => {
+    if (examSaving) return false;
+    const trimmedTitle = title.trim();
+    if (trimmedTitle.length < 3) {
+      notify("Tiêu đề đề thi cần ít nhất 3 ký tự.", "error");
+      return false;
+    }
+    if (!Number.isInteger(manualExamDuration) || manualExamDuration < 1) {
+      notify("Thời lượng đề thi phải là số phút nguyên dương.", "error");
+      return false;
+    }
+    if (!selectedQuestions.length || selectedQuestions.some((question) => question.status !== "PUBLISHED")) {
+      notify("Chỉ được tạo đề từ câu hỏi đã xuất bản.", "error");
+      return false;
+    }
+    const openAt = new Date();
+    const closeAt = manualExamDueAt ? new Date(manualExamDueAt) : new Date(openAt.getTime() + 7 * 86400000);
+    if (!Number.isFinite(closeAt.getTime()) || closeAt <= openAt) {
+      notify("Hạn đóng đề thi phải hợp lệ và muộn hơn thời điểm mở đề.", "error");
+      return false;
     }
 
-    const selectedObjs = classQuestions.filter((q) => manualExamSelectedQuestions.includes(q.id));
-    const newAssign: Assignment = {
-      id: `assign-${Date.now()}`,
-      classId: item.id,
-      classCode: item.code,
-      title: manualExamTitle.trim(),
-      description: `Đề thi gồm ${selectedObjs.length} câu hỏi do giáo viên chọn lọc thủ công từ ngân hàng câu hỏi riêng của lớp.`,
-      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Học sinh hoàn thành các câu hỏi và nộp bài trước hạn.`,
-      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
-      maxScore: 10,
-      rubric: [
-        {
-          id: `rb-${Date.now()}-manual`,
-          title: "Đánh giá kết quả bài thi",
-          description: "Chấm điểm tự động và trực tiếp theo đáp án chuẩn",
-          maxPoints: 10,
-        },
-      ],
-      status: "PUBLISHED",
-      version: 1,
-      createdById: session.user.id || "instructor-1",
-      createdAt: new Date().toISOString(),
-    };
-    (newAssign as any).durationMinutes = manualExamDuration;
-    (newAssign as any).totalQuestions = selectedObjs.length;
-    (newAssign as any).questions = selectedObjs;
-    (newAssign as any).questionIds = selectedObjs.map((q) => q.id);
-
-    // Lưu vật lý vào CSDL PostgreSQL
+    setExamSaving(true);
     try {
-      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
+      const created = await apiRequest<Exam>("/instructor/exams", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          title: newAssign.title,
-          description: newAssign.description,
-          instructions: newAssign.instructions,
-          dueAt: newAssign.dueAt,
-          maxScore: 10,
-          rubric: newAssign.rubric,
+          classId: item.id,
+          title: trimmedTitle,
+          questionIds: selectedQuestions.map((question) => question.id),
+          durationMinutes: manualExamDuration,
+          totalScore: 10,
+          openAt: openAt.toISOString(),
+          closeAt: closeAt.toISOString(),
+          attemptLimit: 1,
+          shuffleQuestions,
         }),
       });
-      if (created?.id) {
-        newAssign.id = created.id;
-        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
-          method: "POST",
-          roleCode: session.roleCode,
-        }).catch(() => null);
-      }
-    } catch (e) {
-      console.warn("Lưu CSDL lỗi:", e);
+      if (!created?.id) throw new Error("Máy chủ không trả về đề thi vừa tạo.");
+      notify("Đã lưu đề thi nháp '" + created.title + "' gồm " + selectedQuestions.length + " câu. Hãy gửi duyệt để xuất bản.", "success");
+      return true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tạo đề thi.", "error");
+      return false;
+    } finally {
+      setExamSaving(false);
     }
-
-    const nextList = [newAssign, ...assignments];
-    setAssignments(nextList);
-    setSelectedAssignment(newAssign);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(selectedObjs));
-      } catch (e) {}
-    }
-
-    setManualExamModalOpen(false);
-    setManualExamTitle("");
-    setManualExamSelectedQuestions([]);
-    notify(`Đã tạo thành công đề thi '${newAssign.title}' gồm ${selectedObjs.length} câu hỏi!`, "success");
   };
 
-  // Kiểu 2: AI chọn câu hỏi theo mốc ma trận độ khó
+  /** Tạo đề từ tập câu hỏi được giáo viên chọn thủ công. */
+  const handleCreateExamManual = async () => {
+    if (manualExamSelectedQuestions.length === 0) {
+      notify("Vui lòng chọn ít nhất một câu hỏi đã xuất bản.", "error");
+      return;
+    }
+    const selected = publishedClassQuestions.filter((question) => manualExamSelectedQuestions.includes(question.id));
+    if (selected.length !== manualExamSelectedQuestions.length) {
+      notify("Một số câu hỏi không còn trong ngân hàng. Hãy chọn lại.", "error");
+      return;
+    }
+    if (await persistAndCacheExam(manualExamTitle, selected)) {
+      setManualExamModalOpen(false);
+      setManualExamTitle("");
+      setManualExamSelectedQuestions([]);
+    }
+  };
+
+  /** Chọn đúng số câu theo ma trận từ nhóm PUBLISHED và kiểm tra đủ nguồn theo từng mức. */
   const handleTriggerAiCriteriaSelection = () => {
-    let pool = [...classQuestions];
-    if (aiCriteriaScope === "MULTIPLE_CHOICE") {
-      pool = pool.filter((q) => q.type !== "Tự luận");
-    } else if (aiCriteriaScope === "ESSAY") {
-      pool = pool.filter((q) => q.type === "Tự luận");
-    }
-
-    if (pool.length === 0) {
-      notify("Không có câu hỏi nào trong ngân hàng phù hợp với phạm vi đã chọn!", "error");
+    const pool = filterClassQuestions(publishedClassQuestions, aiCriteriaScope);
+    const ratios = [aiRatioBasic, aiRatioMedium, aiRatioHard, aiRatioVeryHard];
+    if (!Number.isInteger(aiCriteriaQuestionCount) || aiCriteriaQuestionCount < 1 ||
+      ratios.some((ratio) => !Number.isFinite(ratio) || ratio < 0) ||
+      ratios.reduce((sum, ratio) => sum + ratio, 0) !== 100) {
+      notify("Số câu phải hợp lệ và tổng tỷ lệ độ khó phải bằng 100%.", "error");
+      setAiCriteriaPreviewList([]);
       return;
     }
-
-    const totalCount = Math.min(aiCriteriaQuestionCount, pool.length);
-    const targetBasic = Math.max(1, Math.round((totalCount * aiRatioBasic) / 100));
-    const targetMed = Math.max(1, Math.round((totalCount * aiRatioMedium) / 100));
-    const targetHard = Math.round((totalCount * aiRatioHard) / 100);
-    const targetVeryHard = totalCount - targetBasic - targetMed - targetHard;
-
-    const basicPool = pool.filter((q) => q.difficulty === "Cơ bản" || q.difficulty === "Nhận biết");
-    const medPool = pool.filter((q) => q.difficulty === "Thông hiểu");
-    const hardPool = pool.filter((q) => q.difficulty === "Vận dụng");
-    const vhardPool = pool.filter((q) => q.difficulty === "Vận dụng cao");
-
-    const picked: any[] = [];
-/** Đảm nhiệm pickFrom trong phạm vi module hiện tại. */
-    const pickFrom = (source: any[], count: number) => {
-      const shuffled = [...source].sort(() => 0.5 - Math.random());
-      return shuffled.slice(0, count);
-    };
-
-    picked.push(...pickFrom(basicPool, targetBasic));
-    picked.push(...pickFrom(medPool, targetMed));
-    picked.push(...pickFrom(hardPool, targetHard));
-    picked.push(...pickFrom(vhardPool, targetVeryHard));
-
-    // Bổ sung thêm nếu chưa đủ tổng số câu yêu cầu
-    const remainingNeeded = totalCount - picked.length;
-    if (remainingNeeded > 0) {
-      const remainingPool = pool.filter((q) => !picked.some((p) => p.id === q.id));
-      picked.push(...pickFrom(remainingPool, remainingNeeded));
-    }
-
-    setAiCriteriaPreviewList(picked);
-    notify(`AI đã chọn thành công ${picked.length} câu hỏi theo đúng ma trận mốc tỷ lệ!`, "success");
-  };
-
-  // Lưu đề thi tạo bằng Kiểu 2 (AI chọn theo mốc)
-  const handleCreateExamAiCriteria = async () => {
-    if (!manualExamTitle.trim()) {
-      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
+    if (pool.length < aiCriteriaQuestionCount) {
+      notify("Không đủ câu hỏi đã xuất bản cho số lượng yêu cầu.", "error");
+      setAiCriteriaPreviewList([]);
       return;
     }
-
-    let questionsToUse = aiCriteriaPreviewList;
-    if (questionsToUse.length === 0) {
-      let pool = [...classQuestions];
-      if (aiCriteriaScope === "MULTIPLE_CHOICE") {
-        pool = pool.filter((q) => q.type !== "Tự luận");
-      } else if (aiCriteriaScope === "ESSAY") {
-        pool = pool.filter((q) => q.type === "Tự luận");
-      }
-      if (pool.length === 0) {
-        notify("Ngân hàng câu hỏi chưa có câu nào phù hợp!", "error");
+    // API hiện hỗ trợ ba độ khó; mốc vận dụng cao được gộp vào vận dụng.
+    const basic = Math.round(aiCriteriaQuestionCount * aiRatioBasic / 100);
+    const medium = Math.round(aiCriteriaQuestionCount * (aiRatioBasic + aiRatioMedium) / 100) - basic;
+    const hard = aiCriteriaQuestionCount - basic - medium;
+    const groups = [
+      { level: "Cơ bản", count: basic },
+      { level: "Thông hiểu", count: medium },
+      { level: "Vận dụng", count: hard },
+    ];
+    const picked: ClassQuestion[] = [];
+    for (const group of groups) {
+      const available = shuffleQuestionPool(pool.filter((q) =>
+        group.level === "Vận dụng" ? ["Vận dụng", "Vận dụng cao"].includes(q.difficulty) : q.difficulty === group.level
+      ));
+      if (available.length < group.count) {
+        notify("Thiếu câu hỏi mức " + group.level + ": cần " + group.count + ", hiện có " + available.length + ".", "error");
+        setAiCriteriaPreviewList([]);
         return;
       }
-      questionsToUse = pool.slice(0, Math.min(aiCriteriaQuestionCount, pool.length));
+      picked.push(...available.slice(0, group.count));
     }
-
-    const newAssign: Assignment = {
-      id: `assign-${Date.now()}`,
-      classId: item.id,
-      classCode: item.code,
-      title: manualExamTitle.trim(),
-      description: `Đề thi ${questionsToUse.length} câu được AI chọn tự động theo ma trận mốc độ khó (${aiRatioBasic}% Cơ bản, ${aiRatioMedium}% Thông hiểu, ${aiRatioHard}% Vận dụng, ${aiRatioVeryHard}% Vận dụng cao).`,
-      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Hệ thống tự động chấm điểm theo barem.`,
-      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
-      maxScore: 10,
-      rubric: [
-        {
-          id: `rb-${Date.now()}-ai`,
-          title: "Đề thi theo chuẩn ma trận",
-          description: "Phân loại năng lực học sinh",
-          maxPoints: 10,
-        },
-      ],
-      status: "PUBLISHED",
-      version: 1,
-      createdById: session.user.id || "instructor-1",
-      createdAt: new Date().toISOString(),
-    };
-    (newAssign as any).durationMinutes = manualExamDuration;
-    (newAssign as any).totalQuestions = questionsToUse.length;
-    (newAssign as any).questions = questionsToUse;
-    (newAssign as any).questionIds = questionsToUse.map((q) => q.id);
-
-    // Lưu vật lý vào CSDL PostgreSQL
-    try {
-      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          title: newAssign.title,
-          description: newAssign.description,
-          instructions: newAssign.instructions,
-          dueAt: newAssign.dueAt,
-          maxScore: 10,
-          rubric: newAssign.rubric,
-        }),
-      });
-      if (created?.id) {
-        newAssign.id = created.id;
-        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
-          method: "POST",
-          roleCode: session.roleCode,
-        }).catch(() => null);
-      }
-    } catch (e) {
-      console.warn("Lưu CSDL lỗi:", e);
-    }
-
-    const nextList = [newAssign, ...assignments];
-    setAssignments(nextList);
-    setSelectedAssignment(newAssign);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(questionsToUse));
-      } catch (e) {}
-    }
-
-    setManualExamModalOpen(false);
-    setManualExamTitle("");
-    setAiCriteriaPreviewList([]);
-    notify(`Đã tạo thành công đề thi AI '${newAssign.title}' gồm ${questionsToUse.length} câu hỏi!`, "success");
+    setAiCriteriaPreviewList(shuffleQuestionPool(picked));
+    notify("Đã chọn đủ " + picked.length + " câu theo ma trận độ khó. Hãy xem trước trước khi tạo đề.", "success");
   };
 
-  // Kiểu 3: Bốc ngẫu nhiên câu hỏi từ ngân hàng
+  /** Lưu đề thi từ bản xem trước đã được lựa chọn theo ma trận. */
+  const handleCreateExamAiCriteria = async () => {
+    if (!aiCriteriaPreviewList.length || aiCriteriaPreviewList.length !== aiCriteriaQuestionCount) {
+      notify("Hãy chọn và kiểm tra bản xem trước theo ma trận trước khi tạo đề.", "error");
+      return;
+    }
+    if (!aiCriteriaPreviewIsCurrent) {
+      notify("Ngân hàng câu hỏi đã thay đổi so với bản xem trước. Hãy chọn lại.", "error");
+      setAiCriteriaPreviewList([]);
+      return;
+    }
+    if (await persistAndCacheExam(manualExamTitle, aiCriteriaPreviewList)) {
+      setManualExamModalOpen(false);
+      setManualExamTitle("");
+      setAiCriteriaPreviewList([]);
+    }
+  };
+
+  /** Bốc đủ số câu từ câu hỏi đã xuất bản và tạo đề thi thật. */
   const handleCreateExamRandom = async () => {
-    if (!manualExamTitle.trim()) {
-      notify("Vui lòng nhập tiêu đề bài tập / đề thi!", "error");
+    const pool = filterClassQuestions(publishedClassQuestions, randomTypeScope);
+    if (!Number.isInteger(randomQuestionCount) || randomQuestionCount < 1 || pool.length < randomQuestionCount) {
+      notify("Ngân hàng chưa có đủ câu hỏi đã xuất bản theo phạm vi yêu cầu.", "error");
       return;
     }
-
-    let pool = [...classQuestions];
-    if (randomTypeScope === "MULTIPLE_CHOICE") {
-      pool = pool.filter((q) => q.type !== "Tự luận");
-    } else if (randomTypeScope === "ESSAY") {
-      pool = pool.filter((q) => q.type === "Tự luận");
+    const picked = shuffleQuestionPool(pool).slice(0, randomQuestionCount);
+    if (await persistAndCacheExam(manualExamTitle, picked, randomShuffle)) {
+      setManualExamModalOpen(false);
+      setManualExamTitle("");
     }
-
-    if (pool.length === 0) {
-      notify("Ngân hàng chưa có câu hỏi nào phù hợp với phạm vi ngẫu nhiên!", "error");
-      return;
-    }
-
-    const countToPick = Math.min(randomQuestionCount, pool.length);
-    const shuffled = [...pool].sort(() => 0.5 - Math.random());
-    const pickedQuestions = shuffled.slice(0, countToPick);
-
-    if (randomShuffle) {
-      pickedQuestions.sort(() => 0.5 - Math.random());
-    }
-
-    const newAssign: Assignment = {
-      id: `assign-${Date.now()}`,
-      classId: item.id,
-      classCode: item.code,
-      title: manualExamTitle.trim(),
-      description: `Đề thi gồm ${pickedQuestions.length} câu hỏi được bốc ngẫu nhiên và xáo trộn từ ngân hàng câu hỏi lớp.`,
-      instructions: `Thời gian làm bài: ${manualExamDuration} phút. Học sinh làm bài và nộp trước hạn.`,
-      dueAt: manualExamDueAt ? new Date(manualExamDueAt).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
-      maxScore: 10,
-      rubric: [
-        {
-          id: `rb-${Date.now()}-rnd`,
-          title: "Đề thi ngẫu nhiên",
-          description: "Xáo trộn câu hỏi chống sao chép",
-          maxPoints: 10,
-        },
-      ],
-      status: "PUBLISHED",
-      version: 1,
-      createdById: session.user.id || "instructor-1",
-      createdAt: new Date().toISOString(),
-    };
-    (newAssign as any).durationMinutes = manualExamDuration;
-    (newAssign as any).totalQuestions = pickedQuestions.length;
-    (newAssign as any).questions = pickedQuestions;
-    (newAssign as any).questionIds = pickedQuestions.map((q) => q.id);
-
-    // Lưu vật lý vào CSDL PostgreSQL
-    try {
-      const created = await apiRequest<Assignment>(`/instructor/classes/${item.id}/assignments`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          title: newAssign.title,
-          description: newAssign.description,
-          instructions: newAssign.instructions,
-          dueAt: newAssign.dueAt,
-          maxScore: 10,
-          rubric: newAssign.rubric,
-        }),
-      });
-      if (created?.id) {
-        newAssign.id = created.id;
-        await apiRequest(`/instructor/assignments/${created.id}/publish`, {
-          method: "POST",
-          roleCode: session.roleCode,
-        }).catch(() => null);
-      }
-    } catch (e) {
-      console.warn("Lưu CSDL lỗi:", e);
-    }
-
-    const nextList = [newAssign, ...assignments];
-    setAssignments(nextList);
-    setSelectedAssignment(newAssign);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(`wind_assignments_${item.id}`, JSON.stringify(nextList));
-        localStorage.setItem(`wind_exam_questions_${newAssign.id}`, JSON.stringify(pickedQuestions));
-      } catch (e) {}
-    }
-
-    setManualExamModalOpen(false);
-    setManualExamTitle("");
-    notify(`Đã bốc ngẫu nhiên và tạo đề thi '${newAssign.title}' (${pickedQuestions.length} câu) thành công!`, "success");
   };
 
   // Xóa câu hỏi khỏi ngân hàng của lớp
@@ -2361,61 +1555,61 @@ export function InstructorClassWorkspace({
         await apiRequest(`/instructor/question-bank/questions/${questionId}`, {
           method: "DELETE",
           roleCode: session.roleCode,
-        }).catch((err) => console.warn("Lỗi xóa CSDL:", err));
-      } catch (e) {}
-
-      setClassQuestions((prev) => prev.filter((q) => q.id !== questionId));
-      notify("Đã xóa câu hỏi khỏi ngân hàng lớp!", "success");
+        });
+        await loadClassData();
+        notify("Đã xóa câu hỏi khỏi ngân hàng lớp!", "success");
+      } catch (error) {
+        console.warn("Không thể xóa câu hỏi khỏi ngân hàng lớp:", error);
+        notify(error instanceof Error ? error.message : "Không thể xóa câu hỏi.", "error");
+      }
     }
   };
 
   // Lưu thêm tài liệu mới trực tiếp vào cơ sở dữ liệu PostgreSQL
   const handleSaveNewMaterial = async () => {
+    if (materialSaving) return;
     if (!materialFormTitle.trim()) {
       notify("Vui lòng nhập tên tài liệu!", "error");
       return;
     }
+    if (!materialUploadFile || materialUploadFile.size === 0) {
+      notify("Vui lòng chọn tệp tài liệu hợp lệ!", "error");
+      return;
+    }
+    setMaterialSaving(true);
+    let uploadedId: string | null = null;
     try {
-      notify("Đang lưu tài liệu vào cơ sở dữ liệu...", "info");
-      await apiRequest<Material>(
-        `/instructor/classes/${item.id}/materials`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            name: materialFormTitle.trim(),
-            mimeType: materialFormFileType === "pdf" ? "application/pdf" : materialFormFileType === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            folder: materialFormFolder,
-            tags: ["Tài liệu", materialFormFileType.toUpperCase()],
-            scope: "CLASS",
-            description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
-          }),
-        }
-      ).catch((err) => {
-        console.warn("API tạo material lớp cảnh báo:", err);
+      const tags = materialFormDesc.trim().split(",").map((tag) => tag.trim()).filter(Boolean);
+      const form = new FormData();
+      form.append("file", materialUploadFile);
+      form.append("folder", materialFormFolder);
+      form.append("tags", tags.join(","));
+      form.append("scope", "CLASS");
+      const created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
+        method: "POST", roleCode: session.roleCode, body: form,
       });
-
-      const newMat: MaterialDisplayItem = {
-        id: `mat-${Date.now()}`,
-        title: materialFormTitle.trim(),
-        folder: materialFormFolder,
-        fileType: materialFormFileType,
-        size: materialFormSize || "2.0 MB",
-        pageCount: Number(materialFormPageCount) || 10,
-        downloadsCount: 0,
-        uploadedAt: new Date().toLocaleDateString("vi-VN"),
-        description: materialFormDesc.trim() || "Tài liệu học tập được chia sẻ cho lớp.",
-      };
-      setMaterialsList((prev) => [newMat, ...prev]);
-      setSelectedMaterialId(newMat.id);
+      if (!created?.id) throw new Error("Máy chủ không trả về ID tài liệu vừa tải lên.");
+      uploadedId = created.id;
+      if (materialFormTitle.trim() !== created.name) {
+        await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
+          method: "PATCH", roleCode: session.roleCode,
+          body: JSON.stringify({ name: materialFormTitle.trim() }),
+        });
+      }
       await loadClassData();
+      setSelectedMaterialId(created.id);
       setAddMaterialModalOpen(false);
       setMaterialFormTitle("");
       setMaterialFormDesc("");
-      notify("Đã thêm tài liệu mới vào cơ sở dữ liệu thành công!", "success");
-    } catch (err: any) {
+      setMaterialUploadFile(null);
+      notify("Đã tải lên và lưu tài liệu thành công!", "success");
+    } catch (err) {
       console.error("Lỗi khi lưu tài liệu:", err);
-      notify(err?.message || "Không thể lưu tài liệu vào cơ sở dữ liệu", "error");
+      if (uploadedId) await loadClassData();
+      const detail = err instanceof Error ? err.message : "Lỗi API";
+      notify(uploadedId ? `Tệp đã tải lên nhưng bước cập nhật hoặc làm mới thất bại: ${detail}` : detail, "error");
+    } finally {
+      setMaterialSaving(false);
     }
   };
 
@@ -2461,10 +1655,12 @@ export function InstructorClassWorkspace({
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        void navigator.clipboard.writeText(window.location.href);
+                    onClick={async () => {
+                      try {
+                        await copyTextToClipboard(window.location.href);
                         notify("Đã sao chép link lớp học!", "success");
+                      } catch {
+                        notify("Không thể sao chép liên kết lớp học.", "error");
                       }
                     }}
                     className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
@@ -2482,36 +1678,10 @@ export function InstructorClassWorkspace({
               </div>
 
               {/* Danh mục các chức năng con */}
-              <nav className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 py-1">
-                  Danh mục
-                </p>
-                {[
-                  { id: "feed" as const, label: "Bảng tin", icon: MessageSquare },
-                  { id: "schedule" as const, label: "Lịch học", icon: CalendarDays },
-                  { id: "members" as const, label: "Thành viên", icon: Users },
-                  { id: "assignments" as const, label: "Bài tập", icon: FileText },
-                  { id: "lectures" as const, label: "Bài giảng", icon: Video, active: true },
-                  { id: "materials" as const, label: "Tài liệu", icon: Folder },
-                ].map(({ id, label, icon: Icon, active }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedLectureForPage(null);
-                      handleSelectTab(id);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
-                      active
-                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <Icon size={15} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
-                    <span className="truncate">{label}</span>
-                  </button>
-                ))}
-              </nav>
+              <LectureSidebarNavigation onSelectTab={(tab) => {
+                setSelectedLectureForPage(null);
+                handleSelectTab(tab);
+              }} />
             </div>
           </aside>
 
@@ -2790,10 +1960,12 @@ export function InstructorClassWorkspace({
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        void navigator.clipboard.writeText(window.location.href);
+                    onClick={async () => {
+                      try {
+                        await copyTextToClipboard(window.location.href);
                         notify("Đã sao chép liên kết lớp học!");
+                      } catch {
+                        notify("Không thể sao chép liên kết lớp học.", "error");
                       }
                     }}
                     className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
@@ -2983,52 +2155,15 @@ export function InstructorClassWorkspace({
               </div>
             ) : (
               /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
-              <div className="space-y-3 pt-2">
-                {[
+              <ClassScheduleMonthList
+                rows={[
                   { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Hướng dẫn phương pháp học", status: "Đã diễn ra" },
                   { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Biến đổi đại số nâng cao", status: "Hôm nay" },
                   { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập chuyên đề và Kiểm tra 15p", status: "Sắp diễn ra" },
                   { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Chuyên đề nâng cao và Vận dụng thực tế", status: "Sắp diễn ra" },
-                ].map((row, i) => (
-                  <div
-                    key={i}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-blue-300 transition-colors gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          row.status === "Hôm nay"
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                            : row.status === "Đã diễn ra"
-                            ? "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                            : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                        }`}>
-                          {row.status}
-                        </span>
-                        <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                          {row.title}
-                        </strong>
-                      </div>
-                      <p className="text-xs text-slate-500 flex items-center gap-2">
-                        <span>Ngày: {row.date}</span>
-                        <span>·</span>
-                        <span>Thời gian: {row.time}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        <Play size={13} />
-                        <span>Vào phòng</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                ]}
+                onJoin={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
+              />
             )}
           </div>
         )}
@@ -3286,9 +2421,10 @@ export function InstructorClassWorkspace({
                         setPreviewExam({
                           id: selectedAssignment.id,
                           title: selectedAssignment.title,
-                          durationMinutes: (selectedAssignment as any).durationMinutes || 45,
-                          totalQuestions: (selectedAssignment as any).totalQuestions || 10,
+                          durationMinutes: selectedAssignment.durationMinutes || 45,
+                          totalQuestions: selectedAssignment.totalQuestions || 10,
                           remainingAttempts: null,
+                          totalScore: selectedAssignment.maxScore,
                         });
                       }}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
@@ -3461,27 +2597,18 @@ export function InstructorClassWorkspace({
                             const name = l.displayName || l.email || "";
                             return (
                               name.toLowerCase().includes(assignmentStudentSearch.toLowerCase()) ||
-                              l.email.toLowerCase().includes(assignmentStudentSearch.toLowerCase())
+                              (l.email?.toLowerCase().includes(assignmentStudentSearch.toLowerCase()) ?? false)
                             );
                           })
                           .filter((l) => {
-                            const name = l.displayName || l.email || "";
-                            const stat = studentAttemptStats.find(
-                              (s) =>
-                                s.learnerId === l.id ||
-                                s.learnerName.toLowerCase() === name.toLowerCase()
-                            );
-                            if (assignmentStatusFilter === "SUBMITTED") return !!stat;
-                            if (assignmentStatusFilter === "NOT_STARTED") return !stat;
+                            const submission = selectedSubmissions.find((entry) => entry.learnerId === l.id);
+                            if (assignmentStatusFilter === "SUBMITTED") return !!submission;
+                            if (assignmentStatusFilter === "NOT_STARTED") return !submission;
                             return true;
                           })
                           .map((learner, index) => {
                             const studentName = learner.displayName || learner.email || "Học sinh";
-                            const stat = studentAttemptStats.find(
-                              (s) =>
-                                s.learnerId === learner.id ||
-                                s.learnerName.toLowerCase() === studentName.toLowerCase()
-                            );
+                            const submission = selectedSubmissions.find((entry) => entry.learnerId === learner.id);
                             const initials = studentName
                               .split(" ")
                               .map((n: string) => n[0] || "")
@@ -3509,30 +2636,30 @@ export function InstructorClassWorkspace({
                                   </div>
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-600 dark:text-slate-400 font-medium">
-                                  {stat ? "1/1" : "0/1"}
+                                  {submission ? "1/1" : "0/1"}
                                 </td>
                                 <td className="px-4 py-3.5 text-center font-bold">
-                                  {stat ? (
+                                  {submission?.score !== undefined ? (
                                     <span
                                       className={`px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColorClass(
-                                        stat.bestScore,
-                                        stat.maxScore || 10
+                                        submission.score,
+                                        selectedAssignment?.maxScore ?? 10
                                       )}`}
                                     >
-                                      {stat.bestScore}
+                                      {submission.score}
                                     </span>
                                   ) : (
                                     <span className="text-slate-400">--</span>
                                   )}
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-500">
-                                  {stat ? "15 phút" : "--"}
+                                  —
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-500">
-                                  {stat ? stat.submittedAt : "--"}
+                                  {submission ? new Date(submission.submittedAt).toLocaleString("vi-VN") : "—"}
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-500">
-                                  {stat ? "0" : "--"}
+                                  —
                                 </td>
                               </tr>
                             );
@@ -3681,14 +2808,14 @@ export function InstructorClassWorkspace({
                     <div className="flex-1 space-y-2 overflow-y-auto max-h-[540px] pr-1">
                       {assignments.length === 0 ? (
                         <div className="p-8 text-center text-xs text-slate-400">
-                          Chưa có bài tập nào. Bấm "+ Tạo bài tập" để thêm mới.
+                          Chưa có bài tập nào. Bấm &quot;+ Tạo bài tập&quot; để thêm mới.
                         </div>
                       ) : (
                         assignments
                           .filter((assign) => !searchQuery || assign.title.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map((assign) => {
                             const isSelected = selectedAssignment?.id === assign.id;
-                            const submittedCount = studentAttemptStats.length;
+                            const submittedCount = new Set((submissionsByAssignment[assign.id] ?? []).map((submission) => submission.learnerId)).size;
                             const totalLearnersCount = Math.max(learners.length, 1);
 
                             return (
@@ -3775,8 +2902,8 @@ export function InstructorClassWorkspace({
                               setPreviewExam({
                                 id: selectedAssignment.id,
                                 title: selectedAssignment.title,
-                                durationMinutes: (selectedAssignment as any).durationMinutes || 45,
-                                totalQuestions: (selectedAssignment as any).totalQuestions || 10,
+                                durationMinutes: selectedAssignment.durationMinutes ?? 45,
+                                totalQuestions: selectedAssignment.totalQuestions ?? 0,
                                 remainingAttempts: null,
                               });
                             }}
@@ -3796,51 +2923,28 @@ export function InstructorClassWorkspace({
                             <Info size={16} className="text-blue-600 dark:text-blue-400" />
                           </button>
 
-                          {/* Di chuyển */}
-                          <button
-                            type="button"
-                            onClick={() => notify("Chọn thư mục đích để di chuyển bài tập", "info")}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                          >
-                            <span>Di chuyển</span>
-                            <Folder size={16} className="text-slate-400" />
-                          </button>
-
                           {/* Chỉnh sửa */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditAssignment(selectedAssignment)}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                          >
-                            <span>Chỉnh sửa</span>
-                            <Edit2 size={16} className="text-slate-400" />
-                          </button>
+                          {selectedAssignment.status === "DRAFT" && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditAssignment(selectedAssignment)}
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                            >
+                              <span>Chỉnh sửa</span>
+                              <Edit2 size={16} className="text-slate-400" />
+                            </button>
+                          )}
 
                           {/* Xuất dữ liệu */}
                           <button
                             type="button"
-                            onClick={() => notify("Đang xuất dữ liệu bài tập ra file Excel...", "info")}
+                            onClick={() => exportAssignmentsCsv(assignments, item.code)}
                             className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                           >
                             <span>Xuất dữ liệu</span>
                             <Download size={16} className="text-slate-400" />
                           </button>
 
-                          {/* Xóa */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm(`Bạn có chắc muốn xóa bài tập "${selectedAssignment.title}"?`)) {
-                                setAssignments(assignments.filter((a) => a.id !== selectedAssignment.id));
-                                setSelectedAssignment(null);
-                                notify("Đã xóa bài tập thành công!", "success");
-                              }
-                            }}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                          >
-                            <span>Xóa</span>
-                            <Trash2 size={16} className="text-rose-500" />
-                          </button>
                         </div>
                       </div>
                     ) : (
@@ -3855,7 +2959,7 @@ export function InstructorClassWorkspace({
           </>
         )}
 
-        {/* TAB 6: BẢNG ĐIỂM (TỔNG HỢP VỚI CÁC CỘT CHIA NHỎ THEO LẦN LÀM) */}
+        {/* Bảng điểm theo dữ liệu thật từ API lớp học. */}
         {activeTab === "gradebook" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
@@ -3864,7 +2968,7 @@ export function InstructorClassWorkspace({
                   Bảng điểm tổng hợp ({item.name})
                 </h1>
                 <p className="text-xs text-slate-500">
-                  Cột 1: Tên học sinh | Cột 2: Điểm trung bình | Cột 3 trở đi: Tách nhỏ theo từng lần làm bài
+                  Điểm thi, điểm bài tập và trạng thái chấm bài được tổng hợp từ hệ thống.
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -3872,7 +2976,7 @@ export function InstructorClassWorkspace({
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Tìm theo tên học sinh..."
+                    placeholder="Tìm theo tên hoặc email..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
@@ -3880,141 +2984,61 @@ export function InstructorClassWorkspace({
                 </div>
                 <button
                   type="button"
-                  onClick={() => notify("Đang xuất bảng điểm ra file CSV...", "info")}
+                  onClick={() => exportGradebookCsv(gradebook, item.name)}
                   className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Download size={14} />
-                  <span>Xuất Excel</span>
+                  <span>Xuất CSV</span>
                 </button>
               </div>
             </div>
-
-            {/* Bảng điểm chi tiết */}
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-x-auto shadow-xs">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-extrabold text-[10px] border-b border-slate-200 dark:border-slate-800">
                   <tr>
-                    <th className="px-4 py-3 sticky left-0 bg-slate-50 dark:bg-slate-800 z-10 min-w-44 border-r border-slate-200 dark:border-slate-800">
-                      Cột 1: Tên học sinh
-                    </th>
-                    <th className="px-4 py-3 text-center min-w-28 border-r border-slate-200 dark:border-slate-800 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">
-                      Cột 2: Điểm TB
-                    </th>
-                    {/* Cột bài kiểm tra 1 (có 2 lần làm bài) */}
-                    <th colSpan={2} className="px-4 py-2 text-center border-r border-slate-200 dark:border-slate-800">
-                      <div className="border-b border-slate-200 dark:border-slate-700 pb-1">Bài kiểm tra 15p</div>
-                      <div className="flex justify-around text-[9px] pt-1 text-slate-400">
-                        <span>Lần 1</span>
-                        <span>Lần 2</span>
-                      </div>
-                    </th>
-                    {/* Cột bài kiểm tra 2 (có 3 lần làm bài) */}
-                    <th colSpan={3} className="px-4 py-2 text-center border-r border-slate-200 dark:border-slate-800">
-                      <div className="border-b border-slate-200 dark:border-slate-700 pb-1">Kiểm tra giữa kỳ</div>
-                      <div className="flex justify-around text-[9px] pt-1 text-slate-400">
-                        <span>Lần 1</span>
-                        <span>Lần 2</span>
-                        <span>Lần 3</span>
-                      </div>
-                    </th>
-                    {/* Cột bài tập về nhà */}
-                    <th className="px-4 py-3 text-center min-w-28">Bài tập tuần 1</th>
+                    <th className="px-4 py-3 min-w-44">Học sinh</th>
+                    <th className="px-4 py-3 text-center">Điểm thi</th>
+                    <th className="px-4 py-3 text-center">Điểm bài tập</th>
+                    <th className="px-4 py-3 text-center">Tổng (%)</th>
+                    <th className="px-4 py-3 text-center">Chờ chấm</th>
+                    <th className="px-4 py-3 text-center">Chưa nộp</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {studentAttemptStats
-                    .filter((s) => !searchQuery || s.learnerName.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((student) => {
-                      // Tính điểm trung bình
-                      const avg = (student.bestScore * 0.9).toFixed(1);
-                      return (
-                        <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                          {/* Cột 1: Tên học sinh */}
-                          <td className="px-4 py-3 font-bold sticky left-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-10 flex items-center gap-2">
-                            <UserAvatar name={student.learnerName} className="size-6 text-[10px]" />
-                            <span className="truncate">{student.learnerName}</span>
-                          </td>
-
-                          {/* Cột 2: Điểm trung bình */}
-                          <td className="px-4 py-3 text-center font-extrabold border-r border-slate-200 dark:border-slate-800 bg-blue-50/30 dark:bg-blue-950/20">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColorClass(
-                                Number(avg),
-                                10,
-                              )}`}
-                            >
-                              {avg}
-                            </span>
-                          </td>
-
-                          {/* Cột bài 1: Lần 1 & Lần 2 */}
-                          <td className="px-2 py-3 text-center border-r border-slate-100 dark:border-slate-800">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.attempts[0]?.score ?? 5.0,
-                              )}`}
-                            >
-                              {student.attempts[0]?.score ?? "-"}
-                            </span>
-                          </td>
-                          <td className="px-2 py-3 text-center border-r border-slate-200 dark:border-slate-800">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.attempts[1]?.score ?? 7.0,
-                              )}`}
-                            >
-                              {student.attempts[1]?.score ?? "-"}
-                            </span>
-                          </td>
-
-                          {/* Cột bài 2: Lần 1, 2, 3 */}
-                          <td className="px-2 py-3 text-center border-r border-slate-100 dark:border-slate-800">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.attempts[0]?.score ?? 6.0,
-                              )}`}
-                            >
-                              {student.attempts[0]?.score ?? "-"}
-                            </span>
-                          </td>
-                          <td className="px-2 py-3 text-center border-r border-slate-100 dark:border-slate-800">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.attempts[1]?.score ?? 8.5,
-                              )}`}
-                            >
-                              {student.attempts[1]?.score ?? "-"}
-                            </span>
-                          </td>
-                          <td className="px-2 py-3 text-center border-r border-slate-200 dark:border-slate-800">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.attempts[2]?.score ?? 9.0,
-                              )}`}
-                            >
-                              {student.attempts[2]?.score ?? "-"}
-                            </span>
-                          </td>
-
-                          {/* Cột bài tập về nhà */}
-                          <td className="px-3 py-3 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${getScoreColorClass(
-                                student.bestScore,
-                              )}`}
-                            >
-                              {student.bestScore}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                  {gradebook
+                    .filter((row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .map((row) => (
+                      <tr key={row.learnerId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 font-bold">
+                            <UserAvatar name={row.learnerName} className="size-6 text-[10px]" />
+                            <span>{row.learnerName}</span>
+                          </div>
+                          <span className="text-slate-500">{row.learnerEmail}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">{row.examEarned} / {row.examPossible}</td>
+                        <td className="px-4 py-3 text-center">{row.assignmentEarned} / {row.assignmentPossible}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 border font-bold ${getScoreColorClass(row.totalPercent, 100)}`}>
+                            {row.totalPercent.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">{row.awaitingGrade}</td>
+                        <td className="px-4 py-3 text-center">{row.notSubmitted}</td>
+                      </tr>
+                    ))}
+                  {gradebook.filter((row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        {searchQuery ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )}
-
         {/* TAB 7: BÀI GIẢNG (GIAO DIỆN 3 CỘT MASTER-DETAIL CHUẨN ẢNH 1 ĐỒNG BỘ VỚI HỌC SINH + TÍNH NĂNG GIẢNG VIÊN) */}
         {activeTab === "lectures" && (
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
@@ -4082,52 +3106,17 @@ export function InstructorClassWorkspace({
                     <span className="truncate">Tất cả bài giảng</span>
                   </button>
 
-                  {lectureFolders.map((folderName) => {
-                    const isExpanded = lectureFolderExpanded[folderName] ?? true;
-                    const isSelected = selectedLectureFolder === folderName;
-                    return (
-                      <div key={folderName} className="space-y-0.5">
-                        <div
-                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                            isSelected
-                              ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                          }`}
-                          onClick={() => setSelectedLectureFolder(folderName)}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setLectureFolderExpanded((prev) => ({
-                                  ...prev,
-                                  [folderName]: !isExpanded,
-                                }));
-                              }}
-                              className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                            >
-                              <ChevronRight
-                                size={13}
-                                className={`transition-transform duration-150 ${
-                                  isExpanded ? "rotate-90" : ""
-                                }`}
-                              />
-                            </button>
-                            <Folder
-                              size={15}
-                              className={
-                                isSelected
-                                  ? "text-blue-600 fill-blue-500/20"
-                                  : "text-slate-500"
-                              }
-                            />
-                            <span className="truncate">{folderName}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {lectureFolders.map((folderName) => (
+                    <ClassFolderEntry
+                      key={folderName}
+                      name={folderName}
+                      expanded={lectureFolderExpanded[folderName] ?? true}
+                      selected={selectedLectureFolder === folderName}
+                      onSelect={() => setSelectedLectureFolder(folderName)}
+                      onToggle={() => setLectureFolderExpanded((prev) => ({ ...prev, [folderName]: !(lectureFolderExpanded[folderName] ?? true) }))}
+                      toggleCursor
+                    />
+                  ))}
                 </div>
               </div>
 
@@ -4151,7 +3140,7 @@ export function InstructorClassWorkspace({
                   <div className="relative">
                     <select
                       value={lectureSort}
-                      onChange={(e) => setLectureSort(e.target.value as any)}
+                      onChange={(e) => setLectureSort(e.target.value as "alpha" | "newest" | "type")}
                       className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                     >
                       <option value="newest">Mới nhất</option>
@@ -4370,52 +3359,16 @@ export function InstructorClassWorkspace({
                     <span className="truncate">Tất cả tài liệu</span>
                   </button>
 
-                  {materialFolders.map((folderName) => {
-                    const isExpanded = materialFolderExpanded[folderName] ?? true;
-                    const isSelected = selectedMaterialFolder === folderName;
-                    return (
-                      <div key={folderName} className="space-y-0.5">
-                        <div
-                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                            isSelected
-                              ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                              : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                          }`}
-                          onClick={() => setSelectedMaterialFolder(folderName)}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setMaterialFolderExpanded((prev) => ({
-                                  ...prev,
-                                  [folderName]: !isExpanded,
-                                }));
-                              }}
-                              className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                            >
-                              <ChevronRight
-                                size={13}
-                                className={`transition-transform duration-150 ${
-                                  isExpanded ? "rotate-90" : ""
-                                }`}
-                              />
-                            </button>
-                            <Folder
-                              size={15}
-                              className={
-                                isSelected
-                                  ? "text-blue-600 fill-blue-500/20"
-                                  : "text-slate-500"
-                              }
-                            />
-                            <span className="truncate">{folderName}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {materialFolders.map((folderName) => (
+                    <ClassFolderEntry
+                      key={folderName}
+                      name={folderName}
+                      expanded={materialFolderExpanded[folderName] ?? true}
+                      selected={selectedMaterialFolder === folderName}
+                      onSelect={() => setSelectedMaterialFolder(folderName)}
+                      onToggle={() => setMaterialFolderExpanded((prev) => ({ ...prev, [folderName]: !(materialFolderExpanded[folderName] ?? true) }))}
+                    />
+                  ))}
                 </div>
               </div>
 
@@ -4439,7 +3392,7 @@ export function InstructorClassWorkspace({
                   <div className="relative">
                     <select
                       value={materialSort}
-                      onChange={(e) => setMaterialSort(e.target.value as any)}
+                      onChange={(e) => setMaterialSort(e.target.value as "alpha" | "newest" | "type")}
                       className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                     >
                       <option value="alpha">Tên A-Z</option>
@@ -4487,16 +3440,11 @@ export function InstructorClassWorkspace({
                                 {mat.title}
                               </strong>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {mat.size} · {mat.pageCount || 10} trang · Tải lên {mat.uploadedAt}
+                                {mat.size} · Tải lên {mat.uploadedAt}
                               </p>
                             </div>
                           </div>
 
-                          <div className="shrink-0 text-right">
-                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                              {mat.downloadsCount || 20} lượt tải
-                            </span>
-                          </div>
                         </div>
                       );
                     })
@@ -4541,18 +3489,6 @@ export function InstructorClassWorkspace({
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                        <span>Số trang</span>
-                        <span className="font-semibold text-slate-900 dark:text-slate-100">
-                          {activeMaterialItem.pageCount || 15} trang
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                        <span>Lượt tải</span>
-                        <span className="font-semibold text-slate-900 dark:text-slate-100">
-                          {activeMaterialItem.downloadsCount || 35} lượt
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                         <span>Ngày tải lên</span>
                         <span className="font-semibold text-slate-900 dark:text-slate-100">
                           {activeMaterialItem.uploadedAt}
@@ -4563,7 +3499,7 @@ export function InstructorClassWorkspace({
                     <div className="pt-2 space-y-2">
                       <button
                         type="button"
-                        onClick={() => notify(`Đang tải xuống tệp ${activeMaterialItem.title}...`, "success")}
+                        onClick={() => void handleDownloadMaterial(activeMaterialItem.id)}
                         className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                       >
                         <Download size={14} />
@@ -4930,7 +3866,7 @@ export function InstructorClassWorkspace({
                       Cho phép nộp bài tập muộn
                     </strong>
                     <span className="text-[11px] text-slate-500">
-                      Học sinh nộp sau thời hạn sẽ được đánh dấu "Nộp muộn"
+                      Học sinh nộp sau thời hạn sẽ được đánh dấu &quot;Nộp muộn&quot;
                     </span>
                   </div>
                   <input
@@ -4970,8 +3906,10 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={() => {
+                    if (settingsSaveTimer.current !== null) clearTimeout(settingsSaveTimer.current);
                     setSettingsSaving(true);
-                    setTimeout(() => {
+                    settingsSaveTimer.current = setTimeout(() => {
+                      settingsSaveTimer.current = null;
                       setSettingsSaving(false);
                       notify("Đã lưu cấu hình lớp học thành công!", "success");
                     }, 500);
@@ -5010,7 +3948,7 @@ export function InstructorClassWorkspace({
 
             {/* Modal Body: Hai vùng (Vùng 1: Trái, Vùng 2: Phải) */}
             <div className="flex-1 overflow-y-auto p-6 grid md:grid-cols-2 gap-6">
-              {/* BƯỚC 1: VÙNG TRÁI - Chọn nguồn & Kiểm tra tính toàn vẹn */}
+              {/* BƯỚC 1: VÙNG TRÁI - Chọn nguồn bài giảng */}
               <div className="space-y-4 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-6">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-sky-600 block">
                   Bước 1: Chọn cách thêm bài giảng
@@ -5021,7 +3959,6 @@ export function InstructorClassWorkspace({
                     type="button"
                     onClick={() => {
                       setLectureMethod("LINK");
-                      setLecturePreviewReady(false);
                     }}
                     className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                       lectureMethod === "LINK"
@@ -5036,7 +3973,6 @@ export function InstructorClassWorkspace({
                     type="button"
                     onClick={() => {
                       setLectureMethod("FILE");
-                      setLecturePreviewReady(false);
                     }}
                     className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                       lectureMethod === "FILE"
@@ -5090,25 +4026,12 @@ export function InstructorClassWorkspace({
                       <span className="block text-[10px] text-slate-400 mt-0.5">Hỗ trợ PDF, DOCX, PPTX, Ảnh</span>
                     </label>
 
-                    {lectureUploadProgress > 0 && (
+                    {lectureFileObj && (
                       <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
-                        <div className="flex justify-between font-bold text-[11px]">
-                          <span>{lectureFileObj?.name}</span>
-                          <span>{lectureUploadProgress}%</span>
+                        <div className="font-bold text-[11px] break-all">
+                          <span>{lectureFileObj.name}</span>
                         </div>
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                          <div className="bg-sky-600 h-full transition-all" style={{ width: `${lectureUploadProgress}%` }} />
-                        </div>
-                        {lectureIntegrityChecking && (
-                          <p className="text-[10px] text-sky-600 font-bold animate-pulse">
-                            ⏳ Đang kiểm tra toàn vẹn tệp...
-                          </p>
-                        )}
-                        {lecturePreviewReady && (
-                          <p className="text-[10px] text-emerald-600 font-bold">
-                            ✓ Bản xem trước đã sẵn sàng!
-                          </p>
-                        )}
+                        <p className="text-[10px] text-slate-500">Đã chọn tệp. Tệp sẽ được tải lên khi lưu bài giảng.</p>
                       </div>
                     )}
                   </div>
@@ -5118,7 +4041,7 @@ export function InstructorClassWorkspace({
               {/* BƯỚC 2: VÙNG PHẢI - Điền thông tin & Liên kết bài tập/tài liệu (Trượt vào trong 280ms) */}
               <div
                 className={`space-y-4 transition-all duration-280 ${
-                  lectureMethod === "LINK" || lecturePreviewReady
+                  lectureMethod === "LINK" || lectureFileObj !== null
                     ? "opacity-100 translate-x-0"
                     : "opacity-40 pointer-events-none translate-x-4"
                 }`}
@@ -5271,7 +4194,6 @@ export function InstructorClassWorkspace({
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {selectedStudentAttempt ? (
-                /* Xem chi tiết bài làm của 1 học sinh */
                 <div className="space-y-4">
                   <button
                     type="button"
@@ -5280,92 +4202,87 @@ export function InstructorClassWorkspace({
                   >
                     ← Quay lại bảng thống kê
                   </button>
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-between">
-                    <div>
-                      <strong className="text-sm font-bold block">{selectedStudentAttempt.learnerName}</strong>
-                      <span className="text-xs text-slate-500">{selectedStudentAttempt.learnerEmail}</span>
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800 space-y-2">
+                    <strong className="text-sm font-bold block">{selectedStudentAttempt.learnerName}</strong>
+                    <div className="text-xs text-slate-500">{selectedStudentAttempt.learnerEmail}</div>
+                    <div className="text-xs">
+                      Trạng thái: {selectedStudentAttempt.status === "GRADED" ? "Đã chấm" : "Chờ chấm"} ·
+                      Lần nộp {selectedStudentAttempt.revision} ·
+                      Nộp lúc {new Date(selectedStudentAttempt.submittedAt).toLocaleString("vi-VN")}
                     </div>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(
-                        selectedStudentAttempt.bestScore,
-                        selectedStudentAttempt.maxScore,
-                      )}`}
-                    >
-                      Điểm cao nhất: {selectedStudentAttempt.bestScore} / {selectedStudentAttempt.maxScore}đ
-                    </span>
+                    {typeof selectedStudentAttempt.score === "number" && (
+                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(selectedStudentAttempt.score, selectedAssignment?.maxScore ?? 10)}`}>
+                        Điểm: {selectedStudentAttempt.score} / {selectedAssignment?.maxScore ?? "—"}
+                      </span>
+                    )}
                   </div>
-
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-extrabold uppercase text-slate-400">Các câu hỏi & bài làm:</h4>
-                    {selectedStudentAttempt.attempts[0]?.answers?.map((ans, aIdx) => (
-                      <div
-                        key={aIdx}
-                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 text-xs"
-                      >
-                        <div className="flex justify-between font-bold">
-                          <span>Câu {aIdx + 1}: {ans.questionContent}</span>
-                          <span className={ans.isCorrect ? "text-emerald-600 font-extrabold" : "text-rose-600 font-extrabold"}>
-                            {ans.score} / {ans.maxScore}đ
-                          </span>
-                        </div>
-                        <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                          <span className="text-slate-400 block text-[10px]">BÀI LÀM CỦA HỌC SINH:</span>
-                          <strong>{ans.learnerAnswer}</strong>
-                        </div>
-                        <div className="p-2.5 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300">
-                          <span className="text-emerald-600 block text-[10px] font-bold">ĐÁP ÁN CHUẨN:</span>
-                          <span>{ans.correctAnswer}</span>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                    <h4 className="text-xs font-extrabold uppercase text-slate-500">Nội dung bài nộp</h4>
+                    <p className="text-sm whitespace-pre-wrap wrap-break-word">{selectedStudentAttempt.content || "Không có nội dung văn bản."}</p>
                   </div>
+                  {selectedStudentAttempt.attachments.length > 0 && (
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                      <h4 className="text-xs font-extrabold uppercase text-slate-500">Tệp đính kèm</h4>
+                      {selectedStudentAttempt.attachments.map((attachment) => (
+                        <div key={attachment.id} className="text-xs">
+                          {attachment.originalName} ({(attachment.sizeBytes / 1024).toFixed(1)} KB)
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedStudentAttempt.rubricScores.length > 0 && (
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                      <h4 className="text-xs font-extrabold uppercase text-slate-500">Điểm tiêu chí</h4>
+                      {selectedStudentAttempt.rubricScores.map((criterion) => (
+                        <div key={criterion.criterionId} className="text-xs">
+                          {selectedAssignment?.rubric.find((entry) => entry.id === criterion.criterionId)?.title ?? criterion.criterionId}: {criterion.score}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedStudentAttempt.feedback && (
+                    <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                      <h4 className="text-xs font-extrabold uppercase text-slate-500">Nhận xét</h4>
+                      <p className="text-sm whitespace-pre-wrap">{selectedStudentAttempt.feedback}</p>
+                    </div>
+                  )}
                 </div>
               ) : (
-                /* Bảng danh sách học sinh */
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-extrabold text-[10px]">
-                    <tr>
-                      <th className="px-4 py-3">Học sinh</th>
-                      <th className="px-4 py-3 text-center">Số lần làm</th>
-                      <th className="px-4 py-3 text-center">Điểm số</th>
-                      <th className="px-4 py-3 text-center">Thời lượng</th>
-                      <th className="px-4 py-3">Thời gian nộp</th>
-                      <th className="px-4 py-3 text-right">Chi tiết</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {studentAttemptStats.map((stat) => (
-                      <tr key={stat.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="px-4 py-3 font-bold flex items-center gap-2">
-                          <UserAvatar name={stat.learnerName} className="size-6 text-[10px]" />
-                          <span>{stat.learnerName}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center font-bold">{stat.attemptCount} lần</td>
-                        <td className="px-4 py-3 text-center">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full font-extrabold text-xs border ${getScoreColorClass(
-                              stat.bestScore,
-                              stat.maxScore,
-                            )}`}
-                          >
-                            {stat.bestScore} / {stat.maxScore}đ
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center text-slate-500">{stat.durationMinutes} phút</td>
-                        <td className="px-4 py-3 text-slate-500">{stat.submittedAt}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedStudentAttempt(stat)}
-                            className="text-xs font-bold text-sky-600 hover:underline"
-                          >
-                            Xem bài làm
-                          </button>
-                        </td>
+                <div className="space-y-3">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-extrabold text-[10px]">
+                      <tr>
+                        <th className="px-4 py-3">Học sinh</th>
+                        <th className="px-4 py-3 text-center">Lần nộp</th>
+                        <th className="px-4 py-3 text-center">Trạng thái / Điểm</th>
+                        <th className="px-4 py-3">Thời gian nộp</th>
+                        <th className="px-4 py-3 text-right">Chi tiết</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {selectedSubmissions.map((submission) => (
+                        <tr key={submission.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="px-4 py-3 font-bold">{submission.learnerName}</td>
+                          <td className="px-4 py-3 text-center">{submission.revision}</td>
+                          <td className="px-4 py-3 text-center">
+                            {typeof submission.score === "number"
+                              ? `${submission.score} / ${selectedAssignment?.maxScore ?? "—"}`
+                              : "Chờ chấm"}
+                          </td>
+                          <td className="px-4 py-3">{new Date(submission.submittedAt).toLocaleString("vi-VN")}</td>
+                          <td className="px-4 py-3 text-right">
+                            <button type="button" onClick={() => setSelectedStudentAttempt(submission)} className="font-bold text-sky-600 hover:underline">
+                              Xem bài làm
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {selectedSubmissions.length === 0 && (
+                    <p className="text-center text-xs text-slate-500 py-6">Chưa có bài nộp.</p>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -5413,10 +4330,12 @@ export function InstructorClassWorkspace({
             <div className="pt-2 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (typeof navigator !== "undefined" && navigator.clipboard) {
-                    void navigator.clipboard.writeText(window.location.href);
+                onClick={async () => {
+                  try {
+                    await copyTextToClipboard(window.location.href);
                     notify("Đã sao chép liên kết chia sẻ!", "success");
+                  } catch {
+                    notify("Không thể sao chép liên kết lớp học.", "error");
                   }
                   setShareModalOpen(false);
                 }}
@@ -5669,28 +4588,10 @@ export function InstructorClassWorkspace({
                             ? `Tệp mới: ${editLectureFileObj.name}`
                             : `Tệp hiện tại: ${editingLecture.sourceUrl || editingLecture.title}`}
                         </span>
-                        {editLectureUploadProgress > 0 && <span>{editLectureUploadProgress}%</span>}
                       </div>
-
-                      {editLectureUploadProgress > 0 && (
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                          <div
-                            className="bg-sky-600 h-full transition-all"
-                            style={{ width: `${editLectureUploadProgress}%` }}
-                          />
-                        </div>
-                      )}
-
-                      {editLectureIntegrityChecking && (
-                        <p className="text-[10px] text-sky-600 font-bold animate-pulse">
-                          ⏳ Đang kiểm tra toàn vẹn tệp...
-                        </p>
-                      )}
-                      {editLecturePreviewReady && (
-                        <p className="text-[10px] text-emerald-600 font-bold">
-                          ✓ Đã sẵn sàng cập nhật nguồn bài giảng!
-                        </p>
-                      )}
+                      <p className="text-[10px] text-slate-500">
+                        {editLectureFileObj ? "Đã chọn tệp thay thế. Tệp sẽ được tải lên khi lưu thay đổi." : "Chưa chọn tệp thay thế."}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -5784,6 +4685,7 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => setAddMaterialModalOpen(false)}
+                disabled={materialSaving}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <X size={18} />
@@ -5834,48 +4736,21 @@ export function InstructorClassWorkspace({
                   </span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Loại tệp:
-                  </label>
-                  <select
-                    value={materialFormFileType}
-                    onChange={(e) => setMaterialFormFileType(e.target.value as any)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="pdf">PDF</option>
-                    <option value="xlsx">Excel (XLSX)</option>
-                    <option value="doc">Word (DOC/DOCX)</option>
-                  </select>
-                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Dung lượng hiển thị:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ví dụ: 3.2 MB"
-                    value={materialFormSize}
-                    onChange={(e) => setMaterialFormSize(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Số trang:
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={materialFormPageCount}
-                    onChange={(e) => setMaterialFormPageCount(Number(e.target.value) || 1)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Tệp tài liệu <span className="text-rose-500">*</span>:</label>
+                <input
+                  type="file"
+                  disabled={materialSaving}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setMaterialUploadFile(file);
+                    if (file && !materialFormTitle.trim()) setMaterialFormTitle(file.name);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                />
+                {materialUploadFile && <p className="mt-1 text-slate-500">{materialUploadFile.name} · {(materialUploadFile.size / 1024 / 1024).toFixed(2)} MB</p>}
               </div>
 
               <div>
@@ -5896,6 +4771,7 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => setAddMaterialModalOpen(false)}
+                disabled={materialSaving}
                 className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
               >
                 Hủy
@@ -5903,9 +4779,10 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={handleSaveNewMaterial}
+                disabled={materialSaving}
                 className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs"
               >
-                Tải lên & Lưu
+                {materialSaving ? "Đang tải lên..." : "Tải lên & Lưu"}
               </button>
             </div>
           </div>
@@ -5928,6 +4805,7 @@ export function InstructorClassWorkspace({
                   setEditMaterialModalOpen(false);
                   setEditingMaterial(null);
                 }}
+                disabled={materialSaving}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
               >
                 <X size={18} />
@@ -5941,7 +4819,7 @@ export function InstructorClassWorkspace({
                   Thay đổi tệp đính kèm từ máy tính (tùy chọn):
                 </label>
                 <label className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3.5 block text-center cursor-pointer hover:border-blue-500 transition bg-slate-50/50 dark:bg-slate-800/40">
-                  <input type="file" onChange={handleEditMaterialFileSelect} className="hidden" />
+                  <input type="file" onChange={handleEditMaterialFileSelect} disabled={materialSaving} className="hidden" />
                   <UploadCloud size={22} className="mx-auto text-blue-500 mb-1" />
                   <span className="block text-xs font-bold text-slate-700 dark:text-slate-200">
                     {editMaterialFileObj ? `Đã chọn: ${editMaterialFileObj.name}` : "Bấm để chọn tệp mới thay thế"}
@@ -5988,23 +4866,9 @@ export function InstructorClassWorkspace({
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Định dạng & Dung lượng:
                   </label>
-                  <div className="flex gap-2">
-                    <select
-                      value={editMaterialFormFileType}
-                      onChange={(e) => setEditMaterialFormFileType(e.target.value as any)}
-                      className="w-1/2 px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 uppercase font-bold"
-                    >
-                      <option value="pdf">PDF</option>
-                      <option value="xlsx">XLSX</option>
-                      <option value="doc">DOC</option>
-                    </select>
-                    <input
-                      type="text"
-                      value={editMaterialFormSize}
-                      onChange={(e) => setEditMaterialFormSize(e.target.value)}
-                      className="w-1/2 px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                    />
-                  </div>
+                  <p className="px-2 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase">
+                    {editMaterialFileObj ? editMaterialFileObj.name.split(".").pop() || "file" : editingMaterial.fileType} · {editMaterialFileObj ? `${(editMaterialFileObj.size / 1024 / 1024).toFixed(2)} MB` : editingMaterial.size}
+                  </p>
                 </div>
               </div>
 
@@ -6028,6 +4892,7 @@ export function InstructorClassWorkspace({
                   setEditMaterialModalOpen(false);
                   setEditingMaterial(null);
                 }}
+                disabled={materialSaving}
                 className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
               >
                 Hủy
@@ -6035,9 +4900,10 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={handleSaveEditMaterial}
+                disabled={materialSaving}
                 className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
               >
-                Lưu toàn bộ thay đổi
+                {materialSaving ? "Đang lưu..." : "Lưu toàn bộ thay đổi"}
               </button>
             </div>
           </div>
@@ -6079,28 +4945,7 @@ export function InstructorClassWorkspace({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Thư mục lưu trữ:
-                  </label>
-                  <select
-                    value={editAssignmentFolder}
-                    onChange={(e) => setEditAssignmentFolder(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="Tuần 1 - Nhập môn">Tuần 1 - Nhập môn</option>
-                    <option value="Toán 1">Toán 1</option>
-                    <option value="Hình học">Hình học</option>
-                    {customFolders.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
+              <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Điểm tối đa:
                   </label>
@@ -6112,7 +4957,6 @@ export function InstructorClassWorkspace({
                     onChange={(e) => setEditAssignmentMaxScore(Number(e.target.value))}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   />
-                </div>
               </div>
 
               <div>
@@ -6166,9 +5010,10 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={handleSaveEditAssignment}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
+                disabled={editAssignmentSaving}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer disabled:opacity-50"
               >
-                Lưu bài tập
+                {editAssignmentSaving ? "Đang lưu..." : "Lưu bài tập"}
               </button>
             </div>
           </div>
@@ -6345,7 +5190,7 @@ export function InstructorClassWorkspace({
                   </label>
                   <select
                     value={authoringType}
-                    onChange={(e) => setAuthoringType(e.target.value as any)}
+                    onChange={(e) => setAuthoringType(e.target.value as typeof authoringType)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   >
                     <option value="SINGLE_CHOICE">Trắc nghiệm một đáp án</option>
@@ -6360,7 +5205,7 @@ export function InstructorClassWorkspace({
                   </label>
                   <select
                     value={authoringDifficulty}
-                    onChange={(e) => setAuthoringDifficulty(e.target.value as any)}
+                    onChange={(e) => setAuthoringDifficulty(e.target.value as typeof authoringDifficulty)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   >
                     <option value="EASY">Cơ bản (Nhận biết)</option>
@@ -6436,40 +5281,9 @@ export function InstructorClassWorkspace({
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Lời giải chi tiết:
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Gợi ý hoặc các bước giải chi tiết..."
-                  value={authoringSolution}
-                  onChange={(e) => setAuthoringSolution(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                />
-              </div>
-
-              {/* Tùy chọn tạo bài tập ngay */}
-              <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer font-bold text-blue-900 dark:text-blue-100">
-                  <input
-                    type="checkbox"
-                    checked={authoringSaveAsAssignment || creationTarget === "ASSIGNMENT"}
-                    onChange={(e) => setAuthoringSaveAsAssignment(e.target.checked)}
-                    className="rounded text-blue-600"
-                  />
-                  <span>Đồng thời tạo thành Bài tập cho lớp ngay lập tức</span>
-                </label>
-                {(authoringSaveAsAssignment || creationTarget === "ASSIGNMENT") && (
-                  <input
-                    type="text"
-                    placeholder="Tiêu đề bài tập (để trống sẽ tự sinh)..."
-                    value={authoringAssignmentTitle}
-                    onChange={(e) => setAuthoringAssignmentTitle(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                )}
-              </div>
+              <p className="text-xs text-blue-700 dark:text-blue-300">
+                Câu hỏi mới được lưu dạng nháp trong ngân hàng. Sau khi duyệt, có thể dùng câu hỏi để tạo đề thi.
+              </p>
             </div>
 
             <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
@@ -6483,9 +5297,10 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={handleSaveManualQuestion}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
+                disabled={authoringSaving}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer disabled:opacity-50"
               >
-                Lưu câu hỏi
+                {authoringSaving ? "Đang lưu..." : "Lưu câu hỏi"}
               </button>
             </div>
           </div>
@@ -6524,32 +5339,31 @@ export function InstructorClassWorkspace({
                 <div className="border-2 border-dashed border-indigo-200 dark:border-indigo-900/60 rounded-2xl p-6 text-center space-y-2 bg-indigo-50/20 dark:bg-indigo-950/20">
                   <ImageIcon size={32} className="mx-auto text-indigo-500" />
                   <p className="font-bold text-slate-700 dark:text-slate-200">
-                    Đề thi thử THPT Quốc Gia - Môn Toán học (Phiếu 01)
+                    {scanFile?.name ?? "Chưa chọn ảnh đề thi"}
                   </p>
                   <p className="text-[11px] text-slate-400">
-                    Ảnh chụp 4 câu hỏi trắc nghiệm đã được tải lên và sẵn sàng phân tích.
+                    {scanFile ? (scanFile.size / 1024 / 1024).toFixed(2) + " MB" : "Chọn một ảnh đề thi để quét."}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Công nghệ AI OCR:
-                  </label>
-                  <select
-                    value={scanProvider}
-                    onChange={(e) => setScanProvider(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-semibold"
-                  >
-                    <option value="Gemini 1.5 Pro (Khuyên dùng)">Gemini 1.5 Pro (Độ chính xác cao nhất)</option>
-                    <option value="Gemini 1.5 Flash">Gemini 1.5 Flash (Tốc độ siêu nhanh)</option>
-                    <option value="Claude 3.5 Sonnet">Claude 3.5 Sonnet</option>
-                  </select>
+                  <label htmlFor="scan-exam-file" className="block text-xs font-bold text-slate-700 dark:text-slate-300">Ảnh đề thi (tối đa 12 MB):</label>
+                  <input id="scan-exam-file" type="file" accept="image/*"
+                    disabled={scanSaving || scanStatus === "SCANNING"}
+                    onChange={(event) => {
+                      setScanFile(event.target.files?.[0] ?? null);
+                      setScanStatus("IDLE");
+                      setScannedExamQuestions([]);
+                      setScanProviderLabel("");
+                    }}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 p-2" />
+                  {scanProviderLabel && <p className="text-slate-500">Đã nhận diện bằng: {scanProviderLabel}</p>}
                 </div>
 
                 <button
                   type="button"
                   onClick={handleTriggerScanExam}
-                  disabled={scanStatus === "SCANNING"}
+                  disabled={scanStatus === "SCANNING" || scanSaving || !scanFile}
                   className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
                 >
                   <Scan size={15} />
@@ -6566,14 +5380,14 @@ export function InstructorClassWorkspace({
                     Vùng 2: Kết quả bóc tách ({scannedExamQuestions.length} câu)
                   </span>
                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
-                    ✓ Đã nhận diện đáp án
+                    {scanStatus === "DONE" ? "Cần kiểm tra đáp án" : "Chưa có kết quả"}
                   </span>
                 </div>
 
                 <div className="space-y-3">
-                  {scannedExamQuestions.map((q, idx) => (
+                  {scannedExamQuestions.map((q, index) => (
                     <div
-                      key={q.id}
+                      key={index}
                       className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 space-y-2"
                     >
                       <strong className="block font-bold text-slate-800 dark:text-slate-200">
@@ -6582,7 +5396,7 @@ export function InstructorClassWorkspace({
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         {q.options.map((opt, optIdx) => {
                           const prefix = String.fromCharCode(65 + optIdx);
-                          const isCorrect = prefix === q.correctKey;
+                          const isCorrect = q.correctAnswers.includes(opt);
                           return (
                             <div
                               key={optIdx}
@@ -6598,6 +5412,9 @@ export function InstructorClassWorkspace({
                           );
                         })}
                       </div>
+                      {q.correctAnswers.length > 0 && <p className="text-[11px] text-emerald-700">Đáp án nhận diện: {q.correctAnswers.join("; ")}</p>}
+                      <p className="text-[11px] text-slate-500">Độ tin cậy: {Math.round(q.confidence * 100)}%</p>
+                      {q.warnings.map((warning, warningIndex) => <p key={warningIndex} className="text-[11px] text-amber-700">{warning}</p>)}
                     </div>
                   ))}
                 </div>
@@ -6614,17 +5431,11 @@ export function InstructorClassWorkspace({
               </button>
               <button
                 type="button"
-                onClick={() => handleSaveScannedExam(false)}
+                onClick={handleSaveScannedExam}
+                disabled={scanSaving || scanStatus !== "DONE" || !scannedExamQuestions.length}
                 className="px-4 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 transition cursor-pointer"
               >
-                Lưu vào Ngân hàng
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveScannedExam(true)}
-                className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer"
-              >
-                Tạo bài tập cho lớp
+                {scanSaving ? "Đang nhập..." : "Nhập câu hỏi nháp vào ngân hàng"}
               </button>
             </div>
           </div>
@@ -6708,7 +5519,7 @@ export function InstructorClassWorkspace({
                   </label>
                   <select
                     value={aiDifficulty}
-                    onChange={(e) => setAiDifficulty(e.target.value as any)}
+                    onChange={(e) => setAiDifficulty(e.target.value as typeof aiDifficulty)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   >
                     <option value="EASY">Cơ bản (Nhận biết)</option>
@@ -6728,45 +5539,19 @@ export function InstructorClassWorkspace({
                 <span>{aiGenerating ? "AI đang suy nghĩ và sinh câu hỏi..." : "Bắt đầu tạo đề AI"}</span>
               </button>
 
-              {/* Danh sách câu hỏi do AI tạo */}
-              {aiGeneratedItems.length > 0 && (
-                <div className="space-y-3 pt-2">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 block">
-                    Đã sinh thành công {aiGeneratedItems.length} câu hỏi:
-                  </span>
-                  <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-                    {aiGeneratedItems.map((q, idx) => (
-                      <div
-                        key={q.id}
-                        className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-1.5"
-                      >
-                        <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                          {q.content}
-                        </strong>
-                        <div className="grid grid-cols-2 gap-1 text-[11px]">
-                          {q.options.map((opt, oIdx) => {
-                            const pfx = String.fromCharCode(65 + oIdx);
-                            const isCor = pfx === q.correctKey;
-                            return (
-                              <span
-                                key={oIdx}
-                                className={`px-2 py-0.5 rounded ${
-                                  isCor
-                                    ? "bg-emerald-100 dark:bg-emerald-900/80 font-bold text-emerald-800 dark:text-emerald-200"
-                                    : "text-slate-500"
-                                }`}
-                              >
-                                {pfx}. {opt}
-                              </span>
-                            );
-                          })}
-                        </div>
-                        <p className="text-[10px] text-slate-500 italic pt-0.5">
-                          💡 Giải thích: {q.explanation}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+              {aiGeneratedExam && (
+                <div className="space-y-2 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/30 dark:bg-emerald-950/20 p-4" role="status">
+                  <strong className="block text-emerald-700 dark:text-emerald-300">
+                    Đã tạo đề nháp: {aiGeneratedExam.exam.title}
+                  </strong>
+                  <p>{aiGeneratedExam.generatedQuestionCount} câu hỏi đã được lưu. Kiểm tra và gửi duyệt trước khi xuất bản.</p>
+                  <p>Trạng thái: {aiGeneratedExam.exam.status} · Nguồn AI: {aiGeneratedExam.provider} / {aiGeneratedExam.model}</p>
+                  {aiGeneratedExam.context.materialNames.length > 0 && (
+                    <p>Tài liệu tham chiếu: {aiGeneratedExam.context.materialNames.join(", ")}</p>
+                  )}
+                  {aiGeneratedExam.warnings.map((warning, index) => (
+                    <p key={index} className="text-amber-700 dark:text-amber-300">{warning}</p>
+                  ))}
                 </div>
               )}
             </div>
@@ -6777,23 +5562,7 @@ export function InstructorClassWorkspace({
                 onClick={() => setAiExamModalOpen(false)}
                 className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveAiExam(false)}
-                disabled={aiGeneratedItems.length === 0}
-                className="px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-100 transition cursor-pointer disabled:opacity-40"
-              >
-                Lưu vào Ngân hàng
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSaveAiExam(true)}
-                disabled={aiGeneratedItems.length === 0}
-                className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs cursor-pointer disabled:opacity-40"
-              >
-                Tạo bài tập cho lớp
+                Đóng
               </button>
             </div>
           </div>
@@ -6911,7 +5680,7 @@ export function InstructorClassWorkspace({
                           <button
                             type="button"
                             onClick={() => {
-                              if (editingQuestionData.type === "Nhiều đáp án") {
+                              if (["Nhiều đáp án", "Trắc nghiệm nhiều đáp án"].includes(editingQuestionData.type)) {
                                 const exists = editingQuestionData.correctAnswers.includes(idx);
                                 setEditingQuestionData({
                                   ...editingQuestionData,
@@ -7017,7 +5786,8 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={handleSaveEditedQuestion}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
+                disabled={editingQuestionSaving}
+                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer disabled:opacity-50"
               >
                 Lưu cập nhật
               </button>
@@ -7085,6 +5855,19 @@ export function InstructorClassWorkspace({
                 </div>
               </div>
 
+              <div>
+                <label htmlFor="manual-exam-due-at" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Hạn đóng đề (để trống: sau 7 ngày):
+                </label>
+                <input
+                  id="manual-exam-due-at"
+                  type="datetime-local"
+                  value={manualExamDueAt}
+                  onChange={(event) => setManualExamDueAt(event.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                />
+              </div>
+
               {/* BỘ CHỌN 3 KIỂU TẠO ĐỀ */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -7120,10 +5903,10 @@ export function InstructorClassWorkspace({
                   >
                     <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
                       <Wand2 size={15} className="text-emerald-600" />
-                      <span>2. Chọn mốc (AI chọn)</span>
+                      <span>2. Chọn theo ma trận</span>
                     </div>
                     <p className="text-[11px] text-slate-500 leading-tight">
-                      Chọn tỷ lệ ma trận độ khó, AI tự lọc câu hỏi chuẩn xác.
+                      Chọn tỷ lệ độ khó, hệ thống lọc câu hỏi đã xuất bản.
                     </p>
                   </button>
 
@@ -7155,7 +5938,7 @@ export function InstructorClassWorkspace({
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-700 dark:text-slate-300">
-                        Chọn câu hỏi ({manualExamSelectedQuestions.length}/{classQuestions.length} câu đã chọn):
+                        Chọn câu hỏi ({manualExamSelectedQuestions.length}/{publishedClassQuestions.length} câu đã xuất bản):
                       </span>
                       <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
                         {(["ALL", "MULTIPLE_CHOICE", "ESSAY"] as const).map((sc) => (
@@ -7178,32 +5961,18 @@ export function InstructorClassWorkspace({
                     <button
                       type="button"
                       onClick={() => {
-                        const currentPool = classQuestions
-                          .filter((q) => {
-                            if (manualExamFilterScope === "MULTIPLE_CHOICE") return q.type !== "Tự luận";
-                            if (manualExamFilterScope === "ESSAY") return q.type === "Tự luận";
-                            return true;
-                          })
-                          .map((q) => q.id);
-                        if (manualExamSelectedQuestions.length >= currentPool.length) {
-                          setManualExamSelectedQuestions([]);
-                        } else {
-                          setManualExamSelectedQuestions(currentPool);
-                        }
+                        const visibleIds = manualExamVisibleQuestions.map((question) => question.id);
+                        setManualExamSelectedQuestions((selected) => toggleVisibleExamQuestions(selected, visibleIds));
                       }}
+                      disabled={manualExamVisibleQuestions.length === 0}
                       className="text-indigo-600 font-bold hover:underline cursor-pointer"
                     >
-                      {manualExamSelectedQuestions.length > 0 ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                      {manualExamAllVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
                     </button>
                   </div>
 
                   <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                    {classQuestions
-                      .filter((q) => {
-                        if (manualExamFilterScope === "MULTIPLE_CHOICE") return q.type !== "Tự luận";
-                        if (manualExamFilterScope === "ESSAY") return q.type === "Tự luận";
-                        return true;
-                      })
+                    {manualExamVisibleQuestions
                       .map((q) => {
                         const isSelected = manualExamSelectedQuestions.includes(q.id);
                         return (
@@ -7220,10 +5989,12 @@ export function InstructorClassWorkspace({
                               checked={isSelected}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setManualExamSelectedQuestions([...manualExamSelectedQuestions, q.id]);
+                                  setManualExamSelectedQuestions((selected) =>
+                                    selected.includes(q.id) ? selected : [...selected, q.id]
+                                  );
                                 } else {
                                   setManualExamSelectedQuestions(
-                                    manualExamSelectedQuestions.filter((id) => id !== q.id)
+                                    (selected) => selected.filter((id) => id !== q.id)
                                   );
                                 }
                               }}
@@ -7261,9 +6032,12 @@ export function InstructorClassWorkspace({
                       <input
                         type="number"
                         min={1}
-                        max={Math.max(1, classQuestions.length)}
+                        max={Math.max(1, publishedClassQuestions.length)}
                         value={aiCriteriaQuestionCount}
-                        onChange={(e) => setAiCriteriaQuestionCount(Number(e.target.value))}
+                        onChange={(e) => {
+                          setAiCriteriaQuestionCount(Number(e.target.value));
+                          setAiCriteriaPreviewList([]);
+                        }}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
                       />
                     </div>
@@ -7274,7 +6048,10 @@ export function InstructorClassWorkspace({
                       </label>
                       <select
                         value={aiCriteriaScope}
-                        onChange={(e) => setAiCriteriaScope(e.target.value as any)}
+                        onChange={(e) => {
+                          setAiCriteriaScope(e.target.value as typeof aiCriteriaScope);
+                          setAiCriteriaPreviewList([]);
+                        }}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
                       >
                         <option value="ALL">Tất cả (Trắc nghiệm & Tự luận)</option>
@@ -7291,8 +6068,9 @@ export function InstructorClassWorkspace({
                     <select
                       value={aiCriteriaPreset}
                       onChange={(e) => {
-                        const val = e.target.value as any;
+                        const val = e.target.value as typeof aiCriteriaPreset;
                         setAiCriteriaPreset(val);
+                        setAiCriteriaPreviewList([]);
                         if (val === "STANDARD") {
                           setAiRatioBasic(40);
                           setAiRatioMedium(30);
@@ -7337,7 +6115,7 @@ export function InstructorClassWorkspace({
                           min={0}
                           max={100}
                           value={aiRatioBasic}
-                          onChange={(e) => setAiRatioBasic(Number(e.target.value))}
+                          onChange={(e) => { setAiRatioBasic(Number(e.target.value)); setAiCriteriaPreviewList([]); }}
                           disabled={aiCriteriaPreset !== "CUSTOM"}
                           className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
                         />
@@ -7355,7 +6133,7 @@ export function InstructorClassWorkspace({
                           min={0}
                           max={100}
                           value={aiRatioMedium}
-                          onChange={(e) => setAiRatioMedium(Number(e.target.value))}
+                          onChange={(e) => { setAiRatioMedium(Number(e.target.value)); setAiCriteriaPreviewList([]); }}
                           disabled={aiCriteriaPreset !== "CUSTOM"}
                           className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
                         />
@@ -7373,7 +6151,7 @@ export function InstructorClassWorkspace({
                           min={0}
                           max={100}
                           value={aiRatioHard}
-                          onChange={(e) => setAiRatioHard(Number(e.target.value))}
+                          onChange={(e) => { setAiRatioHard(Number(e.target.value)); setAiCriteriaPreviewList([]); }}
                           disabled={aiCriteriaPreset !== "CUSTOM"}
                           className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
                         />
@@ -7391,7 +6169,7 @@ export function InstructorClassWorkspace({
                           min={0}
                           max={100}
                           value={aiRatioVeryHard}
-                          onChange={(e) => setAiRatioVeryHard(Number(e.target.value))}
+                          onChange={(e) => { setAiRatioVeryHard(Number(e.target.value)); setAiCriteriaPreviewList([]); }}
                           disabled={aiCriteriaPreset !== "CUSTOM"}
                           className="w-16 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-center font-bold text-xs"
                         />
@@ -7407,9 +6185,9 @@ export function InstructorClassWorkspace({
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <Sparkles size={14} />
-                      <span>AI Lọc câu hỏi & Xem trước</span>
+                      <span>Lọc câu hỏi & Xem trước</span>
                     </button>
-                    {aiCriteriaPreviewList.length > 0 && (
+                    {aiCriteriaPreviewIsCurrent && (
                       <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                         ✓ Đã chọn {aiCriteriaPreviewList.length} câu hỏi theo mốc
                       </span>
@@ -7417,7 +6195,7 @@ export function InstructorClassWorkspace({
                   </div>
 
                   {/* Danh sách câu hỏi AI đã lọc để giáo viên kiểm tra */}
-                  {aiCriteriaPreviewList.length > 0 && (
+                  {aiCriteriaPreviewIsCurrent && (
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {aiCriteriaPreviewList.map((q, idx) => (
                         <div
@@ -7442,6 +6220,11 @@ export function InstructorClassWorkspace({
                       ))}
                     </div>
                   )}
+                  {aiCriteriaPreviewList.length > 0 && !aiCriteriaPreviewIsCurrent && (
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      Ngân hàng câu hỏi đã thay đổi. Hãy lọc lại để xem trước danh sách hiện tại.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -7458,7 +6241,7 @@ export function InstructorClassWorkspace({
                       <input
                         type="number"
                         min={1}
-                        max={Math.max(1, classQuestions.length)}
+                        max={Math.max(1, publishedClassQuestions.length)}
                         value={randomQuestionCount}
                         onChange={(e) => setRandomQuestionCount(Number(e.target.value))}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
@@ -7471,12 +6254,12 @@ export function InstructorClassWorkspace({
                       </label>
                       <select
                         value={randomTypeScope}
-                        onChange={(e) => setRandomTypeScope(e.target.value as any)}
+                        onChange={(e) => setRandomTypeScope(e.target.value as typeof randomTypeScope)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium"
                       >
-                        <option value="ALL">Tất cả câu hỏi ({classQuestions.length} câu)</option>
-                        <option value="MULTIPLE_CHOICE">Chỉ trắc nghiệm ({classQuestionStats.multipleChoice} câu)</option>
-                        <option value="ESSAY">Chỉ tự luận ({classQuestionStats.essay} câu)</option>
+                        <option value="ALL">Tất cả câu hỏi ({publishedQuestionStats.total} câu)</option>
+                        <option value="MULTIPLE_CHOICE">Chỉ trắc nghiệm ({publishedQuestionStats.multipleChoice} câu)</option>
+                        <option value="ESSAY">Chỉ tự luận ({publishedQuestionStats.essay} câu)</option>
                       </select>
                     </div>
                   </div>
@@ -7515,10 +6298,10 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={handleCreateExamManual}
-                  disabled={manualExamSelectedQuestions.length === 0}
+                   disabled={examSaving || manualExamSelectedQuestions.length === 0}
                   className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer disabled:opacity-40"
                 >
-                  Tạo đề thi thủ công ({manualExamSelectedQuestions.length} câu)
+                   {examSaving ? "Đang tạo đề..." : `Tạo đề thi thủ công (${manualExamSelectedQuestions.length} câu)`}
                 </button>
               )}
 
@@ -7526,9 +6309,10 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={handleCreateExamAiCriteria}
+                   disabled={examSaving || !aiCriteriaPreviewIsCurrent}
                   className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs cursor-pointer"
                 >
-                  Xác nhận & Tạo đề thi bằng AI
+                   {examSaving ? "Đang tạo đề..." : "Xác nhận & Tạo đề thi theo ma trận"}
                 </button>
               )}
 
@@ -7536,9 +6320,10 @@ export function InstructorClassWorkspace({
                 <button
                   type="button"
                   onClick={handleCreateExamRandom}
+                   disabled={examSaving}
                   className="px-5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-xs cursor-pointer"
                 >
-                  Bốc ngẫu nhiên & Tạo đề thi
+                   {examSaving ? "Đang tạo đề..." : "Bốc ngẫu nhiên & Tạo đề thi"}
                 </button>
               )}
             </div>
@@ -7555,7 +6340,7 @@ export function InstructorClassWorkspace({
               <span>Di chuyển {itemForMove.kind === "LECTURE" ? "bài giảng" : "tài liệu"}</span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Chọn thư mục / lớp đích để chuyển <strong className="text-slate-900 dark:text-slate-100">"{itemForMove.title}"</strong>:
+              Chọn thư mục / lớp đích để chuyển <strong className="text-slate-900 dark:text-slate-100">&quot;{itemForMove.title}&quot;</strong>:
             </p>
 
             <div>

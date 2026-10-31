@@ -14,7 +14,7 @@ import {
   UserCheck,
   Video,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
@@ -81,6 +81,8 @@ export default function LiveClassesPage() {
   const pagination = usePagination(items);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(false);
+  const loadRequestVersion = useRef(0);
   const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LiveSession | null>(null);
@@ -157,28 +159,36 @@ export default function LiveClassesPage() {
     setCurrentDate(new Date());
   };
   /** Nạp lớp và buổi trực tuyến theo phạm vi vai trò, đồng thời giữ bộ lọc hiện tại. */
-  const load = useCallback(async () => {
-    if (!allowed) return;
+  const load = useCallback(async (signal?: AbortSignal) => {
+    if (!allowed || !mountedRef.current) return;
+    const requestVersion = ++loadRequestVersion.current;
     setLoading(true);
     try {
       const [sessions, classData] = await Promise.all([
-        apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode }),
-        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
+        apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode, signal }),
+        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal }),
       ]);
+      if (signal?.aborted || !mountedRef.current || requestVersion !== loadRequestVersion.current) return;
       setItems(sessions);
       setClasses(classData);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được lịch học.",
-        "error",
-      );
+      if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) {
+        notify(error instanceof Error ? error.message : "Không tải được lịch học.", "error");
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) setLoading(false);
     }
   }, [allowed, notify, session.roleCode]);
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    mountedRef.current = true;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => {
+      mountedRef.current = false;
+      loadRequestVersion.current += 1;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [load]);
   /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn. */
   useEffect(() => {

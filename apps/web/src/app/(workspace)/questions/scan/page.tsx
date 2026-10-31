@@ -3,7 +3,7 @@
 import { ArrowLeft, Check, ImagePlus, ScanLine, Sparkles, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -34,13 +34,27 @@ export default function ScanQuestionsPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const scanRequestId = useRef(0);
+
+  // Vô hiệu kết quả quét đang chờ khi người dùng rời trang.
+  useEffect(() => () => { scanRequestId.current += 1; }, []);
 
   useEffect(() => {
     if (!allowed) return;
+    const controller = new AbortController();
+    let active = true;
     void Promise.all([
-      apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }),
-      apiRequest<AiProvider[]>("/instructor/question-bank/ai-providers", { roleCode: session.roleCode }),
-    ]).then(([courseData, providerData]) => { setCourses(courseData); setProviders(providerData); setProviderId(providerData.find((item) => item.isDefault)?.id ?? providerData[0]?.id ?? ""); }).catch((error) => notify(error instanceof Error ? error.message : "Không tải được dữ liệu quét đề.", "error"));
+      apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode, signal: controller.signal }),
+      apiRequest<AiProvider[]>("/instructor/question-bank/ai-providers", { roleCode: session.roleCode, signal: controller.signal }),
+    ]).then(([courseData, providerData]) => {
+      if (!active || controller.signal.aborted) return;
+      setCourses(courseData);
+      setProviders(providerData);
+      setProviderId(providerData.find((item) => item.isDefault)?.id ?? providerData[0]?.id ?? "");
+    }).catch((error) => {
+      if (active && !controller.signal.aborted) notify(error instanceof Error ? error.message : "Không tải được dữ liệu quét đề.", "error");
+    });
+    return () => { active = false; controller.abort(); };
   }, [allowed, notify, session.roleCode]);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -49,19 +63,26 @@ export default function ScanQuestionsPage() {
   if (!allowed) return <AccessDenied />;
   /** Kiểm tra tệp ảnh đầu vào và tạo URL xem trước chỉ dùng trong trình duyệt. */
   const chooseFile = (next?: File) => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (next && (!["image/png", "image/jpeg", "image/webp"].includes(next.type) || next.size === 0 || next.size > 12 * 1024 * 1024)) {
+      notify("Chỉ nhận ảnh PNG, JPEG hoặc WebP có dung lượng từ 1 byte đến 12 MB.", "error");
+      return;
+    }
+    scanRequestId.current += 1;
+    setScanning(false);
     setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]);
   };
   /** Tải ảnh lên dịch vụ quét, nhận các câu hỏi có cấu trúc và đưa vào vùng hiệu đính. */
   const scan = async () => {
     if (!file || !providerId) return;
+    const requestId = ++scanRequestId.current;
     setScanning(true);
     try {
       const body = new FormData(); body.append("file", file);
       const result = await apiRequest<ScanResult>("/instructor/question-bank/scan-image", { method: "POST", roleCode: session.roleCode, body });
+      if (requestId !== scanRequestId.current) return;
       setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);
-    } catch (error) { notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
-    finally { setScanning(false); }
+    } catch (error) { if (requestId === scanRequestId.current) notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
+    finally { if (requestId === scanRequestId.current) setScanning(false); }
   };
   /** Áp dụng bản vá cho đúng câu hỏi quét mà không làm đổi các bản nháp còn lại. */
   const updateDraft = (index: number, patch: Partial<ScanDraft>) => setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));

@@ -10,7 +10,7 @@ export type PermissionCode =
   | "session:manage" | "report:view" | "support:create" | "support:manage"
   | "system:configure";
 
-export interface SessionUser {
+interface SessionUser {
   id: string;
   username: string;
   name: string;

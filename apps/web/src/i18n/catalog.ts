@@ -758,8 +758,3 @@ export function translateText(value: string, locale: SupportedLocale): string {
   }
   return value;
 }
-
-/** Cho phép test và công cụ coverage đọc danh mục mà không làm lộ object có thể sửa. */
-export function englishTranslationKeys(): string[] {
-  return Object.keys(englishCatalog);
-}

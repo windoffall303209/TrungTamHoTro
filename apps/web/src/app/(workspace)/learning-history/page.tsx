@@ -3,7 +3,7 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { Clock3, ExternalLink, History, Video } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
@@ -28,44 +28,52 @@ export default function LearningHistoryPage() {
   const [summaries, setSummaries] = useState<Record<string, Summary>>({});
   const [appealSession, setAppealSession] = useState<LiveSession | null>(null);
   const [appealReason, setAppealReason] = useState("");
+  const mounted = useRef(true);
+  const summaryRequestVersions = useRef(new Map<string, number>());
   const pagination = usePagination(items);
-  /** Nạp các lớp cùng lịch sử buổi học thuộc phạm vi người dùng hiện tại. */
-  const load = useCallback(async () => {
+
+  // Ngăn yêu cầu tải chi tiết cập nhật giao diện sau khi người dùng rời trang.
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  /** Nạp lịch sử các buổi học thuộc phạm vi học viên hiện tại. */
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (session.roleCode !== "LEARNER") return;
     try {
-      setItems(
-        await apiRequest<LiveSession[]>("/sessions", {
-          roleCode: session.roleCode,
-        }),
-      );
+      const data = await apiRequest<LiveSession[]>("/sessions", {
+        roleCode: session.roleCode,
+        signal,
+      });
+      if (!signal?.aborted && mounted.current) setItems(data);
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được lịch sử học tập.",
-        "error",
-      );
+      if (!signal?.aborted && mounted.current) {
+        notify(error instanceof Error ? error.message : "Không tải được lịch sử học tập.", "error");
+      }
     }
   }, [notify, session.roleCode]);
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
   /** Mở chi tiết tham dự của một buổi học và dữ liệu đối soát liên quan. */
   const view = async (item: LiveSession) => {
+    const requestVersion = (summaryRequestVersions.current.get(item.id) ?? 0) + 1;
+    summaryRequestVersions.current.set(item.id, requestVersion);
     try {
       const data = await apiRequest<Summary>(
         `/learner/sessions/${item.id}/summary`,
         { roleCode: session.roleCode },
       );
-      setSummaries((current) => ({ ...current, [item.id]: data }));
+      if (mounted.current && summaryRequestVersions.current.get(item.id) === requestVersion) {
+        setSummaries((current) => ({ ...current, [item.id]: data }));
+      }
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được chi tiết buổi học.",
-        "error",
-      );
+      if (mounted.current && summaryRequestVersions.current.get(item.id) === requestVersion) {
+        notify(error instanceof Error ? error.message : "Không tải được chi tiết buổi học.", "error");
+      }
     }
   };
   /** Xin URL bản ghi có thời hạn rồi mở bằng trình xem an toàn của ứng dụng. */

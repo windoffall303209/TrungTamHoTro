@@ -21,9 +21,8 @@ export function ExamPreviewDialog({
     | "items"
     | "classes"
     | "previewExam"
-    | "setPreviewExam"
+    | "closePreview"
     | "previewQuestions"
-    | "setPreviewQuestions"
     | "setConfirmExam"
     | "editingQuestion"
     | "setEditingQuestion"
@@ -38,9 +37,8 @@ export function ExamPreviewDialog({
     items,
     classes,
     previewExam,
-    setPreviewExam,
+    closePreview,
     previewQuestions,
-    setPreviewQuestions,
     setConfirmExam,
     editingQuestion,
     setEditingQuestion,
@@ -54,8 +52,7 @@ export function ExamPreviewDialog({
       open={Boolean(previewExam)}
       onClose={() => {
         if (!previewLoading && !savingQuestion && !editingQuestion) {
-          setPreviewExam(null);
-          setPreviewQuestions([]);
+          closePreview();
         }
       }}
       size="xl"
@@ -74,7 +71,7 @@ export function ExamPreviewDialog({
                   );
                   if (item) {
                     setConfirmExam({ ...item, version: previewExam.version });
-                    setPreviewExam(null);
+                    closePreview();
                   }
                 }}
               >
