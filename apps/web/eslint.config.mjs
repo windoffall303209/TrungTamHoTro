@@ -15,6 +15,6 @@ export default defineConfig([
     },
   },
   // Bỏ qua mã sinh tự động của build và báo cáo kiểm thử trình duyệt.
-  globalIgnores([".next/**", "next-env.d.ts", "playwright-report/**", "test-results/**"]),
+  globalIgnores([".next/**", "next-env.d.ts", "test/results/**"]),
 ]);
 
