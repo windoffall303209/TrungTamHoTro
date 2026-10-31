@@ -124,8 +124,6 @@ export default function ClassLifecyclePage() {
     { label: "Bài tập chờ chấm", value: readiness.pendingAssignmentGrades, href: `/academic?classId=${selectedId}` },
     { label: "Phúc khảo đang mở", value: readiness.openRegrades, href: `/exams?classId=${selectedId}` },
     { label: "Buổi chưa kết thúc", value: readiness.activeSessions, href: `/live-classes?classId=${selectedId}` },
-    { label: "Điểm danh chưa khóa", value: readiness.unlockedAttendanceSessions, href: `/attendance?classId=${selectedId}` },
-    { label: "Khiếu nại đang mở", value: readiness.openAppeals, href: `/attendance?classId=${selectedId}` },
   ] : [];
 
   return (

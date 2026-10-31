@@ -5,7 +5,6 @@ import {
   Bell,
   BookOpenCheck,
   CalendarDays,
-  ChartNoAxesCombined,
   CheckCheck,
   ClipboardCheck,
   Database,
@@ -22,7 +21,6 @@ import {
   Settings,
   ShieldCheck,
   ShieldEllipsis,
-  UserCheck,
   Users,
   LogOut,
   UserRound,
@@ -116,23 +114,9 @@ const allNavItems: NavigationItem[] = [
     roles: ["INSTRUCTOR", "LEARNER"],
   },
   {
-    href: "/reports",
-    label: "Báo cáo",
-    icon: ChartNoAxesCombined,
-    permissions: ["report:view"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
     href: "/class-operations",
     label: "Điều hành lớp",
     icon: ListChecks,
-    permissions: ["class:manage"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
-  },
-  {
-    href: "/attendance",
-    label: "Giám sát điểm danh",
-    icon: UserCheck,
     permissions: ["class:manage"],
     roles: ["SYSTEM_ADMIN", "CENTER_MANAGER"],
   },
@@ -198,7 +182,7 @@ function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: strin
   if (roleCode === "SYSTEM_ADMIN") {
     if (href === "/admin/users") return pathname.startsWith("/admin");
     if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials";
-    if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle";
+    if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/class-lifecycle";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -262,9 +246,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         icon: ShieldCheck,
         items: availableItems.filter((i) =>
           [
-            "/reports",
             "/class-operations",
-            "/attendance",
             "/class-lifecycle",
             "/teaching-operations",
             "/admin/users",
@@ -305,7 +287,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/exams", label: "Khảo thí", icon: BookOpenCheck },
       { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
-      { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
+      { href: "/admin/settings", label: "Cấu hình", icon: Settings },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
@@ -316,8 +298,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     () => [
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
-      { href: "/attendance", label: "Điểm danh", icon: UserCheck },
-      { href: "/reports", label: "Báo cáo", icon: ChartNoAxesCombined },
       { href: "/admin/users", label: "Người dùng", icon: Users },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
@@ -454,7 +434,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       CONTENT_REPORT: `/forum?reportId=${entityId}`,
       SUPPORT_TICKET: `/support?ticketId=${entityId}`,
       CHAT_CONVERSATION: `/messages?conversationId=${entityId}`,
-      PROGRESS_INTERVENTION: `/reports?interventionId=${entityId}`,
     };
     if (destinations[entityType]) return destinations[entityType];
     if (item.type.includes("SUPPORT")) return `/support?ticketId=${entityId}`;
@@ -938,7 +917,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                           : href === "/exams"
                             ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/questions" || pathname === "/materials"
                             : href === "/class-operations"
-                              ? pathname === "/class-operations" || pathname === "/attendance" || pathname === "/class-lifecycle"
+                              ? pathname === "/class-operations" || pathname === "/class-lifecycle"
                               : pathname === href || pathname.startsWith(`${href}/`);
                     return (
                       <Link
