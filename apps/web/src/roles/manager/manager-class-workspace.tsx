@@ -1,15 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
-  BookOpenCheck,
-  Calendar,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Clock,
   Download,
   Eye,
@@ -27,21 +22,22 @@ import {
   Search,
   Settings,
   Share2,
-  SlidersHorizontal,
   Trash2,
   Upload,
-  UploadCloud,
   UserCheck,
   UserPlus,
   Users,
   Video,
 } from "lucide-react";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
+import type { usePagination } from "@/shared/ui/ui";
 import { UserPicker } from "@/shared/ui/user-picker";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
 import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { useApp } from "@/providers/app-provider";
 import type {
   ClassClosureReadiness,
@@ -51,7 +47,9 @@ import type {
   InstructorRole,
   LearningClass,
 } from "@/lib/learning-types";
-import { roleLabel, type RemoveTarget } from "@/features/class-detail/class-detail.shared";
+import { type RemoveTarget } from "@/features/class-detail/class-detail.shared";
+import { buildManagerFolderView } from "./manager-folder-view";
+import { ManagerFolderSidebar } from "./manager-folder-sidebar";
 
 export type ManagerSubTab =
   | "overview"
@@ -90,18 +88,17 @@ export interface ManagerClassWorkspaceProps {
     instructorId: string;
     role?: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     avatarUrl?: string;
   }>;
   primaryInstructor?: {
     instructorId: string;
     role?: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     avatarUrl?: string;
   };
-  learnerPagination: any;
-  historyPagination: any;
+  learnerPagination: ReturnType<typeof usePagination<ClassRoster["enrollments"][number]>>;
   assignInstructor: (event: React.FormEvent) => Promise<void>;
   transferPrimary: (event: React.FormEvent) => Promise<void>;
   enrollLearner: (event: React.FormEvent) => Promise<void>;
@@ -110,12 +107,34 @@ export interface ManagerClassWorkspaceProps {
   activate: () => Promise<void>;
 }
 
+// Dùng chung ô tìm kiếm của ba danh sách bài tập, tài liệu và bài giảng.
+function ManagerFolderSearch({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
+      />
+      <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+    </div>
+  );
+}
+
 /** Không gian làm việc quản trị chi tiết lớp dành riêng cho Quản lý trung tâm. */
 export function ManagerClassWorkspace({
   item,
   course,
-  roster,
-  readiness,
   saving,
   onBack,
   instructorForm,
@@ -148,6 +167,8 @@ export function ManagerClassWorkspace({
   const [currentClass, setCurrentClass] = useState<LearningClass>(item);
   const [activeTab, setActiveTab] = useState<ManagerSubTab>("overview");
   const [copiedLink, setCopiedLink] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyRequest = useRef(0);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [enrollModalOpen, setEnrollModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -158,7 +179,7 @@ export function ManagerClassWorkspace({
   const [settingsForm, setSettingsForm] = useState({
     name: item.name,
     capacity: item.capacity ?? 40,
-    description: (item as any).description || "",
+    description: "description" in item && typeof item.description === "string" ? item.description : "",
   });
 
   // Trạng thái xem lịch học & xác nhận kích hoạt/đóng lớp học
@@ -188,9 +209,14 @@ export function ManagerClassWorkspace({
     setSettingsForm({
       name: item.name,
       capacity: item.capacity ?? 40,
-      description: (item as any).description || "",
+      description: "description" in item && typeof item.description === "string" ? item.description : "",
     });
   }, [item]);
+
+  useEffect(() => () => {
+    copyRequest.current += 1;
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+  }, []);
 
   const classGrade = currentClass.grade ?? course?.grade;
   const classSubject = currentClass.subject ?? course?.subject;
@@ -209,11 +235,21 @@ export function ManagerClassWorkspace({
   };
 
   /** Sao chép liên kết lớp học vào bộ nhớ tạm */
-  const handleCopyLink = () => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(window.location.href);
+  const handleCopyLink = async () => {
+    const request = ++copyRequest.current;
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current);
+    copyTimer.current = null;
+    setCopiedLink(false);
+    try {
+      await copyTextToClipboard(window.location.href);
+      if (request !== copyRequest.current) return;
       setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
+      copyTimer.current = setTimeout(() => {
+        copyTimer.current = null;
+        setCopiedLink(false);
+      }, 2000);
+    } catch {
+      if (request === copyRequest.current) notify("Không thể sao chép liên kết lớp học.", "error");
     }
   };
 
@@ -477,7 +513,7 @@ export function ManagerClassWorkspace({
                     Mô tả:
                   </span>
                   <span className="text-slate-700 dark:text-slate-300 leading-relaxed">
-                    {(currentClass as any).description?.trim() || "Chưa có mô tả cho lớp học này."}
+                    {("description" in currentClass && typeof currentClass.description === "string" ? currentClass.description.trim() : "") || "Chưa có mô tả cho lớp học này."}
                   </span>
                 </div>
               </div>
@@ -874,52 +910,15 @@ export function ManagerClassWorkspace({
                 </div>
               ) : (
                 /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
-                <div className="space-y-3 pt-2">
-                  {[
+                <ClassScheduleMonthList
+                  rows={[
                     { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Hướng dẫn phương pháp học", status: "Đã diễn ra" },
                     { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Giải thuật cơ bản", status: "Hôm nay" },
                     { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập chuyên đề và Kiểm tra 15p", status: "Sắp diễn ra" },
                     { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Chuyên đề nâng cao và Vận dụng thực tế", status: "Sắp diễn ra" },
-                  ].map((row, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-blue-300 transition-colors gap-3"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            row.status === "Hôm nay"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                              : row.status === "Đã diễn ra"
-                              ? "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                              : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                          }`}>
-                            {row.status}
-                          </span>
-                          <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                            {row.title}
-                          </strong>
-                        </div>
-                        <p className="text-xs text-slate-500 flex items-center gap-2">
-                          <span>Ngày: {row.date}</span>
-                          <span>·</span>
-                          <span>Thời gian: {row.time}</span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          <Play size={13} />
-                          <span>Vào phòng</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                  ]}
+                  onJoin={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
+                />
               )}
             </div>
           )}
@@ -999,13 +998,9 @@ export function ManagerClassWorkspace({
               },
             ];
 
-            const folders = Array.from(new Set(rawAssignments.map((a) => a.folder)));
-            const filtered = rawAssignments.filter((a) => {
-              const matchFolder = selectedAssignmentFolder === "__ALL__" || a.folder === selectedAssignmentFolder;
-              const matchSearch = a.title.toLowerCase().includes(assignmentSearch.toLowerCase().trim());
-              return matchFolder && matchSearch;
-            });
-            const activeAsg = filtered.find((a) => a.id === selectedAssignmentId) || filtered[0] || rawAssignments[0];
+            const { folders, counts, filtered, active: activeAsg } = buildManagerFolderView(
+              rawAssignments, selectedAssignmentFolder, assignmentSearch, selectedAssignmentId,
+            );
 
             return (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
@@ -1024,83 +1019,21 @@ export function ManagerClassWorkspace({
                 {/* Khung 3 cột Master-Detail */}
                 <div className="flex flex-col lg:flex-row min-h-[540px]">
                   {/* CỘT 1: CÂY THƯ MỤC (~220px) */}
-                  <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
-                      <span>Thư mục</span>
-                      <SlidersHorizontal size={14} className="text-slate-400" />
-                    </div>
+                  <ManagerFolderSidebar
+                    title="Thư mục"
+                    allLabel="Tất cả bài tập"
+                    totalCount={rawAssignments.length}
+                    folders={folders}
+                    counts={counts}
+                    selectedFolder={selectedAssignmentFolder}
+                    onSelectFolder={setSelectedAssignmentFolder}
+                    tone="blue"
+                  />
 
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAssignmentFolder("__ALL__")}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                          selectedAssignmentFolder === "__ALL__"
-                            ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Folder
-                            size={16}
-                            className={
-                              selectedAssignmentFolder === "__ALL__"
-                                ? "text-blue-600 fill-blue-500/20"
-                                : "text-slate-400"
-                            }
-                          />
-                          <span className="truncate">Tất cả bài tập</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 tabular-nums">{rawAssignments.length}</span>
-                      </button>
-
-                      {folders.map((folderName) => {
-                        const count = rawAssignments.filter((a) => a.folder === folderName).length;
-                        const isSelected = selectedAssignmentFolder === folderName;
-                        return (
-                          <button
-                            key={folderName}
-                            type="button"
-                            onClick={() => setSelectedAssignmentFolder(folderName)}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                              isSelected
-                                ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-blue-600 fill-blue-500/20"
-                                    : "text-slate-400"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 tabular-nums">{count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {/* CỘT 2: DANH SÁCH BÀI TẬP (FLEX-1) */}
                   <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={assignmentSearch}
-                        onChange={(e) => setAssignmentSearch(e.target.value)}
-                        placeholder="Tìm kiếm bài tập..."
-                        className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
-                      />
-                      <Search
-                        size={14}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                      />
-                    </div>
+                    <ManagerFolderSearch value={assignmentSearch} onChange={setAssignmentSearch} placeholder="Tìm kiếm bài tập..." />
 
                     <div className="space-y-2">
                       {filtered.length === 0 ? (
@@ -1301,13 +1234,9 @@ export function ManagerClassWorkspace({
               },
             ];
 
-            const folders = Array.from(new Set(rawMaterials.map((m) => m.folder)));
-            const filtered = rawMaterials.filter((m) => {
-              const matchFolder = selectedMaterialFolder === "__ALL__" || m.folder === selectedMaterialFolder;
-              const matchSearch = m.title.toLowerCase().includes(materialSearch.toLowerCase().trim());
-              return matchFolder && matchSearch;
-            });
-            const activeMat = filtered.find((m) => m.id === selectedMaterialId) || filtered[0] || rawMaterials[0];
+            const { folders, counts, filtered, active: activeMat } = buildManagerFolderView(
+              rawMaterials, selectedMaterialFolder, materialSearch, selectedMaterialId,
+            );
 
             return (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
@@ -1326,83 +1255,21 @@ export function ManagerClassWorkspace({
                 {/* Khung 3 cột Master-Detail */}
                 <div className="flex flex-col lg:flex-row min-h-[540px]">
                   {/* CỘT 1: CÂY THƯ MỤC (~220px) */}
-                  <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
-                      <span>Thư mục</span>
-                      <SlidersHorizontal size={14} className="text-slate-400" />
-                    </div>
+                  <ManagerFolderSidebar
+                    title="Thư mục"
+                    allLabel="Tất cả tài liệu"
+                    totalCount={rawMaterials.length}
+                    folders={folders}
+                    counts={counts}
+                    selectedFolder={selectedMaterialFolder}
+                    onSelectFolder={setSelectedMaterialFolder}
+                    tone="blue"
+                  />
 
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMaterialFolder("__ALL__")}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                          selectedMaterialFolder === "__ALL__"
-                            ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Folder
-                            size={16}
-                            className={
-                              selectedMaterialFolder === "__ALL__"
-                                ? "text-blue-600 fill-blue-500/20"
-                                : "text-slate-400"
-                            }
-                          />
-                          <span className="truncate">Tất cả tài liệu</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 tabular-nums">{rawMaterials.length}</span>
-                      </button>
-
-                      {folders.map((folderName) => {
-                        const count = rawMaterials.filter((m) => m.folder === folderName).length;
-                        const isSelected = selectedMaterialFolder === folderName;
-                        return (
-                          <button
-                            key={folderName}
-                            type="button"
-                            onClick={() => setSelectedMaterialFolder(folderName)}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                              isSelected
-                                ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-blue-600 fill-blue-500/20"
-                                    : "text-slate-400"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 tabular-nums">{count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {/* CỘT 2: DANH SÁCH TÀI LIỆU (FLEX-1) */}
                   <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={materialSearch}
-                        onChange={(e) => setMaterialSearch(e.target.value)}
-                        placeholder="Tìm kiếm tài liệu..."
-                        className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
-                      />
-                      <Search
-                        size={14}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                      />
-                    </div>
+                    <ManagerFolderSearch value={materialSearch} onChange={setMaterialSearch} placeholder="Tìm kiếm tài liệu..." />
 
                     <div className="space-y-2">
                       {filtered.length === 0 ? (
@@ -1593,13 +1460,9 @@ export function ManagerClassWorkspace({
               },
             ];
 
-            const folders = Array.from(new Set(rawLectures.map((l) => l.folder)));
-            const filtered = rawLectures.filter((l) => {
-              const matchFolder = selectedLectureFolder === "__ALL__" || l.folder === selectedLectureFolder;
-              const matchSearch = l.title.toLowerCase().includes(lectureSearch.toLowerCase().trim());
-              return matchFolder && matchSearch;
-            });
-            const activeLec = filtered.find((l) => l.id === selectedLectureId) || filtered[0] || rawLectures[0];
+            const { folders, counts, filtered, active: activeLec } = buildManagerFolderView(
+              rawLectures, selectedLectureFolder, lectureSearch, selectedLectureId,
+            );
 
             return (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
@@ -1618,83 +1481,21 @@ export function ManagerClassWorkspace({
                 {/* Khung 3 cột Master-Detail */}
                 <div className="flex flex-col lg:flex-row min-h-[540px]">
                   {/* CỘT 1: CÂY CHUYÊN ĐỀ (~220px) */}
-                  <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
-                      <span>Chuyên đề</span>
-                      <SlidersHorizontal size={14} className="text-slate-400" />
-                    </div>
+                  <ManagerFolderSidebar
+                    title="Chuyên đề"
+                    allLabel="Tất cả bài giảng"
+                    totalCount={rawLectures.length}
+                    folders={folders}
+                    counts={counts}
+                    selectedFolder={selectedLectureFolder}
+                    onSelectFolder={setSelectedLectureFolder}
+                    tone="purple"
+                  />
 
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLectureFolder("__ALL__")}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                          selectedLectureFolder === "__ALL__"
-                            ? "text-purple-600 dark:text-purple-400 font-bold bg-purple-50/80 dark:bg-purple-950/50"
-                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Folder
-                            size={16}
-                            className={
-                              selectedLectureFolder === "__ALL__"
-                                ? "text-purple-600 fill-purple-500/20"
-                                : "text-slate-400"
-                            }
-                          />
-                          <span className="truncate">Tất cả bài giảng</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 tabular-nums">{rawLectures.length}</span>
-                      </button>
-
-                      {folders.map((folderName) => {
-                        const count = rawLectures.filter((l) => l.folder === folderName).length;
-                        const isSelected = selectedLectureFolder === folderName;
-                        return (
-                          <button
-                            key={folderName}
-                            type="button"
-                            onClick={() => setSelectedLectureFolder(folderName)}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left cursor-pointer ${
-                              isSelected
-                                ? "text-purple-600 dark:text-purple-400 font-bold bg-purple-50/80 dark:bg-purple-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-purple-600 fill-purple-500/20"
-                                    : "text-slate-400"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 tabular-nums">{count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {/* CỘT 2: DANH SÁCH BÀI GIẢNG (FLEX-1) */}
                   <div className="flex-1 min-w-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={lectureSearch}
-                        onChange={(e) => setLectureSearch(e.target.value)}
-                        placeholder="Tìm kiếm bài giảng..."
-                        className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-blue-500"
-                      />
-                      <Search
-                        size={14}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                      />
-                    </div>
+                    <ManagerFolderSearch value={lectureSearch} onChange={setLectureSearch} placeholder="Tìm kiếm bài giảng..." />
 
                     <div className="space-y-2">
                       {filtered.length === 0 ? (

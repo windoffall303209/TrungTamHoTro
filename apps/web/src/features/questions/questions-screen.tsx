@@ -2,7 +2,7 @@
 
 import { Check, CheckCircle2, CirclePlus, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Undo2, Upload } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { QuestionImage } from "@/features/questions/question-image";
@@ -97,10 +97,15 @@ export default function QuestionsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const loadRequestId = useRef(0);
+
+  // Giải phóng URL ảnh tạm khi thay ảnh hoặc rời khỏi màn hình câu hỏi.
+  useEffect(() => () => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); }, [imagePreviewUrl]);
 
   /** Nạp khóa học và câu hỏi theo phạm vi truy cập cùng các bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!canView) return;
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     const params = new URLSearchParams();
     if (query.trim()) params.set("query", query.trim());
@@ -110,17 +115,23 @@ export default function QuestionsPage() {
         apiRequest<Question[]>(`/instructor/question-bank/questions?${params.toString()}`, { roleCode: session.roleCode }),
         canViewCourses ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setItems(questions);
       setCourses(courseData);
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tải được câu hỏi.", "error"); }
-    finally { setLoading(false); }
+    } catch (error) {
+      if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không tải được câu hỏi.", "error");
+    } finally {
+      if (requestId === loadRequestId.current) setLoading(false);
+    }
   }, [canView, canViewCourses, filters, notify, query, session.roleCode]);
 
-  useEffect(() => { const timer = setTimeout(() => void load(), 180); return () => clearTimeout(timer); }, [load]);
+  useEffect(() => {
+    const timer = setTimeout(() => void load(), 180);
+    return () => { clearTimeout(timer); loadRequestId.current += 1; };
+  }, [load]);
 
   /** Thu hồi URL xem trước và xóa tệp ảnh chỉ tồn tại cục bộ. */
   const clearLocalImage = () => {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     setImageFile(null); setImagePreviewUrl(null);
   };
   /** Đóng editor và xóa mọi state ảnh/bản ghi đang chỉnh sửa. */

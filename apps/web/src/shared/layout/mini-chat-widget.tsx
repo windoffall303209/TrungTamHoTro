@@ -10,11 +10,8 @@ import {
   Image as ImageIcon,
   Mic,
   Smile,
-  Phone,
-  Video,
   ChevronDown,
   SquarePen,
-  Trash2,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
@@ -48,7 +45,7 @@ export interface MinimizedBubble {
 }
 
 // Lọc bỏ các liên hệ trùng lặp ID và đảm bảo số ô chat mini không vượt quá 2
-export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
+function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
   const seen = new Set<string>();
   const result: ChatContact[] = [];
   for (const win of windows) {
@@ -58,6 +55,50 @@ export function deduplicateChatWindows(windows: ChatContact[]): ChatContact[] {
     }
   }
   return result.slice(0, 2);
+}
+
+// Chỉ khôi phục liên hệ có cấu trúc phù hợp với dữ liệu mà widget có thể hiển thị.
+function isChatContact(value: unknown): value is ChatContact {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const contact = value as Record<string, unknown>;
+  return typeof contact.id === "string" && contact.id.length > 0
+    && typeof contact.name === "string"
+    && ["role", "initials", "gradient", "statusText", "conversationId", "avatarUrl"]
+      .every((field) => contact[field] == null || typeof contact[field] === "string")
+    && (contact.isOnline == null || typeof contact.isOnline === "boolean");
+}
+
+// Đọc và lọc các cửa sổ chat đã lưu; dữ liệu không hợp lệ không được đưa vào render.
+function readStoredChatWindows(userId: string): ChatContact[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const saved = window.localStorage.getItem(getOpenWindowsStorageKey(userId));
+    if (!saved) return [];
+    const parsed: unknown = JSON.parse(saved);
+    return Array.isArray(parsed) ? deduplicateChatWindows(parsed.filter(isChatContact)) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Phục hồi tối đa năm bong bóng có liên hệ và bộ đếm hợp lệ.
+function readStoredChatBubbles(userId: string): MinimizedBubble[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const saved = window.localStorage.getItem(getMinimizedBubblesStorageKey(userId));
+    if (!saved) return [];
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((value): value is MinimizedBubble => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+      const bubble = value as Record<string, unknown>;
+      return isChatContact(bubble.contact)
+        && typeof bubble.unreadCount === "number" && Number.isFinite(bubble.unreadCount)
+        && typeof bubble.lastInteractedAt === "number" && Number.isFinite(bubble.lastInteractedAt);
+    }).slice(0, 5);
+  } catch {
+    return [];
+  }
 }
 
 // Danh bạ khởi tạo dự phòng cho widget khi chạy test; môi trường thực tế luôn lấy 100% từ CSDL PostgreSQL
@@ -480,46 +521,17 @@ export function MiniChatWidget() {
   const pathname = usePathname();
   const { session } = useApp();
   const currentUserId = session?.user?.id || "usr-learner-3";
+  const restoredUserIdRef = useRef<string | null>(null);
 
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
   const [contacts, setContacts] = useState<ChatContact[]>(INITIAL_CONTACTS);
 
   // Danh sách các ô chat đang mở tối đa 2 ô (trạng thái OPEN)
   // Khôi phục từ localStorage theo tài khoản người dùng
-  const [openWindows, setOpenWindows] = useState<ChatContact[]>(() => {
-    if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
-      try {
-        const saved = window.localStorage.getItem(getOpenWindowsStorageKey(currentUserId));
-        if (saved) {
-          const parsed = JSON.parse(saved) as ChatContact[];
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return deduplicateChatWindows(parsed);
-          }
-        }
-      } catch {
-        // Bỏ qua lỗi parse
-      }
-    }
-    return [];
-  });
+  const [openWindows, setOpenWindows] = useState<ChatContact[]>([]);
 
   // Danh sách avatar chat thu gọn (trạng thái MINIMIZED) - CHỈ khôi phục những cuộc trò chuyện đã được người dùng chủ động thu nhỏ
-  const [bubbles, setBubbles] = useState<MinimizedBubble[]>(() => {
-    if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
-      try {
-        const saved = window.localStorage.getItem(getMinimizedBubblesStorageKey(currentUserId));
-        if (saved) {
-          const parsed = JSON.parse(saved) as MinimizedBubble[];
-          if (Array.isArray(parsed)) {
-            return parsed.filter((b) => b && b.contact && b.contact.id);
-          }
-        }
-      } catch {
-        // Bỏ qua lỗi parse
-      }
-    }
-    return INITIAL_BUBBLES;
-  });
+  const [bubbles, setBubbles] = useState<MinimizedBubble[]>(INITIAL_BUBBLES);
 
   // Trạng thái mở popup chọn người nhắn tin
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -535,6 +547,7 @@ export function MiniChatWidget() {
   // Lưu trạng thái các ô chat đang mở (OPEN) vào localStorage theo tài khoản người dùng
   useEffect(() => {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    if (restoredUserIdRef.current !== currentUserId) return;
     try {
       const key = getOpenWindowsStorageKey(currentUserId);
       if (openWindows.length > 0) {
@@ -550,6 +563,7 @@ export function MiniChatWidget() {
   // Lưu trạng thái các cuộc trò chuyện thu nhỏ (MINIMIZED) vào localStorage theo tài khoản người dùng
   useEffect(() => {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    if (restoredUserIdRef.current !== currentUserId) return;
     try {
       const key = getMinimizedBubblesStorageKey(currentUserId);
       if (bubbles.length > 0) {
@@ -565,24 +579,14 @@ export function MiniChatWidget() {
   // Đồng bộ lại dữ liệu khi người dùng chuyển đổi tài khoản
   useEffect(() => {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
-    try {
-      const savedOpen = window.localStorage.getItem(getOpenWindowsStorageKey(currentUserId));
-      setOpenWindows(savedOpen ? deduplicateChatWindows(JSON.parse(savedOpen)) : []);
-
-      const savedBubbles = window.localStorage.getItem(getMinimizedBubblesStorageKey(currentUserId));
-      setBubbles(
-        savedBubbles
-          ? (JSON.parse(savedBubbles) as MinimizedBubble[]).filter((b) => b && b.contact?.id)
-          : []
-      );
-    } catch {
-      setOpenWindows([]);
-      setBubbles([]);
-    }
+    setOpenWindows(readStoredChatWindows(currentUserId));
+    setBubbles(readStoredChatBubbles(currentUserId));
+    restoredUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
   // Nạp danh bạ và cập nhật thông tin từ cơ sở dữ liệu PostgreSQL
   useEffect(() => {
+    let active = true;
     /** Tải danh bạ và hội thoại thật, đồng bộ các cửa sổ chat đang mở. */
     async function loadRealChatData() {
       try {
@@ -594,15 +598,23 @@ export function MiniChatWidget() {
               unreadCount?: number;
               members: Array<{ userId: string; displayName: string; roleCode?: string }>;
             }>
-          >("/chat/conversations").catch(() => []),
+          >("/chat/conversations").catch((error: unknown) => {
+            console.warn("Không thể tải danh sách hội thoại.", error);
+            return [];
+          }),
           apiRequest<
             Array<{
               id: string;
               displayName: string;
               roleCode: string;
             }>
-          >("/chat/directory").catch(() => []),
+          >("/chat/directory").catch((error: unknown) => {
+            console.warn("Không thể tải danh bạ trò chuyện.", error);
+            return [];
+          }),
         ]);
+
+        if (!active) return;
 
         if (Array.isArray(directory) && directory.length > 0) {
           const realContacts: ChatContact[] = directory.map((user) => {
@@ -663,19 +675,22 @@ export function MiniChatWidget() {
             );
           }
         }
-      } catch {
-        // Bỏ qua lỗi mạng
+      } catch (error) {
+        if (active) console.warn("Không đồng bộ được danh bạ trò chuyện:", error);
       }
     }
 
     void loadRealChatData();
+    return () => { active = false; };
   }, [currentUserId]);
 
   // Tải tin nhắn thật từ CSDL PostgreSQL cho các ô chat đang mở
   useEffect(() => {
+    let active = true;
     /** Nạp lịch sử tin nhắn cho từng cửa sổ đang mở mà không làm gián đoạn giao diện. */
     async function loadMessagesForOpenWindows() {
       for (const win of openWindows) {
+        if (!active) return;
         const targetConvId =
           win.conversationId || contacts.find((c) => c.id === win.id)?.conversationId;
 
@@ -685,6 +700,8 @@ export function MiniChatWidget() {
               | { items?: Array<{ id: string; senderId: string; content: string; createdAt: string }> }
               | Array<{ id: string; senderId: string; content: string; createdAt: string }>
             >(`/chat/conversations/${targetConvId}/messages?limit=50`);
+
+            if (!active) return;
 
             const rawList = Array.isArray(res) ? res : res?.items || [];
             setChatMessages((prev) => ({
@@ -700,8 +717,8 @@ export function MiniChatWidget() {
                 isLike: m.content === "👍",
               })),
             }));
-          } catch {
-            // Giữ tin nhắn hiện tại
+          } catch (error) {
+            if (active) console.warn("Không tải được lịch sử trò chuyện:", error);
           }
         }
       }
@@ -710,6 +727,7 @@ export function MiniChatWidget() {
     if (openWindows.length > 0) {
       void loadMessagesForOpenWindows();
     }
+    return () => { active = false; };
   }, [openWindows, contacts]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)

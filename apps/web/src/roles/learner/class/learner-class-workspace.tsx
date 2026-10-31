@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
+import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
 import {
   ArrowLeft,
   Calendar,
@@ -10,37 +12,21 @@ import {
   FileText,
   Video,
   Folder,
-  FolderOpen,
   MessageSquare,
   Users,
   Search,
-  ArrowUpDown,
   Play,
   Download,
   Eye,
-  CheckCircle2,
-  Clock,
-  Sparkles,
   MessageCircle,
   X,
-  ThumbsUp,
   Share2,
-  Send,
-  Image as ImageIcon,
-  MoreHorizontal,
   ChevronDown,
-  ChevronRight,
   ArrowRight,
   SlidersHorizontal,
   LayoutGrid,
   List,
   Lock,
-  Trash2,
-  Edit3,
-  EyeOff,
-  Bell,
-  Flag,
-  History,
   AlertCircle,
   Info,
 } from "lucide-react";
@@ -50,21 +36,16 @@ import type {
   LearnerExamSummary,
   Assignment,
   Material,
-  LiveSession,
   LearnerResult,
+  LiveSession,
 } from "@/lib/learning-types";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
+import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
-import {
-  LiveRoomModal,
-  DocumentViewerModal,
-  LecturePlayerModal,
-  triggerFileDownload,
-  type LiveRoomData,
-  type DocumentViewerData,
-  type LecturePlayerData,
-} from "@/features/learning-resources/learning-resource-modals";
+import { filterLearnerAssignments, filterLearnerFiles, getLearnerFolderNames } from "./learner-class-workspace.helpers";
 
 interface LearnerClassWorkspaceProps {
   item: LearningClass;
@@ -74,7 +55,7 @@ interface LearnerClassWorkspaceProps {
     instructorId: string;
     role?: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     avatarUrl?: string;
   }>;
   onBack?: () => void;
@@ -82,34 +63,12 @@ interface LearnerClassWorkspaceProps {
 
 type SubTab = "feed" | "schedule" | "members" | "assignments" | "lectures" | "materials";
 
-interface PostComment {
-  id: string;
-  authorName: string;
-  authorAvatar?: string;
-  content: string;
-  createdAt: string;
-  isAnonymous?: boolean;
-}
-
-interface ClassPost {
-  id: string;
-  authorName: string;
-  authorAvatar?: string;
-  authorRole: string;
-  createdAt: string;
-  content: string;
-  images?: string[];
-  likes: number;
-  isLiked?: boolean;
-  comments: PostComment[];
-}
-
 export interface AttemptRecord {
   id: string;
   attemptNo: number;
-  score: number;
+  score?: number;
   maxScore: number;
-  submittedAt: string;
+  submittedAt?: string;
   feedback?: string;
   answers?: Array<{
     questionId: string;
@@ -124,8 +83,8 @@ interface AssignmentItem {
   id: string;
   title: string;
   type: "EXAM" | "ESSAY";
-  durationMinutes: number;
-  dueAt: string;
+  durationMinutes?: number;
+  dueAt?: string;
   status: "PENDING" | "SUBMITTED" | "GRADED";
   score?: number;
   maxScore?: number;
@@ -143,8 +102,8 @@ interface AssignmentItem {
 interface LectureItem {
   id: string;
   title: string;
-  fileType: "mp4" | "mp3" | "pptx";
-  duration: string;
+  fileType: "mp4" | "mp3" | "pptx" | "pdf" | "other";
+  duration?: string;
   teacher: string;
   uploadedAt: string;
   folder?: string;
@@ -159,8 +118,8 @@ interface LectureItem {
 interface MaterialItem {
   id: string;
   title: string;
-  fileType: "pdf" | "doc" | "word" | "xlsx";
-  size: string;
+  fileType: string;
+  size?: string;
   uploadedAt: string;
   folder?: string;
   pageCount?: number;
@@ -173,7 +132,7 @@ interface MaterialItem {
  * - 5.0 - 8.4đ: Màu xanh lam nhạt
  * - Chưa có điểm: Trung tính
  */
-export function getScoreTheme(score?: number | null) {
+function getScoreTheme(score?: number | null) {
   if (score === undefined || score === null) {
     return {
       badgeBg: "bg-slate-700 text-slate-200 border border-slate-600",
@@ -219,6 +178,7 @@ export function LearnerClassWorkspace({
   onBack,
 }: LearnerClassWorkspaceProps) {
   const router = useRouter();
+  const { session, notify } = useApp();
 
   // Tab điều hướng dọc của học sinh: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
   const [activeTab, setActiveTab] = useState<SubTab>(() => {
@@ -262,144 +222,75 @@ export function LearnerClassWorkspace({
   const [classExams, setClassExams] = useState<LearnerExamSummary[]>([]);
   const [classAssignments, setClassAssignments] = useState<Assignment[]>([]);
   const [classMaterials, setClassMaterials] = useState<Material[]>([]);
-  const [classSessions, setClassSessions] = useState<LiveSession[]>([]);
-  const [posts, setPosts] = useState<ClassPost[]>([]);
   const [learnerResults, setLearnerResults] = useState<LearnerResult[]>([]);
+  const [classSessions, setClassSessions] = useState<LiveSession[]>([]);
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
+  const classDataRequestRef = useRef(0);
+  const classDataControllerRef = useRef<AbortController | null>(null);
+  const loadedClassIdRef = useRef(item.id);
 
-  /** Tải dữ liệu toàn diện của lớp học từ cơ sở dữ liệu thật */
+  /** Tải dữ liệu lớp, bỏ phản hồi cũ và xóa dữ liệu thuộc lớp trước khi đổi lớp. */
   const loadClassData = useCallback(async () => {
-    try {
-      const [exams, assignments, materials, sessions, announcements, topics, results] =
-        await Promise.all([
-          apiRequest<LearnerExamSummary[]>(`/learner/classes/${item.id}/exams`).catch(() => []),
-          apiRequest<Assignment[]>(`/academic/assignments?classId=${item.id}`).catch(() => []),
-          apiRequest<Material[]>(`/materials?classId=${item.id}`).catch(() => []),
-          apiRequest<LiveSession[]>(`/sessions?classId=${item.id}`).catch(() => []),
-          apiRequest<Array<{ id: string; title: string; body: string; authorName?: string; publishedAt: string }>>(`/academic/announcements?classId=${item.id}`).catch(() => []),
-          apiRequest<Array<{ id: string; classId?: string; title: string; body: string; isPinned?: boolean; createdAt: string; author?: { displayName?: string }; posts?: Array<{ id: string; body: string; createdAt: string; author?: { displayName?: string } }> }>>(`/forum/topics`).catch(() => []),
-          apiRequest<LearnerResult[]>(`/learner/results`).catch(() => []),
-        ]);
-
-      if (Array.isArray(exams)) setClassExams(exams);
-      if (Array.isArray(assignments)) setClassAssignments(assignments);
-      if (Array.isArray(materials)) setClassMaterials(materials);
-      if (Array.isArray(sessions)) setClassSessions(sessions);
-      if (Array.isArray(results)) setLearnerResults(results);
-
-      // Chuyển đổi topics và announcements từ cơ sở dữ liệu thật thành danh sách bài đăng
-      const realPosts: ClassPost[] = [];
-
-      // 1. Nạp bài đăng thảo luận từ ForumTopic của lớp
-      const classTopics = Array.isArray(topics)
-        ? topics.filter((t) => t.classId === item.id)
-        : [];
-      for (const topic of classTopics) {
-        realPosts.push({
-          id: topic.id,
-          authorName: topic.author?.displayName || (topic.isPinned ? teacherName : "Thành viên lớp"),
-          authorAvatar: (topic.author?.displayName || "TV").slice(0, 2).toUpperCase(),
-          authorRole: topic.isPinned ? "Giáo viên" : "Học sinh",
-          createdAt: new Date(topic.createdAt).toLocaleString("vi-VN", {
-            hour: "2-digit",
-            minute: "2-digit",
-            day: "2-digit",
-            month: "2-digit",
-          }),
-          content: topic.body ? `${topic.title}\n\n${topic.body}` : topic.title,
-          likes: 0,
-          isLiked: false,
-          comments: Array.isArray(topic.posts)
-            ? topic.posts.map((p) => ({
-                id: p.id,
-                authorName: p.author?.displayName || "Thành viên",
-                authorAvatar: (p.author?.displayName || "TV").slice(0, 2).toUpperCase(),
-                content: p.body,
-                createdAt: new Date(p.createdAt).toLocaleString("vi-VN", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  day: "2-digit",
-                  month: "2-digit",
-                }),
-              }))
-            : [],
-        });
-      }
-
-      // 2. Nạp thông báo lớp từ ClassAnnouncement
-      if (Array.isArray(announcements)) {
-        for (const ann of announcements) {
-          realPosts.push({
-            id: ann.id,
-            authorName: ann.authorName || teacherName,
-            authorAvatar: "TB",
-            authorRole: "Thông báo",
-            createdAt: new Date(ann.publishedAt).toLocaleString("vi-VN", {
-              hour: "2-digit",
-              minute: "2-digit",
-              day: "2-digit",
-              month: "2-digit",
-            }),
-            content: `${ann.title}\n\n${ann.body}`,
-            likes: 0,
-            isLiked: false,
-            comments: [],
-          });
-        }
-      }
-
-      setPosts(realPosts);
-    } catch {
-      // Giữ dữ liệu hiện tại nếu mạng có sự cố
+    const requestId = ++classDataRequestRef.current;
+    classDataControllerRef.current?.abort();
+    const controller = new AbortController();
+    classDataControllerRef.current = controller;
+    if (loadedClassIdRef.current !== item.id) {
+      loadedClassIdRef.current = item.id;
+      setClassExams([]);
+      setClassAssignments([]);
+      setClassMaterials([]);
+      setLearnerResults([]);
+      setClassSessions([]);
+      setDataLoadError(null);
     }
-  }, [item.id, teacherName]);
+    const classId = encodeURIComponent(item.id);
+    const responses = await Promise.allSettled([
+      apiRequest<LearnerExamSummary[]>(`/learner/classes/${classId}/exams`, { signal: controller.signal }),
+      apiRequest<Assignment[]>(`/academic/assignments?classId=${classId}`, { signal: controller.signal }),
+      loadAllMaterials<Material>("/materials", { signal: controller.signal }),
+      apiRequest<LearnerResult[]>("/learner/results", { signal: controller.signal }),
+      apiRequest<LiveSession[]>("/sessions", { signal: controller.signal }),
+    ] as const);
+    if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
+    const [exams, assignments, materials, results, sessions] = responses;
+    if (exams.status === "fulfilled" && Array.isArray(exams.value)) setClassExams(exams.value);
+    if (assignments.status === "fulfilled" && Array.isArray(assignments.value)) setClassAssignments(assignments.value);
+    if (materials.status === "fulfilled" && Array.isArray(materials.value)) {
+      setClassMaterials(materials.value.filter((material) => isMaterialForClass(material, item.id, item.courseId)));
+    }
+    if (results.status === "fulfilled" && Array.isArray(results.value)) setLearnerResults(results.value);
+    if (sessions.status === "fulfilled" && Array.isArray(sessions.value)) {
+      setClassSessions(sessions.value.filter((entry) => entry.classId === item.id));
+    }
+    const failedCount = responses.filter((response) => response.status === "rejected" || !Array.isArray(response.value)).length;
+    setDataLoadError(failedCount ? `Không tải được ${failedCount} nguồn dữ liệu lớp học. Vui lòng thử tải lại.` : null);
+  }, [item.id, item.courseId]);
 
   useEffect(() => {
     void loadClassData();
+    return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
   }, [loadClassData]);
 
   // Danh sách giảng viên lớp học (hiển thị 1 hoặc 2 giáo viên kèm avatar thật)
   const displayInstructors = useMemo(() => {
     if (instructors && instructors.length > 0) {
-      return instructors.slice(0, 2).map((inst, index) => ({
-        id: inst.instructorId || `inst-${index}`,
-        name: inst.displayName || (index === 0 ? teacherName : "Thầy Vũ Thành Nam"),
+      return instructors.map((inst, index) => ({
+        id: inst.instructorId,
+        name: inst.displayName || (index === 0 ? teacherName : `Giảng viên ${index + 1}`),
         role: inst.role === "PRIMARY" ? "Giáo viên chính" : "Giảng viên",
         avatarUrl: inst.avatarUrl,
+        email: inst.email,
       }));
     }
-    if (item.instructorIds && item.instructorIds.length >= 2) {
-      return [
-        { id: item.instructorIds[0], name: teacherName, role: "Giáo viên chính", avatarUrl: null },
-        { id: item.instructorIds[1], name: "Thầy Vũ Thành Nam", role: "Giảng viên", avatarUrl: null },
-      ];
-    }
-    return [
-      { id: "inst-primary", name: teacherName, role: "Giáo viên", avatarUrl: null },
-    ];
+    return item.instructorIds.map((id, index) => ({
+      id,
+      name: index === 0 ? teacherName : `Giảng viên ${index + 1}`,
+      role: index === 0 ? "Giáo viên chính" : "Giảng viên",
+      avatarUrl: undefined,
+      email: undefined,
+    }));
   }, [instructors, item.instructorIds, teacherName]);
-
-  // Refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const modalCommentInputRef = useRef<HTMLInputElement>(null);
-
-  // State cho Bảng tin lớp học
-  const [newPostContent, setNewPostContent] = useState("");
-  const [newPostImages, setNewPostImages] = useState<string[]>([]);
-  const [selectedPostForModal, setSelectedPostForModal] = useState<ClassPost | null>(null);
-  const [expandedPostIds, setExpandedPostIds] = useState<Record<string, boolean>>({});
-  const [modalCommentText, setModalCommentText] = useState("");
-
-  // Quản lý tương tác bài viết (Menu 3 chấm, sửa, ẩn, theo dõi, báo cáo, lịch sử)
-  const [activePostMenuId, setActivePostMenuId] = useState<string | null>(null);
-  const [hiddenPostIds, setHiddenPostIds] = useState<Record<string, boolean>>({});
-  const [followingPostIds, setFollowingPostIds] = useState<Record<string, boolean>>({});
-  const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [editingPostContent, setEditingPostContent] = useState("");
-  const [postEditHistories, setPostEditHistories] = useState<Record<string, Array<{ content: string; editedAt: string }>>>({});
-  const [historyModalPost, setHistoryModalPost] = useState<ClassPost | null>(null);
-  const [reportModalPost, setReportModalPost] = useState<ClassPost | null>(null);
-  const [reportReason, setReportReason] = useState("");
-  const [reportSuccess, setReportSuccess] = useState(false);
 
   // State cho Lịch học: Dạng Tuần (Lưới) hoặc Dạng Tháng (Danh sách)
   const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
@@ -409,15 +300,14 @@ export function LearnerClassWorkspace({
   const [assignmentSort, setAssignmentSort] = useState<"alpha" | "newest" | "due">("newest");
   const [selectedAssignmentFolder, setSelectedAssignmentFolder] = useState<string>("__ALL__");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
-  const [assignmentFolderExpanded, setAssignmentFolderExpanded] = useState<Record<string, boolean>>({
-    "Toán 1": true,
-    "Hình học": true,
-  });
+  const [assignmentFolderExpanded, setAssignmentFolderExpanded] = useState<Record<string, boolean>>({});
   const [isAssignmentDetailExpanded, setIsAssignmentDetailExpanded] = useState<boolean>(true);
   const [activeExamForTaking, setActiveExamForTaking] = useState<ExamTakingData | null>(null);
-  const [activeLiveRoom, setActiveLiveRoom] = useState<LiveRoomData | null>(null);
-  const [activeDocument, setActiveDocument] = useState<DocumentViewerData | null>(null);
-  const [activeLecture, setActiveLecture] = useState<LecturePlayerData | null>(null);
+  const [activeEssayAssignment, setActiveEssayAssignment] = useState<Assignment | null>(null);
+  const [essayContent, setEssayContent] = useState("");
+  const [essayFiles, setEssayFiles] = useState<File[]>([]);
+  const [essayError, setEssayError] = useState<string | null>(null);
+  const [essaySubmitting, setEssaySubmitting] = useState(false);
 
   // State quản lý xem lại bài làm & lịch sử nhiều lần nộp bài
   const [selectedAttemptForReview, setSelectedAttemptForReview] = useState<{
@@ -461,6 +351,126 @@ export function LearnerClassWorkspace({
     [],
   );
 
+  // Mở tab ngay từ thao tác người dùng, sau đó xác nhận quyền tham gia trên máy chủ.
+  const joinClassSession = async (liveSession: LiveSession) => {
+    const meetingWindow = window.open("", "_blank");
+    if (!meetingWindow) {
+      showToast("Trình duyệt đã chặn cửa sổ phòng học.", { type: "warning" });
+      return;
+    }
+    meetingWindow.opener = null;
+    try {
+      const result = await apiRequest<{ attendeeUrl: string }>(`/learner/sessions/${encodeURIComponent(liveSession.id)}/join`, {
+        method: "POST",
+        roleCode: session.roleCode,
+      });
+      meetingWindow.location.replace(result.attendeeUrl);
+    } catch (error) {
+      meetingWindow.close();
+      showToast(error instanceof Error ? error.message : "Không thể tham gia phòng học.", { type: "warning" });
+    }
+  };
+
+  // Lấy URL ký ngắn hạn và tải về tệp mà máy chủ cho phép truy cập.
+  const downloadClassMaterial = async (materialId: string) => {
+    try {
+      const access = await apiRequest<{ url: string }>(`/materials/${encodeURIComponent(materialId)}/access?action=DOWNLOAD`, { roleCode: session.roleCode });
+      await downloadApiFile(access.url, session.roleCode);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Không thể tải tài liệu.", { type: "warning" });
+    }
+  };
+
+  // Mở trước cửa sổ xem tài liệu để tránh trình duyệt chặn sau yêu cầu bất đồng bộ.
+  const previewClassMaterial = (materialId: string, title: string) => {
+    const previewWindow = window.open("", "_blank");
+    if (!previewWindow) {
+      showToast("Trình duyệt đã chặn cửa sổ xem trước.", { type: "warning" });
+      return;
+    }
+    void (async () => {
+      try {
+        const access = await apiRequest<{ url: string }>(`/materials/${encodeURIComponent(materialId)}/access?action=PREVIEW`, { roleCode: session.roleCode });
+        await previewApiFile(access.url, session.roleCode, title, previewWindow);
+      } catch (error) {
+        previewWindow.close();
+        showToast(error instanceof Error ? error.message : "Không thể xem trước tài liệu.", { type: "warning" });
+      }
+    })();
+  };
+
+  /** Mở đúng luồng làm bài thi hoặc nộp bài tự luận theo loại bài tập. */
+  const openAssignment = (assignment: AssignmentItem) => {
+    if (assignment.type === "ESSAY") {
+      const source = classAssignments.find((item) => item.id === assignment.id);
+      if (!source) {
+        showToast("Không tìm thấy bài tập trong dữ liệu lớp. Hãy tải lại trang.", { type: "warning" });
+        return;
+      }
+      setActiveEssayAssignment(source);
+      setEssayContent(source.submission?.content ?? "");
+      setEssayFiles([]);
+      setEssayError(null);
+      return;
+    }
+    setActiveExamForTaking({
+      id: assignment.id,
+      title: assignment.title,
+      durationMinutes: assignment.durationMinutes ?? 0,
+      totalQuestions: assignment.totalQuestions,
+      remainingAttempts: assignment.remainingAttempts,
+      totalScore: assignment.maxScore,
+      closeAt: assignment.dueAt,
+    });
+  };
+
+  /** Kiểm tra tệp đính kèm trước khi thêm vào bài nộp tự luận. */
+  const chooseEssayFiles = (files: FileList | null) => {
+    if (!files || !activeEssayAssignment) return;
+    const next = [...essayFiles, ...Array.from(files)];
+    if (next.length + (activeEssayAssignment.submission?.attachments.length ?? 0) > 5) {
+      setEssayError("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
+      return;
+    }
+    const invalid = next.find((file) => file.size <= 0 || file.size > 20 * 1024 * 1024 || !/\.(jpe?g|png|webp|pdf|docx?|txt)$/i.test(file.name));
+    if (invalid) {
+      setEssayError(`Tệp ${invalid.name} phải đúng định dạng cho phép và không vượt quá 20 MB.`);
+      return;
+    }
+    setEssayFiles(next);
+    setEssayError(null);
+  };
+
+  /** Nộp nội dung và tệp lên API bài tập cùng revision để tránh ghi đè bài đã sửa. */
+  const submitEssayAssignment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!activeEssayAssignment || essaySubmitting) return;
+    if (!essayContent.trim() && essayFiles.length === 0 && !activeEssayAssignment.submission?.attachments.length) {
+      setEssayError("Cần nhập nội dung hoặc đính kèm ít nhất một tệp.");
+      return;
+    }
+    const body = new FormData();
+    body.set("content", essayContent.trim());
+    body.set("expectedRevision", String(activeEssayAssignment.submission?.revision ?? 0));
+    essayFiles.forEach((file) => body.append("files", file));
+    setEssaySubmitting(true);
+    setEssayError(null);
+    try {
+      await apiRequest(`/learner/assignments/${encodeURIComponent(activeEssayAssignment.id)}/submissions`, {
+        method: "POST",
+        body,
+      });
+      setActiveEssayAssignment(null);
+      setEssayFiles([]);
+      showToast("Đã lưu bài nộp tự luận.", { type: "success" });
+      await loadClassData();
+    } catch (error) {
+      setEssayError(error instanceof Error ? error.message : "Không nộp được bài tập. Hãy thử lại.");
+    } finally {
+      setEssaySubmitting(false);
+    }
+  };
+
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => {
@@ -471,15 +481,15 @@ export function LearnerClassWorkspace({
 
   // Danh sách bài tập & đề thi: 100% LẤY DỮ LIỆU THẬT TỪ DATABASE CỦA LỚP
   const assignmentsList: AssignmentItem[] = useMemo(() => {
-    const dbExams: AssignmentItem[] = classExams.map((exam, idx) => {
+    const dbExams: AssignmentItem[] = classExams.map((exam) => {
       const relatedResults = learnerResults.filter(
         (r) => r.attempt && r.attempt.examId === exam.id,
       );
       const attempts: AttemptRecord[] = relatedResults.map((r, aIdx) => ({
         id: r.attempt.id,
         attemptNo: r.attempt.attemptNo || aIdx + 1,
-        score: Number(r.attempt.score ?? 0),
-        maxScore: 10,
+        score: r.attempt.score == null ? undefined : Number(r.attempt.score),
+        maxScore: Number(exam.totalScore),
         submittedAt: r.attempt.submittedAt
           ? new Date(r.attempt.submittedAt).toLocaleDateString("vi-VN", {
               day: "2-digit",
@@ -488,8 +498,8 @@ export function LearnerClassWorkspace({
               hour: "2-digit",
               minute: "2-digit",
             })
-          : "27/10/2026 08:34",
-        feedback: r.attempt.feedback || "Bài làm hoàn thành.",
+          : undefined,
+        feedback: r.attempt.feedback,
         answers: (r.answerBreakdown || []).map((ans) => ({
           questionId: ans.questionId,
           questionTitle: ans.content,
@@ -499,27 +509,26 @@ export function LearnerClassWorkspace({
         })),
       }));
 
-      const completedCount = attempts.length > 0 ? attempts.length : (exam.availabilityStatus === "CLOSED" ? 1 : 0);
+      const completedCount = relatedResults.filter((r) => r.attempt.status !== "IN_PROGRESS").length;
       const latestScore = attempts.length > 0 && attempts[attempts.length - 1] ? attempts[attempts.length - 1]!.score : undefined;
+      const latestStatus = relatedResults.at(-1)?.attempt.status;
 
       return {
         id: exam.id,
         title: exam.title,
         type: "EXAM",
-        durationMinutes: exam.durationMinutes || 45,
-        dueAt: exam.closeAt || "2026-12-31T23:59:00Z",
-        status: completedCount > 0 ? "GRADED" : "PENDING",
+        durationMinutes: exam.durationMinutes,
+        dueAt: exam.closeAt,
+        status: latestStatus === "GRADED" ? "GRADED" : latestStatus === "SUBMITTED" ? "SUBMITTED" : "PENDING",
         score: latestScore,
-        maxScore: Number(exam.totalScore) || 10,
-        totalQuestions: exam.questionCount || exam.questionIds?.length || 10,
+        maxScore: Number(exam.totalScore),
+        totalQuestions: exam.questionCount ?? exam.questionIds?.length,
         remainingAttempts: exam.remainingAttempts,
-        attemptLimit: exam.attemptLimit ?? 1,
+        attemptLimit: exam.attemptLimit,
         completedAttempts: completedCount,
         attempts: attempts,
-        folder: "Tất cả bài tập",
         subtypeText: "Trắc nghiệm",
         scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm cao nhất" : "Lần đầu tiên",
-        createdAt: (exam as any).createdAt ? new Date((exam as any).createdAt).toLocaleDateString("vi-VN") : "Gần đây",
       };
     });
 
@@ -527,8 +536,7 @@ export function LearnerClassWorkspace({
       id: assign.id,
       title: assign.title,
       type: "ESSAY",
-      durationMinutes: 45,
-      dueAt: assign.dueAt || "2026-12-31T23:59:00Z",
+      dueAt: assign.dueAt,
       status:
         assign.submission?.status === "GRADED"
           ? "GRADED"
@@ -536,7 +544,7 @@ export function LearnerClassWorkspace({
             ? "SUBMITTED"
             : "PENDING",
       score: assign.submission?.score !== null && assign.submission?.score !== undefined ? Number(assign.submission.score) : undefined,
-      maxScore: Number(assign.maxScore) || 10,
+      maxScore: Number(assign.maxScore),
       totalQuestions: 1,
       remainingAttempts: null,
       attemptLimit: 1,
@@ -545,67 +553,18 @@ export function LearnerClassWorkspace({
         {
           id: assign.submission.id,
           attemptNo: 1,
-          score: assign.submission.score !== null && assign.submission.score !== undefined ? Number(assign.submission.score) : 0,
-          maxScore: Number(assign.maxScore) || 10,
-          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString("vi-VN") : "Đã nộp",
-          feedback: assign.submission.feedback || "Bài tự luận đã được ghi nhận.",
+          score: assign.submission.score == null ? undefined : Number(assign.submission.score),
+          maxScore: Number(assign.maxScore),
+          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString("vi-VN") : undefined,
+          feedback: assign.submission.feedback,
         },
       ] : [],
-      folder: "Tất cả bài tập",
       subtypeText: "Bài tập tự luận",
       scoringMethod: "Điểm đánh giá",
-      createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString("vi-VN") : "Gần đây",
+      createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString("vi-VN") : undefined,
     }));
 
-    const items = [...dbExams, ...dbAssigns];
-    if (items.length > 0 || process.env.NODE_ENV !== "test") return items;
-
-    return [
-      {
-        id: "test-exam-01",
-        title: "Test bài tập",
-        type: "EXAM",
-        durationMinutes: 45,
-        dueAt: "2026-12-31T23:59:00Z",
-        status: "GRADED",
-        score: 4,
-        maxScore: 10,
-        totalQuestions: 10,
-        remainingAttempts: 1,
-        attemptLimit: 2,
-        completedAttempts: 1,
-        attempts: [{
-          id: "test-attempt-01",
-          attemptNo: 1,
-          score: 4,
-          maxScore: 10,
-          submittedAt: "27/10/2026",
-          feedback: "Nhận xét của giáo viên",
-        }],
-        folder: "Toán 1",
-        subtypeText: "Trắc nghiệm",
-        scoringMethod: "Điểm cao nhất",
-        createdAt: "27/10/2026",
-      },
-      {
-        id: "test-assignment-pending",
-        title: "Bài tập đại số chưa làm",
-        type: "ESSAY",
-        durationMinutes: 45,
-        dueAt: "2026-12-31T23:59:00Z",
-        status: "PENDING",
-        maxScore: 10,
-        totalQuestions: 1,
-        remainingAttempts: 1,
-        attemptLimit: 1,
-        completedAttempts: 0,
-        attempts: [],
-        folder: "Toán 1",
-        subtypeText: "Bài tập tự luận",
-        scoringMethod: "Điểm đánh giá",
-        createdAt: "27/10/2026",
-      },
-    ];
+    return [...dbExams, ...dbAssigns];
   }, [classExams, classAssignments, learnerResults]);
 
   // State cho Bài giảng
@@ -613,11 +572,7 @@ export function LearnerClassWorkspace({
   const [lectureSort, setLectureSort] = useState<"alpha" | "newest" | "type">("newest");
   const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
   const [selectedLectureId, setSelectedLectureId] = useState<string | null>(null);
-  const [lectureFolderExpanded, setLectureFolderExpanded] = useState<Record<string, boolean>>({
-    "Toán 1": true,
-    "Hình học": true,
-  });
-  const [isLectureDetailExpanded, setIsLectureDetailExpanded] = useState<boolean>(true);
+  const [lectureFolderExpanded, setLectureFolderExpanded] = useState<Record<string, boolean>>({});
 
   // Danh sách bài giảng: 100% NẠP TỪ CSDL POSTGRESQL (TABLE MATERIAL CỦA LỚP)
   const lecturesList: LectureItem[] = useMemo(() => {
@@ -631,9 +586,7 @@ export function LearnerClassWorkspace({
             t.toLowerCase().includes("video") ||
             t.toLowerCase().includes("bài giảng"),
           ) ||
-          mime.startsWith("video/") ||
-          mat.folder === "Toán 1" ||
-          mat.folder === "Hình học"
+          mime.startsWith("video/") || mime.startsWith("audio/")
         );
       })
       .map((mat) => {
@@ -643,72 +596,26 @@ export function LearnerClassWorkspace({
         const examIdTag = tags.find((t) => t.startsWith("attachedExamId:"));
         const examTitleTag = tags.find((t) => t.startsWith("attachedExamTitle:"));
 
-        const fileType: "mp4" | "mp3" | "pptx" = (mat.mimeType || "").includes("pdf")
-          ? "pptx"
-          : (mat.mimeType || "").includes("mp3")
-            ? "mp3"
-            : "mp4";
-
-        const uploadedAtDate = mat.createdAt ? new Date(mat.createdAt) : new Date();
+        const mime = mat.mimeType.toLowerCase();
+        const fileType: LectureItem["fileType"] = mime.includes("pdf") ? "pdf"
+          : mime.includes("presentation") || mime.includes("powerpoint") ? "pptx"
+            : mime.startsWith("audio/") ? "mp3" : mime.startsWith("video/") ? "mp4" : "other";
 
         return {
           id: mat.id,
           title: mat.name,
           fileType,
-          duration: "45 phút",
           teacher: teacherName,
-          uploadedAt: `${uploadedAtDate.getDate()} tháng ${uploadedAtDate.getMonth() + 1} lúc ${String(uploadedAtDate.getHours()).padStart(2, "0")}:${String(uploadedAtDate.getMinutes()).padStart(2, "0")}`,
-          folder: mat.folder || "Toán 1",
-          progressPercent: 75,
-          viewsCount: 38,
-          description: descTag
-            ? descTag.replace("Mô tả: ", "")
-            : "Bài giảng lý thuyết và bài tập trọng tâm.",
+          uploadedAt: mat.createdAt,
+          folder: mat.folder || undefined,
+          description: descTag?.replace("Mô tả: ", ""),
           youtubeId: youtubeTag ? youtubeTag.replace("youtube:", "") : undefined,
           attachedExamId: examIdTag ? examIdTag.replace("attachedExamId:", "") : undefined,
           attachedExamTitle: examTitleTag ? examTitleTag.replace("attachedExamTitle:", "") : undefined,
         };
       });
 
-    if (dbLectures.length > 0) return dbLectures;
-
-    // Fallback duy nhất cho môi trường Vitest
-    if (typeof process !== "undefined" && process.env.NODE_ENV === "test") {
-      return [
-        {
-          id: "lec-1",
-          title: "Bài giảng 01: Đại cương về Hàm số bậc nhất và bậc hai",
-          fileType: "mp4",
-          duration: "45 phút",
-          teacher: teacherName,
-          uploadedAt: "27 tháng 10 lúc 15:34",
-          folder: "Toán 1",
-          progressPercent: 75,
-          viewsCount: 38,
-          description: "Khái niệm hàm số, tập xác định, tính đơn điệu và vẽ bảng biến thiên hàm số.",
-          youtubeId: "jfKfPfyJRdk",
-          attachedExamId: "test-exam-01",
-          attachedExamTitle: "Test bài tập",
-        },
-        {
-          id: "lec-2",
-          title: "Bài giảng 02: Kỹ thuật phân tích đồ thị và tương giao hàm số",
-          fileType: "mp4",
-          duration: "52 phút",
-          teacher: teacherName,
-          uploadedAt: "27 tháng 10 lúc 16:33",
-          folder: "Toán 1",
-          progressPercent: 40,
-          viewsCount: 32,
-          description: "Phương pháp tương giao đồ thị và các bài toán biện luận tham số nâng cao.",
-          youtubeId: "kJQP7kiw5Fk",
-          attachedExamId: "test-exam-01",
-          attachedExamTitle: "Test bài tập",
-        },
-      ];
-    }
-
-    return [];
+    return dbLectures;
   }, [classMaterials, teacherName]);
 
   // State cho Tài liệu
@@ -716,10 +623,7 @@ export function LearnerClassWorkspace({
   const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
   const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(null);
-  const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({
-    "Toán 1": true,
-    "Hình học": true,
-  });
+  const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({});
   const [isMaterialDetailExpanded, setIsMaterialDetailExpanded] = useState<boolean>(true);
 
   // Danh sách tài liệu: 100% NẠP TỪ CSDL POSTGRESQL (TABLE MATERIAL CỦA LỚP)
@@ -732,88 +636,46 @@ export function LearnerClassWorkspace({
       const isXlsx =
         (mat.mimeType || "").includes("sheet") ||
         (mat.mimeType || "").includes("excel");
-      const fileType: "pdf" | "doc" | "word" | "xlsx" = isPdf
+      const fileType = isPdf
         ? "pdf"
         : isDoc
           ? "doc"
           : isXlsx
             ? "xlsx"
-            : "pdf";
-      const sizeMb = Number(mat.sizeBytes || 1024000) / (1024 * 1024);
+            : mat.name.split(".").at(-1)?.toLowerCase() || "file";
+      const sizeMb = mat.sizeBytes / (1024 * 1024);
       return {
         id: mat.id,
         title: mat.name,
         fileType,
         size: sizeMb >= 1 ? `${sizeMb.toFixed(1)} MB` : `${Math.round(sizeMb * 1024)} KB`,
-        uploadedAt: mat.createdAt
-          ? new Date(mat.createdAt).toISOString().split("T")[0] || "2026-10-27"
-          : "2026-10-27",
-        folder: mat.folder || "Toán 1",
-        pageCount: 15,
-        downloadsCount: 42,
+        uploadedAt: mat.createdAt,
+        folder: mat.folder || undefined,
       };
     });
 
-    if (dbMats.length > 0) return dbMats;
-
-    if (typeof process !== "undefined" && process.env.NODE_ENV === "test") {
-      return [
-        {
-          id: "mat-1",
-          title: "Đề cương ôn tập kiểm tra giữa học kỳ 1 Toán học",
-          fileType: "pdf",
-          size: "3.2 MB",
-          uploadedAt: "2026-10-18",
-          folder: "Toán 1",
-          pageCount: 15,
-          downloadsCount: 42,
-        },
-      ];
-    }
-
-    return [];
+    return dbMats;
   }, [classMaterials]);
 
   // Danh sách thành viên lớp học
   const membersList = useMemo(
     () => [
-      {
-        id: "teacher-1",
-        name: teacherName,
+      ...displayInstructors.map((instructor) => ({
+        id: instructor.id,
+        name: instructor.name,
         role: "Giáo viên",
-        email: "giaovien@windedu.vn",
+        email: instructor.email,
         isTeacher: true,
-      },
-      {
-        id: "learner-1",
-        name: "Vũ Thành Nam",
+      })),
+      ...item.learnerIds.map((id) => ({
+        id,
+        name: id === session.user.id ? session.user.name : `Học viên ${id}`,
         role: "Học sinh",
-        email: "nam.vu@student.windedu.vn",
+        email: id === session.user.id ? session.user.email : undefined,
         isTeacher: false,
-      },
-      {
-        id: "learner-2",
-        name: "Trần Minh Anh",
-        role: "Học sinh",
-        email: "minhanh.tran@student.windedu.vn",
-        isTeacher: false,
-      },
-      {
-        id: "learner-3",
-        name: "Nguyễn Hoàng Long",
-        role: "Học sinh",
-        email: "long.nguyen@student.windedu.vn",
-        isTeacher: false,
-      },
-      {
-        id: "learner-4",
-        name: "Lê Thị Bích Ngọc",
-        role: "Học sinh",
-        email: "bichngoc.le@student.windedu.vn",
-        isTeacher: false,
-      },
+      })),
     ],
-    [teacherName],
+    [displayInstructors, item.learnerIds, session.user.id, session.user.name, session.user.email],
   );
 
   /** Kích hoạt mở Chat Mini Size trực tiếp với một thành viên */
@@ -829,303 +691,14 @@ export function LearnerClassWorkspace({
     );
   };
 
-  /** Đăng bài viết mới vào bảng tin lớp học và lưu vật lý vào PostgreSQL */
-  const handleCreatePost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPostContent.trim() && newPostImages.length === 0) return;
-
-    const content = newPostContent.trim();
-    const title = content.slice(0, 60);
-
-    try {
-      // Lưu bài viết thật vào database qua API
-      const created = await apiRequest<{
-        id: string;
-        title: string;
-        body: string;
-        createdAt: string;
-        author?: { displayName?: string };
-      }>(`/learner/classes/${item.id}/forum/topics`, {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          body: content,
-          tags: ["class", item.code.toLowerCase()],
-        }),
-      });
-
-      const newPost: ClassPost = {
-        id: created.id,
-        authorName: created.author?.displayName || "Bạn",
-        authorAvatar: (created.author?.displayName || "BN").slice(0, 2).toUpperCase(),
-        authorRole: "Học sinh",
-        createdAt: "Vừa xong",
-        content: created.body ? `${created.title}\n\n${created.body}` : created.title,
-        images: newPostImages.length > 0 ? [...newPostImages] : undefined,
-        likes: 0,
-        isLiked: false,
-        comments: [],
-      };
-
-      setPosts((prev) => [newPost, ...prev]);
-      setNewPostContent("");
-      setNewPostImages([]);
-    } catch {
-      // Fallback cục bộ nếu có lỗi mạng
-      const fallbackPost: ClassPost = {
-        id: `post-${Date.now()}`,
-        authorName: "Bạn",
-        authorAvatar: "BN",
-        authorRole: "Học sinh",
-        createdAt: "Vừa xong",
-        content,
-        images: newPostImages.length > 0 ? [...newPostImages] : undefined,
-        likes: 0,
-        isLiked: false,
-        comments: [],
-      };
-      setPosts((prev) => [fallbackPost, ...prev]);
-      setNewPostContent("");
-      setNewPostImages([]);
-    }
-  };
-
-  /** Chọn và đính kèm tệp ảnh thật từ máy tính (tối đa 5 ảnh) */
-  const handleImageFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    const remainingSlots = 5 - newPostImages.length;
-    if (remainingSlots <= 0) {
-      showToast("Chỉ được đính kèm tối đa 5 hình ảnh trong một bài viết.", { type: "warning" });
-      return;
-    }
-
-    const filesToRead = files.slice(0, remainingSlots);
-    filesToRead.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (loadEvent) => {
-        const result = loadEvent.target?.result as string;
-        if (result) {
-          setNewPostImages((prev) => (prev.length < 5 ? [...prev, result] : prev));
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  /** Xóa bài viết khỏi bảng tin */
-  const handleDeletePost = (postId: string) => {
-    if (confirm("Bạn có chắc chắn muốn xóa bài viết này không?")) {
-      setPosts((prev) => prev.filter((p) => p.id !== postId));
-      setActivePostMenuId(null);
-      if (selectedPostForModal?.id === postId) {
-        setSelectedPostForModal(null);
-      }
-    }
-  };
-
-  /** Bắt đầu chỉnh sửa nội dung bài viết */
-  const handleStartEditPost = (post: ClassPost) => {
-    setEditingPostId(post.id);
-    setEditingPostContent(post.content);
-    setActivePostMenuId(null);
-  };
-
-  /** Lưu nội dung bài viết đã chỉnh sửa */
-  const handleSaveEditPost = (postId: string) => {
-    if (!editingPostContent.trim()) return;
-
-    const postToEdit = posts.find((p) => p.id === postId);
-    if (postToEdit) {
-      const currentHistory = postEditHistories[postId] || [];
-      setPostEditHistories({
-        ...postEditHistories,
-        [postId]: [
-          ...currentHistory,
-          { content: postToEdit.content, editedAt: "Vừa xong" },
-        ],
-      });
-    }
-
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === postId ? { ...p, content: editingPostContent.trim() } : p,
-      ),
-    );
-    if (selectedPostForModal?.id === postId) {
-      setSelectedPostForModal({
-        ...selectedPostForModal,
-        content: editingPostContent.trim(),
-      });
-    }
-    setEditingPostId(null);
-    setEditingPostContent("");
-  };
-
-  /** Ẩn bài viết khỏi bảng tin của học sinh */
-  const handleHidePost = (postId: string) => {
-    setHiddenPostIds((prev) => ({ ...prev, [postId]: true }));
-    setActivePostMenuId(null);
-    if (selectedPostForModal?.id === postId) {
-      setSelectedPostForModal(null);
-    }
-  };
-
-  /** Bật/tắt theo dõi thông báo bài viết */
-  const handleToggleFollowPost = (postId: string) => {
-    const isFollowing = Boolean(followingPostIds[postId]);
-    setFollowingPostIds((prev) => ({ ...prev, [postId]: !isFollowing }));
-    setActivePostMenuId(null);
-  };
-
-  /** Mở popup báo cáo bài viết */
-  const handleOpenReportPost = (post: ClassPost) => {
-    setReportModalPost(post);
-    setReportReason("");
-    setReportSuccess(false);
-    setActivePostMenuId(null);
-  };
-
-  /** Gửi báo cáo bài viết */
-  const handleSubmitReport = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reportReason.trim()) return;
-    setReportSuccess(true);
-    setTimeout(() => {
-      setReportModalPost(null);
-      setReportSuccess(false);
-    }, 1200);
-  };
-
-  /** Mở popup lịch sử chỉnh sửa bài viết */
-  const handleOpenHistoryPost = (post: ClassPost) => {
-    setHistoryModalPost(post);
-    setActivePostMenuId(null);
-  };
-
-  /** Thêm bình luận vào bài viết trong Modal nổi và lưu vật lý vào PostgreSQL */
-  const handleAddModalComment = async () => {
-    if (!selectedPostForModal || !modalCommentText.trim()) return;
-
-    const commentBody = modalCommentText.trim();
-    try {
-      // Lưu comment thật vào database qua API
-      const created = await apiRequest<{
-        id: string;
-        body: string;
-        createdAt: string;
-        author?: { displayName?: string };
-      }>(`/learner/forum/topics/${selectedPostForModal.id}/posts`, {
-        method: "POST",
-        body: JSON.stringify({
-          body: commentBody,
-        }),
-      });
-
-      const newCmt: PostComment = {
-        id: created.id,
-        authorName: created.author?.displayName || "Bạn",
-        authorAvatar: (created.author?.displayName || "BN").slice(0, 2).toUpperCase(),
-        content: created.body,
-        createdAt: "Vừa xong",
-      };
-
-      setPosts((prev) =>
-        prev.map((p) => {
-          if (p.id === selectedPostForModal.id) {
-            return {
-              ...p,
-              comments: [...p.comments, newCmt],
-            };
-          }
-          return p;
-        }),
-      );
-
-      setSelectedPostForModal({
-        ...selectedPostForModal,
-        comments: [...selectedPostForModal.comments, newCmt],
-      });
-      setModalCommentText("");
-    } catch {
-      // Fallback
-      const newCmt: PostComment = {
-        id: `cmt-${Date.now()}`,
-        authorName: "Bạn",
-        authorAvatar: "BN",
-        content: commentBody,
-        createdAt: "Vừa xong",
-      };
-
-      setPosts((prev) =>
-        prev.map((p) => {
-          if (p.id === selectedPostForModal.id) {
-            return {
-              ...p,
-              comments: [...p.comments, newCmt],
-            };
-          }
-          return p;
-        }),
-      );
-      setSelectedPostForModal({
-        ...selectedPostForModal,
-        comments: [...selectedPostForModal.comments, newCmt],
-      });
-      setModalCommentText("");
-    }
-  };
-
-  /** Bật/tắt trạng thái Like của một bài viết */
-  const handleToggleLike = (postId: string) => {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === postId) {
-          const isLiked = !p.isLiked;
-          return {
-            ...p,
-            isLiked,
-            likes: isLiked ? p.likes + 1 : Math.max(0, p.likes - 1),
-          };
-        }
-        return p;
-      }),
-    );
-  };
-
   // Danh sách các thư mục bài tập động
   const assignmentFolders = useMemo(() => {
-    const folders = new Set<string>();
-    assignmentsList.forEach((item) => {
-      if (item.folder) folders.add(item.folder);
-    });
-    if (folders.size === 0) folders.add("Toán 1");
-    return Array.from(folders);
+    return getLearnerFolderNames(assignmentsList);
   }, [assignmentsList]);
 
   // Lọc và sắp xếp Bài tập theo Thư mục, Tìm kiếm và Sắp xếp
   const filteredAssignments = useMemo(() => {
-    let result = [...assignmentsList];
-    if (selectedAssignmentFolder !== "__ALL__") {
-      result = result.filter((item) => item.folder === selectedAssignmentFolder);
-    }
-    if (assignmentSearch.trim()) {
-      const q = assignmentSearch.toLowerCase().trim();
-      result = result.filter((item) => item.title.toLowerCase().includes(q));
-    }
-    if (assignmentSort === "alpha") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (assignmentSort === "newest") {
-      result.sort((a, b) => new Date(b.dueAt).getTime() - new Date(a.dueAt).getTime());
-    } else if (assignmentSort === "due") {
-      result.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
-    }
-    return result;
+    return filterLearnerAssignments(assignmentsList, selectedAssignmentFolder, assignmentSearch, assignmentSort);
   }, [assignmentsList, selectedAssignmentFolder, assignmentSearch, assignmentSort]);
 
   // Bài tập đang được chọn để hiển thị chi tiết ở Cột 3
@@ -1136,31 +709,12 @@ export function LearnerClassWorkspace({
 
   // Danh sách các thư mục bài giảng động
   const lectureFolders = useMemo(() => {
-    const folders = new Set<string>();
-    lecturesList.forEach((item) => {
-      if (item.folder) folders.add(item.folder);
-    });
-    return Array.from(folders);
+    return getLearnerFolderNames(lecturesList);
   }, [lecturesList]);
 
   // Lọc và sắp xếp Bài giảng theo Thư mục, Tìm kiếm và Sắp xếp
   const filteredLectures = useMemo(() => {
-    let result = [...lecturesList];
-    if (selectedLectureFolder !== "__ALL__") {
-      result = result.filter((item) => item.folder === selectedLectureFolder);
-    }
-    if (lectureSearch.trim()) {
-      const q = lectureSearch.toLowerCase().trim();
-      result = result.filter((item) => item.title.toLowerCase().includes(q));
-    }
-    if (lectureSort === "alpha") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (lectureSort === "type") {
-      result.sort((a, b) => a.fileType.localeCompare(b.fileType));
-    } else if (lectureSort === "newest") {
-      result.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
-    }
-    return result;
+    return filterLearnerFiles(lecturesList, selectedLectureFolder, lectureSearch, lectureSort);
   }, [lecturesList, selectedLectureFolder, lectureSearch, lectureSort]);
 
   // Bài giảng đang được chọn ở Cột 3
@@ -1171,31 +725,12 @@ export function LearnerClassWorkspace({
 
   // Danh sách các thư mục tài liệu động
   const materialFolders = useMemo(() => {
-    const folders = new Set<string>();
-    materialsList.forEach((item) => {
-      if (item.folder) folders.add(item.folder);
-    });
-    return Array.from(folders);
+    return getLearnerFolderNames(materialsList);
   }, [materialsList]);
 
   // Lọc và sắp xếp Tài liệu theo Thư mục, Tìm kiếm và Sắp xếp
   const filteredMaterials = useMemo(() => {
-    let result = [...materialsList];
-    if (selectedMaterialFolder !== "__ALL__") {
-      result = result.filter((item) => item.folder === selectedMaterialFolder);
-    }
-    if (materialSearch.trim()) {
-      const q = materialSearch.toLowerCase().trim();
-      result = result.filter((item) => item.title.toLowerCase().includes(q));
-    }
-    if (materialSort === "alpha") {
-      result.sort((a, b) => a.title.localeCompare(b.title));
-    } else if (materialSort === "type") {
-      result.sort((a, b) => a.fileType.localeCompare(b.fileType));
-    } else if (materialSort === "newest") {
-      result.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
-    }
-    return result;
+    return filterLearnerFiles(materialsList, selectedMaterialFolder, materialSearch, materialSort);
   }, [materialsList, selectedMaterialFolder, materialSearch, materialSort]);
 
   // Tài liệu đang được chọn ở Cột 3
@@ -1204,10 +739,75 @@ export function LearnerClassWorkspace({
     return filteredMaterials.find((m) => m.id === selectedMaterialId) || filteredMaterials[0];
   }, [filteredMaterials, selectedMaterialId]);
 
+  // Dùng cùng hộp làm bài cho trang chi tiết bài giảng và trang lớp học.
+  const examTakingModal = activeExamForTaking && (
+    <ExamTakingModal
+      open={Boolean(activeExamForTaking)}
+      onClose={() => {
+        setActiveExamForTaking(null);
+        void loadClassData();
+      }}
+      exam={activeExamForTaking}
+      onSubmitted={() => {
+        void loadClassData();
+      }}
+    />
+  );
+
+  // Dùng cùng thông báo nội bộ ở cả hai chế độ xem của lớp học.
+  const toastNotification = toast && (
+    <aside
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200"
+    >
+      <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 dark:bg-slate-800/95 text-white shadow-2xl border border-slate-700/80 backdrop-blur-md max-w-md">
+        <div
+          className={`size-8 rounded-xl flex items-center justify-center shrink-0 ${
+            toast.type === "warning"
+              ? "bg-amber-500/20 text-amber-400"
+              : toast.type === "success"
+              ? "bg-emerald-500/20 text-emerald-400"
+              : "bg-blue-500/20 text-blue-400"
+          }`}
+        >
+          {toast.type === "warning" ? <AlertCircle size={18} /> : <Info size={18} />}
+        </div>
+        <p className="text-xs font-semibold text-slate-100 leading-snug flex-1">
+          {toast.message}
+        </p>
+        {toast.actionLabel && toast.onAction && (
+          <button
+            type="button"
+            onClick={() => {
+              toast.onAction?.();
+              setToast(null);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
+          >
+            {toast.actionLabel}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setToast(null)}
+          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+          aria-label="Đóng thông báo"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </aside>
+  );
+
   // TRANG CHI TIẾT XEM BÀI GIẢNG (THEO MÔ TẢ VÀ ẢNH MINH HỌA CỦA NGƯỜI DÙNG)
   if (selectedLectureForPage) {
     const lecturePlaylist = lecturesList.filter(
       (l) => lecturePageFolder === "__ALL__" || l.folder === lecturePageFolder,
+    );
+    const lectureAttachedAssignments = assignmentsList.filter((assignment) =>
+      (selectedLectureForPage.attachedExamId && assignment.id === selectedLectureForPage.attachedExamId) ||
+      (selectedLectureForPage.attachedExamTitle && assignment.title === selectedLectureForPage.attachedExamTitle),
     );
 
     return (
@@ -1227,10 +827,10 @@ export function LearnerClassWorkspace({
                   <span>Quay lại bài giảng</span>
                 </button>
                 <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
-                  {item.name || "Lớp Toán 6"}
+                  {item.name || item.code}
                 </h2>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code || "XDAXE"}</strong>
+                  Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
                 </p>
               </div>
 
@@ -1245,9 +845,11 @@ export function LearnerClassWorkspace({
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        void navigator.clipboard.writeText(window.location.href);
+                    onClick={async () => {
+                      try {
+                        await copyTextToClipboard(window.location.href);
+                      } catch {
+                        notify("Không thể sao chép liên kết lớp học.", "error");
                       }
                     }}
                     className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 cursor-pointer"
@@ -1265,36 +867,10 @@ export function LearnerClassWorkspace({
               </div>
 
               {/* Danh mục các chức năng con */}
-              <nav className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-2 py-1">
-                  Danh mục
-                </p>
-                {[
-                  { id: "feed" as const, label: "Bảng tin", icon: MessageSquare },
-                  { id: "schedule" as const, label: "Lịch học", icon: CalendarDays },
-                  { id: "members" as const, label: "Thành viên", icon: Users },
-                  { id: "assignments" as const, label: "Bài tập", icon: FileText },
-                  { id: "lectures" as const, label: "Bài giảng", icon: Video, active: true },
-                  { id: "materials" as const, label: "Tài liệu", icon: Folder },
-                ].map(({ id, label, icon: Icon, active }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedLectureForPage(null);
-                      handleSelectTab(id);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
-                      active
-                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/60 shadow-2xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <Icon size={15} className={active ? "text-blue-600 dark:text-blue-400" : "text-slate-400"} />
-                    <span className="truncate">{label}</span>
-                  </button>
-                ))}
-              </nav>
+              <LectureSidebarNavigation onSelectTab={(tab) => {
+                setSelectedLectureForPage(null);
+                handleSelectTab(tab);
+              }} />
             </div>
           </aside>
 
@@ -1317,64 +893,27 @@ export function LearnerClassWorkspace({
               </div>
 
               {/* Khung phát bài giảng (Player 16:9 YouTube/Video hoặc Trình xem slide/phiếu bài tập) */}
-              {selectedLectureForPage.youtubeId ? (
+              {selectedLectureForPage.youtubeId && /^[A-Za-z0-9_-]{11}$/.test(selectedLectureForPage.youtubeId) ? (
                 <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
                   <iframe
-                    src={`https://www.youtube.com/embed/${selectedLectureForPage.youtubeId}?autoplay=0&rel=0&modestbranding=1`}
+                    src={`https://www.youtube.com/embed/${selectedLectureForPage.youtubeId}?autoplay=0&rel=0`}
                     className="w-full h-full border-0"
                     title={selectedLectureForPage.title}
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                   />
                 </div>
-              ) : selectedLectureForPage.fileType === "pptx" || selectedLectureForPage.title.includes("Phiếu") ? (
-                /* Giao diện Phiếu bài tập / Slide trình chiếu (chuẩn Ảnh 2 của người dùng) */
-                <div className="w-full min-h-[420px] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-6 shadow-sm space-y-5">
-                  <div className="text-center space-y-1 pb-4 border-b border-slate-100 dark:border-slate-800">
-                    <h3 className="text-base sm:text-lg font-extrabold uppercase text-slate-900 dark:text-slate-100 tracking-wide">
-                      PHIẾU BÀI TẬP TRẮC NGHIỆM TOÁN HỌC
-                    </h3>
-                    <p className="text-xs text-slate-500">Thời gian gợi ý: 15 phút</p>
-                    <div className="flex justify-center gap-8 text-xs text-slate-500 pt-2">
-                      <span>Họ và tên: ........................................................</span>
-                      <span>Lớp: .......................................</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
-                    <p className="font-semibold italic text-slate-600 dark:text-slate-400">
-                      Khoanh tròn vào chữ cái trước đáp án đúng.
-                    </p>
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
-                      <p className="font-bold">Câu 1. Kết quả của phép tính 3 475 + 2 618 là:</p>
-                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
-                        <span>A. 6 083</span>
-                        <span>B. 6 093</span>
-                        <span>C. 6 193</span>
-                        <span>D. 5 093</span>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
-                      <p className="font-bold">Câu 2. Kết quả của phép chia 864 : 8 là:</p>
-                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
-                        <span>A. 108</span>
-                        <span>B. 118</span>
-                        <span>C. 106</span>
-                        <span>D. 98</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               ) : (
-                <div className="w-full aspect-video rounded-2xl bg-slate-900 flex flex-col items-center justify-center text-white p-6 shadow-md">
-                  <Video size={48} className="text-purple-400 mb-3" />
-                  <p className="text-sm font-bold">{selectedLectureForPage.title}</p>
-                  <p className="text-xs text-slate-400 mt-1">Trình phát video bài học chuyên đề</p>
+                <div className="w-full aspect-video rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                  <FileText size={38} className="text-blue-500" />
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{selectedLectureForPage.title}</p>
+                  <button type="button" onClick={() => previewClassMaterial(selectedLectureForPage.id, selectedLectureForPage.title)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
+                    Xem học liệu
+                  </button>
                 </div>
               )}
 
-              {/* Phần Mô tả bài giảng */}
+                            {/* Phần Mô tả bài giảng */}
               <div className="space-y-1.5 pt-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Mô tả
@@ -1390,42 +929,13 @@ export function LearnerClassWorkspace({
                   Bài tập & tài liệu đính kèm
                 </span>
 
-                {/* Thẻ Bài tập đính kèm với Icon chữ W nền xanh dương */}
-                <div
-                  onClick={() => {
-                    const targetExam = assignmentsList.find(
-                      (a) =>
-                        a.id === selectedLectureForPage.attachedExamId ||
-                        a.title === selectedLectureForPage.attachedExamTitle,
-                    ) || assignmentsList[0];
-
-                    if (targetExam) {
-                      setActiveExamForTaking({
-                        id: targetExam.id,
-                        title: targetExam.title,
-                        durationMinutes: targetExam.durationMinutes,
-                        totalQuestions: targetExam.totalQuestions || 10,
-                        remainingAttempts: targetExam.remainingAttempts,
-                      });
-                    }
-                  }}
-                  className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="size-9 rounded-lg bg-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
-                      W
-                    </div>
-                    <div className="min-w-0">
-                      <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition-colors block truncate">
-                        {selectedLectureForPage.attachedExamTitle || "Test bài tập"}
-                      </strong>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Trắc nghiệm tách câu
-                      </p>
-                    </div>
-                  </div>
-                  <ArrowRight size={16} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
-                </div>
+                {lectureAttachedAssignments.map((assignment) => (
+                  <button key={assignment.id} type="button" onClick={() => openAssignment(assignment)} className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400 transition-colors text-left">
+                    <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">{assignment.title}</span>
+                    <ArrowRight size={16} className="text-blue-600" />
+                  </button>
+                ))}
+                {lectureAttachedAssignments.length === 0 && <p className="text-xs text-slate-500">Chưa có bài tập đính kèm.</p>}
               </div>
             </div>
           </main>
@@ -1520,65 +1030,10 @@ export function LearnerClassWorkspace({
         </div>
 
         {/* MODAL LÀM BÀI KIỂM TRA TRONG TRANG BÀI GIẢNG */}
-        {activeExamForTaking && (
-          <ExamTakingModal
-            open={Boolean(activeExamForTaking)}
-            onClose={() => {
-              setActiveExamForTaking(null);
-              void loadClassData();
-            }}
-            exam={activeExamForTaking}
-            onSubmitted={() => {
-              void loadClassData();
-            }}
-          />
-        )}
+        {examTakingModal}
 
         {/* THÔNG BÁO TOAST NỘI BỘ THAY THẾ TOÀN BỘ POPUP NATIVE */}
-        {toast && (
-          <aside
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200"
-          >
-            <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 dark:bg-slate-800/95 text-white shadow-2xl border border-slate-700/80 backdrop-blur-md max-w-md">
-              <div
-                className={`size-8 rounded-xl flex items-center justify-center shrink-0 ${
-                  toast.type === "warning"
-                    ? "bg-amber-500/20 text-amber-400"
-                    : toast.type === "success"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-blue-500/20 text-blue-400"
-                }`}
-              >
-                {toast.type === "warning" ? <AlertCircle size={18} /> : <Info size={18} />}
-              </div>
-              <p className="text-xs font-semibold text-slate-100 leading-snug flex-1">
-                {toast.message}
-              </p>
-              {toast.actionLabel && toast.onAction && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    toast.onAction?.();
-                    setToast(null);
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
-                >
-                  {toast.actionLabel}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setToast(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                aria-label="Đóng thông báo"
-              >
-                <X size={15} />
-              </button>
-            </div>
-          </aside>
-        )}
+        {toastNotification}
       </div>
     );
   }
@@ -1670,7 +1125,12 @@ export function LearnerClassWorkspace({
 
         {/* CỘT NỘI DUNG CHÍNH BÊN PHẢI (THEO TỪNG TAB CON) */}
         <main className="flex-1 min-w-0 space-y-5">
-          {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE) ================= */}
+          {dataLoadError && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <span>{dataLoadError}</span>
+              <button type="button" onClick={() => void loadClassData()} className="rounded-lg border border-current px-3 py-1 font-semibold hover:opacity-80">Tải lại</button>
+            </div>
+          )}
           {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE VỚI BÌNH LUẬN ĐA TẦNG) ================= */}
           {activeTab === "feed" && (
             <ClassFeedView
@@ -1722,124 +1182,50 @@ export function LearnerClassWorkspace({
                 </div>
               </div>
 
-              {scheduleView === "week" ? (
-                /* CHẾ ĐỘ DẠNG TUẦN: HIỂN THỊ DẠNG LƯỚI */
+              {classSessions.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-500">Lớp chưa có buổi học trực tuyến nào.</p>
+              ) : scheduleView === "week" ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
-                  {[
-                    { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Phương trình lượng giác", isToday: false },
-                    { day: "Thứ 3", date: "27/10", hasClass: false, isToday: true },
-                    { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Hình học không gian", isToday: false },
-                    { day: "Thứ 5", date: "29/10", hasClass: false, isToday: false },
-                    { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Ôn tập và Kiểm tra 15p", isToday: false },
-                    { day: "Thứ 7", date: "31/10", hasClass: false, isToday: false },
-                    { day: "Chủ nhật", date: "01/11", hasClass: false, isToday: false },
-                  ].map((col, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-xl border flex flex-col justify-between min-h-36 ${
-                        col.hasClass
-                          ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60"
-                          : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-1.5 mb-2">
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.day}</span>
-                          <span className="text-[10px] text-slate-400">{col.date}</span>
+                  {Array.from({ length: 7 }, (_, index) => {
+                    const day = new Date();
+                    day.setHours(0, 0, 0, 0);
+                    day.setDate(day.getDate() - ((day.getDay() + 6) % 7) + index);
+                    const daySessions = classSessions.filter((entry) => new Date(entry.startsAt).toDateString() === day.toDateString());
+                    return (
+                      <div key={day.toISOString()} className="p-3 rounded-xl border bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 min-h-36">
+                        <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">
+                          <span className="text-xs font-bold">{day.toLocaleDateString("vi-VN", { weekday: "long" })}</span>
+                          <span className="text-[10px] text-slate-500">{day.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}</span>
                         </div>
-
-                        {col.hasClass ? (
-                          <div className="space-y-1.5">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold block w-fit">
-                              Trực tuyến
-                            </span>
-                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">
-                              {col.title}
-                            </p>
-                            <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                              <Clock size={11} /> {col.time}
-                            </p>
+                        {daySessions.length === 0 ? <p className="text-[11px] text-slate-400 italic text-center pt-4">Không có lịch</p> : (
+                          <div className="space-y-3">
+                            {daySessions.map((entry) => (
+                              <div key={entry.id} className="space-y-1">
+                                <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{entry.title}</p>
+                                <p className="text-[10px] text-slate-500">
+                                  {new Date(entry.startsAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                                <p className="text-[10px] text-slate-500">{entry.status}</p>
+                                {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">Vào phòng</button>}
+                              </div>
+                            ))}
                           </div>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 italic pt-4 text-center">Nghỉ</p>
                         )}
                       </div>
-
-                      {col.hasClass && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setActiveLiveRoom({
-                              id: `schedule-week-${col.day}`,
-                              title: `${item.name || "Lớp học trực tuyến"} - ${col.day}`,
-                              subject: course?.name || "Môn học",
-                              instructorName: displayInstructors[0]?.name || teacherName,
-                              startsAt: "19:30",
-                              endsAt: "21:00",
-                              status: col.isToday ? "LIVE" : "UPCOMING",
-                              canJoin: col.isToday,
-                            })
-                          }
-                          className="w-full mt-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
-                        >
-                          Vào phòng
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
-                /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
                 <div className="space-y-3 pt-2">
-                  {[
-                    { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Đại số - Phương trình lượng giác nâng cao", status: "Hôm nay" },
-                    { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Hình học - Vị trí tương đối và quan hệ vuông góc", status: "Sắp diễn ra" },
-                    { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập và Làm bài kiểm tra 15 phút", status: "Sắp diễn ra" },
-                    { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Giải tích - Đạo hàm và ứng dụng thực tiễn", status: "Sắp diễn ra" },
-                  ].map((row, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-blue-300 transition-colors gap-3"
-                    >
+                  {[...classSessions].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()).map((entry) => (
+                    <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 gap-3">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            row.status === "Hôm nay"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                              : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
-                          }`}>
-                            {row.status}
-                          </span>
-                          <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
-                            {row.title}
-                          </strong>
-                        </div>
-                        <p className="text-xs text-slate-500 flex items-center gap-2">
-                          <span>Ngày: {row.date}</span>
-                          <span>·</span>
-                          <span>Thời gian: {row.time}</span>
+                        <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{entry.title}</strong>
+                        <p className="text-xs text-slate-500">
+                          {new Date(entry.startsAt).toLocaleString("vi-VN")} – {new Date(entry.endsAt).toLocaleString("vi-VN")} · {entry.status}
                         </p>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveLiveRoom({
-                            id: `schedule-month-${i}`,
-                            title: row.title,
-                            subject: course?.name || "Môn học",
-                            instructorName: displayInstructors[0]?.name || teacherName,
-                            startsAt: row.time.split(" - ")[0] || "19:30",
-                            endsAt: row.time.split(" - ")[1] || "21:00",
-                            status: row.status === "Hôm nay" ? "LIVE" : "UPCOMING",
-                            canJoin: row.status === "Hôm nay",
-                          })
-                        }
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shrink-0 cursor-pointer"
-                      >
-                        <Play size={13} />
-                        <span>Vào phòng học</span>
-                      </button>
+                      {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Vào phòng học</button>}
                     </div>
                   ))}
                 </div>
@@ -1953,52 +1339,16 @@ export function LearnerClassWorkspace({
                     </button>
 
                     {/* Các thư mục môn học / chương con */}
-                    {assignmentFolders.map((folderName) => {
-                      const isExpanded = assignmentFolderExpanded[folderName] ?? true;
-                      const isSelected = selectedAssignmentFolder === folderName;
-                      return (
-                        <div key={folderName} className="space-y-0.5">
-                          <div
-                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                              isSelected
-                                ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                            onClick={() => setSelectedAssignmentFolder(folderName)}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAssignmentFolderExpanded((prev) => ({
-                                    ...prev,
-                                    [folderName]: !isExpanded,
-                                  }));
-                                }}
-                                className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                              >
-                                <ChevronRight
-                                  size={13}
-                                  className={`transition-transform duration-150 ${
-                                    isExpanded ? "rotate-90" : ""
-                                  }`}
-                                />
-                              </button>
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-blue-600 fill-blue-500/20"
-                                    : "text-slate-500"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {assignmentFolders.map((folderName) => (
+                      <ClassFolderEntry
+                        key={folderName}
+                        name={folderName}
+                        expanded={assignmentFolderExpanded[folderName] ?? true}
+                        selected={selectedAssignmentFolder === folderName}
+                        onSelect={() => setSelectedAssignmentFolder(folderName)}
+                        onToggle={() => setAssignmentFolderExpanded((prev) => ({ ...prev, [folderName]: !(assignmentFolderExpanded[folderName] ?? true) }))}
+                      />
+                    ))}
                   </div>
                 </div>
 
@@ -2023,7 +1373,7 @@ export function LearnerClassWorkspace({
                     <div className="relative">
                       <select
                         value={assignmentSort}
-                        onChange={(e) => setAssignmentSort(e.target.value as any)}
+                        onChange={(e) => setAssignmentSort(e.target.value as "alpha" | "newest" | "due")}
                         className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                       >
                         <option value="newest">Mới nhất</option>
@@ -2048,9 +1398,9 @@ export function LearnerClassWorkspace({
                       filteredAssignments.map((assign) => {
                         const isSelected = (activeAssignment?.id || filteredAssignments[0]?.id) === assign.id;
                         const scorePercent =
-                          assign.score !== undefined && assign.maxScore
-                            ? Math.min(100, Math.round((assign.score / assign.maxScore) * 100))
-                            : 40;
+                          assign.score !== undefined && assign.maxScore && assign.maxScore > 0
+                            ? Math.max(0, Math.min(100, Math.round((assign.score / assign.maxScore) * 100)))
+                            : 0;
                         return (
                           <div
                             key={assign.id}
@@ -2090,11 +1440,11 @@ export function LearnerClassWorkspace({
                             <div className="shrink-0 text-right">
                               {assign.score !== undefined ? (
                                 <span className={`text-xs ${getScoreTheme(assign.score).textColor}`}>
-                                  {assign.score.toFixed(1)}/{assign.maxScore || 10} điểm
+                                  {assign.score.toFixed(1)}{assign.maxScore !== undefined ? `/${assign.maxScore}` : ""} điểm
                                 </span>
                               ) : (
                                 <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-                                  Chưa làm
+                                  {assign.status === "SUBMITTED" ? "Đã nộp, chờ chấm" : assign.status === "GRADED" ? "Đã chấm" : "Chưa làm"}
                                 </span>
                               )}
                             </div>
@@ -2116,7 +1466,9 @@ export function LearnerClassWorkspace({
                         }`}
                       >
                         <span className="text-sm font-bold tracking-wide">
-                          {getScoreTheme(activeAssignment.score).label}
+                          {activeAssignment.score === undefined && activeAssignment.status === "SUBMITTED"
+                            ? "Đã nộp, chờ chấm"
+                            : getScoreTheme(activeAssignment.score).label}
                         </span>
                       </div>
 
@@ -2132,21 +1484,20 @@ export function LearnerClassWorkspace({
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Số lần làm bài</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.attemptLimit ?? 1}
+                            {activeAssignment.attemptLimit ?? "Không giới hạn"}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Đã làm</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.completedAttempts ??
-                              (activeAssignment.remainingAttempts === 0 ? 1 : 0)}
-                            /{activeAssignment.attemptLimit ?? 1}
+                            {activeAssignment.completedAttempts ?? 0}
+                            {activeAssignment.attemptLimit !== undefined ? `/${activeAssignment.attemptLimit}` : ""}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Lấy điểm</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.scoringMethod || "Điểm cao nhất"}
+                            {activeAssignment.scoringMethod || "Chưa có thông tin"}
                           </span>
                         </div>
                         <div className="flex items-start justify-between gap-2 text-slate-600 dark:text-slate-300">
@@ -2158,7 +1509,7 @@ export function LearnerClassWorkspace({
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Ngày tạo</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeAssignment.createdAt || "Gần đây"}
+                            {activeAssignment.createdAt || "Chưa có thông tin"}
                           </span>
                         </div>
                       </div>
@@ -2186,6 +1537,10 @@ export function LearnerClassWorkspace({
                         <button
                           type="button"
                           onClick={() => {
+                            if (activeAssignment.type === "ESSAY") {
+                              openAssignment(activeAssignment);
+                              return;
+                            }
                             const attempts = activeAssignment.attempts || [];
                             if (attempts.length === 1 && attempts[0]) {
                               setSelectedAttemptForReview({
@@ -2199,15 +1554,7 @@ export function LearnerClassWorkspace({
                               showToast("Bạn chưa nộp lượt làm bài nào cho bài tập này.", {
                                 type: "info",
                                 actionLabel: "Làm bài ngay",
-                                onAction: () => {
-                                  setActiveExamForTaking({
-                                    id: activeAssignment.id,
-                                    title: activeAssignment.title,
-                                    durationMinutes: activeAssignment.durationMinutes,
-                                    totalQuestions: activeAssignment.totalQuestions || 10,
-                                    remainingAttempts: activeAssignment.remainingAttempts,
-                                  });
-                                },
+                                onAction: () => openAssignment(activeAssignment),
                               });
                             }
                           }}
@@ -2218,31 +1565,26 @@ export function LearnerClassWorkspace({
                         </button>
 
                         {/* NÚT LÀM BÀI: Để học sinh bắt đầu làm bài kiểm tra */}
-                        {activeAssignment.remainingAttempts === 0 ? (
+                        {activeAssignment.remainingAttempts === 0 || (activeAssignment.type === "ESSAY" && (
+                          classAssignments.find((item) => item.id === activeAssignment.id)?.submission?.status === "GRADED" ||
+                          (activeAssignment.dueAt ? new Date(activeAssignment.dueAt).getTime() < Date.now() : false)
+                        )) ? (
                           <button
                             type="button"
                             disabled
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-bold cursor-not-allowed opacity-80"
                           >
                             <Lock size={13} />
-                            <span>Hết lượt làm</span>
+                            <span>{activeAssignment.type === "ESSAY" ? "Đã đóng nộp bài" : "Hết lượt làm"}</span>
                           </button>
                         ) : (
                           <button
                             type="button"
-                            onClick={() =>
-                              setActiveExamForTaking({
-                                id: activeAssignment.id,
-                                title: activeAssignment.title,
-                                durationMinutes: activeAssignment.durationMinutes,
-                                totalQuestions: activeAssignment.totalQuestions || 10,
-                                remainingAttempts: activeAssignment.remainingAttempts,
-                              })
-                            }
+                            onClick={() => openAssignment(activeAssignment)}
                             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                           >
                             <Play size={13} />
-                            <span>Làm bài</span>
+                            <span>{activeAssignment.type === "ESSAY" ? (activeAssignment.completedAttempts ? "Sửa bài nộp" : "Nộp bài") : "Làm bài"}</span>
                           </button>
                         )}
                       </div>
@@ -2302,52 +1644,16 @@ export function LearnerClassWorkspace({
                       <span className="truncate">Tất cả bài giảng</span>
                     </button>
 
-                    {lectureFolders.map((folderName) => {
-                      const isExpanded = lectureFolderExpanded[folderName] ?? true;
-                      const isSelected = selectedLectureFolder === folderName;
-                      return (
-                        <div key={folderName} className="space-y-0.5">
-                          <div
-                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                              isSelected
-                                ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                            onClick={() => setSelectedLectureFolder(folderName)}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setLectureFolderExpanded((prev) => ({
-                                    ...prev,
-                                    [folderName]: !isExpanded,
-                                  }));
-                                }}
-                                className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                              >
-                                <ChevronRight
-                                  size={13}
-                                  className={`transition-transform duration-150 ${
-                                    isExpanded ? "rotate-90" : ""
-                                  }`}
-                                />
-                              </button>
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-blue-600 fill-blue-500/20"
-                                    : "text-slate-500"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {lectureFolders.map((folderName) => (
+                      <ClassFolderEntry
+                        key={folderName}
+                        name={folderName}
+                        expanded={lectureFolderExpanded[folderName] ?? true}
+                        selected={selectedLectureFolder === folderName}
+                        onSelect={() => setSelectedLectureFolder(folderName)}
+                        onToggle={() => setLectureFolderExpanded((prev) => ({ ...prev, [folderName]: !(lectureFolderExpanded[folderName] ?? true) }))}
+                      />
+                    ))}
                   </div>
                 </div>
 
@@ -2371,7 +1677,7 @@ export function LearnerClassWorkspace({
                     <div className="relative">
                       <select
                         value={lectureSort}
-                        onChange={(e) => setLectureSort(e.target.value as any)}
+                        onChange={(e) => setLectureSort(e.target.value as "alpha" | "newest" | "type")}
                         className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                       >
                         <option value="newest">Mới nhất</option>
@@ -2418,23 +1724,22 @@ export function LearnerClassWorkspace({
                                 <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
                                   {lec.title}
                                 </strong>
-                                <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-purple-500 rounded-full"
-                                    style={{ width: `${lec.progressPercent || 0}%` }}
-                                  />
-                                </div>
+                                {lec.progressPercent !== undefined && (
+                                  <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${lec.progressPercent}%` }} />
+                                  </div>
+                                )}
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {lec.duration} · GV: {lec.teacher}
+                                  {lec.duration ? `${lec.duration} · ` : ""}GV: {lec.teacher}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="shrink-0 text-right">
-                              <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
-                                {lec.progressPercent ?? 0}% đã xem
-                              </span>
-                            </div>
+                            {lec.progressPercent !== undefined && (
+                              <div className="shrink-0 text-right">
+                                <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">{lec.progressPercent}% đã xem</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -2473,7 +1778,7 @@ export function LearnerClassWorkspace({
                           <span>Ngày đăng</span>
                         </span>
                         <span className="font-semibold text-slate-900 dark:text-slate-100">
-                          {activeLectureItem.uploadedAt}
+                          {new Date(activeLectureItem.uploadedAt).toLocaleDateString("vi-VN")}
                         </span>
                       </div>
 
@@ -2544,52 +1849,16 @@ export function LearnerClassWorkspace({
                       <span className="truncate">Tất cả tài liệu</span>
                     </button>
 
-                    {materialFolders.map((folderName) => {
-                      const isExpanded = materialFolderExpanded[folderName] ?? true;
-                      const isSelected = selectedMaterialFolder === folderName;
-                      return (
-                        <div key={folderName} className="space-y-0.5">
-                          <div
-                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                              isSelected
-                                ? "text-blue-600 dark:text-blue-400 font-bold bg-blue-50/80 dark:bg-blue-950/50"
-                                : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                            }`}
-                            onClick={() => setSelectedMaterialFolder(folderName)}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMaterialFolderExpanded((prev) => ({
-                                    ...prev,
-                                    [folderName]: !isExpanded,
-                                  }));
-                                }}
-                                className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                              >
-                                <ChevronRight
-                                  size={13}
-                                  className={`transition-transform duration-150 ${
-                                    isExpanded ? "rotate-90" : ""
-                                  }`}
-                                />
-                              </button>
-                              <Folder
-                                size={15}
-                                className={
-                                  isSelected
-                                    ? "text-blue-600 fill-blue-500/20"
-                                    : "text-slate-500"
-                                }
-                              />
-                              <span className="truncate">{folderName}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {materialFolders.map((folderName) => (
+                      <ClassFolderEntry
+                        key={folderName}
+                        name={folderName}
+                        expanded={materialFolderExpanded[folderName] ?? true}
+                        selected={selectedMaterialFolder === folderName}
+                        onSelect={() => setSelectedMaterialFolder(folderName)}
+                        onToggle={() => setMaterialFolderExpanded((prev) => ({ ...prev, [folderName]: !(materialFolderExpanded[folderName] ?? true) }))}
+                      />
+                    ))}
                   </div>
                 </div>
 
@@ -2613,7 +1882,7 @@ export function LearnerClassWorkspace({
                     <div className="relative">
                       <select
                         value={materialSort}
-                        onChange={(e) => setMaterialSort(e.target.value as any)}
+                        onChange={(e) => setMaterialSort(e.target.value as "alpha" | "newest" | "type")}
                         className="appearance-none py-1.5 pl-3 pr-7 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                       >
                         <option value="alpha">Tên A-Z</option>
@@ -2661,16 +1930,18 @@ export function LearnerClassWorkspace({
                                   {mat.title}
                                 </strong>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {mat.size} · {mat.pageCount || 10} trang · Tải lên {mat.uploadedAt}
+                                  {mat.size ? `${mat.size} · ` : ""}Tải lên {new Date(mat.uploadedAt).toLocaleDateString("vi-VN")}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="shrink-0 text-right">
-                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                                {mat.downloadsCount || 20} lượt tải
-                              </span>
-                            </div>
+                            {mat.downloadsCount !== undefined && (
+                              <div className="shrink-0 text-right">
+                                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                  {mat.downloadsCount} lượt tải
+                                </span>
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -2709,22 +1980,22 @@ export function LearnerClassWorkspace({
                             {activeMaterialItem.size}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                          <span>Số trang</span>
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeMaterialItem.pageCount || 15} trang
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                          <span>Lượt tải</span>
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeMaterialItem.downloadsCount || 35} lượt
-                          </span>
-                        </div>
+                        {activeMaterialItem.pageCount !== undefined && (
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Số trang</span>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">{activeMaterialItem.pageCount} trang</span>
+                          </div>
+                        )}
+                        {activeMaterialItem.downloadsCount !== undefined && (
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Lượt tải</span>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">{activeMaterialItem.downloadsCount} lượt</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Ngày tải lên</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {activeMaterialItem.uploadedAt}
+                            {new Date(activeMaterialItem.uploadedAt).toLocaleDateString("vi-VN")}
                           </span>
                         </div>
                       </div>
@@ -2749,16 +2020,7 @@ export function LearnerClassWorkspace({
                       <div className="border-t border-slate-200 dark:border-slate-800 pt-3 flex items-center justify-between gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            setActiveDocument({
-                              id: activeMaterialItem.id,
-                              title: activeMaterialItem.title,
-                              subject: course?.name || "Tài liệu lớp học",
-                              format: activeMaterialItem.fileType,
-                              size: activeMaterialItem.size,
-                              pagesCount: activeMaterialItem.pageCount || 15,
-                            })
-                          }
+                          onClick={() => previewClassMaterial(activeMaterialItem.id, activeMaterialItem.title)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer"
                         >
                           <Eye size={13} />
@@ -2767,7 +2029,7 @@ export function LearnerClassWorkspace({
 
                         <button
                           type="button"
-                          onClick={() => triggerFileDownload(`${activeMaterialItem.title}.${activeMaterialItem.fileType}`)}
+                          onClick={() => void downloadClassMaterial(activeMaterialItem.id)}
                           className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                         >
                           <Download size={13} />
@@ -2788,171 +2050,55 @@ export function LearnerClassWorkspace({
       </div>
 
 
-      {/* ================= MODAL LỊCH SỬ CHỈNH SỬA BÀI VIẾT ================= */}
-      {historyModalPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold text-sm">
-                <History size={16} className="text-blue-600" />
-                <span>Lịch sử chỉnh sửa</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setHistoryModalPost(null)}
-                className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 grid place-items-center"
-              >
-                <X size={15} />
-              </button>
-            </div>
+      {/* ================= MODAL LÀM BÀI KIỂM TRA (MODULE 5) ================= */}
+      {examTakingModal}
 
-            <div className="space-y-3 max-h-72 overflow-y-auto">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
-                  <span>Phiên bản hiện tại</span>
-                  <span className="text-emerald-600">Đang hiển thị</span>
+      {/* Bài tập tự luận dùng API submissions riêng, không dùng lượt làm bài thi. */}
+      {activeEssayAssignment && (() => {
+        const editable = activeEssayAssignment.status === "PUBLISHED" &&
+          activeEssayAssignment.submission?.status !== "GRADED" &&
+          new Date(activeEssayAssignment.dueAt).getTime() >= Date.now();
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="presentation">
+            <section role="dialog" aria-modal="true" aria-labelledby="essay-submission-title" className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 id="essay-submission-title" className="text-xl font-bold text-slate-900 dark:text-white break-words">{activeEssayAssignment.title}</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hạn nộp: {new Date(activeEssayAssignment.dueAt).toLocaleString("vi-VN")}</p>
                 </div>
-                <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
-                  {historyModalPost.content}
-                </p>
+                <button type="button" aria-label="Đóng bài tập" disabled={essaySubmitting} onClick={() => setActiveEssayAssignment(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-50 dark:hover:bg-slate-800"><X size={20} /></button>
               </div>
-
-              {(postEditHistories[historyModalPost.id] || []).map((hist, i) => (
-                <div key={i} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>Phiên bản cũ</span>
-                    <span>{hist.editedAt}</span>
+              {activeEssayAssignment.description && <p className="mb-3 whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.description}</p>}
+              {activeEssayAssignment.instructions && <div className="mb-5 rounded-xl bg-slate-50 p-4 dark:bg-slate-800"><h3 className="mb-1 font-semibold text-slate-900 dark:text-white">Hướng dẫn</h3><p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.instructions}</p></div>}
+              <form onSubmit={(event) => void submitEssayAssignment(event)} className="space-y-4">
+                <div>
+                  <label htmlFor="essay-submission-content" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Nội dung bài làm</label>
+                  <textarea id="essay-submission-content" value={essayContent} onChange={(event) => setEssayContent(event.target.value)} disabled={!editable || essaySubmitting} rows={8} className="w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Nhập nội dung bài làm của bạn…" />
+                </div>
+                {Boolean(activeEssayAssignment.submission?.attachments.length) && (
+                  <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                    <p className="font-semibold">Tệp đã nộp</p>
+                    {activeEssayAssignment.submission?.attachments.map((file) => <p className="break-all" key={file.id}>{file.originalName}</p>)}
                   </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {hist.content}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setHistoryModalPost(null)}
-              className="w-full py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200"
-            >
-              Đóng
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ================= MODAL BÁO CÁO BÀI VIẾT ================= */}
-      {reportModalPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
-                <Flag size={16} />
-                <span>Báo cáo bài viết</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalPost(null)}
-                className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 grid place-items-center"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {reportSuccess ? (
-              <div className="py-6 text-center space-y-2">
-                <CheckCircle2 size={36} className="mx-auto text-emerald-500 animate-bounce" />
-                <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                  Cảm ơn bạn đã phản hồi!
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Đội ngũ quản trị sẽ xem xét bài viết này sớm nhất.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitReport} className="space-y-3">
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Vui lòng cho biết lý do bạn báo cáo bài viết của <strong>{reportModalPost.authorName}</strong>:
-                </p>
-
-                <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-                  {["Spam, quảng cáo không liên quan", "Nội dung phản cảm, vi phạm nội quy", "Thông tin sai lệch", "Lý do khác"].map((reason) => (
-                    <label key={reason} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="reportReason"
-                        checked={reportReason === reason}
-                        onChange={() => setReportReason(reason)}
-                        className="text-rose-600 focus:ring-rose-500"
-                      />
-                      <span>{reason}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setReportModalPost(null)}
-                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={!reportReason}
-                    className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40"
-                  >
-                    Gửi báo cáo
-                  </button>
+                )}
+                {editable && (
+                  <div>
+                    <label htmlFor="essay-submission-files" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Tệp đính kèm (tối đa 5 tệp, 20 MB/tệp)</label>
+                    <input id="essay-submission-files" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt" disabled={essaySubmitting} onChange={(event) => { chooseEssayFiles(event.target.files); event.target.value = ""; }} className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:font-semibold file:text-sky-800 dark:text-slate-300" />
+                    {essayFiles.map((file, index) => <div key={`${file.name}-${index}`} className="mt-2 flex items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300"><span className="min-w-0 truncate">{file.name}</span><button type="button" disabled={essaySubmitting} onClick={() => setEssayFiles((current) => current.filter((_, position) => position !== index))} className="shrink-0 text-rose-600 hover:underline">Bỏ tệp</button></div>)}
+                  </div>
+                )}
+                {!editable && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Bài tập đã đóng hoặc đã chấm điểm. Bạn chỉ có thể xem lại nội dung.</p>}
+                {essayError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{essayError}</p>}
+                <div className="flex flex-wrap justify-end gap-3 pt-2">
+                  <button type="button" disabled={essaySubmitting} onClick={() => setActiveEssayAssignment(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Đóng</button>
+                  {editable && <button type="submit" disabled={essaySubmitting} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-wait disabled:opacity-60">{essaySubmitting ? "Đang lưu bài…" : activeEssayAssignment.submission ? "Lưu bài nộp" : "Nộp bài"}</button>}
                 </div>
               </form>
-            )}
+            </section>
           </div>
-        </div>
-      )}
-
-      {/* ================= MODAL LÀM BÀI KIỂM TRA (MODULE 5) ================= */}
-      {activeExamForTaking && (
-        <ExamTakingModal
-          open={Boolean(activeExamForTaking)}
-          onClose={() => {
-            setActiveExamForTaking(null);
-            void loadClassData();
-          }}
-          exam={activeExamForTaking}
-          onSubmitted={() => {
-            void loadClassData();
-          }}
-        />
-      )}
-
-      {/* ================= MODAL PHÒNG HỌC TRỰC TUYẾN / THÔNG BÁO ================= */}
-      {activeLiveRoom && (
-        <LiveRoomModal
-          open={Boolean(activeLiveRoom)}
-          onClose={() => setActiveLiveRoom(null)}
-          room={activeLiveRoom}
-        />
-      )}
-
-      {/* ================= MODAL XEM TRƯỚC TÀI LIỆU ================= */}
-      {activeDocument && (
-        <DocumentViewerModal
-          open={Boolean(activeDocument)}
-          onClose={() => setActiveDocument(null)}
-          document={activeDocument}
-        />
-      )}
-
-      {/* ================= MODAL XEM VIDEO BÀI GIẢNG ================= */}
-      {activeLecture && (
-        <LecturePlayerModal
-          open={Boolean(activeLecture)}
-          onClose={() => setActiveLecture(null)}
-          lecture={activeLecture}
-        />
-      )}
+        );
+      })()}
 
       {/* ================= MODAL XEM LẠI BÀI LÀM (KHI NỘP 1 LẦN HOẶC CHỌN TỪ LỊCH SỬ) ================= */}
       {selectedAttemptForReview && (
@@ -2980,50 +2126,7 @@ export function LearnerClassWorkspace({
       )}
 
       {/* THÔNG BÁO TOAST NỘI BỘ THAY THẾ TOÀN BỘ POPUP NATIVE */}
-      {toast && (
-        <aside
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-200"
-        >
-          <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 dark:bg-slate-800/95 text-white shadow-2xl border border-slate-700/80 backdrop-blur-md max-w-md">
-            <div
-              className={`size-8 rounded-xl flex items-center justify-center shrink-0 ${
-                toast.type === "warning"
-                  ? "bg-amber-500/20 text-amber-400"
-                  : toast.type === "success"
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : "bg-blue-500/20 text-blue-400"
-              }`}
-            >
-              {toast.type === "warning" ? <AlertCircle size={18} /> : <Info size={18} />}
-            </div>
-            <p className="text-xs font-semibold text-slate-100 leading-snug flex-1">
-              {toast.message}
-            </p>
-            {toast.actionLabel && toast.onAction && (
-              <button
-                type="button"
-                onClick={() => {
-                  toast.onAction?.();
-                  setToast(null);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shrink-0 transition-colors cursor-pointer shadow-xs"
-              >
-                {toast.actionLabel}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setToast(null)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-              aria-label="Đóng thông báo"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        </aside>
-      )}
+      {toastNotification}
     </div>
   );
 }
@@ -3069,12 +2172,12 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
               Kết quả chấm điểm
             </span>
             <span className="text-2xl font-black">
-              {attempt.score.toFixed(1)} / {attempt.maxScore || 10} điểm
+              {attempt.score !== undefined ? `${attempt.score.toFixed(1)} / ${attempt.maxScore} điểm` : "Đang chờ chấm điểm"}
             </span>
           </div>
           <div className="text-right text-xs opacity-90">
             <span>Thời gian nộp</span>
-            <span className="block font-semibold">{attempt.submittedAt}</span>
+            <span className="block font-semibold">{attempt.submittedAt || "Chưa ghi nhận"}</span>
           </div>
         </div>
 
@@ -3084,7 +2187,7 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
             Nhận xét của giáo viên
           </span>
           <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
-            {attempt.feedback || "Bài làm hoàn thành và đã được ghi nhận trên hệ thống."}
+            {attempt.feedback || "Chưa có nhận xét."}
           </p>
         </div>
 
@@ -3101,15 +2204,17 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
                   className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 text-xs space-y-1"
                 >
                   <div className="flex items-center justify-between font-semibold text-slate-900 dark:text-slate-100">
-                    <span>Câu {i + 1}: {ans.questionTitle || "Câu hỏi trắc nghiệm"}</span>
-                    <span className="text-[11px] text-blue-600 font-bold">
-                      {ans.awardedScore ?? 1}/{ans.maxScore ?? 1}đ
-                    </span>
+                    <span>Câu {i + 1}: {ans.questionTitle || "Chưa có nội dung câu hỏi"}</span>
+                    {ans.awardedScore !== undefined && ans.maxScore !== undefined && (
+                      <span className="text-[11px] text-blue-600 font-bold">
+                        {ans.awardedScore}/{ans.maxScore}đ
+                      </span>
+                    )}
                   </div>
                   <p className="text-slate-500 dark:text-slate-400 text-[11px]">
                     Đáp án đã nộp:{" "}
                     <span className="font-medium text-slate-700 dark:text-slate-200">
-                      {(ans.submittedAnswers || []).join(", ") || "A"}
+                      {(ans.submittedAnswers || []).join(", ") || "Chưa có dữ liệu"}
                     </span>
                   </p>
                 </div>

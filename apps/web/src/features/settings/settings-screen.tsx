@@ -22,6 +22,50 @@ import {
 import { SettingsSection, settingsSections } from "./settings.shared";
 import { useSettingsModel } from "./use-settings-model";
 
+/** Hiển thị lựa chọn chế độ phê duyệt dùng chung cho đề thi và câu hỏi. */
+function ApprovalModeCard({
+  title,
+  description,
+  selected,
+  disabled,
+  selectedLabel,
+  onSelect,
+}: {
+  title: string;
+  description: string;
+  selected: boolean;
+  disabled: boolean;
+  selectedLabel: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={selected}
+      className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
+      disabled={disabled}
+      onClick={onSelect}
+      type="button"
+    >
+      <span className="flex items-center justify-between gap-3">
+        <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
+          {title}
+        </span>
+        <span
+          className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
+        >
+          {selected ? <span className="size-2 rounded-full bg-white" /> : null}
+        </span>
+      </span>
+      <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
+        {description}
+      </span>
+      <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+        {selected ? "Đang áp dụng" : selectedLabel}
+      </span>
+    </button>
+  );
+}
+
 /** Lắp ghép màn hình cấu hình hệ thống từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function SettingsScreen() {
   const model = useSettingsModel();
@@ -275,33 +319,15 @@ export default function SettingsScreen() {
               ].map((option) => {
                 const selected = settings.examApprovalMode === option.mode;
                 return (
-                  <button
-                    aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
-                    disabled={saving}
+                  <ApprovalModeCard
                     key={option.mode}
-                    onClick={() => void saveExamApprovalMode(option.mode)}
-                    type="button"
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
-                        {option.title}
-                      </span>
-                      <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
-                      >
-                        {selected ? (
-                          <span className="size-2 rounded-full bg-white" />
-                        ) : null}
-                      </span>
-                    </span>
-                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-                      {option.description}
-                    </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
-                      {selected ? "Đang áp dụng" : "Chọn chế độ này"}
-                    </span>
-                  </button>
+                    title={option.title}
+                    description={option.description}
+                    selected={selected}
+                    disabled={saving}
+                    selectedLabel="Chọn chế độ này"
+                    onSelect={() => void saveExamApprovalMode(option.mode)}
+                  />
                 );
               })}
             </div>
@@ -333,33 +359,15 @@ export default function SettingsScreen() {
               ].map((option) => {
                 const selected = settings.questionApprovalMode === option.mode;
                 return (
-                  <button
-                    aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
-                    disabled={saving}
+                  <ApprovalModeCard
                     key={option.mode}
-                    onClick={() => void saveQuestionApprovalMode(option.mode)}
-                    type="button"
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
-                        {option.title}
-                      </span>
-                      <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
-                      >
-                        {selected ? (
-                          <span className="size-2 rounded-full bg-white" />
-                        ) : null}
-                      </span>
-                    </span>
-                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-                      {option.description}
-                    </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
-                      {selected ? "Đang áp dụng" : "Chọn chế độ này"}
-                    </span>
-                  </button>
+                    title={option.title}
+                    description={option.description}
+                    selected={selected}
+                    disabled={saving}
+                    selectedLabel="Chọn chế độ này"
+                    onSelect={() => void saveQuestionApprovalMode(option.mode)}
+                  />
                 );
               })}
             </div>

@@ -29,14 +29,18 @@ export function UserPicker({ classId, disabled, label, onChange, role, value }: 
   useEffect(() => {
     if (!open || disabled) return;
     const controller = new AbortController();
+    let active = true;
     const timer = window.setTimeout(() => {
       setLoading(true);
       const params = new URLSearchParams({ role, q: query, ...(classId ? { classId } : {}) });
       apiRequest<DirectoryUser[]>(`/manager/directory/users?${params.toString()}`, { roleCode: session.roleCode, signal: controller.signal })
-        .then(setItems).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === "AbortError")) setItems([]); })
-        .finally(() => setLoading(false));
+        .then((users) => { if (active) setItems(users); })
+        .catch((error: unknown) => {
+          if (active && !(error instanceof DOMException && error.name === "AbortError")) setItems([]);
+        })
+        .finally(() => { if (active) setLoading(false); });
     }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
   }, [classId, disabled, open, query, role, session.roleCode]);
 
   /** Chốt người dùng, đóng danh sách và báo userId về form cha. */

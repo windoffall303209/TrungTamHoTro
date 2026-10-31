@@ -3,7 +3,7 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { CheckCircle2, FileJson, LockKeyhole, RefreshCw, UserCheck } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -28,38 +28,48 @@ export default function AttendancePage() {
   const [resolving, setResolving] = useState<AttendanceAppeal | null>(null);
   const [appealForm, setAppealForm] = useState({ decision: "APPROVE" as AppealDecision, resolution: "", status: "PRESENT", attendedMinutes: 0 });
   const recordPagination = usePagination(review?.records ?? []);
+  const reviewRequestVersion = useRef(0);
 
   /** Nạp bản đối soát chi tiết của một buổi học cùng các sai lệch cần xử lý. */
-  const loadReview = useCallback(async (sessionId: string) => {
-    if (!sessionId) return;
+  const loadReview = useCallback(async (sessionId: string, signal?: AbortSignal) => {
+    const version = ++reviewRequestVersion.current;
+    if (!sessionId) { setReview(null); setLoading(false); return; }
     setLoading(true);
     try {
-      setReview(await apiRequest<AttendanceSessionReview>(`/manager/sessions/${sessionId}/attendance`, { roleCode: session.roleCode }));
+      const data = await apiRequest<AttendanceSessionReview>(`/manager/sessions/${sessionId}/attendance`, { roleCode: session.roleCode, signal });
+      if (!signal?.aborted && version === reviewRequestVersion.current) setReview(data);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được dữ liệu điểm danh.", "error");
+      if (!signal?.aborted && version === reviewRequestVersion.current) notify(error instanceof Error ? error.message : "Không tải được dữ liệu điểm danh.", "error");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted && version === reviewRequestVersion.current) setLoading(false);
     }
   }, [notify, session.roleCode]);
 
   /** Nạp danh sách buổi có quyền quản lý và giữ lựa chọn hiện tại nếu còn hợp lệ. */
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (signal: AbortSignal) => {
     if (!canManage) return;
     try {
-      const data = (await apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode })).filter((item) => item.status === "COMPLETED");
+      const data = (await apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode, signal })).filter((item) => item.status === "COMPLETED");
+      if (signal.aborted) return;
       setSessions(data);
-      const nextId = selectedId || data[0]?.id || "";
-      setSelectedId(nextId);
-      if (nextId) await loadReview(nextId);
+      setSelectedId((current) => current || data[0]?.id || "");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được danh sách buổi học.", "error");
+      if (!signal.aborted) notify(error instanceof Error ? error.message : "Không tải được danh sách buổi học.", "error");
     }
-  }, [canManage, loadReview, notify, selectedId, session.roleCode]);
+  }, [canManage, notify, session.roleCode]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadSessions(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadSessions(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [loadSessions]);
+
+  /** Chỉ giữ kết quả đối soát của buổi đang chọn và hủy các yêu cầu đã lỗi thời. */
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadReview(selectedId, controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); reviewRequestVersion.current += 1; };
+  }, [loadReview, selectedId]);
 
   /** Tổng hợp nhanh trạng thái điểm danh để trình bày KPI của buổi đang xem. */
   const statistics = useMemo(() => {
@@ -152,7 +162,7 @@ export default function AttendancePage() {
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <div className="grid items-end gap-4 md:grid-cols-[1fr_auto_auto]">
           <Field label="Buổi học đã kết thúc">
-            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setSelectedId(value); void loadReview(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString(activeLocale()) }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
+            <SearchableSelect aria-label="Tìm và chọn buổi học đã kết thúc" onChange={(value) => { setReview(null); setSelectedId(value); }} options={sessions.map((item) => ({ value: item.id, label: item.title, description: new Date(item.startsAt).toLocaleString(activeLocale()) }))} placeholder="Gõ tên buổi học để lọc…" value={selectedId} />
           </Field>
           <Button disabled={!selectedId} onClick={() => void loadReview(selectedId)} variant="secondary"><RefreshCw size={16} />Làm mới</Button>
           <Button disabled={!review || Boolean(review.session.attendanceLockedAt) || statistics.openAppeals > 0} onClick={() => void lockAttendance()} variant="danger"><LockKeyhole size={16} />Khóa điểm danh</Button>

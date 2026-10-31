@@ -1,24 +1,17 @@
 "use client";
 
 import {
-  AlertCircle,
   ArrowLeft,
   AtSign,
-  Check,
-  CheckCircle2,
-  ChevronDown,
   CornerDownRight,
   Eye,
   EyeOff,
-  FileText,
-  Filter,
   Flag,
   Heart,
   Lock,
   MessageCircle,
   MessageSquare,
   MessageSquareText,
-  MoreVertical,
   Paperclip,
   Pencil,
   Pin,
@@ -27,18 +20,15 @@ import {
   Send,
   Share2,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   Unlock,
-  User,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
-import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
   Field,
@@ -49,7 +39,8 @@ import {
   usePagination,
 } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
-import { MaterialSearchControls, useMaterialSearch } from "@/features/materials/material-search";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { useMaterialSearch } from "@/features/materials/material-search";
 import type {
   ContentReport,
   ForumPost,
@@ -60,69 +51,7 @@ import type {
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { hasPermission } from "@/lib/access-control";
-
-const AVATAR_PALETTES = [
-  "bg-sky-500 text-white",
-  "bg-indigo-500 text-white",
-  "bg-cyan-600 text-white",
-  "bg-emerald-500 text-white",
-  "bg-blue-600 text-white",
-  "bg-violet-500 text-white",
-  "bg-amber-500 text-white",
-];
-
-// Trả về màu nền avatar nhất quán theo mã người dùng.
-function getAvatarPalette(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  const index = Math.abs(hash) % AVATAR_PALETTES.length;
-  return AVATAR_PALETTES[index] ?? "bg-sky-500 text-white";
-}
-
-// Lấy 1-2 chữ cái viết tắt đại diện cho người dùng từ định danh.
-function getInitials(nameOrId: string): string {
-  if (!nameOrId) return "?";
-  const cleaned = nameOrId.trim();
-  const parts = cleaned.split(/[\s_-]+/);
-  if (parts.length >= 2 && parts[0] && parts[1]) {
-    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  }
-  return cleaned.slice(0, 2).toUpperCase();
-}
-
-// Định dạng thời gian tương đối dễ đọc giống mạng xã hội.
-function formatRelativeTime(dateString: string, isEn: boolean): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHours = Math.floor(diffMin / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSec < 60) return isEn ? "Just now" : "Vừa xong";
-  if (diffMin < 60) return isEn ? `${diffMin}m ago` : `${diffMin} phút trước`;
-  if (diffHours < 24) return isEn ? `${diffHours}h ago` : `${diffHours} giờ trước`;
-  if (diffDays < 7) return isEn ? `${diffDays}d ago` : `${diffDays} ngày trước`;
-  return date.toLocaleDateString(isEn ? "en-US" : "vi-VN", {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-  });
-}
-
-// Định dạng tên tác giả hiển thị thân thiện từ mã định danh.
-function formatAuthorName(authorId: string, currentUserId: string, currentUserName: string): string {
-  if (authorId === currentUserId) return `${currentUserName} (Bạn)`;
-  if (authorId.startsWith("usr-")) {
-    const raw = authorId.replace("usr-", "").replace(/[-_]/g, " ");
-    return raw.charAt(0).toUpperCase() + raw.slice(1);
-  }
-  return authorId;
-}
+import { filterForumTopics, formatAuthorName, formatRelativeTime, getAvatarPalette, getInitials } from "./forum-helpers";
 
 // Diễn đàn trao đổi dạng Feed mạng xã hội: danh sách tổng quan, bấm vào để xem chi tiết các bình luận.
 export default function ForumPage() {
@@ -143,6 +72,8 @@ export default function ForumPage() {
   const [reports, setReports] = useState<ContentReport[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
+  const postsRequestId = useRef(0);
+  const forumRequestId = useRef(0);
 
   // Bộ lọc và tìm kiếm Feed
   const [classFilter, setClassFilter] = useState<string>("");
@@ -154,15 +85,21 @@ export default function ForumPage() {
   const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(new Set());
 
   // Lưu trạng thái lượt thích bài viết cục bộ
-  const [likedTopicIds, setLikedTopicIds] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
+  const [likedTopicIds, setLikedTopicIds] = useState<Set<string>>(new Set());
+
+  // Khôi phục danh sách thích sau khi mount để tránh sai lệch HTML giữa server và trình duyệt.
+  useEffect(() => {
     try {
       const raw = localStorage.getItem("wind_edu_forum_likes");
-      return raw ? new Set(JSON.parse(raw)) : new Set();
-    } catch {
-      return new Set();
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+        setLikedTopicIds(new Set(parsed));
+      }
+    } catch (error) {
+      console.warn("Không thể khôi phục lượt thích diễn đàn đã lưu.", error);
     }
-  });
+  }, []);
 
   // Học liệu và phản hồi
   const materialSearch = useMaterialSearch(
@@ -197,7 +134,6 @@ export default function ForumPage() {
   const [appealTarget, setAppealTarget] = useState<ContentReport | null>(null);
   const [appealReason, setAppealReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [activeMenuTopicId, setActiveMenuTopicId] = useState<string | null>(null);
 
   // Form tạo bài viết / chủ đề mới
   const [form, setForm] = useState({
@@ -228,43 +164,64 @@ export default function ForumPage() {
       else next.add(topicId);
       try {
         localStorage.setItem("wind_edu_forum_likes", JSON.stringify(Array.from(next)));
-      } catch {}
+      } catch (error) {
+        console.warn("Không thể lưu lượt thích diễn đàn vào bộ nhớ trình duyệt.", error);
+      }
       return next;
     });
   };
 
   // Sao chép liên kết bài viết vào bộ nhớ tạm.
-  const copyShareLink = (topicId: string, event?: React.MouseEvent) => {
+  const copyShareLink = async (topicId: string, event?: React.MouseEvent) => {
     if (event) event.stopPropagation();
     if (typeof window !== "undefined") {
       const url = `${window.location.origin}/forum?topicId=${encodeURIComponent(topicId)}`;
-      void navigator.clipboard.writeText(url);
-      notify(t("Đã sao chép liên kết"));
+      try {
+        await copyTextToClipboard(url);
+        notify(t("Đã sao chép liên kết"));
+      } catch {
+        notify(t("Không thể sao chép liên kết."), "error");
+      }
     }
   };
 
   // Lọc bài viết theo lớp, từ khóa tìm kiếm và tab chuyên mục.
-  const filteredTopics = useMemo(() => {
-    return topics.filter((topic) => {
-      if (classFilter && topic.classId !== classFilter) return false;
-      if (topicTab === "pinned" && !topic.isPinned) return false;
-      if (topicTab === "mine" && topic.authorId !== session.user.id) return false;
-      if (topicSearch.trim()) {
-        const query = topicSearch.trim().toLowerCase();
-        const matchTitle = topic.title.toLowerCase().includes(query);
-        const matchBody = topic.body.toLowerCase().includes(query);
-        const matchTag = topic.tags.some((tag) => tag.toLowerCase().includes(query));
-        if (!matchTitle && !matchBody && !matchTag) return false;
-      }
-      return true;
-    });
-  }, [topics, classFilter, topicTab, topicSearch, session.user.id]);
+  const filteredTopics = useMemo(
+    () => filterForumTopics(topics, classFilter, topicTab, topicSearch, session.user.id),
+    [topics, classFilter, topicTab, topicSearch, session.user.id],
+  );
 
   const topicPagination = usePagination(filteredTopics, 10);
+
+  // Mở chi tiết một bài viết để đọc và bình luận.
+  const choose = useCallback(
+    async (topic: ForumTopic) => {
+      const requestId = ++postsRequestId.current;
+      setSelected(topic);
+      setPosts([]);
+      setAttachmentIds([]);
+      setMentionedUserIds([]);
+      setReplyTo(null);
+      setShowAttachDrawer(false);
+      setShowMentionDrawer(false);
+      try {
+        const topicPosts = await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
+          roleCode: session.roleCode,
+        });
+        if (requestId === postsRequestId.current) setPosts(topicPosts);
+      } catch (error) {
+        if (requestId === postsRequestId.current) {
+          notify(error instanceof Error ? error.message : "Không tải được thảo luận.", "error");
+        }
+      }
+    },
+    [notify, session.roleCode],
+  );
 
   // Nạp toàn bộ dữ liệu diễn đàn từ máy chủ.
   const load = useCallback(async () => {
     if (!allowed) return;
+    const requestId = ++forumRequestId.current;
     setLoading(true);
     try {
       const [topicData, classData, reportData] = await Promise.all([
@@ -276,6 +233,7 @@ export default function ForumPage() {
             ? apiRequest<ContentReport[]>("/learner/content-reports", { roleCode: session.roleCode })
             : Promise.resolve([]),
       ]);
+      if (requestId !== forumRequestId.current) return;
       setTopics(topicData);
       setClasses(classData);
       setReports(reportData);
@@ -292,41 +250,27 @@ export default function ForumPage() {
         if (found) void choose(found);
       }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được diễn đàn.", "error");
+      if (requestId === forumRequestId.current) {
+        notify(error instanceof Error ? error.message : "Không tải được diễn đàn.", "error");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === forumRequestId.current) setLoading(false);
     }
-  }, [allowed, learner, manager, notify, searchParams, session.roleCode]);
+  }, [allowed, choose, learner, manager, notify, searchParams, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  // Mở chi tiết một bài viết để đọc và bình luận.
-  const choose = useCallback(
-    async (topic: ForumTopic) => {
-      setSelected(topic);
-      setAttachmentIds([]);
-      setMentionedUserIds([]);
-      setReplyTo(null);
-      setShowAttachDrawer(false);
-      setShowMentionDrawer(false);
-      try {
-        setPosts(
-          await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
-            roleCode: session.roleCode,
-          }),
-        );
-      } catch (error) {
-        notify(error instanceof Error ? error.message : "Không tải được thảo luận.", "error");
-      }
-    },
-    [notify, session.roleCode],
-  );
+  useEffect(() => () => {
+    postsRequestId.current += 1;
+    forumRequestId.current += 1;
+  }, []);
 
   // Quay lại màn hình Feed tổng quan.
   const backToFeed = () => {
+    postsRequestId.current += 1;
     setSelected(null);
     setPosts([]);
     setReplyTo(null);

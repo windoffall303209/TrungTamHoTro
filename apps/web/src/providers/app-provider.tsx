@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { clearSessionDrafts } from "@/lib/session-drafts";
@@ -37,12 +37,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
+  const toastSequence = useRef(0);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+  }, []);
 
   /** Nhận phiên hợp lệ và áp tùy chọn ngôn ngữ đã lưu trong hồ sơ người dùng. */
   const adoptSession = useCallback((nextSession: SessionData) => {
     setAuthError("");
     setSession(nextSession);
-    const storedLocale = typeof window !== "undefined" ? window.localStorage.getItem(LOCALE_STORAGE_KEY) : null;
+    let storedLocale: string | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      } catch {
+        // Ưu tiên ngôn ngữ từ hồ sơ khi trình duyệt không cho đọc cấu hình cục bộ.
+      }
+    }
     if (isSupportedLocale(storedLocale)) {
       setLocale(storedLocale);
     } else if (isSupportedLocale(nextSession.user.locale)) {
@@ -95,9 +108,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
   /** Hiển thị toast có id để timer cũ không đóng nhầm thông báo mới. */
   const notify = useCallback((message: string, tone: ToastState["tone"] = "success") => {
-    const next = { id: Date.now(), message, tone };
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    const next = { id: ++toastSequence.current, message, tone };
     setToast(next);
-    window.setTimeout(() => setToast((current) => current?.id === next.id ? null : current), 3600);
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null;
+      setToast((current) => current?.id === next.id ? null : current);
+    }, 3600);
   }, []);
 
   const value = useMemo(() => ({ session, authenticated: Boolean(session.sessionId), authLoading, authError, login, completeMfa, logout, setRole, refreshSession, notify }), [authError, authLoading, completeMfa, login, logout, notify, refreshSession, session, setRole]);

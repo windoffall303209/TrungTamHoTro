@@ -367,7 +367,9 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: userId }, data: { avatarObjectKey: stored.objectKey, avatarMimeType: upload.mimeType, avatarUpdatedAt: new Date() } });
     } catch (error) {
-      await this.objectStorage.remove(stored.objectKey).catch(() => undefined);
+      await this.objectStorage.remove(stored.objectKey).catch((cleanupError: unknown) => {
+        this.logger.warn(`Không thể hoàn tác avatar tải lên khi cập nhật tài khoản thất bại: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      });
       throw error;
     }
     if (current.avatarObjectKey) await this.objectStorage.remove(current.avatarObjectKey).catch((error: unknown) => this.logger.warn(`Không xóa được avatar cũ: ${error instanceof Error ? error.message : String(error)}`));

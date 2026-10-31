@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 export interface SearchableSelectOption {
   value: string;
@@ -37,6 +37,11 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+  }, []);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const needle = normalize(query.trim());
@@ -64,7 +69,13 @@ export function SearchableSelect({
           aria-label={ariaLabel}
           className="min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 py-2 pl-9 pr-16 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 shadow-2xs"
           disabled={disabled}
-          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onBlur={() => {
+            if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+            blurTimer.current = setTimeout(() => {
+              blurTimer.current = null;
+              setOpen(false);
+            }, 120);
+          }}
           onChange={(event) => {
             if (value) onChange("");
             setQuery(event.target.value);
@@ -72,6 +83,8 @@ export function SearchableSelect({
             setActiveIndex(0);
           }}
           onFocus={() => {
+            if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+            blurTimer.current = null;
             setQuery("");
             setOpen(true);
             setActiveIndex(0);

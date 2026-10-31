@@ -3,13 +3,12 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { Archive, ArrowRight, BookOpen, Calendar, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, Tabs, usePagination } from "@/shared/ui/ui";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -45,6 +44,8 @@ export default function CoursesPage() {
   const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
   const [archiveTarget, setArchiveTarget] = useState<Course | null>(null);
   const [archiveReason, setArchiveReason] = useState("");
+  const loadRequestId = useRef(0);
+  const versionRequestId = useRef(0);
   
   // Bộ lọc chuẩn K-12: Khối -> Môn -> Lớp/Môn học
   const [gradeFilter, setGradeFilter] = useState<string>("");
@@ -52,7 +53,6 @@ export default function CoursesPage() {
   const [courseFilter, setCourseFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isLearner = session.roleCode === "LEARNER";
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "course:manage");
 
@@ -153,6 +153,7 @@ export default function CoursesPage() {
 
   /** Nạp môn học dành cho quản lý và các lớp mà vai trò hiện tại được phép truy cập. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!allowed) return;
     setLoading(true);
     try {
@@ -160,18 +161,25 @@ export default function CoursesPage() {
         manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setCourses(courseData);
       setClasses(classData);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
+      if (requestId === loadRequestId.current) {
+        notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [allowed, manager, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+      versionRequestId.current += 1;
+    };
   }, [load]);
 
   /** Tạo môn học mới hoặc tạo bản nháp phiên bản kế tiếp từ môn học đang sửa. */
@@ -281,11 +289,16 @@ export default function CoursesPage() {
 
   /** Nạp lịch sử phiên bản và mở bảng đối chiếu của khóa học. */
   const openVersions = async (course: Course) => {
+    const requestId = ++versionRequestId.current;
     try {
-      setVersions(await apiRequest<CourseVersionSnapshot[]>(`/manager/courses/${course.id}/versions`, { roleCode: session.roleCode }));
+      const snapshots = await apiRequest<CourseVersionSnapshot[]>(`/manager/courses/${course.id}/versions`, { roleCode: session.roleCode });
+      if (requestId !== versionRequestId.current) return;
+      setVersions(snapshots);
       setVersionTarget(course);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error");
+      if (requestId === versionRequestId.current) {
+        notify(error instanceof Error ? error.message : "Không tải được lịch sử phiên bản.", "error");
+      }
     }
   };
 
@@ -902,8 +915,8 @@ export default function CoursesPage() {
               type="text"
               className={inputClass}
               placeholder="1 dòng mô tả ngắn hoặc ghi chú về lớp học..."
-              value={(classForm as any).description || ""}
-              onChange={(e) => setClassForm({ ...classForm, description: e.target.value } as any)}
+              value={classForm.description}
+              onChange={(e) => setClassForm({ ...classForm, description: e.target.value })}
             />
           </Field>
 
@@ -911,7 +924,7 @@ export default function CoursesPage() {
         </form>
       </Modal>
 
-      <Modal open={Boolean(versionTarget)} onClose={() => setVersionTarget(null)} title={`Lịch sử ${versionTarget?.code ?? "môn học"}`} description="Mỗi phiên bản đã phát hành là snapshot bất biến; lớp học tiếp tục dùng đúng version đã chọn lúc mở.">
+      <Modal open={Boolean(versionTarget)} onClose={() => { versionRequestId.current += 1; setVersionTarget(null); }} title={`Lịch sử ${versionTarget?.code ?? "môn học"}`} description="Mỗi phiên bản đã phát hành là snapshot bất biến; lớp học tiếp tục dùng đúng version đã chọn lúc mở.">
         <div className="space-y-3">
           {versions.length ? versions.map((version) => (
             <article className="rounded-xl border border-slate-200 p-4" key={version.id}>
@@ -924,6 +937,30 @@ export default function CoursesPage() {
             </article>
           )) : <p className="text-sm text-slate-500">Môn học chưa có phiên bản phát hành.</p>}
         </div>
+      </Modal>
+      <Modal
+        open={Boolean(archiveTarget)}
+        onClose={() => { if (!saving) { setArchiveTarget(null); setArchiveReason(""); } }}
+        title={`Ngừng sử dụng ${archiveTarget?.code ?? "môn học"}`}
+        description="Khóa học sẽ không thể mở lớp mới; lớp hiện có và snapshot phiên bản vẫn được giữ nguyên."
+      >
+        <form className="space-y-4" onSubmit={(event) => void archiveCourse(event)}>
+          <Field label="Lý do ngừng sử dụng">
+            <textarea
+              className={inputClass}
+              maxLength={500}
+              minLength={5}
+              onChange={(event) => setArchiveReason(event.target.value)}
+              required
+              rows={3}
+              value={archiveReason}
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button disabled={saving} onClick={() => { setArchiveTarget(null); setArchiveReason(""); }} variant="ghost">Hủy</Button>
+            <Button disabled={archiveReason.trim().length < 5} loading={saving} type="submit" variant="danger">Xác nhận ngừng dùng</Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

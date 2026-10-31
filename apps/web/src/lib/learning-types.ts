@@ -1,5 +1,5 @@
 /** Các view model đào tạo mà trang web nhận từ API, tách khỏi cấu trúc lưu trữ nội bộ. */
-export type PublishStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+type PublishStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 
 export interface Course {
   id: string;
@@ -69,12 +69,12 @@ export interface ClassClosureReadiness {
   openAppeals: number;
 }
 export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
-export interface ClassInstructorAssignment {
+interface ClassInstructorAssignment {
   instructorId: string;
   role: InstructorRole;
   assignedAt: string;
 }
-export interface ClassMemberHistory {
+interface ClassMemberHistory {
   id: string;
   memberId: string;
   memberType: "INSTRUCTOR" | "LEARNER";
@@ -88,12 +88,12 @@ export interface ClassMemberHistory {
 export interface ClassRoster {
   classId: string;
   instructors: Array<
-    ClassInstructorAssignment & { displayName?: string; email?: string }
+    ClassInstructorAssignment & { displayName?: string; email?: string | null }
   >;
   enrollments: Array<{
     learnerId: string;
     displayName?: string;
-    email?: string;
+    email?: string | null;
     status: "ACTIVE" | "CANCELLED";
     source: string;
     joinedAt: string;
@@ -110,16 +110,16 @@ export interface EnrollmentImportResult {
 export interface DirectoryUser {
   id: string;
   displayName: string;
-  email: string;
+  email: string | null;
   roleCode: "INSTRUCTOR" | "LEARNER";
 }
-export interface RubricCriterion {
+interface RubricCriterion {
   id: string;
   title: string;
   description: string;
   maxPoints: number;
 }
-export interface AssignmentAttachment {
+interface AssignmentAttachment {
   id: string;
   originalName: string;
   mimeType: string;
@@ -127,7 +127,7 @@ export interface AssignmentAttachment {
   createdAt: string;
   canPreview: boolean;
 }
-export interface AssignmentGradeChange {
+interface AssignmentGradeChange {
   id: string;
   action: "GRADED" | "CORRECTED";
   submissionRevision: number;
@@ -255,16 +255,6 @@ export interface Material {
   createdAt: string;
 }
 
-/** HIDE và REQUEST_CHANGES chỉ còn trong lịch sử kiểm duyệt cũ. */
-export interface MaterialReview {
-  id: string;
-  materialId: string;
-  reviewerId: string;
-  action: "APPROVE" | "REVOKE" | "HIDE" | "REQUEST_CHANGES";
-  reason?: string;
-  createdAt: string;
-}
-
 export interface Question {
   id: string;
   courseId: string;
@@ -289,19 +279,6 @@ export interface Question {
   imageSizeBytes?: number;
   /** Chỉ có ở bản xem đề của giảng viên: lỗi cần sửa trước khi gửi duyệt. */
   issues?: string[];
-}
-export interface MaterialVersionSnapshot {
-  id: string;
-  materialId: string;
-  version: number;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  folder: string;
-  tags: string[];
-  visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
-  createdBy: string;
-  createdAt: string;
 }
 export interface QuestionImportResult {
   row: number;
@@ -484,7 +461,7 @@ export interface LearningNotification {
   readAt?: string;
   createdAt: string;
 }
-export interface ModerationActionRecord {
+interface ModerationActionRecord {
   id: string;
   reportId: string;
   actorId: string;
@@ -527,7 +504,7 @@ export interface ModerationContext {
     Pick<ForumPost, "id" | "authorId" | "body" | "createdAt">
   >;
 }
-export interface RiskThresholds {
+interface RiskThresholds {
   attendanceBelow: number;
   scoreBelow: number;
   completionBelow: number;
@@ -555,7 +532,7 @@ export interface ProgressIntervention {
   }>;
   createdAt: string;
 }
-export interface LearnerProgress {
+interface LearnerProgress {
   learnerId: string;
   materialCompletionRate: number;
   assessmentCompletionRate: number;
@@ -637,7 +614,7 @@ export interface LiveSession {
   recordingExpiresAt?: string;
   recordingError?: string;
 }
-export interface AttendanceRecord {
+interface AttendanceRecord {
   sessionId: string;
   learnerId: string;
   joinedAt?: string;
@@ -662,7 +639,7 @@ export interface AttendanceSessionReview {
   records: AttendanceRecord[];
   appeals: AttendanceAppeal[];
 }
-export interface SupportAttachment {
+interface SupportAttachment {
   id: string;
   ticketId: string;
   name: string;

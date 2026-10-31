@@ -3,7 +3,7 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { CheckCircle2, Download, Filter, Plus, ShieldAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -43,11 +43,16 @@ export default function ReportsPage() {
   const [transferReason, setTransferReason] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const overviewRequestId = useRef(0);
+  const progressRequestId = useRef(0);
+  const interventionsRequestId = useRef(0);
+  const analyticsRequestId = useRef(0);
 
   const query = useMemo(() => new URLSearchParams({ from: new Date(`${filters.from}T00:00:00+07:00`).toISOString(), to: new Date(`${filters.to}T23:59:59+07:00`).toISOString() }).toString(), [filters.from, filters.to]);
 
   /** Nạp các chỉ số tổng quan theo bộ lọc ngày và ngưỡng cảnh báo hiện tại. */
   const loadOverview = useCallback(async () => {
+    const requestId = ++overviewRequestId.current;
     if (!allowed) return;
     setLoading(true);
     try {
@@ -56,19 +61,21 @@ export default function ReportsPage() {
         apiRequest<ClassReport[]>("/reports/classes", { roleCode: session.roleCode }),
         manager ? apiRequest<ReportExport[]>("/manager/reports/exports", { roleCode: session.roleCode }) : Promise.resolve([]),
       ]);
+      if (requestId !== overviewRequestId.current) return;
       setReport(overview);
       setClassReports(classes);
       setExports(exportRows);
       setSelectedClassId((current) => current || classes[0]?.classId || "");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được báo cáo.", "error");
+      if (requestId === overviewRequestId.current) notify(error instanceof Error ? error.message : "Không tải được báo cáo.", "error");
     } finally {
-      setLoading(false);
+      if (requestId === overviewRequestId.current) setLoading(false);
     }
   }, [allowed, manager, notify, query, session.roleCode]);
 
   /** Nạp tiến độ học tập chi tiết để tìm các trường hợp cần hỗ trợ. */
   const loadProgress = useCallback(async () => {
+    const requestId = ++progressRequestId.current;
     if (!manager || !selectedClassId) return;
     try {
       const params = new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(query)), attendanceBelow: String(filters.attendanceBelow), scoreBelow: String(filters.scoreBelow), completionBelow: String(filters.completionBelow) });
@@ -76,30 +83,59 @@ export default function ReportsPage() {
         apiRequest<ClassProgressReport>(`/manager/classes/${selectedClassId}/progress?${params}`, { roleCode: session.roleCode }),
         apiRequest<ClassRoster>(`/manager/classes/${selectedClassId}/roster`, { roleCode: session.roleCode }),
       ]);
+      if (requestId !== progressRequestId.current) return;
       setProgress(progressResult);
       setRoster(rosterResult);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được tiến độ lớp.", "error");
+      if (requestId === progressRequestId.current) notify(error instanceof Error ? error.message : "Không tải được tiến độ lớp.", "error");
     }
   }, [filters.attendanceBelow, filters.completionBelow, filters.scoreBelow, manager, notify, query, selectedClassId, session.roleCode]);
 
   /** Nạp hàng đợi hỗ trợ riêng để giảng viên nhận và trả kết quả công việc được giao. */
   const loadMyInterventions = useCallback(async () => {
+    const requestId = ++interventionsRequestId.current;
     if (!instructor) return;
-    try { setMyInterventions(await apiRequest<ProgressIntervention[]>("/progress/interventions/mine", { roleCode: session.roleCode })); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không tải được công việc hỗ trợ.", "error"); }
+    try {
+      const rows = await apiRequest<ProgressIntervention[]>("/progress/interventions/mine", { roleCode: session.roleCode });
+      if (requestId === interventionsRequestId.current) setMyInterventions(rows);
+    } catch (error) {
+      if (requestId === interventionsRequestId.current) notify(error instanceof Error ? error.message : "Không tải được công việc hỗ trợ.", "error");
+    }
   }, [instructor, notify, session.roleCode]);
   /** Nạp thống kê đề thi và phân phối kết quả trong phạm vi báo cáo. */
   const loadExamAnalytics = useCallback(async () => {
+    const requestId = ++analyticsRequestId.current;
     if (!instructor) return;
-    try { const params = new URLSearchParams(query); if (selectedClassId) params.set("classId", selectedClassId); setExamAnalytics(await apiRequest<ExamAnalytics>(`/instructor/analytics/exams?${params}`, { roleCode: session.roleCode })); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không tải được phân tích đánh giá.", "error"); }
+    try {
+      const params = new URLSearchParams(query);
+      if (selectedClassId) params.set("classId", selectedClassId);
+      const result = await apiRequest<ExamAnalytics>(`/instructor/analytics/exams?${params}`, { roleCode: session.roleCode });
+      if (requestId === analyticsRequestId.current) setExamAnalytics(result);
+    } catch (error) {
+      if (requestId === analyticsRequestId.current) notify(error instanceof Error ? error.message : "Không tải được phân tích đánh giá.", "error");
+    }
   }, [instructor, notify, query, selectedClassId, session.roleCode]);
 
-  useEffect(() => { const timer = window.setTimeout(() => void loadOverview(), 0); return () => window.clearTimeout(timer); }, [loadOverview]);
-  useEffect(() => { const timer = window.setTimeout(() => void loadProgress(), 0); return () => window.clearTimeout(timer); }, [loadProgress]);
-  useEffect(() => { const timer = window.setTimeout(() => void loadExamAnalytics(), 0); return () => window.clearTimeout(timer); }, [loadExamAnalytics]);
-  useEffect(() => { const timer = window.setTimeout(() => void loadMyInterventions(), 0); return () => window.clearTimeout(timer); }, [loadMyInterventions]);
+  useEffect(() => {
+    const sequence = overviewRequestId;
+    const timer = window.setTimeout(() => void loadOverview(), 0);
+    return () => { window.clearTimeout(timer); sequence.current++; };
+  }, [loadOverview]);
+  useEffect(() => {
+    const sequence = progressRequestId;
+    const timer = window.setTimeout(() => void loadProgress(), 0);
+    return () => { window.clearTimeout(timer); sequence.current++; };
+  }, [loadProgress]);
+  useEffect(() => {
+    const sequence = analyticsRequestId;
+    const timer = window.setTimeout(() => void loadExamAnalytics(), 0);
+    return () => { window.clearTimeout(timer); sequence.current++; };
+  }, [loadExamAnalytics]);
+  useEffect(() => {
+    const sequence = interventionsRequestId;
+    const timer = window.setTimeout(() => void loadMyInterventions(), 0);
+    return () => { window.clearTimeout(timer); sequence.current++; };
+  }, [loadMyInterventions]);
 
   const classPagination = usePagination(classReports);
   const examPagination = usePagination(examAnalytics?.exams ?? []);

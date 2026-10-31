@@ -39,7 +39,6 @@ export default function ClassDetailScreen() {
     instructors,
     primaryInstructor,
     learnerPagination,
-    historyPagination,
     assignInstructor,
     transferPrimary,
     enrollLearner,
@@ -95,7 +94,6 @@ export default function ClassDetailScreen() {
             instructors={instructors}
             primaryInstructor={primaryInstructor}
             learnerPagination={learnerPagination}
-            historyPagination={historyPagination}
             assignInstructor={assignInstructor}
             transferPrimary={transferPrimary}
             enrollLearner={enrollLearner}

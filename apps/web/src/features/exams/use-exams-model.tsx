@@ -85,6 +85,13 @@ export function useExamsModel() {
   const [attemptQuestions, setAttemptQuestions] = useState<Question[]>([]);
 
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null);
+  const answerQueue = useRef<Promise<void>>(Promise.resolve());
+  const answerVersions = useRef(new Map<string, number>());
+  const confirmedAnswers = useRef(new Map<string, string[]>());
+  const pendingAnswers = useRef(0);
+  const answerSaveFailed = useRef(false);
+  const submittingAttempt = useRef(false);
+  const currentAttemptId = useRef<string | null>(null);
 
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
 
@@ -138,6 +145,7 @@ export function useExamsModel() {
   const [savingQuestion, setSavingQuestion] = useState(false);
 
   const [previewLoading, setPreviewLoading] = useState(false);
+  const previewSequence = useRef(0);
 
   const [form, setForm] = useState(blank);
 
@@ -388,10 +396,13 @@ export function useExamsModel() {
       !classes.length
     )
       return;
-    const raw = sessionStorage.getItem("wind-scan-question-ids");
-    if (!raw) return;
     try {
-      const ids = JSON.parse(raw) as string[];
+      const raw = sessionStorage.getItem("wind-scan-question-ids");
+      if (!raw) return;
+      const ids: unknown = JSON.parse(raw);
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+        throw new Error("Danh sách câu hỏi quét không hợp lệ.");
+      }
       const selectedQuestions = questions.filter((question) =>
         ids.includes(question.id),
       );
@@ -410,8 +421,15 @@ export function useExamsModel() {
           "info",
         );
       }
+    } catch (error) {
+      console.warn("Không thể khôi phục câu hỏi vừa quét:", error);
+      notify("Không thể khôi phục danh sách câu hỏi vừa quét.", "error");
     } finally {
-      sessionStorage.removeItem("wind-scan-question-ids");
+      try {
+        sessionStorage.removeItem("wind-scan-question-ids");
+      } catch (error) {
+        console.warn("Không thể xóa danh sách câu hỏi quét đã lưu:", error);
+      }
     }
   }, [classes, notify, questions, searchParams]);
 
@@ -541,15 +559,15 @@ export function useExamsModel() {
   };
 
   /** Loại cache hết hạn trước khi phục hồi để thống nhất thời hạn với storage của tab. */
-  const restoreEditorDraft = (key: string) => {
+  const restoreEditorDraft = useCallback((key: string) => {
     const cached = editorDrafts.current.get(key);
     if (cached && Date.now() >= cached.savedAt && Date.now() - cached.savedAt < DRAFT_MAX_AGE) return cached;
     editorDrafts.current.delete(key);
     return readSessionDraft(key, isExamEditorDraft);
-  };
+  }, []);
 
   /** Mở hộp tạo đề ở chế độ thường hoặc AI và giữ provider đã chọn. */
-  const openCreate = (mode: "MANUAL" | "AI") => {
+  const openCreate = useCallback((mode: "MANUAL" | "AI") => {
     const key = `${session.user.id}:${session.roleCode}:${mode}`;
     const draft =
       restoreEditorDraft(key);
@@ -565,7 +583,15 @@ export function useExamsModel() {
     setCreateMode(mode);
     setQuestionQuery("");
     setOpen(true);
-  };
+  }, [aiConfig.model, aiConfig.providerId, restoreEditorDraft, session.roleCode, session.user.id]);
+
+  const openedFromLink = useRef(false);
+  /** Mở trình soạn đề hiện có khi chuyển đến từ Ngân hàng câu hỏi. */
+  useEffect(() => {
+    if (searchParams.get("create") !== "manual" || !instructor || openedFromLink.current) return;
+    openedFromLink.current = true;
+    openCreate("MANUAL");
+  }, [instructor, openCreate, searchParams]);
 
   /** Nạp toàn bộ cấu hình đề nháp vào biểu mẫu chỉnh sửa. */
   const openEdit = (item: LearnerExam) => {
@@ -626,7 +652,7 @@ export function useExamsModel() {
   const publish = async (item: Exam) => {
     setPublishing(true);
     try {
-      const updated = await apiRequest<Exam>(
+      await apiRequest<Exam>(
         `/instructor/exams/${item.id}/publish`,
         {
           method: "POST",
@@ -639,7 +665,7 @@ export function useExamsModel() {
       );
       notify("Đề thi đã được phát hành thành công và sẵn sàng cho học viên.");
       setConfirmExam(null);
-      setPreviewExam(null);
+      closePreview();
       await load();
     } catch (error) {
       notify(
@@ -695,17 +721,18 @@ export function useExamsModel() {
 
   /** Nạp bản xem đề theo thứ tự tác giả để giảng viên không bị ảnh hưởng bởi xáo trộn. */
   const preview = async (item: LearnerExam) => {
+    const sequence = ++previewSequence.current;
     setPreviewExam(item);
     setPreviewQuestions([]);
     setPreviewLoading(true);
     try {
-      setPreviewQuestions(
-        await apiRequest<Question[]>(
-          `${instructor ? "/instructor" : "/manager"}/exams/${item.id}/preview`,
-          { roleCode: session.roleCode },
-        ),
+      const questions = await apiRequest<Question[]>(
+        `${instructor ? "/instructor" : "/manager"}/exams/${item.id}/preview`,
+        { roleCode: session.roleCode },
       );
+      if (sequence === previewSequence.current) setPreviewQuestions(questions);
     } catch (error) {
+      if (sequence !== previewSequence.current) return;
       setPreviewExam(null);
       notify(
         error instanceof Error
@@ -714,8 +741,16 @@ export function useExamsModel() {
         "error",
       );
     } finally {
-      setPreviewLoading(false);
+      if (sequence === previewSequence.current) setPreviewLoading(false);
     }
+  };
+
+  /** Đóng bản xem trước và vô hiệu hóa phản hồi từ các lượt tải cũ. */
+  const closePreview = () => {
+    previewSequence.current += 1;
+    setPreviewExam(null);
+    setPreviewQuestions([]);
+    setPreviewLoading(false);
   };
 
   /** Gửi quyết định duyệt hoặc trả lại đề cùng ghi chú của người kiểm duyệt. */
@@ -766,6 +801,11 @@ export function useExamsModel() {
         new Date(data.startedAt).getTime() + item.durationMinutes * 60_000,
         new Date(item.closeAt).getTime(),
       );
+      currentAttemptId.current = data.id;
+      answerVersions.current.clear();
+      confirmedAnswers.current = new Map(Object.entries(data.answers));
+      answerSaveFailed.current = false;
+      setAutosaveStatus("IDLE");
       setAttempt(data);
       setActiveExam(item);
       setRemainingSeconds(
@@ -794,40 +834,75 @@ export function useExamsModel() {
 
   /** Lưu tức thời đáp án khách quan của một câu vào lượt thi đang hoạt động. */
   const answer = async (questionId: string, answers: string[]) => {
-    if (!attempt) return;
-    const previousAttempt = attempt;
-    setAttempt({
-      ...attempt,
-      answers: { ...attempt.answers, [questionId]: answers },
-    });
+    if (!attempt || submittingAttempt.current) return;
+    const attemptId = attempt.id;
+    const version = (answerVersions.current.get(questionId) ?? 0) + 1;
+    answerVersions.current.set(questionId, version);
+    setAttempt((current) => current?.id === attemptId ? {
+      ...current,
+      answers: { ...current.answers, [questionId]: answers },
+    } : current);
     /** Gói thao tác lưu để cơ chế retry có thể gọi lại cùng payload một cách nhất quán. */
     const request = () =>
-      apiRequest<ExamAttempt>(`/learner/exam-attempts/${attempt.id}/answers`, {
+      apiRequest<ExamAttempt>(`/learner/exam-attempts/${attemptId}/answers`, {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({ questionId, answers }),
       });
+    if (pendingAnswers.current === 0) answerSaveFailed.current = false;
+    pendingAnswers.current += 1;
     setAutosaveStatus("SAVING");
-    try {
-      let data: ExamAttempt;
+    /** Tuần tự hóa các lần lưu để phản hồi cũ không ghi đè đáp án mới. */
+    const save = async () => {
       try {
-        data = await request();
-      } catch {
-        await new Promise((resolve) => window.setTimeout(resolve, 500));
-        data = await request();
+        let data: ExamAttempt;
+        try {
+          data = await request();
+        } catch {
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+          data = await request();
+        }
+        if (currentAttemptId.current === attemptId) {
+          const savedAnswer = data.answers[questionId];
+          if (savedAnswer === undefined) confirmedAnswers.current.delete(questionId);
+          else confirmedAnswers.current.set(questionId, savedAnswer);
+        }
+        setAttempt((current) => {
+          if (current?.id !== attemptId || current.status !== "IN_PROGRESS") return current;
+          const mergedAnswers = { ...data.answers, ...current.answers };
+          if (answerVersions.current.get(questionId) === version) {
+            const savedAnswer = data.answers[questionId];
+            if (savedAnswer !== undefined) mergedAnswers[questionId] = savedAnswer;
+            else delete mergedAnswers[questionId];
+          }
+          return { ...data, answers: mergedAnswers };
+        });
+      } catch (error) {
+        answerSaveFailed.current = true;
+        setAttempt((current) => {
+          if (current?.id !== attemptId || answerVersions.current.get(questionId) !== version) return current;
+          const restoredAnswers = { ...current.answers };
+          const savedAnswer = confirmedAnswers.current.get(questionId);
+          if (savedAnswer === undefined) delete restoredAnswers[questionId];
+          else restoredAnswers[questionId] = savedAnswer;
+          return { ...current, answers: restoredAnswers };
+        });
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không lưu được câu trả lời sau hai lần thử.",
+          "error",
+        );
+      } finally {
+        pendingAnswers.current -= 1;
+        if (currentAttemptId.current === attemptId) {
+          setAutosaveStatus(pendingAnswers.current > 0 ? "SAVING" : answerSaveFailed.current ? "ERROR" : "SAVED");
+        }
       }
-      setAttempt(data);
-      setAutosaveStatus("SAVED");
-    } catch (error) {
-      setAttempt(previousAttempt);
-      setAutosaveStatus("ERROR");
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không lưu được câu trả lời sau hai lần thử.",
-        "error",
-      );
-    }
+    };
+    const task = answerQueue.current.then(save);
+    answerQueue.current = task;
+    await task;
   };
 
   /** Chuyển nội dung tự luận đang gõ thành mảng đáp án và dùng chung cơ chế lưu câu trả lời. */
@@ -839,13 +914,16 @@ export function useExamsModel() {
   /** Nộp lượt thi thủ công hoặc tự động khi hết giờ, có khóa chống gửi lặp. */
   const submit = useCallback(
     async (automatic = false) => {
-      if (!attempt || attempt.status !== "IN_PROGRESS") return;
+      if (!attempt || attempt.status !== "IN_PROGRESS" || submittingAttempt.current) return;
+      submittingAttempt.current = true;
       try {
+        // Đợi các lần autosave trước khi khóa bài và tính điểm ở server.
+        await answerQueue.current;
         const data = await apiRequest<ExamAttempt>(
           `/learner/exam-attempts/${attempt.id}/submit`,
           { method: "POST", roleCode: session.roleCode },
         );
-        setAttempt(data);
+        setAttempt((current) => current?.id === attempt.id ? data : current);
         setRemainingSeconds(0);
         notify(
           `${automatic ? "Hết giờ, hệ thống đã tự nộp bài" : "Đã nộp bài"}. Điểm hiện tại: ${data.score ?? 0}.`,
@@ -856,6 +934,8 @@ export function useExamsModel() {
           error instanceof Error ? error.message : "Không nộp được bài.",
           "error",
         );
+      } finally {
+        submittingAttempt.current = false;
       }
     },
     [attempt, load, notify, session.roleCode],
@@ -937,11 +1017,9 @@ export function useExamsModel() {
     loadError,
     reload: load,
     open,
-    setOpen,
     closeEditor,
     discardEditor,
     editingExam,
-    setEditingExam,
     createMode,
     setCreateMode,
     saving,
@@ -952,6 +1030,7 @@ export function useExamsModel() {
     setReturnNote,
     previewExam,
     setPreviewExam,
+    closePreview,
     previewQuestions,
     setPreviewQuestions,
     confirmExam,

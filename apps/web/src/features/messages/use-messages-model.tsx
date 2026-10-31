@@ -33,10 +33,8 @@ export function useMessagesModel() {
   const [directory, setDirectory] = useState<ChatDirectoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [activeActionMessageId, setActiveActionMessageId] = useState("");
 
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
     loadStoredDrafts(session.user.id),
@@ -73,8 +71,15 @@ export function useMessagesModel() {
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
+  const recordingRequestRef = useRef(0);
   const selectedIdRef = useRef(selectedId);
   const messageFilesRef = useRef(messageFiles);
+  const draftsRef = useRef(drafts);
+  const conversationsRequestRef = useRef(0);
+  const messagesRequestRef = useRef(0);
+  const searchRequestRef = useRef(0);
+  const directoryRequestRef = useRef(0);
+  const sendingRef = useRef(false);
 
   const selected = conversations.find((item) => item.id === selectedId);
   const draft = selectedId ? (drafts[selectedId] ?? "") : "";
@@ -121,9 +126,15 @@ export function useMessagesModel() {
       return;
     }
     const conversationId = selectedIdRef.current;
+    const requestId = ++recordingRequestRef.current;
+    let acquiredStream: MediaStream | null = null;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (conversationId !== selectedIdRef.current) {
+      acquiredStream = stream;
+      if (
+        requestId !== recordingRequestRef.current ||
+        conversationId !== selectedIdRef.current
+      ) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -138,15 +149,18 @@ export function useMessagesModel() {
       discardRecordingRef.current = false;
       mediaRecorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
+        if (mediaRecorderRef.current !== recorder) return;
         if (event.data.size) recordingChunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
+        if (mediaRecorderRef.current !== recorder) return;
         discardRecordingRef.current = true;
         releaseMicrophone();
         setRecording(false);
         notify("Không thể tiếp tục ghi âm. Hãy kiểm tra lại micro.", "error");
       };
       recorder.onstop = () => {
+        if (mediaRecorderRef.current !== recorder) return;
         const shouldDiscard =
           discardRecordingRef.current ||
           conversationId !== selectedIdRef.current;
@@ -168,6 +182,9 @@ export function useMessagesModel() {
       recorder.start(250);
       setRecording(true);
     } catch (error) {
+      if (recordingStreamRef.current !== acquiredStream)
+        acquiredStream?.getTracks().forEach((track) => track.stop());
+      if (requestId !== recordingRequestRef.current) return;
       releaseMicrophone();
       setRecording(false);
       notify(
@@ -181,10 +198,12 @@ export function useMessagesModel() {
 
   /** Nạp danh sách hội thoại 1-1 từ CSDL thật, loại bỏ hoàn toàn các hội thoại nhóm. */
   const loadConversations = useCallback(async () => {
+    const requestId = ++conversationsRequestRef.current;
     try {
       const rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
         roleCode: session.roleCode,
       });
+      if (requestId !== conversationsRequestRef.current) return;
       // Chỉ nhận các hội thoại 1-1 (DIRECT)
       const directOnly = rows.filter((item) => item.type === "DIRECT");
       setConversations(directOnly);
@@ -194,6 +213,7 @@ export function useMessagesModel() {
           : (directOnly[0]?.id ?? ""),
       );
     } catch (error) {
+      if (requestId !== conversationsRequestRef.current) return;
       notify(
         error instanceof Error
           ? error.message
@@ -206,31 +226,45 @@ export function useMessagesModel() {
   /** Nạp lịch sử tin nhắn từ CSDL cho một hội thoại và cập nhật mốc đã đọc. */
   const loadMessages = useCallback(
     async (conversationId: string, quiet = false) => {
+      const requestId = ++messagesRequestRef.current;
       try {
         const page = await apiRequest<ChatMessagePage>(
           `/chat/conversations/${conversationId}/messages?limit=80`,
           { roleCode: session.roleCode },
         );
-        setMessages(
-          page.items
-            .map(normalizeChatMessage)
-            .filter((item): item is ChatMessage => Boolean(item)),
-        );
+        // Tránh ghi lịch sử của hội thoại cũ khi người dùng đã chuyển hội thoại.
+        if (conversationId !== selectedIdRef.current || requestId !== messagesRequestRef.current) return;
+        const history = page.items
+          .map(normalizeChatMessage)
+          .filter((item): item is ChatMessage => Boolean(item));
+        setMessages((current) => {
+          const ids = new Set(history.map((item) => item.id));
+          // Giữ các tin SSE đã đến trong khi API đang tải lịch sử.
+          const live = current.filter((item) => item.conversationId === conversationId && !ids.has(item.id));
+          return [...history, ...live];
+        });
         await apiRequest(`/chat/conversations/${conversationId}/read`, {
           method: "PATCH",
           roleCode: session.roleCode,
         });
+        if (conversationId !== selectedIdRef.current || requestId !== messagesRequestRef.current) return;
         if (!quiet)
           window.requestAnimationFrame(() => {
-            const stored = window.sessionStorage.getItem(
-              `wind-chat-scroll:${session.user.id}:${conversationId}`,
-            );
+            if (conversationId !== selectedIdRef.current || requestId !== messagesRequestRef.current) return;
+            let stored: string | null = null;
+            try {
+              stored = window.sessionStorage.getItem(
+                `wind-chat-scroll:${session.user.id}:${conversationId}`,
+              );
+            } catch {
+              // Vẫn hiển thị tin mới nhất khi trình duyệt chặn lưu vị trí cuộn.
+            }
             if (stored && messagePaneRef.current)
               messagePaneRef.current.scrollTop = Number(stored);
             else bottomRef.current?.scrollIntoView({ block: "end" });
           });
       } catch (error) {
-        if (!quiet)
+        if (!quiet && conversationId === selectedIdRef.current && requestId === messagesRequestRef.current)
           notify(
             error instanceof Error ? error.message : "Không tải được tin nhắn.",
             "error",
@@ -254,9 +288,16 @@ export function useMessagesModel() {
     messageFilesRef.current = messageFiles;
   }, [messageFiles, selectedId]);
 
+  // Kết quả tìm kiếm chỉ thuộc hội thoại đã chọn tại thời điểm truy vấn.
+  useEffect(() => {
+    searchRequestRef.current += 1;
+    setSearchResults([]);
+  }, [selectedId]);
+
   // Hủy bản ghi âm nếu người dùng chuyển hội thoại
   useEffect(() => {
     return () => {
+      recordingRequestRef.current += 1;
       const recorder = mediaRecorderRef.current;
       if (recorder?.state === "recording") {
         discardRecordingRef.current = true;
@@ -318,6 +359,7 @@ export function useMessagesModel() {
   // Lắng nghe sự kiện Server-Sent Events (SSE) để nhận tin nhắn mới theo thời gian thực
   useEffect(() => {
     if (!selectedId) return;
+    let active = true;
     const initialTimer = window.setTimeout(() => {
       void loadMessages(selectedId);
     }, 0);
@@ -326,9 +368,10 @@ export function useMessagesModel() {
       { withCredentials: true },
     );
     events.onmessage = (event) => {
+      if (!active || selectedId !== selectedIdRef.current) return;
       try {
         const message = normalizeChatMessage(JSON.parse(event.data));
-        if (!message) return;
+        if (!message || message.conversationId !== selectedId) return;
         setMessages((current) =>
           current.some((item) => item.id === message.id)
             ? current
@@ -337,53 +380,67 @@ export function useMessagesModel() {
         void apiRequest(`/chat/conversations/${selectedId}/read`, {
           method: "PATCH",
           roleCode: session.roleCode,
+        }).catch((error: unknown) => {
+          if (active && selectedId === selectedIdRef.current)
+            notify(
+              error instanceof Error ? error.message : "Không đánh dấu được tin nhắn đã đọc.",
+              "error",
+            );
         });
         void loadConversations();
-        window.requestAnimationFrame(() =>
-          bottomRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "end",
-          }),
-        );
-      } catch {
-        // Tự động kết nối lại
+        window.requestAnimationFrame(() => {
+          if (active && selectedId === selectedIdRef.current)
+            bottomRef.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "end",
+            });
+        });
+      } catch (error) {
+        console.warn("Bỏ qua sự kiện tin nhắn không hợp lệ.", error);
       }
     };
     return () => {
+      active = false;
       window.clearTimeout(initialTimer);
       events.close();
     };
-  }, [loadConversations, loadMessages, selectedId, session.roleCode]);
+  }, [loadConversations, loadMessages, notify, selectedId, session.roleCode]);
 
-  /** Lưu bản nháp tin nhắn của từng hội thoại vào localStorage */
-  const updateDraft = (value: string) => {
-    if (!selectedId) return;
-    const next = { ...drafts, [selectedId]: value };
+  /** Cập nhật bản nháp theo id cố định để request cũ không ghi đè bản nháp mới. */
+  const saveDraft = (conversationId: string, value: string) => {
+    if (!conversationId) return;
+    const next = { ...draftsRef.current, [conversationId]: value };
+    draftsRef.current = next;
     setDrafts(next);
-    window.localStorage.setItem(
-      `wind-chat-drafts:${session.user.id}`,
-      JSON.stringify(next),
-    );
+    try {
+      window.localStorage.setItem(
+        `wind-chat-drafts:${session.user.id}`,
+        JSON.stringify(next),
+      );
+    } catch {
+      // Giữ bản nháp trong React state khi không thể ghi localStorage.
+    }
   };
+
+  /** Lưu nội dung đang nhập cho hội thoại hiện tại. */
+  const updateDraft = (value: string) => saveDraft(selectedId, value);
 
   /** Tìm kiếm người dùng thật từ CSDL để bắt đầu nhắn tin 1-1 */
   const searchDirectory = async (event: React.FormEvent) => {
     event.preventDefault();
-    setSearching(true);
+    const requestId = ++directoryRequestRef.current;
     try {
-      setDirectory(
-        await apiRequest<ChatDirectoryEntry[]>(
-          `/chat/directory?q=${encodeURIComponent(query)}`,
-          { roleCode: session.roleCode },
-        ),
+      const entries = await apiRequest<ChatDirectoryEntry[]>(
+        `/chat/directory?q=${encodeURIComponent(query)}`,
+        { roleCode: session.roleCode },
       );
+      if (requestId === directoryRequestRef.current) setDirectory(entries);
     } catch (error) {
+      if (requestId !== directoryRequestRef.current) return;
       notify(
         error instanceof Error ? error.message : "Không tìm được người dùng.",
         "error",
       );
-    } finally {
-      setSearching(false);
     }
   };
 
@@ -400,6 +457,7 @@ export function useMessagesModel() {
       );
       await loadConversations();
       setSelectedId(conversation.id);
+      directoryRequestRef.current += 1;
       setDirectory([]);
       setQuery("");
     } catch (error) {
@@ -416,7 +474,9 @@ export function useMessagesModel() {
     retry = failedMessage,
   ) => {
     event?.preventDefault();
-    if (!selectedId || selected?.readOnly) return;
+    if (!selectedId || selected?.readOnly || sendingRef.current) return;
+    const conversationId = selectedId;
+    const submittedDraft = draft;
     const payload = retry ?? {
       content: draft.trim(),
       clientMessageId: crypto.randomUUID(),
@@ -426,6 +486,7 @@ export function useMessagesModel() {
       contextId: pendingContext?.id,
     };
     if (!payload.content && !payload.files?.length) return;
+    sendingRef.current = true;
     setSending(true);
     setFailedMessage(null);
     try {
@@ -446,26 +507,31 @@ export function useMessagesModel() {
         if (payload.contextId) body.set("contextId", payload.contextId);
         payload.files?.forEach((file) => body.append("files", file));
       }
-      await apiRequest(`/chat/conversations/${selectedId}/messages`, {
+      await apiRequest(`/chat/conversations/${conversationId}/messages`, {
         method: "POST",
         roleCode: session.roleCode,
         body,
       });
 
-      updateDraft("");
-      setReplyTo(null);
-      messageFilesRef.current = [];
-      setMessageFiles([]);
-      setPendingContext(null);
-      await loadMessages(selectedId);
+      if (draftsRef.current[conversationId] === submittedDraft) saveDraft(conversationId, "");
+      if (conversationId === selectedIdRef.current) {
+        setReplyTo((current) => current?.id === replyTo?.id ? null : current);
+        if (messageFilesRef.current === messageFiles) {
+          messageFilesRef.current = [];
+          setMessageFiles([]);
+        }
+        setPendingContext((current) => current?.id === pendingContext?.id && current?.type === pendingContext?.type ? null : current);
+      }
+      await loadMessages(conversationId);
       await loadConversations();
     } catch (error) {
-      setFailedMessage(payload);
+      if (conversationId === selectedIdRef.current) setFailedMessage(payload);
       notify(
         error instanceof Error ? error.message : "Tin nhắn chưa gửi được.",
         "error",
       );
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -474,21 +540,25 @@ export function useMessagesModel() {
   const searchConversation = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedId || messageQuery.trim().length < 2) return;
+    const conversationId = selectedId;
+    const requestId = ++searchRequestRef.current;
     try {
       const rows = await apiRequest<ChatMessage[]>(
-        `/chat/conversations/${selectedId}/search?q=${encodeURIComponent(messageQuery)}`,
+        `/chat/conversations/${conversationId}/search?q=${encodeURIComponent(messageQuery)}`,
         { roleCode: session.roleCode },
       );
+      if (conversationId !== selectedIdRef.current || requestId !== searchRequestRef.current) return;
       setSearchResults(
         rows
           .map(normalizeChatMessage)
           .filter((item): item is ChatMessage => Boolean(item)),
       );
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tìm được tin nhắn.",
-        "error",
-      );
+      if (conversationId === selectedIdRef.current && requestId === searchRequestRef.current)
+        notify(
+          error instanceof Error ? error.message : "Không tìm được tin nhắn.",
+          "error",
+        );
     }
   };
 
@@ -596,14 +666,10 @@ export function useMessagesModel() {
     query,
     setQuery,
     loading,
-    searching,
     sending,
     recording,
-    activeActionMessageId,
-    setActiveActionMessageId,
     replyTo,
     setReplyTo,
-    failedMessage,
     messageFiles,
     setMessageFiles,
     messageQuery,
@@ -618,8 +684,6 @@ export function useMessagesModel() {
     setBlockOpen,
     blockReason,
     setBlockReason,
-    pendingContext,
-    setPendingContext,
     bottomRef,
     messagePaneRef,
     selected,

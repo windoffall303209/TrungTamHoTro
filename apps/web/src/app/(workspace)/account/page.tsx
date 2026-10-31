@@ -1,14 +1,11 @@
 "use client";
 
-import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import {
-  ArrowLeft,
   Camera,
-  CheckCircle2,
-  Copy,
   KeyRound,
   Laptop,
   MailCheck,
@@ -21,7 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { PageHeader } from "@/shared/ui/page-header";
-import { Button, Field, StatusBadge, inputClass } from "@/shared/ui/ui";
+import { Button, Field, inputClass } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
@@ -45,12 +42,6 @@ const emptyProfile: AccountProfile = {
   createdAt: "",
 };
 
-const authenticatorApps = [
-  { id: "google", name: "Google Authenticator", note: "Android và iOS" },
-  { id: "microsoft", name: "Microsoft Authenticator", note: "Android và iOS" },
-  { id: "1password", name: "1Password", note: "Máy tính và điện thoại" },
-  { id: "other", name: "Ứng dụng TOTP khác", note: "Authy, Bitwarden và ứng dụng tương thích" },
-] as const;
 
 /** Rút gọn user-agent thành tên trình duyệt, nền tảng và loại thiết bị dễ đọc. */
 function deviceName(userAgent: string): { label: string; mobile: boolean } {
@@ -84,12 +75,13 @@ function AccountContent() {
   const [activeTab, setActiveTab] = useState<"profile" | "security">(initialTab);
 
   const { notify, refreshSession } = useApp();
-  const { formatDateTime, locale, setLocale, t } = useI18n();
+  const { formatDateTime, locale, setLocale } = useI18n();
 
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const loadRequestId = useRef(0);
 
   // Avatar upload states
   const [avatarSaving, setAvatarSaving] = useState(false);
@@ -108,7 +100,6 @@ function AccountContent() {
   // 2FA / MFA states
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState("");
-  const [authenticatorApp, setAuthenticatorApp] = useState<(typeof authenticatorApps)[number]["id"]>("google");
   const [mfaCode, setMfaCode] = useState("");
   const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "code">("idle");
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
@@ -127,24 +118,28 @@ function AccountContent() {
 
   /** Nạp song song hồ sơ và phiên đăng nhập để đồng bộ toàn bộ màn hình bảo mật. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     try {
       const [profileData, sessionData] = await Promise.all([
         apiRequest<AccountProfile>("/account/profile"),
         apiRequest<AccountSession[]>("/account/sessions"),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setProfile(profileData);
       setSessions(sessionData);
       if (profileData.email) setPasswordEmail(profileData.email);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
+      if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [notify]);
 
   useEffect(() => {
-    window.queueMicrotask(() => void load());
+    let active = true;
+    window.queueMicrotask(() => { if (active) void load(); });
+    return () => { active = false; loadRequestId.current += 1; };
   }, [load]);
 
   useEffect(() => () => {
@@ -157,7 +152,7 @@ function AccountContent() {
     QRCode.toDataURL(mfaSetup.otpauthUri, {
       width: 232,
       margin: 1,
-      color: { dark: "var(--ink)", light: "var(--surface)" },
+      color: { dark: "#111827", light: "#ffffff" },
       errorCorrectionLevel: "M",
     })
       .then((value) => {
@@ -210,7 +205,6 @@ function AccountContent() {
   /** Chọn ảnh từ máy tính cá nhân để chuẩn bị đổi avatar */
   function selectAvatar(file: File | null) {
     if (!file) return;
-    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
     setAvatarFile(file);
     setAvatarPreview(URL.createObjectURL(file));
   }
@@ -228,7 +222,6 @@ function AccountContent() {
       });
       setProfile((prev) => ({ ...prev, avatarUrl: result.avatarUrl }));
       setAvatarFile(null);
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
       setAvatarPreview("");
       await refreshSession();
       notify("Đã cập nhật ảnh đại diện mới.", "success");
@@ -246,7 +239,6 @@ function AccountContent() {
       await apiRequest("/account/avatar", { method: "DELETE" });
       setProfile((prev) => ({ ...prev, avatarUrl: null }));
       setAvatarFile(null);
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
       setAvatarPreview("");
       await refreshSession();
       notify("Đã xóa ảnh đại diện.", "info");
@@ -782,6 +774,23 @@ function AccountContent() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {recoveryCodes.length > 0 && (
+              <div className="mt-5 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30" role="status">
+                <p className="text-sm font-bold text-amber-900 dark:text-amber-200">Lưu mã khôi phục ngay</p>
+                <p className="text-xs leading-5 text-amber-800 dark:text-amber-300">
+                  Mỗi mã chỉ dùng một lần để đăng nhập khi không có ứng dụng xác thực. Đây là lần duy nhất các mã được hiển thị; hãy lưu chúng ở nơi an toàn trước khi đóng.
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {recoveryCodes.map((code) => (
+                    <code className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-center text-sm font-semibold tracking-wider text-slate-900 dark:border-amber-900 dark:bg-slate-900 dark:text-slate-100" key={code}>
+                      {code}
+                    </code>
+                  ))}
+                </div>
+                <Button onClick={() => setRecoveryCodes([])} variant="secondary">Tôi đã lưu mã khôi phục</Button>
               </div>
             )}
 

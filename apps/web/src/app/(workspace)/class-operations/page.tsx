@@ -1,8 +1,7 @@
 "use client";
 
-import { Archive, History, Trash2, UserCheck, UserPlus, UsersRound } from "lucide-react";
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { History, Trash2, UserPlus, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -22,37 +21,47 @@ export default function ClassOperationsPage() {
   const [roster, setRoster] = useState<ClassRoster | null>(null);
   const [bulkLearners, setBulkLearners] = useState("");
   const [importResults, setImportResults] = useState<EnrollmentImportResult[]>([]);
+  const activeClassId = useRef("");
+  const rosterRequestVersion = useRef(0);
 
   /** Nạp danh sách lớp và khởi tạo lớp được chọn. */
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (!canManage) return;
     try {
-      const classData = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
+      const classData = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal });
+      if (signal?.aborted) return;
       setClasses(classData);
       setMember((current) => ({ ...current, classId: current.classId || classData[0]?.id || "" }));
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được dữ liệu điều hành.", "error");
+      if (!signal?.aborted) notify(error instanceof Error ? error.message : "Không tải được dữ liệu điều hành.", "error");
     }
   }, [canManage, notify, session.roleCode]);
 
   /** Nạp giảng viên và học viên của lớp để hiển thị, phân công hoặc gỡ thành viên. */
-  const loadRoster = useCallback(async (classId: string) => {
-    if (!classId || !canManage) return;
+  const loadRoster = useCallback(async (classId: string, signal?: AbortSignal) => {
+    if (!classId || !canManage || classId !== activeClassId.current) return;
+    const requestVersion = ++rosterRequestVersion.current;
     try {
-      setRoster(await apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, { roleCode: session.roleCode }));
+      const data = await apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, { roleCode: session.roleCode, signal });
+      if (requestVersion === rosterRequestVersion.current && !signal?.aborted && classId === activeClassId.current) setRoster(data);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
+      if (requestVersion === rosterRequestVersion.current && !signal?.aborted && classId === activeClassId.current) {
+        notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
+      }
     }
   }, [canManage, notify, session.roleCode]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadRoster(member.classId), 0);
-    return () => window.clearTimeout(timer);
+    activeClassId.current = member.classId;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadRoster(member.classId, controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); rosterRequestVersion.current += 1; };
   }, [loadRoster, member.classId]);
 
   /** Phân công giảng viên hoặc ghi danh học viên đã chọn vào lớp. */
@@ -172,6 +181,7 @@ export default function ClassOperationsPage() {
                   aria-label="Tìm và chọn lớp học"
                   onChange={(value) => {
                     setMember({ ...member, classId: value });
+                    setRoster(null);
                     setImportResults([]);
                   }}
                   options={classes.map((item) => ({

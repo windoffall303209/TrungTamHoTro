@@ -33,6 +33,7 @@ export function InlineChatImage({
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
     let objectUrl = "";
     void fetch(publicApiUrl(path), {
       cache: "no-store",
@@ -45,14 +46,17 @@ export function InlineChatImage({
         const blob = await response.blob();
         if (!blob.type.startsWith("image/"))
           throw new Error("invalid-image-preview");
+        // Không tạo URL sau khi ảnh hoặc hội thoại đã rời khỏi màn hình.
+        if (!active) return;
         objectUrl = URL.createObjectURL(blob);
         setImageUrl(objectUrl);
       })
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
+        if (active && !(error instanceof DOMException && error.name === "AbortError"))
           setFailed(true);
       });
     return () => {
+      active = false;
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
@@ -111,9 +115,13 @@ export function InlineChatImage({
 export function loadStoredDrafts(userId: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {
-    return JSON.parse(
+    const parsed: unknown = JSON.parse(
       window.localStorage.getItem(`wind-chat-drafts:${userId}`) ?? "{}",
-    ) as Record<string, string>;
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
   } catch {
     return {};
   }

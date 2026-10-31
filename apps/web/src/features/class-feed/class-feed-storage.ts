@@ -1,9 +1,35 @@
-import type { ClassPost } from "./class-feed-types";
+import type { ClassPost, PostComment } from "./class-feed-types";
 
 const FEED_STORAGE_PREFIX = "class_feed_posts_";
 
+/** Kiểm tra phần dữ liệu bình luận cần thiết trước khi render dữ liệu đã lưu. */
+function isStoredComment(value: unknown): value is PostComment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const comment = value as Record<string, unknown>;
+  return typeof comment.id === "string" &&
+    typeof comment.authorName === "string" &&
+    typeof comment.createdAt === "string" &&
+    typeof comment.content === "string" &&
+    typeof comment.likes === "number" && Number.isFinite(comment.likes) &&
+    (comment.replies === undefined || (Array.isArray(comment.replies) && comment.replies.every(isStoredComment)));
+}
+
+/** Chỉ nhận bài viết có cấu trúc hợp lệ để tránh lỗi render khi storage hỏng. */
+function isStoredPost(value: unknown): value is ClassPost {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const post = value as Record<string, unknown>;
+  return typeof post.id === "string" &&
+    typeof post.authorName === "string" &&
+    typeof post.authorRole === "string" &&
+    typeof post.createdAt === "string" &&
+    typeof post.content === "string" &&
+    typeof post.likes === "number" && Number.isFinite(post.likes) &&
+    Array.isArray(post.comments) && post.comments.every(isStoredComment) &&
+    (post.images === undefined || (Array.isArray(post.images) && post.images.every((image: unknown) => typeof image === "string")));
+}
+
 /** Tạo danh sách bài viết khởi tạo mẫu chuẩn bị sẵn cấu trúc phân cấp đa tầng theo đúng hình ảnh mẫu */
-export function getInitialSeedPosts(classId: string, className?: string, teacherName = "Wind Fall"): ClassPost[] {
+function getInitialSeedPosts(classId: string, className?: string, teacherName = "Wind Fall"): ClassPost[] {
   return [
     {
       id: `post-default-1-${classId}`,
@@ -78,9 +104,10 @@ export function loadClassFeedPosts(classId: string, className?: string, teacherN
     const raw = localStorage.getItem(`${FEED_STORAGE_PREFIX}${classId}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed) && parsed.every(isStoredPost)) {
         return parsed;
       }
+      throw new Error("Dữ liệu bảng tin đã lưu không đúng cấu trúc.");
     }
   } catch (error) {
     console.error("Lỗi khi đọc bảng tin từ localStorage:", error);
@@ -91,12 +118,14 @@ export function loadClassFeedPosts(classId: string, className?: string, teacherN
   return seed;
 }
 
-/** Lưu danh sách bài viết vào localStorage */
-export function saveClassFeedPosts(classId: string, posts: ClassPost[]): void {
-  if (typeof window === "undefined") return;
+/** Lưu danh sách bài viết và báo thất bại để tránh xác nhận lưu sai. */
+export function saveClassFeedPosts(classId: string, posts: ClassPost[]): boolean {
+  if (typeof window === "undefined") return false;
   try {
     localStorage.setItem(`${FEED_STORAGE_PREFIX}${classId}`, JSON.stringify(posts));
+    return true;
   } catch (error) {
     console.error("Lỗi khi ghi bảng tin vào localStorage:", error);
+    return false;
   }
 }

@@ -18,7 +18,6 @@ const permissionGroups: Array<{ name: string; permissions: Array<{ code: Permiss
 ];
 
 /** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
-/** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
 export default function RolesPage() {
   const { session, notify } = useApp();
   const canView = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "role:view");
@@ -29,21 +28,29 @@ export default function RolesPage() {
   const [saving, setSaving] = useState(false);
 
   /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
-  /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
-  const load = useCallback(async () => {
-    try { const data = await apiRequest<IdentityRole[]>("/admin/roles", { roleCode: session.roleCode }); setRoles(data); const initial = data.find((role) => role.code === "CENTER_MANAGER") ?? data[0]; if (initial) { setSelectedCode(initial.code); setDraft([...initial.permissions]); } }
-    catch (error) { notify(error instanceof Error ? error.message : "Không tải được ma trận quyền.", "error"); }
+  const load = useCallback(async (signal: AbortSignal) => {
+    try {
+      const data = await apiRequest<IdentityRole[]>("/admin/roles", { roleCode: session.roleCode, signal });
+      if (signal.aborted) return;
+      setRoles(data);
+      const initial = data.find((role) => role.code === "CENTER_MANAGER") ?? data[0];
+      if (initial) { setSelectedCode(initial.code); setDraft([...initial.permissions]); }
+    } catch (error) {
+      if (!signal.aborted) notify(error instanceof Error ? error.message : "Không tải được ma trận quyền.", "error");
+    }
   }, [notify, session.roleCode]);
-  useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    window.queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
+    return () => controller.abort();
+  }, [load]);
   const selected = useMemo(() => roles.find((role) => role.code === selectedCode), [roles, selectedCode]);
 
-  /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
   /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
   const toggle = (code: PermissionCode) => {
     if (!canUpdate) return;
     setDraft((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
   };
-  /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
   /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
   const save = async () => {
     setSaving(true);

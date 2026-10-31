@@ -1,7 +1,5 @@
 import type { InstructorRole } from "@/lib/learning-types";
 
-export type DetailTab = "overview" | "instructors" | "learners" | "operations";
-
 export type RemoveTarget = {
   kind: "instructors" | "enrollments";
   id: string;

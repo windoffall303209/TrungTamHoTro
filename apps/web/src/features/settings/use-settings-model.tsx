@@ -3,7 +3,7 @@ import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AiProvider,
   AiProviderType,
@@ -78,9 +78,16 @@ export function useSettingsModel() {
     credentialReference: "",
     webhookUrl: "",
   });
+  const loadRequestId = useRef(0);
+  const modelRequestId = useRef(0);
+
+  useEffect(() => () => {
+    modelRequestId.current += 1;
+  }, [aiEditorOpen, editingAi?.id]);
 
   /** Nạp cấu hình hệ thống, tích hợp và nhà cung cấp AI theo quyền quản trị. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!canConfigure) return;
     try {
       const [a, b, c, d, e, f, g, h] = await Promise.all([
@@ -107,6 +114,7 @@ export function useSettingsModel() {
           roleCode: session.roleCode,
         }),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setSettings(a);
       setIntegrations(b);
       setBackups(c);
@@ -116,16 +124,21 @@ export function useSettingsModel() {
       setAiProviders(g);
       setModelCatalog(h);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được cấu hình.",
-        "error",
-      );
+      if (requestId === loadRequestId.current) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được cấu hình.",
+          "error",
+        );
+      }
     }
   }, [canConfigure, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+    };
   }, [load]);
 
   /** Lưu quy định vận hành chung sau khi chuẩn hóa các trường danh sách và giới hạn. */
@@ -386,6 +399,8 @@ export function useSettingsModel() {
     item?: AiProvider,
     provider: AiProviderType = "CUSTOM",
   ) => {
+    modelRequestId.current += 1;
+    setLoadingModels(false);
     const target = item ?? null;
     setEditingAi(target);
     setAiEditorOpen(true);
@@ -414,6 +429,7 @@ export function useSettingsModel() {
 
   /** Tải danh sách model mà API key hiện tại nhìn thấy và không tự thay lựa chọn của quản trị viên. */
   const loadProviderModels = async () => {
+    const requestId = ++modelRequestId.current;
     if (!editingAi?.id) {
       notify(
         "Hãy lưu cấu hình và API key trước khi tải danh sách model.",
@@ -427,18 +443,21 @@ export function useSettingsModel() {
         `/system/ai-providers/${editingAi.id}/models`,
         { roleCode: session.roleCode },
       );
+      if (requestId !== modelRequestId.current) return;
       setDiscoveredModels(models);
       setModelMode("catalog");
       notify(`Đã tải ${models.length} model từ ${editingAi.name}.`);
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được danh sách model từ nhà cung cấp.",
-        "error",
-      );
+      if (requestId === modelRequestId.current) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được danh sách model từ nhà cung cấp.",
+          "error",
+        );
+      }
     } finally {
-      setLoadingModels(false);
+      if (requestId === modelRequestId.current) setLoadingModels(false);
     }
   };
 

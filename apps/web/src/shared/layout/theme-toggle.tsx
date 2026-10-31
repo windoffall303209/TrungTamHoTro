@@ -60,7 +60,11 @@ export function ThemeToggle() {
     }
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", nextTheme === "dark" ? "#080c14" : "#f8fafc");
 
-    window.localStorage.setItem(storageKey, nextTheme);
+    try {
+      window.localStorage.setItem(storageKey, nextTheme);
+    } catch {
+      // Vẫn đổi theme trong tab hiện tại và lưu cookie nếu localStorage bị chặn.
+    }
     document.cookie = `${storageKey}=${nextTheme}; path=/; max-age=31536000; SameSite=Lax`;
     window.dispatchEvent(new Event(themeEvent));
     window.setTimeout(() => root.classList.remove("theme-changing"), 200);

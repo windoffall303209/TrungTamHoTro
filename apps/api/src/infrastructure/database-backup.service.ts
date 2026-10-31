@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
 import { readFileHead } from "./file-streams.js";
-import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Client, type ClientConfig } from "pg";
 import type { Environment } from "../config/environment.js";
@@ -12,6 +12,7 @@ type RestoreSummary = { database: string; tableCount: number; rowCount: number }
 @Injectable()
 /** Tạo, kiểm chứng và phục hồi PostgreSQL custom-format backup bằng công cụ chính thức. */
 export class DatabaseBackupService {
+  private readonly logger = new Logger(DatabaseBackupService.name);
   private readonly connection: ClientConfig;
   private readonly databaseName: string;
   private readonly timeoutMs: number;
@@ -69,8 +70,12 @@ export class DatabaseBackupService {
       if (error instanceof BadRequestException) throw error;
       throw new ServiceUnavailableException("Phục hồi thử nghiệm PostgreSQL thất bại.");
     } finally {
-      if (created) await this.dropDatabase(administrator, temporaryDatabase).catch(() => undefined);
-      await administrator.end().catch(() => undefined);
+      if (created) await this.dropDatabase(administrator, temporaryDatabase).catch((error: unknown) => {
+        this.logger.warn(`Không thể xóa database kiểm chứng ${temporaryDatabase}: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      await administrator.end().catch((error: unknown) => {
+        this.logger.warn(`Không thể đóng kết nối quản trị sau kiểm chứng backup: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
   }
 
@@ -89,11 +94,15 @@ export class DatabaseBackupService {
       await this.restore(path, targetDatabase);
       return await this.readRestoreSummary(targetDatabase);
     } catch (error) {
-      if (created) await this.dropDatabase(administrator, targetDatabase).catch(() => undefined);
+      if (created) await this.dropDatabase(administrator, targetDatabase).catch((cleanupError: unknown) => {
+        this.logger.warn(`Không thể xóa database phục hồi thất bại ${targetDatabase}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      });
       if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) throw error;
       throw new ServiceUnavailableException("Khôi phục vận hành PostgreSQL thất bại.");
     } finally {
-      await administrator.end().catch(() => undefined);
+      await administrator.end().catch((error: unknown) => {
+        this.logger.warn(`Không thể đóng kết nối quản trị sau phục hồi backup: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
   }
 
@@ -138,7 +147,9 @@ export class DatabaseBackupService {
       if (rowCount > BigInt(Number.MAX_SAFE_INTEGER)) throw new ServiceUnavailableException("Số dòng phục hồi vượt giới hạn báo cáo an toàn.");
       return { database, tableCount: result.rows.length, rowCount: Number(rowCount) };
     } finally {
-      await connection.end().catch(() => undefined);
+      await connection.end().catch((error: unknown) => {
+        this.logger.warn(`Không thể đóng kết nối kiểm đếm database ${database}: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
   }
 
@@ -176,11 +187,14 @@ export class DatabaseBackupService {
 
   /** Mở PostgreSQL client đến database chỉ định và chuẩn hóa lỗi kết nối. */
   private async open(database: string): Promise<Client> {
+    const client = new Client({ ...this.connection, database });
     try {
-      const client = new Client({ ...this.connection, database });
       await client.connect();
       return client;
     } catch {
+      await client.end().catch((error: unknown) => {
+        this.logger.warn(`Không thể đóng kết nối PostgreSQL bị lỗi: ${error instanceof Error ? error.message : String(error)}`);
+      });
       throw new ServiceUnavailableException("Không thể kết nối PostgreSQL để sao lưu hoặc phục hồi.");
     }
   }

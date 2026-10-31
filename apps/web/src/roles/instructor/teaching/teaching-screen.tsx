@@ -34,7 +34,6 @@ export default function TeachingScreen() {
     session,
     canManageTeaching,
     attempts,
-    gradingQueue,
     filteredGradingQueue,
     instructorClasses,
     gradeFilter,
@@ -489,7 +488,7 @@ export default function TeachingScreen() {
                     options={learners.map((item) => ({
                       value: item.id,
                       label: item.displayName,
-                      description: item.email,
+                      description: item.email ?? undefined,
                       keywords: item.id,
                     }))}
                     placeholder={

@@ -9,7 +9,7 @@ if (!/^[a-zA-Z0-9_]+_test$/.test(testDatabase) || testDatabase.length > 63) {
 }
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./test/e2e",
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
