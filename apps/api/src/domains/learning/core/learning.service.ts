@@ -1017,6 +1017,7 @@ export class LearningService {
     > & { scope?: LearningMaterial["scope"]; courseId?: string },
     upload?: UploadedMaterialFile,
     actorId = "usr-instructor",
+    actorRole = "INSTRUCTOR",
   ): Promise<LearningMaterial> {
     return await materials_ops.createMaterial(
       this.operationContext,
@@ -1024,6 +1025,7 @@ export class LearningService {
       input,
       upload,
       actorId,
+      actorRole,
     );
   }
 
@@ -1103,21 +1105,24 @@ export class LearningService {
       name?: string;
     },
     actorId = "usr-instructor",
+    actorRole = "INSTRUCTOR",
   ): Promise<LearningMaterial> {
     return await materials_ops.updateMaterial(
       this.operationContext,
       materialId,
       input,
       actorId,
+      actorRole,
     );
   }
 
   /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
-  async deleteMaterial(materialId: string, actorId: string): Promise<void> {
+  async deleteMaterial(materialId: string, actorId: string, actorRole = "INSTRUCTOR"): Promise<void> {
     return await materials_ops.deleteMaterial(
       this.operationContext,
       materialId,
       actorId,
+      actorRole,
     );
   }
 

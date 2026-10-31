@@ -124,6 +124,14 @@ export class IdentityService {
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
+  /** Giới hạn quản lý trung tâm chỉ thao tác tài khoản dưới cấp quản lý và không cấp quyền quản trị hệ thống. */
+  private assertUserChangeScope(currentRoleCodes: RoleCode[], nextRoleCodes: RoleCode[], actorRoleCode: RoleCode): void {
+    if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(actorRoleCode))
+      throw new ForbiddenException("Vai trò hiện tại không được chỉnh sửa tài khoản.");
+    if (actorRoleCode === "CENTER_MANAGER" && (currentRoleCodes.some((code) => ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(code)) || nextRoleCodes.includes("SYSTEM_ADMIN")))
+      throw new ForbiddenException("Quản lý trung tâm chỉ được chỉnh sửa tài khoản dưới cấp quản lý và không được cấp vai trò Quản trị hệ thống.");
+  }
+
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
   async listUsersPage(input: UserListQueryDto): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
     const { page, pageSize } = input;
@@ -283,11 +291,14 @@ export class IdentityService {
   async previewUserChange(
     userId: string,
     target: Pick<UpdateUserDto, "roleCode" | "roleCodes" | "status">,
+    actorRoleCode: RoleCode = "SYSTEM_ADMIN",
   ): Promise<IdentityChangeImpact> {
     const prisma = this.database();
     if (!prisma) {
       const user = this.users.find((item) => item.id === userId);
       if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+      const nextRoleCodes = target.roleCodes?.length ? target.roleCodes : target.roleCode ? [target.roleCode] : [user.roleCode];
+      this.assertUserChangeScope(user.roleCodes ?? [user.roleCode], nextRoleCodes, actorRoleCode);
       const nextRoleCode = target.roleCodes?.[0] ?? target.roleCode ?? user.roleCode;
       const nextStatus = target.status ?? user.status;
       const token = createHash("sha256")
@@ -312,9 +323,14 @@ export class IdentityService {
         },
       };
     }
-    return prisma.$transaction((transaction) =>
-      this.buildDatabaseImpact(transaction, userId, target),
-    );
+    return prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.findUnique({ where: { id: userId }, include: { roles: { include: { role: true } } } });
+      if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+      const currentRoleCodes = user.roles.map(({ role }) => role.code as RoleCode);
+      const nextRoleCodes = target.roleCodes?.length ? target.roleCodes : target.roleCode ? [target.roleCode] : currentRoleCodes;
+      this.assertUserChangeScope(currentRoleCodes, nextRoleCodes, actorRoleCode);
+      return this.buildDatabaseImpact(transaction, userId, target);
+    });
   }
 
   /** Cập nhật user/vai trò, bàn giao việc đang mở và thu hồi mọi phiên trong cùng transaction. */
@@ -322,6 +338,7 @@ export class IdentityService {
     userId: string,
     input: UpdateUserDto,
     actorId = "usr-admin",
+    actorRoleCode: RoleCode = "SYSTEM_ADMIN",
   ): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {
@@ -340,6 +357,11 @@ export class IdentityService {
           : input.roleCode
             ? [input.roleCode]
             : undefined;
+        this.assertUserChangeScope(
+          current.roles.map(({ role }) => role.code as RoleCode),
+          nextRoleCodes ?? current.roles.map(({ role }) => role.code as RoleCode),
+          actorRoleCode,
+        );
         const changesAccess = Boolean(
           (nextRoleCodes &&
             !this.sameRoleSet(
@@ -407,7 +429,6 @@ export class IdentityService {
         await transaction.user.update({
           where: { id: userId },
           data: {
-            displayName: input.displayName?.trim(),
             status: input.status,
           },
         });
@@ -438,6 +459,8 @@ export class IdentityService {
 
     const user = this.users.find((item) => item.id === userId);
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    const memoryRoleCodes = input.roleCodes?.length ? [...new Set(input.roleCodes)] : input.roleCode ? [input.roleCode] : user.roleCodes ?? [user.roleCode];
+    this.assertUserChangeScope(user.roleCodes ?? [user.roleCode], memoryRoleCodes, actorRoleCode);
     if (input.status === "PENDING" && user.email)
       throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
     const removesActiveAdmin =
@@ -469,13 +492,7 @@ export class IdentityService {
     }
 
     const before = `${user.roleCode}/${user.status}`;
-    if (input.displayName) user.displayName = input.displayName.trim();
-    const memoryRoleCodes = input.roleCodes?.length
-      ? [...new Set(input.roleCodes)]
-      : input.roleCode
-        ? [input.roleCode]
-        : undefined;
-    if (memoryRoleCodes) {
+    if (memoryRoleCodes.length) {
       user.roleCodes = memoryRoleCodes;
       user.roleCode = memoryRoleCodes[0]!;
     }

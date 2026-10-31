@@ -36,10 +36,10 @@ export type PermissionCode = (typeof PERMISSIONS)[number];
 
 /** Ma trận quyền mặc định khi khởi tạo hệ thống; quyền thực tế của phiên vẫn đọc từ cơ sở dữ liệu. */
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
-  SYSTEM_ADMIN: [...PERMISSIONS],
+  SYSTEM_ADMIN: PERMISSIONS.filter((permission) => !["question:manage", "exam:manage"].includes(permission)),
   CENTER_MANAGER: [
-    "user:view", "user:create", "course:view", "course:manage", "class:view", "class:manage",
-    "material:view", "exam:view", "forum:view", "forum:moderate", "session:view",
+    "user:view", "user:create", "user:update", "user:suspend", "course:view", "course:manage", "class:view", "class:manage",
+    "material:view", "material:manage", "question:view", "exam:view", "forum:view", "forum:moderate", "session:view",
     "report:view", "support:manage",
   ],
   INSTRUCTOR: [

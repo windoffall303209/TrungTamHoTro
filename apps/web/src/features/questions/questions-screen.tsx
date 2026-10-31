@@ -76,8 +76,8 @@ export default function QuestionsPage() {
   const searchParams = useSearchParams();
   const selectedCourseId = searchParams.get("courseId") ?? "";
   const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
-  const canManage = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:manage");
-  const canReview = session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "system:configure");
+  const canManage = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:manage");
+  const canReview = false;
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);

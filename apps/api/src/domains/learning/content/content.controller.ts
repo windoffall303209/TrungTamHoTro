@@ -102,11 +102,11 @@ export class ContentController {
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
   /** Tạo metadata học liệu không kèm tệp cho lớp giảng viên. */
-  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id); }
+  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id, session.roleCode); }
 
   @Post("instructor/materials") @RequirePermissions("material:manage")
   /** Tạo metadata học liệu không kèm tệp cho kho dùng chung hoặc chưa phân loại. */
-  createDirectMaterial(@Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(null, input, undefined, session.user.id); }
+  createDirectMaterial(@Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(null, input, undefined, session.user.id, session.roleCode); }
 
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
   @UseInterceptors(MaterialUploadInterceptor)
@@ -127,7 +127,7 @@ export class ContentController {
       folder: input.folder,
       tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       scope: input.scope,
-    }, upload, session.user.id);
+    }, upload, session.user.id, session.roleCode);
   }
 
   @Get("materials/:materialId/versions") @RequirePermissions("material:view")
@@ -179,7 +179,7 @@ export class ContentController {
       folder: input.folder,
       tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       courseId,
-    }, upload, session.user.id);
+    }, upload, session.user.id, session.roleCode);
   }
 
   @Get("instructor/materials/:materialId/editors") @RequirePermissions("material:manage")
@@ -196,11 +196,11 @@ export class ContentController {
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
   /** Cập nhật metadata/khả năng hiển thị của học liệu. */
-  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input, session.user.id); }
+  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input, session.user.id, session.roleCode); }
 
   @Delete("instructor/materials/:materialId") @RequirePermissions("material:manage") @HttpCode(204)
   /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
-  deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> { return this.learning.deleteMaterial(materialId, session.user.id); }
+  deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> { return this.learning.deleteMaterial(materialId, session.user.id, session.roleCode); }
 
   @Get("instructor/materials/:materialId/reviews") @RequirePermissions("material:manage")
   /** Người tải lên và người được cấp quyền sửa xem quyết định kiểm duyệt kèm lý do. */

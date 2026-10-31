@@ -96,6 +96,10 @@ export default function UsersPage() {
     "user:update",
     "user:suspend",
   ]);
+  const canEditUser = (user: IdentityUser) =>
+    session.roleCode === "SYSTEM_ADMIN" ||
+    (session.roleCode === "CENTER_MANAGER" &&
+      !(user.roleCodes ?? [user.roleCode]).some((code) => ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(code)));
   const [users, setUsers] = useState<IdentityUser[]>([]);
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleCode | "">("");
@@ -243,7 +247,6 @@ export default function UsersPage() {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          displayName: form.displayName,
           roleCode: form.roleCodes[0],
           roleCodes: form.roleCodes,
           status: editStatus,
@@ -329,23 +332,13 @@ export default function UsersPage() {
         </>
       ) : (
         <Field label="Họ và tên">
-          <input
-            className={inputClass}
-            minLength={2}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                displayName: event.target.value,
-              }))
-            }
-            required
-            value={form.displayName}
-          />
+          <input className={`${inputClass} cursor-not-allowed bg-slate-100 text-slate-500`} readOnly value={form.displayName} />
+          <p className="mt-1 text-xs text-[var(--ink-soft)]">Họ tên chỉ do người dùng tự cập nhật trong hồ sơ cá nhân.</p>
         </Field>
       )}
       <Field label="Vai trò sử dụng">
         <div className="grid gap-2 sm:grid-cols-2">
-          {(creating ? assignableRoles : roles).map((role) => (
+          {assignableRoles.map((role) => (
             <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-2 text-sm font-bold" key={role.code}>
               <input
                 checked={form.roleCodes.includes(role.code)}
@@ -723,7 +716,7 @@ export default function UsersPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-1">
-                        {canUpdate ? (
+                        {canUpdate && canEditUser(user) ? (
                           <Button
                             aria-label={`Sửa ${user.displayName}`}
                             onClick={() => openEdit(user)}
@@ -733,7 +726,7 @@ export default function UsersPage() {
                             Sửa
                           </Button>
                         ) : null}
-                        {canSuspend ? (
+                        {canSuspend && canEditUser(user) ? (
                           <Button
                             aria-label={`${user.status === "LOCKED" ? "Mở khóa" : "Khóa"} ${user.displayName}`}
                             onClick={() => void toggleLock(user)}

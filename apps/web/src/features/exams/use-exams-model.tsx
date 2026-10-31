@@ -1,6 +1,5 @@
 "use client";
 import { useMaterialSearch } from "@/features/materials/material-search";
-import { hasPermission } from "@/lib/access-control";
 import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
 import { eligibleExamQuestions } from "@/lib/exam-question-selection";
@@ -51,9 +50,7 @@ export function useExamsModel() {
 
   const learner = session.roleCode === "LEARNER";
 
-  const canReview =
-    ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
-    hasPermission(session, "class:manage");
+  const canReview = false;
 
   const [items, setItems] = useState<LearnerExam[]>([]);
 

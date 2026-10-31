@@ -59,8 +59,9 @@ export class IdentityController {
   previewUserChange(
     @Param("userId") userId: string,
     @Query() query: UserChangeImpactQueryDto,
+    @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityChangeImpact> {
-    return this.identityService.previewUserChange(userId, query);
+    return this.identityService.previewUserChange(userId, query, session.roleCode);
   }
 
   @Patch("users/:userId")
@@ -72,7 +73,7 @@ export class IdentityController {
     @Body() input: UpdateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.updateUser(userId, input, session.user.id);
+    return this.identityService.updateUser(userId, input, session.user.id, session.roleCode);
   }
 
   @Get("roles")
