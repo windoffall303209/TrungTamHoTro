@@ -204,6 +204,7 @@ export async function createMaterial(
   > & { scope?: LearningMaterial["scope"]; courseId?: string },
   upload?: UploadedMaterialFile,
   actorId = "usr-instructor",
+  actorRole = "INSTRUCTOR",
 ): Promise<LearningMaterial> {
   const prisma = serviceContext.database();
   const policy = prisma
@@ -240,7 +241,7 @@ export async function createMaterial(
         include: { instructors: true },
       });
       if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
-      if (!classItem.instructors.some((item) => item.instructorId === actorId))
+      if (actorRole === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === actorId))
         throw new NotFoundException(
           "Giảng viên không được phân công vào lớp học này.",
         );
@@ -412,6 +413,7 @@ export async function updateMaterial(
     name?: string;
   },
   actorId = "usr-instructor",
+  actorRole = "INSTRUCTOR",
 ): Promise<LearningMaterial> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -420,7 +422,7 @@ export async function updateMaterial(
       include: { class: true, editors: { select: { userId: true } } },
     });
     if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
-    if (!canEditMaterial(current, actorId))
+    if (!canEditMaterial(current, actorId, actorRole))
       throw new NotFoundException("Không tìm thấy học liệu.");
     if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
@@ -488,10 +490,10 @@ export async function updateMaterial(
   if (
     item.classId &&
     !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
-    !canEditMaterial(item, actorId)
+        !canEditMaterial(item, actorId, actorRole)
   )
     throw new NotFoundException("Không tìm thấy học liệu.");
-  if (!canEditMaterial(item, actorId))
+  if (!canEditMaterial(item, actorId, actorRole))
     throw new ForbiddenException(
       "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
     );
@@ -543,6 +545,7 @@ export async function deleteMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
   actorId: string,
+  actorRole = "INSTRUCTOR",
 ): Promise<void> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -551,7 +554,7 @@ export async function deleteMaterial(
       include: { class: true, versions: { select: { objectKey: true } } },
     });
     if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
-    if (current.ownerId !== actorId)
+    if (!canEditMaterial(current, actorId, actorRole))
       throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
     if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
@@ -597,10 +600,10 @@ export async function deleteMaterial(
   if (
     item.classId &&
     !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
-    !canEditMaterial(item, actorId)
+    !canEditMaterial(item, actorId, actorRole)
   )
     throw new NotFoundException("Không tìm thấy học liệu.");
-  if (item.ownerId !== actorId)
+  if (!canEditMaterial(item, actorId, actorRole))
     throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
   if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");

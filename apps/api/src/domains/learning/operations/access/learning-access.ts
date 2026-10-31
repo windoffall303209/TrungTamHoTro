@@ -62,8 +62,11 @@ function isSharedForLearners(material: {
 export function canEditMaterial(
   material: { ownerId: string; editors?: Array<{ userId: string }>; editorIds?: string[] },
   actorId: string,
+  actorRole?: string,
 ): boolean {
   return (
+    actorRole === "SYSTEM_ADMIN" ||
+    actorRole === "CENTER_MANAGER" ||
     material.ownerId === actorId ||
     Boolean(material.editors?.some((item) => item.userId === actorId)) ||
     Boolean(material.editorIds?.includes(actorId))

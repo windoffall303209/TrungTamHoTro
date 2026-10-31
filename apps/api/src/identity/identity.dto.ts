@@ -68,11 +68,6 @@ export class CreateUserDto {
 /** Các thuộc tính tài khoản quản trị viên được phép thay đổi. */
 export class UpdateUserDto {
   @IsOptional()
-  @IsString()
-  @Length(2, 150)
-  displayName?: string;
-
-  @IsOptional()
   @IsIn(ROLE_CODES)
   roleCode?: RoleCode;
 

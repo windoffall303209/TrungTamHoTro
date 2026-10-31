@@ -98,7 +98,7 @@ export function InstructorMaterialsView() {
     const requestId = ++loadRequestRef.current;
     try {
       const [classesData, materialsData] = await Promise.all([
-        apiRequest<LearningClass[]>("/instructor/classes", {
+        apiRequest<LearningClass[]>(session.roleCode === "INSTRUCTOR" ? "/instructor/classes" : "/classes", {
           roleCode: session.roleCode,
         }),
         loadAllMaterials<Material & { title?: string }>("/materials", {

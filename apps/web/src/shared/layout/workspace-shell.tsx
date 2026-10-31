@@ -182,6 +182,7 @@ function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: strin
   if (href === "/materials") return pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/");
   if (roleCode === "SYSTEM_ADMIN") {
     if (href === "/admin/users") return pathname.startsWith("/admin");
+    if (href === "/admin/settings") return pathname.startsWith("/admin");
     if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/materials" || pathname.startsWith("/materials/");
     if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/class-lifecycle";
   }
@@ -289,6 +290,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       { href: "/exams", label: "Khảo thí", icon: BookOpenCheck },
       { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
       { href: "/admin/settings", label: "Cấu hình", icon: Settings },
+      { href: "/support", label: "Hỗ trợ", icon: Headphones },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
@@ -300,6 +302,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
       { href: "/class-operations", label: "Điều hành lớp", icon: ListChecks },
       { href: "/admin/users", label: "Người dùng", icon: Users },
+      { href: "/support", label: "Hỗ trợ", icon: Headphones },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
@@ -878,7 +881,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   Wind EDU
                 </span>
                 <span className="block text-[11px] font-semibold text-sky-800 dark:text-sky-300 -mt-0.5">
-                  EduTech Cloud
                 </span>
               </div>
             </Link>
@@ -913,8 +915,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     const isSelected =
                       href === "/dashboard"
                         ? pathname === "/dashboard"
-                        : href === "/admin/users"
+                          : href === "/admin/users"
                           ? pathname.startsWith("/admin")
+                          : href === "/admin/settings"
+                            ? pathname.startsWith("/admin")
                           : href === "/materials"
                             ? pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/")
                             : href === "/exams"
@@ -965,7 +969,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </nav>
       </header>
 
-      {/* MOBILE DRAWER: Menu trượt trên màn hình di động cho Học sinh, Giáo viên & Quản trị hệ thống */}
+      {/* MOBILE DRAWER: Menu trượt trên màn hình di động cho các vai trò */}
       {menuOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
