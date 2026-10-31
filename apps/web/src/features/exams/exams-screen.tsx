@@ -261,13 +261,13 @@ export default function ExamsScreen() {
               learner
                 ? "Đề thi sẽ xuất hiện khi giảng viên công bố cho lớp của bạn."
                 : instructor
-                  ? "Tạo đề thủ công hoặc dùng AI, sau đó kiểm tra nội dung trước khi gửi duyệt."
+                  ? "Theo dõi đề thi, chỉnh sửa bản nháp và phát hành đề cho lớp."
                   : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
             }
           >
             <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-left text-sm">
+                <table className="w-full min-w-[900px] text-left text-sm">
                   <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                     <tr>
                       <th className="px-4 py-2.5">Đề thi</th>
@@ -277,7 +277,7 @@ export default function ExamsScreen() {
                       <th className="px-3 py-2.5 text-center">{learner ? "Lượt còn lại" : "Thang điểm"}</th>
                       <th className="px-3.5 py-2.5">Thời gian mở</th>
                       <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
-                      <th className="px-4 py-2.5 text-right">Thao tác</th>
+                      <th className="w-[250px] px-3 py-2.5 text-center sm:text-right">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -315,42 +315,42 @@ export default function ExamsScreen() {
                           <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
                             <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.status} />
                           </td>
-                          <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
+                          <td className="w-[250px] px-3 py-2.5 align-middle">
+                            <div className="flex flex-wrap items-center justify-end gap-1">
                               {instructor ? (
-                                <Button onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Eye size={14} />
-                                  <span className="hidden sm:inline">Xem đề</span>
+                                  <span className="hidden md:inline">Xem đề</span>
                                 </Button>
                               ) : null}
                               {canReview && item.status === "PENDING_REVIEW" ? (
-                                <Button onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Eye size={14} />
-                                  <span className="hidden sm:inline">Xem đề</span>
+                                  <span className="hidden md:inline">Xem đề</span>
                                 </Button>
                               ) : null}
                               {instructor && item.status === "DRAFT" ? (
-                                <Button onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Pencil size={14} />
-                                  <span className="hidden sm:inline">Sửa đề</span>
+                                  <span className="hidden md:inline">Sửa đề</span>
                                 </Button>
                               ) : null}
                               {instructor && item.status === "DRAFT" ? (
-                                <Button onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2.5 text-xs font-semibold">
+                                <Button aria-label="Phát hành đề" title="Phát hành đề" onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2 text-xs font-semibold">
                                   <Send size={13} />
-                                  Phát hành đề
+                                  <span className="hidden md:inline">Phát hành</span>
                                 </Button>
                               ) : null}
                               {(instructor || canReview) && item.status === "PENDING_REVIEW" ? (
-                                <Button loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2.5 text-xs font-semibold">
+                                <Button aria-label="Phát hành ngay" title="Phát hành ngay" loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2 text-xs font-semibold">
                                   <CheckCircle2 size={13} />
-                                  Phát hành ngay
+                                  <span className="hidden md:inline">Phát hành</span>
                                 </Button>
                               ) : null}
                               {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
-                                <Button onClick={() => void start(item)} className="h-8 px-2.5 text-xs font-semibold">
+                                <Button aria-label={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} title={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} onClick={() => void start(item)} className="h-8 px-2 text-xs font-semibold">
                                   <Play size={13} />
-                                  {item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"}
+                                  <span className="hidden md:inline">{item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục" : "Bắt đầu"}</span>
                                 </Button>
                               ) : null}
                             </div>
