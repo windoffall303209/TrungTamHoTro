@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { config as loadEnvironment } from "dotenv";
+import { resolve } from "node:path";
 
 loadEnvironment({ path: "../../.env" });
 
@@ -13,7 +14,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: [["list"], ["html", { outputFolder: "test/results/playwright-report", open: "never" }]],
+  outputDir: "test/results/test-results",
   use: { baseURL: "http://localhost:3300", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     {
@@ -41,7 +43,7 @@ export default defineConfig({
         API_PREFIX: "api",
         API_VERSION: "1",
         STORAGE_PROVIDER: "local",
-        STORAGE_ROOT: "../../output/playwright/storage",
+        STORAGE_ROOT: resolve(process.cwd(), "test/results/playwright-artifacts/storage"),
         DATABASE_CONNECT_ON_START: "true",
         DB_NAME: testDatabase,
         NODE_ENV: "test",

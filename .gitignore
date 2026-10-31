@@ -22,3 +22,7 @@ debug.log
 npm-debug.log*
 pnpm-debug.log*
 
+
+# Test execution results
+apps/api/test/results/
+apps/web/test/results/
