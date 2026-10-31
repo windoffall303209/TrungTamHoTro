@@ -78,6 +78,7 @@ export class ChatService {
   async directory(
     session: AuthenticatedSession,
     query = "",
+    limit = 500,
   ): Promise<ChatDirectoryEntry[]> {
     if (typeof query !== "string")
       throw new BadRequestException("Từ khóa tìm liên hệ không hợp lệ.");
@@ -106,6 +107,7 @@ export class ChatService {
         const current = entries.get(member.id) ?? {
           id: member.id,
           displayName: member.displayName,
+          avatarUrl: this.avatarUrl(member),
           roleCode,
           sharedClasses: [],
         };
@@ -121,7 +123,6 @@ export class ChatService {
       const users = await this.prisma.user.findMany({
         where: { status: "ACTIVE", id: { not: session.user.id } },
         include: { roles: { include: { role: true } } },
-        take: 250,
       });
       for (const user of users)
         entries.set(
@@ -129,6 +130,7 @@ export class ChatService {
           entries.get(user.id) ?? {
             id: user.id,
             displayName: user.displayName,
+            avatarUrl: this.avatarUrl(user),
             roleCode: this.primaryRole(
               user.roles.map((item) => item.role.code),
             ),
@@ -136,6 +138,62 @@ export class ChatService {
           },
         );
     }
+    // Quản trị viên và quản lý luôn xuất hiện trong danh bạ của giảng viên/học viên.
+    if (session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR") {
+      const staff = await this.prisma.user.findMany({
+        where: {
+          status: "ACTIVE",
+          id: { not: session.user.id },
+          roles: { some: { role: { code: { in: ["SYSTEM_ADMIN", "CENTER_MANAGER"] } } } },
+        },
+        include: { roles: { include: { role: true } } },
+      });
+      for (const user of staff) {
+        if (!entries.has(user.id))
+          entries.set(user.id, {
+            id: user.id,
+            displayName: user.displayName,
+            avatarUrl: this.avatarUrl(user),
+            roleCode: this.primaryRole(user.roles.map((item) => item.role.code)),
+            sharedClasses: [],
+          });
+      }
+    }
+    const previousDirects = await this.prisma.chatConversation.findMany({
+      where: {
+        type: "DIRECT",
+        members: { some: { userId: session.user.id, status: "ACTIVE" } },
+        messages: { some: {} },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        updatedAt: true,
+        members: {
+          where: { userId: { not: session.user.id }, user: { status: "ACTIVE" } },
+          select: { user: { include: { roles: { include: { role: true } } } } },
+        },
+      },
+    });
+    const recentRank = new Map<string, number>();
+    for (const conversation of previousDirects) {
+      for (const { user } of conversation.members) {
+        if (!recentRank.has(user.id)) recentRank.set(user.id, recentRank.size);
+        if (!entries.has(user.id))
+          entries.set(user.id, {
+            id: user.id,
+            displayName: user.displayName,
+            avatarUrl: this.avatarUrl(user),
+            roleCode: this.primaryRole(user.roles.map((item) => item.role.code)),
+            sharedClasses: [],
+          });
+      }
+    }
+    const roleRank: Record<ChatDirectoryEntry["roleCode"], number> = {
+      SYSTEM_ADMIN: 0,
+      CENTER_MANAGER: 1,
+      INSTRUCTOR: 2,
+      LEARNER: 3,
+    };
     const normalized = this.searchText(query);
     return [...entries.values()]
       .filter(
@@ -145,10 +203,15 @@ export class ChatService {
             `${entry.displayName} ${entry.id} ${entry.sharedClasses.map((item) => `${item.code} ${item.name}`).join(" ")}`,
           ).includes(normalized),
       )
-      .sort((left, right) =>
-        left.displayName.localeCompare(right.displayName, "vi"),
-      )
-      .slice(0, 50);
+      .sort((left, right) => {
+        const leftRecent = recentRank.get(left.id);
+        const rightRecent = recentRank.get(right.id);
+        if (leftRecent !== undefined || rightRecent !== undefined)
+          return (leftRecent ?? Number.MAX_SAFE_INTEGER) - (rightRecent ?? Number.MAX_SAFE_INTEGER);
+        return roleRank[left.roleCode] - roleRank[right.roleCode] ||
+          left.displayName.localeCompare(right.displayName, "vi");
+      })
+      .slice(0, limit);
   }
 
   /** Mở đúng một hội thoại riêng cho một cặp người dùng, chống tạo trùng bằng directKey. */
@@ -164,7 +227,7 @@ export class ChatService {
       throw new ConflictException(
         "Không thể mở hội thoại vì một trong hai tài khoản đã chặn liên hệ riêng.",
       );
-    const allowed = await this.directory(session);
+    const allowed = await this.directory(session, "", Number.MAX_SAFE_INTEGER);
     if (!allowed.some((entry) => entry.id === targetUserId))
       throw new NotFoundException(
         "Không tìm thấy người dùng trong phạm vi có thể liên hệ.",
@@ -597,12 +660,14 @@ export class ChatService {
   watchMessages(
     conversationId: string,
     session: AuthenticatedSession,
-  ): Observable<{ data: ChatMessageView }> {
+    lastEventId?: string,
+  ): Observable<{ data: ChatMessageView; id: string }> {
     return defer(() => {
       const viewerKey = `${conversationId}:${session.user.id}`;
       const viewerId = Symbol();
       let active = true;
-      let cursor: ChatStreamCursor = { createdAt: new Date(), id: "" };
+      // Đọc lại một cửa sổ ngắn khi kết nối mới; EventSource dùng ID để tiếp tục chính xác khi reconnect.
+      let cursor: ChatStreamCursor = { createdAt: new Date(Date.now() - 10_000), id: "" };
 
       // Ghi nhận heartbeat riêng cho từng kết nối SSE cùng mở một hội thoại.
       const refreshViewer = (): void => {
@@ -613,6 +678,13 @@ export class ChatService {
 
       return defer(async () => {
         await this.resolveMembership(conversationId, session.user.id);
+        if (lastEventId && lastEventId.length <= 191) {
+          const resumedMessage = await this.prisma.chatMessage.findFirst({
+            where: { id: lastEventId, conversationId },
+            select: { id: true, createdAt: true },
+          });
+          if (resumedMessage) cursor = { createdAt: resumedMessage.createdAt, id: resumedMessage.id };
+        }
         if (active) refreshViewer();
         return true;
       }).pipe(
@@ -626,7 +698,7 @@ export class ChatService {
             const lastMessage = messages[messages.length - 1]!;
             cursor = { createdAt: new Date(lastMessage.createdAt), id: lastMessage.id };
           }
-          return from(messages.map((message) => ({ data: message })));
+          return from(messages.map((message) => ({ data: message, id: message.id })));
         }),
         finalize(() => {
           active = false;
@@ -815,21 +887,15 @@ export class ChatService {
   private accessibleDirectoryClasses(
     session: AuthenticatedSession,
   ): Promise<DirectoryClassRow[]> {
+    // Quản trị và quản lý đã có danh sách tài khoản toàn hệ thống, không cần nạp toàn bộ lớp.
+    if (session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN") return Promise.resolve([]);
     return this.prisma.learningClass.findMany({
-      where:
-        session.roleCode === "CENTER_MANAGER" ||
-        session.roleCode === "SYSTEM_ADMIN"
-          ? undefined
-          : {
-              OR: [
-                { instructors: { some: { instructorId: session.user.id } } },
-                {
-                  enrollments: {
-                    some: { learnerId: session.user.id, status: "ACTIVE" },
-                  },
-                },
-              ],
-            },
+      where: {
+        OR: [
+          { instructors: { some: { instructorId: session.user.id } } },
+          { enrollments: { some: { learnerId: session.user.id, status: "ACTIVE" } } },
+        ],
+      },
       include: {
         instructors: {
           include: {
@@ -843,7 +909,6 @@ export class ChatService {
           },
         },
       },
-      take: 100,
     });
   }
 
@@ -1041,6 +1106,7 @@ export class ChatService {
       members: row.members.map((member) => ({
         userId: member.userId,
         displayName: member.user.displayName,
+        avatarUrl: this.avatarUrl(member.user),
         roleCode: member.roleSnapshot,
         status: member.status,
       })),
@@ -1077,6 +1143,7 @@ export class ChatService {
       conversationId: row.conversationId,
       senderId: row.senderId,
       senderName: row.sender.displayName,
+      senderAvatarUrl: this.avatarUrl(row.sender),
       clientMessageId: row.clientMessageId,
       content: row.content,
       replyTo: row.replyTo
@@ -1267,6 +1334,13 @@ export class ChatService {
     ] as const)
       if (roles.includes(role)) return role;
     return "LEARNER";
+  }
+
+  /** Tạo đường dẫn avatar công khai, thay đổi khi người dùng cập nhật ảnh. */
+  private avatarUrl(user: { id: string; avatarObjectKey: string | null; avatarUpdatedAt: Date | null }): string | undefined {
+    return user.avatarObjectKey
+      ? `/account/users/${encodeURIComponent(user.id)}/avatar?v=${user.avatarUpdatedAt?.getTime() ?? 0}`
+      : undefined;
   }
 
   /** Chuẩn hóa chuỗi tìm kiếm để tên có dấu và không dấu cho cùng kết quả. */

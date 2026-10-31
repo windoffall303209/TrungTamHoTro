@@ -223,7 +223,7 @@ describe("useMessagesModel asynchronous conversations", () => {
       throw new Error(`Unexpected API request: ${path}`);
     });
     const activeStream = streams.at(-1)!;
-    await act(async () => activeStream.emit({ id: "live-event", conversationId: "b" }));
+    await act(async () => activeStream.emit({ ...messagePage("b").items[0]!, id: "live-event", createdAt: "2026-10-31T00:00:01Z" }));
     expect(result.current.messages.map((item) => item.id)).toEqual(["message-b", "live-event"]);
     expect(mocks.notify).toHaveBeenCalledWith(readError.message, "error");
   });
@@ -233,7 +233,7 @@ describe("useMessagesModel asynchronous conversations", () => {
     await waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
       "/chat/conversations/a/messages?limit=80", expect.anything(),
     ));
-    const live = { ...messagePage("a").items[0]!, id: "live-a" };
+    const live = { ...messagePage("a").items[0]!, id: "live-a", createdAt: "2026-10-31T00:00:01Z" };
     await act(async () => streams[0]!.emit(live));
     expect(result.current.messages.map((item) => item.id)).toEqual(["live-a"]);
 

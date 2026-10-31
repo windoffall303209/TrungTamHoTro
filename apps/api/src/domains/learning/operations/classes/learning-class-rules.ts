@@ -13,12 +13,11 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 /** Chuyển các bộ đếm nghiệp vụ còn mở thành danh sách blocker đóng lớp. */
 export function buildClassClosureReadiness(
   status: LearningClass["status"],
-  endAt: Date,
+  _endAt: Date,
   counts: Omit<ClassClosureReadiness, "eligible" | "blockers">,
 ): ClassClosureReadiness {
   const blockers: string[] = [];
   if (status !== "ACTIVE") blockers.push("lớp không ở trạng thái hoạt động");
-  if (endAt > new Date()) blockers.push("chưa đến ngày kết thúc lớp");
   if (counts.openExams)
     blockers.push(`${counts.openExams} kỳ thi đang mở hoặc chờ duyệt`);
   if (counts.inProgressAttempts)

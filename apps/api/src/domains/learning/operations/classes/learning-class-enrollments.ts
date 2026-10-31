@@ -36,18 +36,6 @@ export async function enrollLearner(
         if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
         if (classItem.status === "CLOSED")
           throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-        if (new Date() > classItem.endAt)
-          throw new ConflictException(
-            "Lớp đã kết thúc, không thể ghi danh thêm học viên.",
-          );
-        if (
-          classItem.status === "ACTIVE" &&
-          new Date() > classItem.startAt &&
-          !classItem.allowLateEnrollment
-        )
-          throw new ConflictException(
-            "Lớp đã bắt đầu và không cho phép ghi danh muộn.",
-          );
         if (classItem.enrollments.some((row) => row.learnerId === learnerId))
           throw new ConflictException("Học viên đã có trong lớp.");
         if (classItem.enrollments.length >= classItem.capacity)
@@ -98,18 +86,6 @@ export async function enrollLearner(
   const item = serviceContext.findClass(classId);
   if (item.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (new Date() > new Date(item.endAt))
-    throw new ConflictException(
-      "Lớp đã kết thúc, không thể ghi danh thêm học viên.",
-    );
-  if (
-    item.status === "ACTIVE" &&
-    new Date() > new Date(item.startAt) &&
-    !item.allowLateEnrollment
-  )
-    throw new ConflictException(
-      "Lớp đã bắt đầu và không cho phép ghi danh muộn.",
-    );
   if (item.learnerIds.includes(learnerId))
     throw new ConflictException("Học viên đã có trong lớp.");
   if (item.learnerIds.length >= item.capacity)

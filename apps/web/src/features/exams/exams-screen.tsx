@@ -277,7 +277,7 @@ export default function ExamsScreen() {
                       <th className="px-3 py-2.5 text-center">{learner ? "Lượt còn lại" : "Thang điểm"}</th>
                       <th className="px-3.5 py-2.5">Thời gian mở</th>
                       <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
-                      <th className="w-[250px] px-3 py-2.5 text-center sm:text-right">Thao tác</th>
+                      <th className="w-[150px] px-3 py-2.5 text-center">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -315,42 +315,36 @@ export default function ExamsScreen() {
                           <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
                             <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.status} />
                           </td>
-                          <td className="w-[250px] px-3 py-2.5 align-middle">
-                            <div className="flex flex-wrap items-center justify-end gap-1">
+                          <td className="w-[150px] px-3 py-2.5 align-middle">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
                               {instructor ? (
                                 <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Eye size={14} />
-                                  <span className="hidden md:inline">Xem đề</span>
                                 </Button>
                               ) : null}
                               {canReview && item.status === "PENDING_REVIEW" ? (
                                 <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Eye size={14} />
-                                  <span className="hidden md:inline">Xem đề</span>
                                 </Button>
                               ) : null}
                               {instructor && item.status === "DRAFT" ? (
                                 <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Pencil size={14} />
-                                  <span className="hidden md:inline">Sửa đề</span>
                                 </Button>
                               ) : null}
                               {instructor && item.status === "DRAFT" ? (
                                 <Button aria-label="Phát hành đề" title="Phát hành đề" onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2 text-xs font-semibold">
                                   <Send size={13} />
-                                  <span className="hidden md:inline">Phát hành</span>
                                 </Button>
                               ) : null}
                               {(instructor || canReview) && item.status === "PENDING_REVIEW" ? (
                                 <Button aria-label="Phát hành ngay" title="Phát hành ngay" loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2 text-xs font-semibold">
                                   <CheckCircle2 size={13} />
-                                  <span className="hidden md:inline">Phát hành</span>
                                 </Button>
                               ) : null}
                               {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
                                 <Button aria-label={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} title={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} onClick={() => void start(item)} className="h-8 px-2 text-xs font-semibold">
                                   <Play size={13} />
-                                  <span className="hidden md:inline">{item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục" : "Bắt đầu"}</span>
                                 </Button>
                               ) : null}
                             </div>
@@ -390,7 +384,7 @@ export default function ExamsScreen() {
                       <th className="px-3.5 py-2.5 text-center">Điểm số</th>
                       <th className="px-4 py-2.5">Điểm từng câu</th>
                       <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
-                      <th className="px-4 py-2.5 text-right">Thao tác</th>
+                      <th className="px-4 py-2.5 text-center">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -429,7 +423,7 @@ export default function ExamsScreen() {
                         <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
                           <StatusBadge status={result.regradeRequest?.status ?? "PUBLISHED"} />
                         </td>
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
                           {!result.regradeRequest ? (
                             <Button
                               onClick={() => {
@@ -438,12 +432,13 @@ export default function ExamsScreen() {
                               }}
                               variant="secondary"
                               className="h-8 px-2.5 text-xs font-semibold"
+                              aria-label="Yêu cầu phúc khảo"
+                              title="Yêu cầu phúc khảo"
                             >
                               <RotateCcw size={13} />
-                              Phúc khảo
                             </Button>
                           ) : (
-                            <span className="text-xs text-slate-400">Đã gửi phúc khảo</span>
+                            <span className="inline-flex items-center justify-center text-emerald-600" role="status" title="Đã gửi phúc khảo" aria-label="Đã gửi phúc khảo"><CheckCircle2 size={16} /></span>
                           )}
                         </td>
                       </tr>

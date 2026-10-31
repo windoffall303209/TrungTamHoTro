@@ -18,30 +18,34 @@ import {
   Reply,
   Search,
   ShieldAlert,
+  Smile,
   Square,
   SquarePen,
   UserX,
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRef, useState } from "react";
 import { InlineChatImage, roleLabels } from "./messages.shared";
 import { useMessagesModel } from "./use-messages-model";
+import { UserAvatar } from "@/shared/ui/user-avatar";
+
+const CHAT_EMOJI_GROUPS = [
+  { label: "Cảm xúc", icons: ["😀", "😄", "😆", "🥰", "😍", "😘", "🥹", "😂", "🤣", "😊", "😎", "🤩", "😭", "🥲", "😮", "😡"] },
+  { label: "Cử chỉ", icons: ["👍", "👎", "👏", "🙌", "🤝", "🙏", "💪", "👌", "✌️", "🫶", "❤️", "💖"] },
+  { label: "Vui nhộn", icons: ["🎉", "🎊", "✨", "🔥", "💯", "🌟", "🌈", "🎁", "🐱", "🐼", "🌻", "☕"] },
+] as const;
 
 /** Hiển thị avatar tròn tinh gọn chuẩn phong cách Messenger */
 function UserAvatarBadge({
   name,
+  avatarUrl,
   size = "md",
 }: {
   name: string;
+  avatarUrl?: string | null;
   size?: "xs" | "sm" | "md" | "lg";
 }) {
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .slice(-2)
-    .map((w) => w[0]?.toUpperCase())
-    .join("");
-
   const sizeClass = {
     xs: "size-6 text-[10px]",
     sm: "size-8 text-xs",
@@ -51,11 +55,7 @@ function UserAvatarBadge({
 
   return (
     <div className="relative shrink-0 select-none">
-      <div
-        className={`${sizeClass} rounded-full bg-slate-300 dark:bg-[#3a3b3c] text-slate-700 dark:text-slate-200 grid place-items-center font-medium overflow-hidden`}
-      >
-        {initials || "U"}
-      </div>
+      <UserAvatar avatarUrl={avatarUrl} name={name} className={sizeClass} />
     </div>
   );
 }
@@ -63,6 +63,8 @@ function UserAvatarBadge({
 /** Màn hình tin nhắn 1-1 chuyên nghiệp chuẩn phong cách Messenger phẳng, hạn chế bo góc và không màu mè. */
 export default function MessagesScreen() {
   const model = useMessagesModel();
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const draftInputRef = useRef<HTMLInputElement>(null);
   const {
     session,
     locale,
@@ -108,6 +110,19 @@ export default function MessagesScreen() {
     blockDirectUser,
     openAttachment,
   } = model;
+
+  // Chèn emoji tại con trỏ đang soạn và khôi phục vị trí nhập liệu.
+  const insertEmoji = (emoji: string) => {
+    const input = draftInputRef.current;
+    const start = input?.selectionStart ?? draft.length;
+    const end = input?.selectionEnd ?? draft.length;
+    updateDraft(draft.slice(0, start) + emoji + draft.slice(end));
+    setEmojiOpen(false);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
 
   // Lấy thông tin người đối thoại 1-1 từ members của cuộc trò chuyện
   const partnerMember = selected?.members.find(
@@ -184,7 +199,7 @@ export default function MessagesScreen() {
                   type="button"
                   className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-slate-200/60 dark:hover:bg-[#2a2b2c] transition-colors cursor-pointer"
                 >
-                  <UserAvatarBadge name={entry.displayName} size="sm" />
+                  <UserAvatarBadge name={entry.displayName} avatarUrl={entry.avatarUrl} size="sm" />
                   <span className="min-w-0 flex-1">
                     <strong className="block truncate text-xs sm:text-sm text-slate-800 dark:text-white font-medium">
                       {entry.displayName}
@@ -222,7 +237,7 @@ export default function MessagesScreen() {
                         : "hover:bg-slate-50 dark:hover:bg-[#202124] text-slate-700 dark:text-slate-300"
                     }`}
                   >
-                    <UserAvatarBadge name={title} size="md" />
+                    <UserAvatarBadge name={title} avatarUrl={partner?.avatarUrl} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5">
                         <strong
@@ -282,6 +297,7 @@ export default function MessagesScreen() {
                   </button>
                   <UserAvatarBadge
                     name={partnerMember?.displayName || selected.title}
+                    avatarUrl={partnerMember?.avatarUrl}
                     size="sm"
                   />
                   <div className="min-w-0">
@@ -397,6 +413,7 @@ export default function MessagesScreen() {
                 <div className="flex flex-col items-center justify-center p-4 text-center my-2">
                   <UserAvatarBadge
                     name={partnerMember?.displayName || selected.title}
+                    avatarUrl={partnerMember?.avatarUrl}
                     size="lg"
                   />
                   <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-2">
@@ -440,6 +457,7 @@ export default function MessagesScreen() {
                           <div className="mb-0.5 shrink-0">
                             <UserAvatarBadge
                               name={message.senderName || selected.title}
+                              avatarUrl={message.senderAvatarUrl}
                               size="xs"
                             />
                           </div>
@@ -636,7 +654,7 @@ export default function MessagesScreen() {
                   )}
 
                   {/* Thanh công cụ nhập tin nhắn */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="relative flex items-center gap-1.5">
                     {/* Nút ghi âm micro */}
                     <button
                       type="button"
@@ -669,9 +687,49 @@ export default function MessagesScreen() {
                       />
                     </label>
 
+                    {/* Bảng emoji theo chủ đề, chèn ngay tại vị trí con trỏ. */}
+                    <button
+                      type="button"
+                      onClick={() => setEmojiOpen((current) => !current)}
+                      className="grid size-8.5 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-sky-600 dark:text-slate-400 dark:hover:bg-[#303031]"
+                      aria-label="Mở bảng emoji"
+                      aria-expanded={emojiOpen}
+                      title="Chèn biểu tượng cảm xúc"
+                    >
+                      <Smile size={18} />
+                    </button>
+                    {emojiOpen && (
+                      <div
+                        role="dialog"
+                        aria-label="Chọn biểu tượng cảm xúc"
+                        onKeyDown={(event) => { if (event.key === "Escape") setEmojiOpen(false); }}
+                        className="absolute bottom-full left-0 z-30 mb-3 max-h-72 w-[min(21rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-[#242526]"
+                      >
+                        {CHAT_EMOJI_GROUPS.map((group) => (
+                          <section key={group.label} className="mb-3 last:mb-0">
+                            <h3 className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-300">{group.label}</h3>
+                            <div className="grid grid-cols-8 gap-1">
+                              {group.icons.map((emoji) => (
+                                <button
+                                  type="button"
+                                  key={emoji}
+                                  onClick={() => insertEmoji(emoji)}
+                                  aria-label={`Chèn ${emoji}`}
+                                  className="grid size-8 place-items-center rounded-md text-xl transition-transform hover:scale-125 hover:bg-sky-100 focus-visible:outline-2 focus-visible:outline-sky-500 dark:hover:bg-slate-700"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Ô input Aa viên thuốc phẳng chuẩn Messenger */}
                     <div className="flex-1 flex items-center rounded-full bg-slate-100 dark:bg-[#242526] px-3.5 py-1.5 transition-colors">
                       <input
+                        ref={draftInputRef}
                         type="text"
                         value={draft}
                         onChange={(e) => updateDraft(e.target.value)}

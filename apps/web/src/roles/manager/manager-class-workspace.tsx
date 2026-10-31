@@ -135,6 +135,7 @@ function ManagerFolderSearch({
 export function ManagerClassWorkspace({
   item,
   course,
+  readiness,
   saving,
   onBack,
   instructorForm,
@@ -180,6 +181,7 @@ export function ManagerClassWorkspace({
     name: item.name,
     capacity: item.capacity ?? 40,
     description: "description" in item && typeof item.description === "string" ? item.description : "",
+    allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
   });
 
   // Trạng thái xem lịch học & xác nhận kích hoạt/đóng lớp học
@@ -187,6 +189,10 @@ export function ManagerClassWorkspace({
   const [confirmActivateOpen, setConfirmActivateOpen] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [closingClass, setClosingClass] = useState(false);
+  const [closeReadiness, setCloseReadiness] = useState<ClassClosureReadiness | null>(readiness);
+  const [closeReadinessLoading, setCloseReadinessLoading] = useState(false);
+  const [closeReadinessError, setCloseReadinessError] = useState("");
+  const closeReadinessRequestRef = useRef(0);
 
   // Trạng thái tab Bài tập (chuẩn giao diện học sinh)
   const [selectedAssignmentFolder, setSelectedAssignmentFolder] = useState<string>("__ALL__");
@@ -210,13 +216,50 @@ export function ManagerClassWorkspace({
       name: item.name,
       capacity: item.capacity ?? 40,
       description: "description" in item && typeof item.description === "string" ? item.description : "",
+      allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
     });
   }, [item]);
 
   useEffect(() => () => {
     copyRequest.current += 1;
+    closeReadinessRequestRef.current += 1;
     if (copyTimer.current !== null) clearTimeout(copyTimer.current);
   }, []);
+
+  // Cập nhật điều kiện đóng lớp từ máy chủ mỗi khi mở hộp thoại xác nhận.
+  const refreshCloseReadiness = async () => {
+    const requestId = ++closeReadinessRequestRef.current;
+    setCloseReadinessLoading(true);
+    setCloseReadinessError("");
+    try {
+      const latest = await apiRequest<ClassClosureReadiness>(
+        `/manager/classes/${item.id}/closure-readiness`,
+      );
+      if (requestId === closeReadinessRequestRef.current) setCloseReadiness(latest);
+    } catch (error) {
+      if (requestId === closeReadinessRequestRef.current) {
+        setCloseReadiness(null);
+        setCloseReadinessError(error instanceof Error ? error.message : "Không kiểm tra được điều kiện đóng lớp.");
+      }
+    } finally {
+      if (requestId === closeReadinessRequestRef.current) setCloseReadinessLoading(false);
+    }
+  };
+
+  // Mở xác nhận và bỏ dữ liệu cũ trong lúc điều kiện đóng lớp được làm mới.
+  const openCloseConfirmation = () => {
+    setCloseReadiness(readiness);
+    setConfirmCloseOpen(true);
+    void refreshCloseReadiness();
+  };
+
+  // Hủy yêu cầu kiểm tra đang chạy khi người dùng đóng hộp thoại.
+  const dismissCloseConfirmation = () => {
+    if (closingClass) return;
+    closeReadinessRequestRef.current += 1;
+    setCloseReadinessLoading(false);
+    setConfirmCloseOpen(false);
+  };
 
   const classGrade = currentClass.grade ?? course?.grade;
   const classSubject = currentClass.subject ?? course?.subject;
@@ -263,6 +306,7 @@ export function ManagerClassWorkspace({
         body: JSON.stringify({
           name: settingsForm.name.trim(),
           capacity: Number(settingsForm.capacity),
+          allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
         }),
       });
       setCurrentClass((prev) => ({
@@ -271,6 +315,7 @@ export function ManagerClassWorkspace({
         name: settingsForm.name.trim(),
         capacity: Number(settingsForm.capacity),
         description: settingsForm.description.trim(),
+        allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
       } as LearningClass));
       notify("Đã cập nhật cài đặt lớp học thành công.", "success");
       setSettingsModalOpen(false);
@@ -370,7 +415,7 @@ export function ManagerClassWorkspace({
           {currentClass.status !== "DRAFT" && currentClass.status !== "CLOSED" && (
             <Button
               loading={closingClass}
-              onClick={() => setConfirmCloseOpen(true)}
+              onClick={openCloseConfirmation}
               className="h-8 px-3 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
             >
               <Lock size={14} />
@@ -1666,6 +1711,19 @@ export function ManagerClassWorkspace({
             />
           </Field>
 
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-sky-600"
+              checked={settingsForm.allowPeerGradeViewing}
+              onChange={(event) => setSettingsForm((current) => ({ ...current, allowPeerGradeViewing: event.target.checked }))}
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép học sinh xem điểm của nhau</span>
+              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Học sinh trong lớp có thể xem bảng điểm chung. Chỉ giáo viên được cập nhật điểm.</span>
+            </span>
+          </label>
+
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setSettingsModalOpen(false)} type="button">
               Hủy
@@ -1716,7 +1774,7 @@ export function ManagerClassWorkspace({
       {/* Modal xác nhận đóng lớp */}
       <Modal
         open={confirmCloseOpen}
-        onClose={() => setConfirmCloseOpen(false)}
+        onClose={dismissCloseConfirmation}
         title="Xác nhận đóng lớp học"
         description={`Bạn có chắc chắn muốn đóng lớp học "${currentClass.name}"?`}
       >
@@ -1724,11 +1782,36 @@ export function ManagerClassWorkspace({
           <p className="text-xs text-slate-600 dark:text-slate-400">
             Sau khi đóng, lớp học sẽ chuyển sang trạng thái lưu trữ (CLOSED). Học viên sẽ không thể nộp bài tập mới hoặc thực hiện các hoạt động tính điểm.
           </p>
+          {closeReadinessLoading ? (
+            <p role="status" className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              Đang kiểm tra bài thi, bài tập, buổi học và điểm danh còn mở...
+            </p>
+          ) : closeReadiness?.eligible ? (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+              Lớp đã đủ điều kiện đóng và lưu trữ.
+            </p>
+          ) : closeReadiness && closeReadiness.blockers.length > 0 ? (
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-200">Cần xử lý trước khi đóng lớp:</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-800 dark:text-amber-300">
+                {closeReadiness.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              </ul>
+              <a href={`/class-lifecycle?classId=${encodeURIComponent(item.id)}`} className="mt-3 inline-block text-xs font-semibold text-amber-900 underline underline-offset-2 dark:text-amber-200">
+                Xem chi tiết và xử lý điều kiện đóng lớp
+              </a>
+            </div>
+          ) : null}
+          {closeReadinessError && (
+            <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+              Không kiểm tra được điều kiện: {closeReadinessError}. Hệ thống vẫn sẽ kiểm tra lại khi xác nhận.
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
-            <Button variant="secondary" onClick={() => setConfirmCloseOpen(false)} type="button">
+            <Button variant="secondary" onClick={dismissCloseConfirmation} type="button" disabled={closingClass}>
               Hủy
             </Button>
             <Button
+              disabled={closeReadinessLoading || (closeReadiness !== null && !closeReadiness.eligible)}
               loading={closingClass}
               className="bg-rose-600 hover:bg-rose-700 text-white"
               onClick={async () => {
@@ -1738,16 +1821,19 @@ export function ManagerClassWorkspace({
                     method: "POST",
                     body: JSON.stringify({
                       closeReason: "Kết thúc khóa học",
-                      archivePolicy: "READ_ONLY",
+                      archivePolicy: "STANDARD_RETENTION",
                     }),
                   });
                   setCurrentClass((prev) => ({ ...prev, status: "CLOSED" }));
                   notify("Đã đóng lớp học thành công.", "success");
+                  closeReadinessRequestRef.current += 1;
+                  setCloseReadinessLoading(false);
+                  setConfirmCloseOpen(false);
                 } catch (err) {
                   notify(err instanceof Error ? err.message : "Đóng lớp thất bại.", "error");
+                  void refreshCloseReadiness();
                 } finally {
                   setClosingClass(false);
-                  setConfirmCloseOpen(false);
                 }
               }}
             >

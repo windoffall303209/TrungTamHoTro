@@ -77,6 +77,7 @@ export function mapClass(row: ClassWithMembers): LearningClass {
     capacity: row.capacity,
     timezone: row.timezone,
     allowLateEnrollment: row.allowLateEnrollment,
+    allowPeerGradeViewing: row.allowPeerGradeViewing,
     status: row.status,
     instructorIds: row.instructors.map(({ instructorId }) => instructorId),
     learnerIds: row.enrollments.map(({ learnerId }) => learnerId),

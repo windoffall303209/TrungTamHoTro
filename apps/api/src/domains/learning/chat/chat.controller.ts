@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -93,8 +94,9 @@ export class ChatController {
   events(
     @Param("conversationId") conversationId: string,
     @CurrentSession() session: AuthenticatedSession,
-  ): Observable<{ data: ChatMessageView }> {
-    return this.chat.watchMessages(conversationId, session);
+    @Headers("last-event-id") lastEventId?: string,
+  ): Observable<{ data: ChatMessageView; id: string }> {
+    return this.chat.watchMessages(conversationId, session, lastEventId);
   }
 
   /** Tìm nội dung trong một hội thoại thuộc phạm vi truy cập. */

@@ -30,7 +30,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import type { PermissionCode, RoleCode } from "@/lib/app-types";
 import { hasAnyPermission } from "@/lib/access-control";
@@ -320,9 +320,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             ? { title: "Menu quản trị hệ thống", items: adminNavItems }
             : null;
   // Tải danh sách thông báo
-  const loadNotifications = useCallback(async () => {
-    setNotificationLoading(true);
-    setNotificationError("");
+  const loadNotifications = useCallback(async (quiet = false) => {
+    if (!quiet) {
+      setNotificationLoading(true);
+      setNotificationError("");
+    }
     try {
       setNotifications(
         await apiRequest<LearningNotification[]>("/notifications", {
@@ -330,12 +332,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         }),
       );
     } catch (error) {
-      setNotifications([]);
-      setNotificationError(
-        error instanceof Error ? error.message : "Không thể tải thông báo.",
-      );
+      if (!quiet) {
+        setNotificationError(
+          error instanceof Error ? error.message : "Không thể tải thông báo.",
+        );
+      }
     } finally {
-      setNotificationLoading(false);
+      if (!quiet) setNotificationLoading(false);
     }
   }, [session.roleCode]);
 
@@ -343,6 +346,42 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     window.queueMicrotask(() => {
       void loadNotifications();
     });
+  }, [loadNotifications]);
+
+  // Nhận thay đổi thông báo qua SSE; tự kiểm tra dự phòng nếu luồng bị ngắt.
+  useEffect(() => {
+    let active = true;
+    const events = typeof EventSource === "undefined" ? null : new EventSource(publicApiUrl("/notifications/events"), { withCredentials: true });
+    if (events) events.onmessage = (event) => {
+      if (!active) return;
+      try {
+        const payload: unknown = JSON.parse(event.data);
+        if (!Array.isArray(payload) || !payload.every((item) => item && typeof item === "object" && typeof item.id === "string")) return;
+        setNotifications(payload as LearningNotification[]);
+        setNotificationLoading(false);
+      } catch (error) {
+        console.warn("Bỏ qua dữ liệu thông báo SSE không hợp lệ.", error);
+      }
+    };
+    if (events) events.onerror = () => {
+      if (active && document.visibilityState === "visible") void loadNotifications(true);
+    };
+    /** Làm mới thông báo khi cửa sổ hoạt động hoặc kết nối SSE gián đoạn. */
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadNotifications(true);
+    };
+    const timer = window.setInterval(() => {
+      if (!events || events.readyState !== EventSource.OPEN) refresh();
+    }, 12000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      events?.close();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [loadNotifications]);
 
   useEffect(() => {

@@ -41,6 +41,7 @@ export interface LearningClass {
   capacity: number;
   timezone: string;
   allowLateEnrollment: boolean;
+  allowPeerGradeViewing?: boolean;
   status: "DRAFT" | "ACTIVE" | "CLOSED";
   instructorIds: string[];
   learnerIds: string[];

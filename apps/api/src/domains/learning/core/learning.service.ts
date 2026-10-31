@@ -755,7 +755,7 @@ export class LearningService {
   /** Cập nhật thông tin và cài đặt lớp học. */
   async updateClass(
     classId: string,
-    input: { name?: string; capacity?: number; allowLateEnrollment?: boolean },
+    input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
     actorId = "usr-manager",
   ): Promise<LearningClass> {
     return await classes_ops.updateClass(this.operationContext, classId, input, actorId);

@@ -29,6 +29,7 @@ import {
   Lock,
   AlertCircle,
   Info,
+  ClipboardList,
 } from "lucide-react";
 import type {
   LearningClass,
@@ -38,12 +39,14 @@ import type {
   Material,
   LearnerResult,
   LiveSession,
+  GradebookRow,
 } from "@/lib/learning-types";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
+import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 import { filterLearnerAssignments, filterLearnerFiles, getLearnerFolderNames } from "./learner-class-workspace.helpers";
 
@@ -61,7 +64,7 @@ interface LearnerClassWorkspaceProps {
   onBack?: () => void;
 }
 
-type SubTab = "feed" | "schedule" | "members" | "assignments" | "lectures" | "materials";
+type SubTab = "feed" | "schedule" | "members" | "assignments" | "lectures" | "materials" | "gradebook";
 
 export interface AttemptRecord {
   id: string;
@@ -191,6 +194,7 @@ export function LearnerClassWorkspace({
         "assignments",
         "lectures",
         "materials",
+        ...(item.allowPeerGradeViewing ? ["gradebook" as const] : []),
       ];
       if (tabParam && validTabs.includes(tabParam)) return tabParam;
 
@@ -224,10 +228,40 @@ export function LearnerClassWorkspace({
   const [classMaterials, setClassMaterials] = useState<Material[]>([]);
   const [learnerResults, setLearnerResults] = useState<LearnerResult[]>([]);
   const [classSessions, setClassSessions] = useState<LiveSession[]>([]);
+  const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [gradebookError, setGradebookError] = useState("");
+  const [gradebookLoading, setGradebookLoading] = useState(false);
+  const [gradebookSearch, setGradebookSearch] = useState("");
   const [dataLoadError, setDataLoadError] = useState<string | null>(null);
   const classDataRequestRef = useRef(0);
   const classDataControllerRef = useRef<AbortController | null>(null);
   const loadedClassIdRef = useRef(item.id);
+
+  // Loads the read-only class gradebook only when the manager allows peer visibility.
+  useEffect(() => {
+    if (!item.allowPeerGradeViewing || activeTab !== "gradebook") return;
+    let active = true;
+    const controller = new AbortController();
+    setGradebookLoading(true);
+    setGradebookError("");
+    void apiRequest<GradebookRow[]>(`/academic/classes/${encodeURIComponent(item.id)}/gradebook`, { signal: controller.signal })
+      .then((rows) => {
+        if (active) {
+          setGradebook(rows);
+          setGradebookError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) setGradebookError(error instanceof Error ? error.message : "Không tải được bảng điểm.");
+      })
+      .finally(() => { if (active) setGradebookLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [activeTab, item.id, item.allowPeerGradeViewing]);
+
+  // Resets a stale gradebook selection when the manager disables visibility.
+  useEffect(() => {
+    if (!item.allowPeerGradeViewing && activeTab === "gradebook") handleSelectTab("feed");
+  }, [activeTab, handleSelectTab, item.allowPeerGradeViewing]);
 
   /** Tải dữ liệu lớp, bỏ phản hồi cũ và xóa dữ liệu thuộc lớp trước khi đổi lớp. */
   const loadClassData = useCallback(async () => {
@@ -1101,6 +1135,7 @@ export function LearnerClassWorkspace({
                 { id: "assignments" as const, label: "Bài tập", icon: FileText },
                 { id: "lectures" as const, label: "Bài giảng", icon: Video },
                 { id: "materials" as const, label: "Tài liệu", icon: Folder },
+                ...(item.allowPeerGradeViewing ? [{ id: "gradebook" as const, label: "Bảng điểm", icon: ClipboardList }] : []),
               ].map(({ id, label, icon: Icon }) => {
                 const active = activeTab === id;
                 return (
@@ -1130,6 +1165,41 @@ export function LearnerClassWorkspace({
               <span>{dataLoadError}</span>
               <button type="button" onClick={() => void loadClassData()} className="rounded-lg border border-current px-3 py-1 font-semibold hover:opacity-80">Tải lại</button>
             </div>
+          )}
+          {activeTab === "gradebook" && item.allowPeerGradeViewing && (
+            <section className="space-y-4" aria-label="Bảng điểm lớp học">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Bảng điểm tổng hợp ({item.name})</h1>
+                  <p className="text-xs text-slate-500">Điểm thi, điểm bài tập và trạng thái chấm bài của lớp. Chế độ chỉ xem.</p>
+                </div>
+                <div className="relative">
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input aria-label="Tìm học sinh" type="search" placeholder="Tìm theo tên hoặc email..." value={gradebookSearch} onChange={(event) => setGradebookSearch(event.target.value)} className="w-64 max-w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs dark:border-slate-700 dark:bg-slate-900" />
+                </div>
+              </div>
+              {gradebookError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{gradebookError}</p>}
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900/90">
+                <table className="w-full border-collapse text-left text-xs">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-extrabold uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-800/60">
+                    <tr><th className="min-w-44 px-4 py-3">Học sinh</th><th className="px-4 py-3 text-center">Điểm thi</th><th className="px-4 py-3 text-center">Điểm bài tập</th><th className="px-4 py-3 text-center">Tổng (%)</th><th className="px-4 py-3 text-center">Chờ chấm</th><th className="px-4 py-3 text-center">Chưa nộp</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {gradebook.filter((row) => `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase())).map((row) => (
+                      <tr key={row.learnerId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                        <td className="px-4 py-3"><div className="flex items-center gap-2 font-bold"><UserAvatar name={row.learnerName} className="size-6 text-[10px]" /><span>{row.learnerName}</span></div><span className="text-slate-500">{row.learnerEmail}</span></td>
+                        <td className="px-4 py-3 text-center">{row.examEarned} / {row.examPossible}</td>
+                        <td className="px-4 py-3 text-center">{row.assignmentEarned} / {row.assignmentPossible}</td>
+                        <td className="px-4 py-3 text-center"><span className={`inline-flex rounded-full border px-2 py-0.5 font-bold ${getScoreColorClass(row.totalPercent, 100)}`}>{row.totalPercent.toFixed(1)}%</span></td>
+                        <td className="px-4 py-3 text-center">{row.awaitingGrade}</td><td className="px-4 py-3 text-center">{row.notSubmitted}</td>
+                      </tr>
+                    ))}
+                    {!gradebookLoading && gradebook.filter((row) => `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase())).length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">{gradebookSearch ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}</td></tr>}
+                    {gradebookLoading && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Đang tải bảng điểm...</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
           {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE VỚI BÌNH LUẬN ĐA TẦNG) ================= */}
           {activeTab === "feed" && (

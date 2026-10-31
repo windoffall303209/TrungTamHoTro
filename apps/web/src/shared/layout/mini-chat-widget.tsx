@@ -13,9 +13,10 @@ import {
   ChevronDown,
   SquarePen,
 } from "lucide-react";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { usePathname } from "next/navigation";
+import { UserAvatar } from "@/shared/ui/user-avatar";
 
 export interface ChatContact {
   id: string;
@@ -34,8 +35,28 @@ export interface MiniChatMessage {
   senderId: string;
   content: string;
   createdAt: string;
+  createdAtIso?: string;
+  clientMessageId?: string;
   isLike?: boolean;
   imageUrl?: string;
+  status?: "sending" | "failed";
+}
+
+// Gộp phản hồi lịch sử, SSE và tin tạm theo ID để giữ tin mới khi các request trả về lệch thứ tự.
+function mergeMiniChatMessages(previous: MiniChatMessage[], incoming: MiniChatMessage[]): MiniChatMessage[] {
+  const combined = [...previous, ...incoming];
+  const confirmedClientIds = new Set(
+    combined.filter((message) => !message.status && message.clientMessageId).map((message) => message.clientMessageId),
+  );
+  const byId = new Map<string, MiniChatMessage>();
+  for (const message of combined) {
+    if (message.status && confirmedClientIds.has(message.id)) continue;
+    byId.set(message.id, message);
+  }
+  return [...byId.values()].sort((left, right) => {
+    if (!left.createdAtIso || !right.createdAtIso) return 0;
+    return left.createdAtIso.localeCompare(right.createdAtIso) || left.id.localeCompare(right.id);
+  });
 }
 
 export interface MinimizedBubble {
@@ -177,13 +198,7 @@ function ContactAvatarBadge({
 
   return (
     <div className="relative shrink-0">
-      <div
-        className={`${sizeClasses} rounded-full bg-gradient-to-tr ${
-          contact.gradient || "from-blue-600 to-indigo-600"
-        } grid place-items-center text-white font-black shadow-md overflow-hidden select-none`}
-      >
-        {contact.initials || contact.name.slice(0, 2).toUpperCase()}
-      </div>
+      <UserAvatar avatarUrl={contact.avatarUrl} name={contact.name} className={sizeClasses} />
       {showOnline && contact.isOnline && (
         <span
           className={`absolute bottom-0 right-0 ${dotSize} rounded-full bg-emerald-500 border-[#1e1f24] shadow-xs`}
@@ -202,6 +217,7 @@ function SingleMiniChatWindow({
   onClose,
   onMinimize,
   onSendMessage,
+  onRetryMessage,
   onAttachImage,
 }: {
   contact: ChatContact;
@@ -210,11 +226,27 @@ function SingleMiniChatWindow({
   onClose: () => void;
   onMinimize: () => void;
   onSendMessage: (text: string, isLike?: boolean) => void;
+  onRetryMessage: (message: MiniChatMessage) => void;
   onAttachImage: (file: File) => void;
 }) {
   const [inputText, setInputText] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const textInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Chèn emoji tại vị trí con trỏ để giữ nguyên nội dung người dùng đang soạn.
+  const insertEmoji = (emoji: string) => {
+    const input = textInputRef.current;
+    const start = input?.selectionStart ?? inputText.length;
+    const end = input?.selectionEnd ?? inputText.length;
+    setInputText((value) => value.slice(0, start) + emoji + value.slice(end));
+    setEmojiOpen(false);
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
 
   // Tự động cuộn xuống dòng tin nhắn mới nhất
   useEffect(() => {
@@ -229,6 +261,7 @@ function SingleMiniChatWindow({
     if (!inputText.trim()) return;
     onSendMessage(inputText.trim(), false);
     setInputText("");
+    setEmojiOpen(false);
   };
 
   // Xử lý chọn file ảnh từ máy tính cá nhân
@@ -338,8 +371,13 @@ function SingleMiniChatWindow({
                   </div>
                 )}
                 <span className="text-[9px] text-slate-500 mt-0.5 px-1 font-medium">
-                  {msg.createdAt} {isMe && "· Đã gửi"}
+                  {msg.createdAt} {isMe && (msg.status === "sending" ? "· Đang gửi…" : msg.status === "failed" ? "· Gửi thất bại" : "· Đã gửi")}
                 </span>
+                {isMe && msg.status === "failed" && (
+                  <button type="button" onClick={() => onRetryMessage(msg)} className="text-[10px] font-semibold text-rose-300 underline underline-offset-2 hover:text-rose-200">
+                    Thử gửi lại
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -350,8 +388,26 @@ function SingleMiniChatWindow({
       {/* Footer nhập tin nhắn và đính kèm */}
       <form
         onSubmit={handleSubmit}
-        className="h-12 px-2 bg-[#26272e] border-t border-slate-700/80 flex items-center gap-1"
+        className="relative h-12 px-2 bg-[#26272e] border-t border-slate-700/80 flex items-center gap-1"
       >
+        {emojiOpen && (
+          <div role="dialog" aria-label="Chọn biểu tượng cảm xúc" onKeyDown={(event) => { if (event.key === "Escape") setEmojiOpen(false); }} className="absolute z-30 bottom-12 left-2 right-2 max-h-64 overflow-y-auto rounded-xl border border-slate-600 bg-[#272932] p-3 shadow-2xl">
+            {[
+              { label: "Cảm xúc", icons: ["😀", "😄", "😆", "🥰", "😍", "😘", "🥹", "😂", "🤣", "😊", "😎", "🤩", "😭", "🥲", "😮", "😡"] },
+              { label: "Cử chỉ", icons: ["👍", "👎", "👏", "🙌", "🤝", "🙏", "💪", "👌", "✌️", "🫶", "❤️", "💖"] },
+              { label: "Vui nhộn", icons: ["🎉", "🎊", "✨", "🔥", "💯", "🌟", "🌈", "🎁", "🐱", "🐼", "🌻", "☕"] },
+            ].map((group) => (
+              <div key={group.label} className="mb-2 last:mb-0">
+                <p className="mb-1 text-[10px] font-semibold tracking-wide text-slate-300">{group.label}</p>
+                <div className="grid grid-cols-8 gap-1">
+                  {group.icons.map((emoji) => (
+                    <button key={emoji} type="button" aria-label={`Chèn ${emoji}`} onClick={() => insertEmoji(emoji)} className="grid size-8 place-items-center rounded-md text-xl transition-transform hover:scale-125 hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-indigo-400">{emoji}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => alert("Chức năng ghi âm tin nhắn thoại")}
@@ -379,14 +435,17 @@ function SingleMiniChatWindow({
 
         <button
           type="button"
-          onClick={() => setInputText((prev) => `${prev} 😊`)}
+          onClick={() => setEmojiOpen((current) => !current)}
           className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
           title="Chèn biểu tượng cảm xúc"
+          aria-expanded={emojiOpen}
+          aria-label="Mở bảng emoji"
         >
           <Smile size={16} />
         </button>
 
         <input
+          ref={textInputRef}
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -520,7 +579,7 @@ const getMinimizedBubblesStorageKey = (userId: string) => `wind_edu_mini_chat_mi
 export function MiniChatWidget() {
   const pathname = usePathname();
   const { session } = useApp();
-  const currentUserId = session?.user?.id || "usr-learner-3";
+  const currentUserId = session?.user?.id ?? "";
   const restoredUserIdRef = useRef<string | null>(null);
 
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
@@ -546,7 +605,7 @@ export function MiniChatWidget() {
 
   // Lưu trạng thái các ô chat đang mở (OPEN) vào localStorage theo tài khoản người dùng
   useEffect(() => {
-    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test" || !currentUserId) return;
     if (restoredUserIdRef.current !== currentUserId) return;
     try {
       const key = getOpenWindowsStorageKey(currentUserId);
@@ -562,7 +621,7 @@ export function MiniChatWidget() {
 
   // Lưu trạng thái các cuộc trò chuyện thu nhỏ (MINIMIZED) vào localStorage theo tài khoản người dùng
   useEffect(() => {
-    if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
+    if (typeof window === "undefined" || process.env.NODE_ENV === "test" || !currentUserId) return;
     if (restoredUserIdRef.current !== currentUserId) return;
     try {
       const key = getMinimizedBubblesStorageKey(currentUserId);
@@ -579,47 +638,55 @@ export function MiniChatWidget() {
   // Đồng bộ lại dữ liệu khi người dùng chuyển đổi tài khoản
   useEffect(() => {
     if (typeof window === "undefined" || process.env.NODE_ENV === "test") return;
-    setOpenWindows(readStoredChatWindows(currentUserId));
-    setBubbles(readStoredChatBubbles(currentUserId));
+    setOpenWindows(currentUserId ? readStoredChatWindows(currentUserId) : []);
+    setBubbles(currentUserId ? readStoredChatBubbles(currentUserId) : []);
+    setChatMessages({});
+    setContacts(INITIAL_CONTACTS);
     restoredUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
   // Nạp danh bạ và cập nhật thông tin từ cơ sở dữ liệu PostgreSQL
   useEffect(() => {
+    if (!currentUserId) return;
     let active = true;
+    let refreshing = false;
     /** Tải danh bạ và hội thoại thật, đồng bộ các cửa sổ chat đang mở. */
     async function loadRealChatData() {
+      if (refreshing || document.visibilityState === "hidden") return;
+      refreshing = true;
       try {
         const [conversations, directory] = await Promise.all([
           apiRequest<
             Array<{
               id: string;
+              type: "DIRECT" | "CLASS";
               title?: string;
               unreadCount?: number;
-              members: Array<{ userId: string; displayName: string; roleCode?: string }>;
+              members: Array<{ userId: string; displayName: string; roleCode?: string; avatarUrl?: string }>;
             }>
           >("/chat/conversations").catch((error: unknown) => {
             console.warn("Không thể tải danh sách hội thoại.", error);
-            return [];
+            return null;
           }),
           apiRequest<
             Array<{
               id: string;
               displayName: string;
               roleCode: string;
+              avatarUrl?: string;
             }>
           >("/chat/directory").catch((error: unknown) => {
             console.warn("Không thể tải danh bạ trò chuyện.", error);
-            return [];
+            return null;
           }),
         ]);
 
         if (!active) return;
 
-        if (Array.isArray(directory) && directory.length > 0) {
+        if (Array.isArray(directory)) {
           const realContacts: ChatContact[] = directory.map((user) => {
             const conv = Array.isArray(conversations)
-              ? conversations.find((c) => c.members.some((m) => m.userId === user.id))
+              ? conversations.find((c) => c.type === "DIRECT" && c.members.some((m) => m.userId === user.id))
               : undefined;
             return {
               id: user.id,
@@ -629,10 +696,13 @@ export function MiniChatWidget() {
                   ? "Giảng viên"
                   : user.roleCode === "SYSTEM_ADMIN"
                     ? "Quản trị viên"
-                    : "Học viên",
+                    : user.roleCode === "CENTER_MANAGER"
+                      ? "Quản lý trung tâm"
+                      : "Học viên",
+              avatarUrl: user.avatarUrl,
               initials: user.displayName.slice(0, 2).toUpperCase(),
-              isOnline: true,
-              statusText: "Đang hoạt động",
+              isOnline: false,
+              statusText: "Có thể nhắn tin",
               conversationId: conv?.id,
             };
           });
@@ -645,50 +715,110 @@ export function MiniChatWidget() {
               return [...realContacts, ...retained];
             });
           } else {
-            setContacts(realContacts);
+            setContacts((prev) => JSON.stringify(prev) === JSON.stringify(realContacts) ? prev : realContacts);
           }
 
           // Đồng bộ lại conversationId cho các ô chat đang mở nếu vừa tìm thấy
-          setOpenWindows((prev) =>
-            prev.map((win) => {
-              if (win.conversationId) return win;
+          setOpenWindows((prev) => {
+            let changed = false;
+            const updated = prev.map((win) => {
               const matched = realContacts.find((c) => c.id === win.id);
-              return matched?.conversationId ? { ...win, conversationId: matched.conversationId } : win;
-            })
-          );
+              if (!matched) return win;
+              const next = { ...win, ...matched };
+              if (JSON.stringify(next) === JSON.stringify(win)) return win;
+              changed = true;
+              return next;
+            });
+            return changed ? updated : prev;
+          });
 
           // Cập nhật thông tin chi tiết và unreadCount cho các bong bóng ĐÃ ĐƯỢC người dùng chủ động thu nhỏ (MINIMIZED)
           // Tuyệt đối không tự ý thêm các cuộc trò chuyện gần đây thành avatar bong bóng nếu người dùng chưa thu nhỏ hoặc đã đóng (CLOSED)
           if (Array.isArray(conversations)) {
-            setBubbles((prev) =>
-              prev.map((bubble) => {
-                const conv = conversations.find((c) =>
+            setBubbles((prev) => {
+              let changed = false;
+              const updated = prev.map((bubble) => {
+                const conv = conversations.find((c) => c.type === "DIRECT" &&
                   c.members.some((m) => m.userId === bubble.contact.id)
                 );
                 const matchedContact = realContacts.find((c) => c.id === bubble.contact.id);
-                return {
+                const next = {
                   ...bubble,
                   contact: matchedContact ? { ...bubble.contact, ...matchedContact } : bubble.contact,
                   unreadCount: typeof conv?.unreadCount === "number" ? conv.unreadCount : bubble.unreadCount,
                 };
-              })
-            );
+                if (JSON.stringify(next) === JSON.stringify(bubble)) return bubble;
+                changed = true;
+                return next;
+              });
+              return changed ? updated : prev;
+            });
           }
         }
       } catch (error) {
         if (active) console.warn("Không đồng bộ được danh bạ trò chuyện:", error);
+      } finally {
+        refreshing = false;
       }
     }
 
     void loadRealChatData();
-    return () => { active = false; };
+    const timer = window.setInterval(() => { void loadRealChatData(); }, 12000);
+    /** Đồng bộ danh sách hội thoại khi người dùng quay lại cửa sổ. */
+    const onFocus = () => { void loadRealChatData(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, [currentUserId]);
 
   // Tải tin nhắn thật từ CSDL PostgreSQL cho các ô chat đang mở
   useEffect(() => {
+    if (!currentUserId) return;
     let active = true;
+    let refreshing = false;
+    // Lắng nghe tin mới trong các cửa sổ đang mở và tự kết nối lại khi đường truyền gián đoạn.
+    const streams = openWindows.flatMap((win) => {
+      const conversationId = win.conversationId || contacts.find((contact) => contact.id === win.id)?.conversationId;
+      if (!conversationId) return [];
+      const stream = new EventSource(publicApiUrl(`/chat/conversations/${conversationId}/events`), { withCredentials: true });
+      stream.onmessage = (event) => {
+        if (!active) return;
+        try {
+          const message = JSON.parse(event.data) as {
+            id?: string; conversationId?: string; senderId?: string; clientMessageId?: string;
+            content?: string; createdAt?: string;
+          };
+          if (!message.id || message.conversationId !== conversationId || !message.senderId || typeof message.content !== "string" || !message.createdAt) return;
+          const next: MiniChatMessage = {
+            id: message.id,
+            senderId: message.senderId,
+            content: message.content,
+            createdAt: new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+             createdAtIso: message.createdAt,
+             clientMessageId: message.clientMessageId,
+            isLike: message.content === "👍",
+          };
+          setChatMessages((previous) => {
+            const existing = previous[win.id] ?? [];
+             if (existing.some((item) => item.id === message.id)) return previous;
+             return { ...previous, [win.id]: mergeMiniChatMessages(existing, [next]) };
+          });
+        } catch (error) {
+          console.warn("Bỏ qua sự kiện chat không hợp lệ.", error);
+        }
+      };
+      return [stream];
+    });
     /** Nạp lịch sử tin nhắn cho từng cửa sổ đang mở mà không làm gián đoạn giao diện. */
     async function loadMessagesForOpenWindows() {
+      if (refreshing || document.visibilityState === "hidden") return;
+      refreshing = true;
+      try {
       for (const win of openWindows) {
         if (!active) return;
         const targetConvId =
@@ -697,16 +827,14 @@ export function MiniChatWidget() {
         if (targetConvId) {
           try {
             const res = await apiRequest<
-              | { items?: Array<{ id: string; senderId: string; content: string; createdAt: string }> }
-              | Array<{ id: string; senderId: string; content: string; createdAt: string }>
+              | { items?: Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string }> }
+              | Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string }>
             >(`/chat/conversations/${targetConvId}/messages?limit=50`);
 
             if (!active) return;
 
             const rawList = Array.isArray(res) ? res : res?.items || [];
-            setChatMessages((prev) => ({
-              ...prev,
-              [win.id]: rawList.map((m) => ({
+            const fetched = rawList.map((m) => ({
                 id: m.id,
                 senderId: m.senderId,
                 content: m.content,
@@ -714,21 +842,47 @@ export function MiniChatWidget() {
                   hour: "2-digit",
                   minute: "2-digit",
                 }),
+                 createdAtIso: m.createdAt,
+                 clientMessageId: m.clientMessageId,
                 isLike: m.content === "👍",
-              })),
-            }));
+              }));
+            setChatMessages((prev) => {
+               // Giữ sự kiện SSE mới hơn snapshot GET và thay tin đang gửi bằng bản đã lưu.
+               const merged = mergeMiniChatMessages(prev[win.id] ?? [], fetched);
+              return JSON.stringify(prev[win.id]) === JSON.stringify(merged)
+                ? prev
+                : { ...prev, [win.id]: merged };
+            });
           } catch (error) {
             if (active) console.warn("Không tải được lịch sử trò chuyện:", error);
           }
         }
+      }
+      } finally {
+        refreshing = false;
       }
     }
 
     if (openWindows.length > 0) {
       void loadMessagesForOpenWindows();
     }
-    return () => { active = false; };
-  }, [openWindows, contacts]);
+    const timer = window.setInterval(() => {
+      if (openWindows.length > 0 && (streams.length === 0 || streams.some((stream) => stream.readyState !== EventSource.OPEN))) {
+        void loadMessagesForOpenWindows();
+      }
+    }, 5000);
+    /** Cập nhật các cửa sổ chat đang mở khi trình duyệt nhận focus. */
+    const onFocus = () => { if (openWindows.length > 0) void loadMessagesForOpenWindows(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      active = false;
+      streams.forEach((stream) => stream.close());
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [openWindows, contacts, currentUserId]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {
@@ -977,25 +1131,30 @@ export function MiniChatWidget() {
   };
 
   // Gửi tin nhắn và lưu trữ vật lý vào cơ sở dữ liệu PostgreSQL
-  const handleSendMessage = async (contactId: string, text: string, isLike = false) => {
+  const handleSendMessage = async (contactId: string, text: string, isLike = false, retry?: MiniChatMessage) => {
     const messageContent = isLike ? "👍" : text;
     const clientMessageId =
-      typeof crypto !== "undefined" && crypto.randomUUID
+      retry?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
-        : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
 
     const newMsg: MiniChatMessage = {
       id: clientMessageId,
       senderId: currentUserId,
       content: messageContent,
       createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      createdAtIso: new Date().toISOString(),
       isLike,
+      status: "sending",
     };
 
     // 1. Cập nhật UI ngay lập tức
     setChatMessages((prev) => ({
       ...prev,
-      [contactId]: [...(prev[contactId] || []), newMsg],
+      [contactId]: mergeMiniChatMessages(
+        retry ? (prev[contactId] ?? []).filter((message) => message.id !== retry.id) : (prev[contactId] ?? []),
+        [newMsg],
+      ),
     }));
 
     // Cập nhật timestamp tương tác
@@ -1029,17 +1188,31 @@ export function MiniChatWidget() {
       }
 
       // Gửi tin nhắn vào bảng chat_messages
-      if (targetConvId) {
-        await apiRequest(`/chat/conversations/${targetConvId}/messages`, {
+      if (!targetConvId) throw new Error("Không mở được hội thoại để gửi tin nhắn.");
+      const sent = await apiRequest<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string }>(
+        `/chat/conversations/${targetConvId}/messages`, {
           method: "POST",
-          body: JSON.stringify({
-            content: messageContent,
-            clientMessageId,
-          }),
-        });
-      }
-    } catch {
-      // Tin nhắn giữ lại trên màn hình
+          body: JSON.stringify({ content: messageContent, clientMessageId }),
+        },
+      );
+      setChatMessages((prev) => {
+        const messages = prev[contactId] ?? [];
+        return { ...prev, [contactId]: mergeMiniChatMessages(messages, [{
+          id: sent.id,
+          senderId: sent.senderId,
+          content: sent.content,
+          createdAt: new Date(sent.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          createdAtIso: sent.createdAt,
+          clientMessageId: sent.clientMessageId ?? clientMessageId,
+          isLike: sent.content === "👍",
+        }]) };
+      });
+    } catch (error) {
+      console.warn("Không gửi được tin nhắn:", error);
+      setChatMessages((prev) => ({
+        ...prev,
+        [contactId]: (prev[contactId] ?? []).map((message) => message.id === clientMessageId ? { ...message, status: "failed" } : message),
+      }));
     }
   };
 
@@ -1097,6 +1270,7 @@ export function MiniChatWidget() {
           onClose={() => handleCloseWindow(slot2Window.id)}
           onMinimize={() => handleMinimizeWindow(slot2Window)}
           onSendMessage={(text, isLike) => handleSendMessage(slot2Window.id, text, isLike)}
+          onRetryMessage={(message) => handleSendMessage(slot2Window.id, message.content, message.isLike, message)}
           onAttachImage={(file) => handleAttachImage(slot2Window.id, file)}
         />
       ) : null}
@@ -1117,6 +1291,7 @@ export function MiniChatWidget() {
           onClose={() => handleCloseWindow(slot1Window.id)}
           onMinimize={() => handleMinimizeWindow(slot1Window)}
           onSendMessage={(text, isLike) => handleSendMessage(slot1Window.id, text, isLike)}
+          onRetryMessage={(message) => handleSendMessage(slot1Window.id, message.content, message.isLike, message)}
           onAttachImage={(file) => handleAttachImage(slot1Window.id, file)}
         />
       ) : null}

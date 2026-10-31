@@ -288,7 +288,7 @@ export class AcademicController {
   }
 
   @Get("academic/classes/:classId/gradebook")
-  @RequirePermissions("report:view")
+  @RequirePermissions("class:view")
   /** Tổng hợp điểm thi và bài tập theo từng học viên trong lớp. */
   gradebook(
     @Param("classId") classId: string,

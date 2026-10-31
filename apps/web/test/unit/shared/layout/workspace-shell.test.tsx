@@ -110,7 +110,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getAllByRole("link", { name: /Kho học liệu/i })).not.toHaveLength(0);
     expect(screen.getAllByRole("link", { name: /Ngân hàng câu hỏi/i })).not.toHaveLength(0);
     expect(screen.getAllByRole("link", { name: /Điều hành lớp/i })).not.toHaveLength(0);
-    expect(screen.getAllByRole("link", { name: /Báo cáo/i })).not.toHaveLength(0);
+    expect(screen.getAllByRole("link", { name: /Cấu hình/i })).not.toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch & bài tập/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch sử học tập/i })).toHaveLength(0);

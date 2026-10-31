@@ -388,6 +388,7 @@ model LearningClass {
   capacity      Int
   timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
   allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
+  allowPeerGradeViewing Boolean   @default(false) @map("allow_peer_grade_viewing")
   status        ClassStatus       @default(DRAFT)
   closeReason   String?           @map("close_reason") @db.VarChar(500)
   archivePolicy String?           @map("archive_policy") @db.VarChar(50)

@@ -197,7 +197,7 @@ export function useMessagesModel() {
   };
 
   /** Nạp danh sách hội thoại 1-1 từ CSDL thật, loại bỏ hoàn toàn các hội thoại nhóm. */
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (quiet = false) => {
     const requestId = ++conversationsRequestRef.current;
     try {
       const rows = await apiRequest<ChatConversation[]>("/chat/conversations", {
@@ -214,7 +214,7 @@ export function useMessagesModel() {
       );
     } catch (error) {
       if (requestId !== conversationsRequestRef.current) return;
-      notify(
+      if (!quiet) notify(
         error instanceof Error
           ? error.message
           : "Không tải được danh sách tin nhắn từ CSDL.",
@@ -241,7 +241,9 @@ export function useMessagesModel() {
           const ids = new Set(history.map((item) => item.id));
           // Giữ các tin SSE đã đến trong khi API đang tải lịch sử.
           const live = current.filter((item) => item.conversationId === conversationId && !ids.has(item.id));
-          return [...history, ...live];
+          return [...history, ...live].sort((left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          );
         });
         await apiRequest(`/chat/conversations/${conversationId}/read`, {
           method: "PATCH",
@@ -281,6 +283,24 @@ export function useMessagesModel() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadConversations]);
+
+  // Cập nhật hội thoại chưa chọn và phục hồi tin nhắn khi luồng SSE gián đoạn.
+  useEffect(() => {
+    /** Đồng bộ lại danh sách và tin nhắn khi quay lại cửa sổ hoặc hết chu kỳ dự phòng. */
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadConversations(true);
+      if (selectedIdRef.current) void loadMessages(selectedIdRef.current, true);
+    };
+    const intervalId = window.setInterval(refresh, 8000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadConversations, loadMessages]);
 
   // Đồng bộ id và file hiện tại cho recording
   useEffect(() => {
@@ -375,7 +395,9 @@ export function useMessagesModel() {
         setMessages((current) =>
           current.some((item) => item.id === message.id)
             ? current
-            : [...current, message],
+            : [...current, message].sort((left, right) =>
+                left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+              ),
         );
         void apiRequest(`/chat/conversations/${selectedId}/read`, {
           method: "PATCH",

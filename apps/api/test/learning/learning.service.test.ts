@@ -663,6 +663,34 @@ describe("LearningService", () => {
     ).toBe("ACTIVE");
   });
 
+  it("cho phép ghi danh sau ngày bắt đầu và đóng lớp trước ngày kết thúc", async () => {
+    const service = new LearningService();
+    const now = Date.now();
+    const classItem = await service.createClass({
+      courseId: "course-web",
+      code: "FLEXIBLE-DATES-01",
+      name: "Lớp không giới hạn ghi danh theo ngày khai giảng",
+      term: "2026",
+      startAt: new Date(now - 30 * 86_400_000).toISOString(),
+      endAt: new Date(now + 30 * 86_400_000).toISOString(),
+      capacity: 20,
+      allowLateEnrollment: false,
+    });
+    await service.assignInstructor(classItem.id, "usr-instructor");
+    await service.activateClass(classItem.id);
+
+    const enrolled = await service.enrollLearner(classItem.id, "usr-learner");
+    expect(enrolled.learnerIds).toContain("usr-learner");
+    expect((await service.getClassClosureReadiness(classItem.id)).eligible).toBe(true);
+
+    const closed = await service.closeClass(
+      classItem.id,
+      "Đã hoàn tất hoạt động sớm",
+      "STANDARD_RETENTION",
+    );
+    expect(closed.status).toBe("CLOSED");
+  });
+
   it("chỉ gắn bản ghi sau khi buổi học kết thúc", async () => {
     const service = new LearningService();
     await expect(
