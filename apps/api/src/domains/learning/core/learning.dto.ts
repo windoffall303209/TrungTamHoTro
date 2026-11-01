@@ -89,7 +89,13 @@ export class EditExamQuestionDto {
 /** Ghi nhận xác nhận duyệt câu hỏi khi gửi đề. */
 export class SubmitExamDto {
   @IsOptional() @IsBoolean() confirmQuestions?: boolean;
+  @IsOptional() @IsBoolean() forcePublish?: boolean;
   @IsOptional() @IsInt() @Min(1) expectedVersion?: number;
+}
+
+/** Xác định việc công bố câu hỏi có thuộc luồng tạo nội dung đã xác nhận hay không. */
+export class PublishQuestionDto {
+  @IsOptional() @IsBoolean() immediate?: boolean;
 }
 
 /** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */

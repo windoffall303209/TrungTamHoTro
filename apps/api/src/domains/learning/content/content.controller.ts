@@ -16,7 +16,7 @@ import { AiProviderService, type QuestionScanResult } from "../../system/ai/ai-p
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiQuestionStatusDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "../core/learning.dto.js";
-import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
+import { EditExamQuestionDto, EditStudyDraftDto, PublishQuestionDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -85,6 +85,11 @@ export class ContentController {
   @Get("materials") @RequirePermissions("material:view")
   /** Liệt kê học liệu theo vai trò, người dùng và từ khóa. */
   listMaterials(@CurrentSession() session: AuthenticatedSession, @Query("query") query?: string, @Query("page") page?: string): Promise<LearningMaterial[]> { return this.learning.listMaterials(session.roleCode, query, session.user.id, Number(page)); }
+
+  @Get("instructor/material-upload-policy") @RequirePermissions("material:manage")
+  @Header("Cache-Control", "no-store")
+  /** Trả về chính sách tệp đã áp dụng khi máy chủ nhận học liệu. */
+  getMaterialUploadPolicy(): Promise<{ maxFileSizeMb: number; allowedMimeTypes: string[] }> { return this.learning.getMaterialUploadPolicy(); }
 
   @Get(["learner/materials/search", "materials/search"]) @RequirePermissions("material:view")
   /** Tìm học liệu học viên được truy cập với bộ lọc và phân trang đã chuẩn hóa trong service. */
@@ -314,7 +319,7 @@ export class ContentController {
 
   @Post("instructor/question-bank/questions/:questionId/publish") @RequirePermissions("question:manage")
   /** Gửi câu hỏi vào quy trình duyệt hoặc xuất bản ngay theo cấu hình. */
-  publishQuestion(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.publishQuestion(questionId, session.user.id); }
+  publishQuestion(@Param("questionId") questionId: string, @Body() input: PublishQuestionDto = {}, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.publishQuestion(questionId, session.user.id, input.immediate); }
 
   @Post("admin/question-bank/questions/:questionId/review") @RequirePermissions("system:configure")
   /** Cho quản trị duyệt hoặc từ chối câu hỏi khi chế độ duyệt tay được bật. */
@@ -462,7 +467,7 @@ export class ContentController {
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
   /** Gửi đề duyệt hoặc tự động công bố theo chính sách hệ thống. */
-  publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession, @Body() input: SubmitExamDto = {}): Promise<LearningExam> { this.assertInstructorMutation(session); return this.learning.submitExamForReview(examId, session.user.id, input.confirmQuestions, input.expectedVersion); }
+  publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession, @Body() input: SubmitExamDto = {}): Promise<LearningExam> { this.assertInstructorMutation(session); return this.learning.submitExamForReview(examId, session.user.id, input.confirmQuestions, input.expectedVersion, input.forcePublish); }
 
   @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
   /** Duyệt hoặc từ chối đề khi hệ thống đang dùng chế độ duyệt tay. */

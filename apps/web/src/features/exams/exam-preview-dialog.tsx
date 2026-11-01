@@ -8,43 +8,37 @@ import {
   RichText,
   StatusBadge,
 } from "@/shared/ui/ui";
-import { AlertTriangle, CheckCircle2, ListOrdered, Pencil, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ListOrdered, Pencil } from "lucide-react";
 import type { useExamsModel } from "./use-exams-model";
 
-/** Xem trước đề thi và chỉnh sửa câu hỏi trước khi gửi duyệt. */
+/** Xem trước đề thi và chỉnh sửa câu hỏi khi đề chưa có lượt làm. */
 export function ExamPreviewDialog({
   model,
 }: {
   model: Pick<
     ReturnType<typeof useExamsModel>,
     | "instructor"
-    | "items"
     | "classes"
     | "previewExam"
     | "closePreview"
     | "previewQuestions"
-    | "setConfirmExam"
     | "editingQuestion"
     | "setEditingQuestion"
     | "savingQuestion"
     | "previewLoading"
-    | "submitGeneratedQuestion"
     | "savePreviewQuestion"
   >;
 }) {
   const {
     instructor,
-    items,
     classes,
     previewExam,
     closePreview,
     previewQuestions,
-    setConfirmExam,
     editingQuestion,
     setEditingQuestion,
     savingQuestion,
     previewLoading,
-    submitGeneratedQuestion,
     savePreviewQuestion,
   } = model;
   return (
@@ -61,24 +55,6 @@ export function ExamPreviewDialog({
     >
       {previewExam ? (
         <div>
-          {instructor && previewExam.status === "DRAFT" ? (
-            <div className="mb-4 flex justify-end">
-              <Button
-                disabled={Boolean(editingQuestion) || savingQuestion}
-                onClick={() => {
-                  const item = items.find(
-                    (entry) => entry.id === previewExam.id,
-                  );
-                  if (item) {
-                    setConfirmExam({ ...item, version: previewExam.version });
-                    closePreview();
-                  }
-                }}
-              >
-                Phát hành đề thi
-              </Button>
-            </div>
-          ) : null}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-5">
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -125,7 +101,7 @@ export function ExamPreviewDialog({
             {previewQuestions.some((question) => question.issues?.length) ? (
               <p className="mt-5 flex items-center gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-4 py-3 text-sm font-bold text-amber-800 dark:text-amber-200" role="status">
                 <AlertTriangle size={16} />
-                {previewQuestions.filter((question) => question.issues?.length).length} câu cần sửa trước khi gửi duyệt.
+                {previewQuestions.filter((question) => question.issues?.length).length} câu cần sửa trước khi sử dụng.
               </p>
             ) : null}
             <ol className="mt-5 space-y-4">
@@ -148,7 +124,7 @@ export function ExamPreviewDialog({
                     </p>
                     <div className="flex items-center gap-2">
                       <StatusBadge status={question.status} />
-                      {instructor && previewExam.status === "DRAFT" ? (
+                      {instructor && ["DRAFT", "PUBLISHED"].includes(previewExam.status) ? (
                         <Button
                           disabled={savingQuestion || Boolean(editingQuestion)}
                           variant="ghost"
@@ -162,19 +138,6 @@ export function ExamPreviewDialog({
                         >
                           <Pencil size={14} />
                           Sửa câu hỏi
-                        </Button>
-                      ) : null}
-                      {instructor &&
-                      question.status === "DRAFT" &&
-                      previewExam.status !== "DRAFT" ? (
-                        <Button
-                          onClick={() =>
-                            void submitGeneratedQuestion(question.id)
-                          }
-                          variant="ghost"
-                        >
-                          <Send size={14} />
-                          Gửi duyệt câu
                         </Button>
                       ) : null}
                       <span className="text-xs font-bold text-[var(--ink-muted)]">

@@ -113,6 +113,7 @@ export class AcademicService {
       dueAt: string;
       maxScore: number;
       rubric: Array<{ title: string; description: string; maxPoints: number }>;
+      sourceMaterialId?: string;
     },
     session: AuthenticatedSession,
   ): Promise<AssignmentView> {
@@ -135,6 +136,7 @@ export class AcademicService {
       maxScore: number;
       rubric: Array<{ title: string; description: string; maxPoints: number }>;
       expectedVersion: number;
+      sourceMaterialId?: string;
     },
     session: AuthenticatedSession,
   ): Promise<AssignmentView> {
@@ -419,7 +421,7 @@ export class AcademicService {
           };
         };
       };
-    }>,
+    }> & { sourceMaterial?: { id: string; name: string; mimeType: string; sizeBytes: bigint } | null },
     submission?: Prisma.AssignmentSubmissionGetPayload<{
       include: {
         learner: { select: { displayName: true; email: true } };

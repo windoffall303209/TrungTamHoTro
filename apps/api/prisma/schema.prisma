@@ -420,6 +420,7 @@ model Assignment {
   id          String           @id @default(cuid())
   classId     String           @map("class_id")
   createdById String           @map("created_by_id")
+  sourceMaterialId String?      @map("source_material_id")
   title       String           @db.VarChar(255)
   description String           @db.Text
   instructions String          @db.Text
@@ -433,6 +434,7 @@ model Assignment {
   closeReason String?          @map("close_reason") @db.Text
   class       LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
   createdBy   User             @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  sourceMaterial Material?      @relation("AssignmentSourceMaterial", fields: [sourceMaterialId], references: [id], onDelete: SetNull)
   submissions AssignmentSubmission[]
   changes     AssignmentChange[]
   createdAt   DateTime         @default(now()) @map("created_at")
@@ -440,6 +442,7 @@ model Assignment {
 
   @@index([classId, status, dueAt])
   @@index([createdById])
+  @@index([sourceMaterialId])
   @@map("assignments")
 }
 
@@ -662,6 +665,7 @@ model Material {
   editors          MaterialEditor[]
   accessLogs       MaterialAccessLog[]
   forumAttachments ForumPostAttachment[]
+  sourceAssignments Assignment[] @relation("AssignmentSourceMaterial")
   reviews          FileReview[]
   versions         MaterialVersion[]
   createdAt        DateTime              @default(now()) @map("created_at")

@@ -27,7 +27,6 @@ import {
   FolderOpen,
   FolderPlus,
   FolderInput,
-  Info,
   Layers,
   LayoutGrid,
   Link as LinkIcon,
@@ -77,13 +76,13 @@ import { UserAvatar } from "@/shared/ui/user-avatar";
 import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
 import {
   detectLectureLinkPlatform,
-  exportAssignmentsCsv,
   exportGradebookCsv,
   filterClassQuestions,
   filterClassResources,
   getClassFolderNames,
   getClassQuestionStats,
   getScoreColorClass,
+  getLectureEmbedUrl,
   getLectureYoutubeId,
   isLectureMaterial,
   toClassQuestion,
@@ -217,6 +216,7 @@ export function InstructorClassWorkspace({
   // Bài tập được chọn ở Cột 3
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentPreview | null>(null);
   const [previewExam, setPreviewExam] = useState<ExamTakingData | null>(null);
+  const [previewAssignment, setPreviewAssignment] = useState<Assignment | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareScope, setShareScope] = useState<"CLASS_ONLY" | "PUBLIC">("CLASS_ONLY");
   const [statsModalOpen, setStatsModalOpen] = useState(false);
@@ -568,7 +568,9 @@ export function InstructorClassWorkspace({
         setLectures(mappedLectures);
         setSelectedLectureId((current) => mappedLectures.some((lecture) => lecture.id === current) ? current : (mappedLectures[0]?.id ?? ""));
         setSelectedLectureForPage((current) => mappedLectures.find((lecture) => lecture.id === current?.id) ?? null);
-        const mappedMats = classMaterials.map(toMaterialDisplayItem);
+        const mappedMats = classMaterials
+          .filter((material) => !isLectureMaterial(material))
+          .map(toMaterialDisplayItem);
         setMaterialsList(mappedMats);
         setSelectedMaterialId((current) => mappedMats.some((m) => m.id === current) ? current : (mappedMats[0]?.id ?? ""));
       }
@@ -655,18 +657,19 @@ export function InstructorClassWorkspace({
     setLectureFileObj(file);
   };
 
-  // Lưu tệp bài giảng qua API multipart và chỉ báo thành công sau khi máy chủ xác nhận.
+  // Lưu liên kết qua metadata hoặc tải tệp lên, rồi đồng bộ danh sách với máy chủ.
   const handleSaveLecture = async () => {
     if (lectureSaving) return;
     if (!lectureFormTitle.trim()) {
       notify("Vui lòng nhập tên bài giảng!", "error");
       return;
     }
-    if (lectureMethod === "LINK") {
-      notify("Máy chủ chưa hỗ trợ lưu liên kết bài giảng. Hãy chọn tệp để lưu lên lớp.", "error");
+    const lectureUrl = lectureInputUrl.trim();
+    if (lectureMethod === "LINK" && detectLectureLinkPlatform(lectureUrl) === "INVALID") {
+      notify(invalidLectureLinkMessage, "error");
       return;
     }
-    if (!lectureFileObj || lectureFileObj.size === 0) {
+    if (lectureMethod === "FILE" && (!lectureFileObj || lectureFileObj.size === 0)) {
       notify("Vui lòng chọn tệp bài giảng hợp lệ.", "error");
       return;
     }
@@ -675,15 +678,27 @@ export function InstructorClassWorkspace({
     try {
       const tags = ["LECTURE", ...(lectureFormDesc.trim() ? [`Mô tả: ${lectureFormDesc.trim().replace(/,/g, "，")}`] : []),
         ...lectureAttachedAssignments.map((id) => `assignmentId:${id}`)];
-      const form = new FormData();
-      form.append("file", lectureFileObj);
-      form.append("folder", lectureFormFolder);
-      form.append("tags", tags.join(","));
-      form.append("scope", "CLASS");
-      const created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
-        method: "POST", roleCode: session.roleCode, body: form,
-      });
-      if (!created?.id) throw new Error("Máy chủ không trả về ID bài giảng vừa tải lên.");
+      let created: Material;
+      if (lectureMethod === "LINK") {
+        created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/materials`, {
+          method: "POST", roleCode: session.roleCode,
+          body: JSON.stringify({
+            name: lectureFormTitle.trim(), mimeType: "text/uri-list",
+            sizeBytes: new TextEncoder().encode(lectureUrl).length,
+            folder: lectureFormFolder, tags: [...tags, `lecture-url:${lectureUrl}`], scope: "CLASS",
+          }),
+        });
+      } else {
+        const form = new FormData();
+        form.append("file", lectureFileObj!);
+        form.append("folder", lectureFormFolder);
+        form.append("tags", tags.join(","));
+        form.append("scope", "CLASS");
+        created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
+          method: "POST", roleCode: session.roleCode, body: form,
+        });
+      }
+      if (!created?.id) throw new Error("Máy chủ không trả về ID bài giảng vừa lưu.");
       uploadedId = created.id;
       if (lectureFormTitle.trim() !== created.name) {
         await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
@@ -694,7 +709,7 @@ export function InstructorClassWorkspace({
       await loadClassData();
       setSelectedLectureId(created.id);
       setAddLectureModalOpen(false);
-      notify("Đã tải bài giảng lên máy chủ ở trạng thái nháp.", "success");
+      notify("Đã lưu bài giảng.", "success");
 
       // Reset form
       setLectureFormTitle("");
@@ -705,7 +720,7 @@ export function InstructorClassWorkspace({
       console.error("Lỗi khi lưu bài giảng:", err);
       if (uploadedId) await loadClassData();
       const detail = err instanceof Error ? err.message : "Không thể lưu bài giảng vào cơ sở dữ liệu";
-      notify(uploadedId ? `Tệp đã tải lên nhưng chưa hoàn tất cập nhật: ${detail}` : detail, "error");
+      notify(uploadedId ? `Đã tạo bài giảng nhưng chưa hoàn tất cập nhật: ${detail}` : detail, "error");
     } finally {
       setLectureSaving(false);
     }
@@ -792,6 +807,7 @@ export function InstructorClassWorkspace({
         apiRequest<{ status: string }>("/instructor/question-bank/questions/" + questionId + "/publish", {
           method: "POST",
           roleCode: session.roleCode,
+          body: JSON.stringify({ immediate: true }),
         }),
       ));
       const unpublished = published.flatMap((result, index) =>
@@ -801,7 +817,7 @@ export function InstructorClassWorkspace({
         throw new Error("Đã nhập câu hỏi nhưng các câu " + unpublished.join(", ") + " chưa được xuất bản. Hãy kiểm tra quy trình duyệt câu hỏi trước khi tạo đề.");
       }
 
-      await apiRequest<Exam>("/instructor/exams", {
+      const createdExam = await apiRequest<Exam>("/instructor/exams", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
@@ -820,31 +836,75 @@ export function InstructorClassWorkspace({
           })),
         }),
       });
-      notify("Đã tạo đề trắc nghiệm dạng nháp. Hãy kiểm tra và phát hành đề trước khi giao cho học viên.", "success");
-    } else {
-      if (data.attachedFile) {
-        throw new Error("Tệp đề tự luận chưa thể được lưu qua trình tạo này. Hãy nhập nội dung yêu cầu trực tiếp để tránh thất lạc tệp.");
-      }
-      const description = data.description.trim() || "Bài tập tự luận: " + title;
-      const instructions = [description, ...data.submissionMethods].filter(Boolean).join("\n");
-      const created = await apiRequest<Assignment>("/instructor/classes/" + item.id + "/assignments", {
+      await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(createdExam.id)}/publish`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({
-          title,
-          description: description.length >= 10 ? description : "Bài tập tự luận: " + title,
-          instructions: instructions.length >= 5 ? instructions : "Hoàn thành bài tập: " + title,
-          dueAt: new Date(dueAt).toISOString(),
-          maxScore: 10,
-          rubric: [{
-            title: "Mức độ hoàn thành",
-            description: "Đánh giá chất lượng và mức độ hoàn thành bài làm.",
-            maxPoints: 10,
-          }],
-        }),
+        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: createdExam.version }),
       });
+      notify("Đã tạo và phát hành bài tập trắc nghiệm cho học viên.", "success");
+    } else {
+      const essayQuestions = data.essayQuestions.map((question) => question.trim()).filter(Boolean);
+      if (!essayQuestions.length && !data.attachedFile) {
+        throw new Error("Cần nhập ít nhất một câu hỏi tự luận hoặc đính kèm tệp đề.");
+      }
+      const description = data.description.trim() || "Bài tập tự luận: " + title;
+      const instructions = [
+        ...essayQuestions.map((question, index) => `Câu ${index + 1}: ${question}`),
+        ...(data.attachedFile ? ["Xem hoặc tải tệp đề đính kèm để làm bài."] : []),
+        "Nhập nội dung bài làm hoặc tải lên tệp câu trả lời.",
+      ].join("\n\n");
+      if (instructions.length > 10000) {
+        throw new Error("Nội dung câu hỏi vượt giới hạn 10.000 ký tự. Hãy rút gọn hoặc sử dụng tệp đề.");
+      }
+
+      let sourceMaterialId: string | undefined;
+      if (data.attachedFile) {
+        const form = new FormData();
+        form.append("file", data.attachedFile);
+        form.append("folder", "Bài tập tự luận");
+        form.append("tags", "ESSAY,ASSIGNMENT");
+        form.append("scope", "CLASS");
+        const uploaded = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: form,
+        });
+        if (!uploaded?.id) throw new Error("Máy chủ không trả về ID tệp đề đã tải lên.");
+        sourceMaterialId = uploaded.id;
+      }
+      let created: Assignment;
+      try {
+        created = await apiRequest<Assignment>(`/instructor/classes/${encodeURIComponent(item.id)}/assignments`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            title,
+            description: description.length >= 10 ? description : "Bài tập tự luận: " + title,
+            instructions,
+            ...(sourceMaterialId ? { sourceMaterialId } : {}),
+            dueAt: new Date(dueAt).toISOString(),
+            maxScore: 10,
+            rubric: [{
+              title: "Mức độ hoàn thành",
+              description: "Đánh giá chất lượng và mức độ hoàn thành bài làm.",
+              maxPoints: 10,
+            }],
+          }),
+        });
+      } catch (error) {
+        if (sourceMaterialId) {
+          throw new Error(`Tệp đề đã tải lên thành công (ID: ${sourceMaterialId}) nhưng tạo bài tập thất bại: ${error instanceof Error ? error.message : String(error)}. Hãy kiểm tra kho tài liệu trước khi thử lại.`);
+        }
+        throw error;
+      }
+      if (created.status !== "PUBLISHED") {
+        created = await apiRequest<Assignment>(`/instructor/assignments/${encodeURIComponent(created.id)}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+        });
+      }
       setSelectedAssignment(created);
-      notify("Đã lưu bài tập tự luận ở trạng thái nháp. Hãy kiểm tra và phát hành trước khi giao học viên.", "success");
+      notify("Đã tạo và phát hành bài tập tự luận cho học viên.", "success");
     }
 
     await loadClassData();
@@ -944,7 +1004,7 @@ export function InstructorClassWorkspace({
     setEditLectureFormFolder(lec.folder);
     setEditLectureFileObj(null);
 
-    if (lec.youtubeId || (lec.sourceUrl && (lec.sourceUrl.startsWith("http") || lec.fileType === "mp4"))) {
+    if (lec.sourceType === "LINK") {
       setEditLectureMethod("LINK");
       const url = lec.sourceUrl || (lec.youtubeId ? `https://www.youtube.com/watch?v=${lec.youtubeId}` : "");
       setEditLectureInputUrl(url);
@@ -964,25 +1024,29 @@ export function InstructorClassWorkspace({
       notify("Vui lòng nhập tên bài giảng!", "error");
       return;
     }
-    if (editLectureMethod === "LINK") {
-      const originalId = editingLecture.youtubeId;
-      if (!originalId || getLectureYoutubeId(editLectureInputUrl) !== originalId) {
-        notify("Máy chủ chưa hỗ trợ thay đổi nguồn sang liên kết mới.", "error");
-        return;
-      }
-    } else if (editingLecture.sourceType === "LINK" && !editLectureFileObj) {
+    const nextUrl = editLectureInputUrl.trim();
+    if (editLectureMethod === "LINK" && detectLectureLinkPlatform(nextUrl) === "INVALID") {
+      notify(invalidLectureLinkMessage, "error");
+      return;
+    }
+    if (editLectureMethod === "FILE" && editingLecture.sourceType === "LINK" && !editLectureFileObj) {
       notify("Cần chọn tệp để thay thế nguồn liên kết hiện tại.", "error");
       return;
     }
+    if (editLectureMethod === "LINK" && editingLecture.sourceType === "FILE") {
+      notify("Để chuyển bài giảng từ tệp sang liên kết, hãy tạo bài giảng liên kết mới.", "error");
+      return;
+    }
     const tags = (editingLecture.tags ?? []).filter((tag) =>
-      !tag.startsWith("Mô tả: ") && !(editLectureFileObj && tag.startsWith("youtube:")));
+      !tag.startsWith("Mô tả: ") && !tag.startsWith("youtube:") && !tag.startsWith("lecture-url:"));
     if (!tags.some((tag) => /^(lecture|bài giảng)$/i.test(tag))) tags.push("LECTURE");
     if (editLectureFormDesc.trim()) tags.push(`Mô tả: ${editLectureFormDesc.trim().replace(/,/g, "，")}`);
+    if (editLectureMethod === "LINK") tags.push(`lecture-url:${nextUrl}`);
     setLectureSaving(true);
     let versionUploaded = false;
     try {
       const path = `/instructor/materials/${encodeURIComponent(editingLecture.id)}`;
-      if (editLectureFileObj) {
+      if (editLectureMethod === "FILE" && editLectureFileObj) {
         if (editLectureFileObj.size === 0) throw new Error("Tệp thay thế không có dữ liệu.");
         const form = new FormData();
         form.append("file", editLectureFileObj);
@@ -1045,6 +1109,25 @@ export function InstructorClassWorkspace({
     }
   };
 
+  // Mở tệp đề tự luận trong tab mới qua URL truy cập có phân quyền.
+  const handlePreviewMaterial = async (materialId: string) => {
+    const previewWindow = window.open("", "_blank");
+    if (!previewWindow) {
+      notify("Trình duyệt đã chặn cửa sổ xem đề.", "error");
+      return;
+    }
+    try {
+      const access = await apiRequest<{ url: string }>(
+        `/materials/${encodeURIComponent(materialId)}/access?action=PREVIEW`,
+        { roleCode: session.roleCode },
+      );
+      previewWindow.location.href = access.url;
+    } catch (error) {
+      previewWindow.close();
+      notify(error instanceof Error ? error.message : "Không thể xem tệp đề.", "error");
+    }
+  };
+
   // Xử lý chọn tệp mới từ máy tính khi chỉnh sửa tài liệu
   const handleEditMaterialFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1104,12 +1187,8 @@ export function InstructorClassWorkspace({
     }
   };
 
-  // Chỉ cho sửa nội dung bài nháp theo hợp đồng của API.
+  // Mở biểu mẫu sửa nội dung bài tập đang được chọn.
   const handleOpenEditAssignment = (assign: Assignment) => {
-    if (assign.status !== "DRAFT") {
-      notify("Chỉ bài tập nháp mới có thể chỉnh sửa nội dung.", "error");
-      return;
-    }
     setEditingAssignment({ ...assign });
     setEditAssignmentTitle(assign.title);
     setEditAssignmentDesc(assign.description || "");
@@ -1122,7 +1201,7 @@ export function InstructorClassWorkspace({
     setEditAssignmentModalOpen(true);
   };
 
-  // Lưu bài nháp qua API với expectedVersion và chỉ báo thành công khi máy chủ xác nhận.
+  // Lưu nội dung bài tập qua API với expectedVersion và chỉ báo thành công khi máy chủ xác nhận.
   const handleSaveEditAssignment = async () => {
     if (!editingAssignment || editAssignmentSaving) return;
     const title = editAssignmentTitle.trim();
@@ -1135,10 +1214,6 @@ export function InstructorClassWorkspace({
       dueAt.getTime() <= Date.now() || !Number.isFinite(maxScore) || maxScore < 0.25 || maxScore > 1000 ||
       Math.round(maxScore * 100) !== maxScore * 100) {
       notify("Kiểm tra tiêu đề (3–255 ký tự), mô tả (10–5000), hướng dẫn (5–10000), hạn nộp tương lai và thang điểm hợp lệ.", "error");
-      return;
-    }
-    if (editingAssignment.status !== "DRAFT") {
-      notify("Bài tập đã công bố không thể sửa nội dung.", "error");
       return;
     }
     const rubric = editingAssignment.rubric.map(({ title: rubricTitle, description: rubricDescription, maxPoints }) => ({
@@ -1172,7 +1247,7 @@ export function InstructorClassWorkspace({
     setCreationHubOpen(true);
   };
 
-  /** Lưu câu hỏi vào ngân hàng thật; câu mới bắt đầu ở trạng thái nháp chờ duyệt. */
+  /** Lưu câu hỏi vào ngân hàng thật và chuẩn bị để công bố trong luồng tạo đề. */
   const handleSaveManualQuestion = async () => {
     if (authoringSaving) return;
     if (!item.courseId) {
@@ -1321,9 +1396,14 @@ export function InstructorClassWorkspace({
           clientRequestId: aiRequestRef.current.id,
         }),
       });
-      setAiGeneratedExam(result);
+      const publishedExam = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(result.exam.id)}/publish`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: result.exam.version }),
+      });
+      setAiGeneratedExam({ ...result, exam: publishedExam });
       await loadClassData();
-      notify(`Đã tạo đề nháp ${result.generatedQuestionCount} câu. Cần kiểm tra câu hỏi và gửi duyệt trước khi xuất bản.`, "success");
+      notify(`Đã tạo và phát hành đề AI ${publishedExam.title} gồm ${result.generatedQuestionCount} câu.`, "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tạo được đề thi AI.", "error");
     } finally {
@@ -1402,7 +1482,7 @@ export function InstructorClassWorkspace({
     return result;
   };
 
-  /** Tạo đề thi DRAFT thật; chỉ chấp nhận câu hỏi đã xuất bản và thông báo lỗi từ API. */
+  /** Tạo đề thi đã phát hành; chỉ chấp nhận câu hỏi đã xuất bản và thông báo lỗi từ API. */
   const persistAndCacheExam = async (
     title: string,
     selectedQuestions: ClassQuestion[],
@@ -1447,7 +1527,13 @@ export function InstructorClassWorkspace({
         }),
       });
       if (!created?.id) throw new Error("Máy chủ không trả về đề thi vừa tạo.");
-      notify("Đã lưu đề thi nháp '" + created.title + "' gồm " + selectedQuestions.length + " câu. Hãy gửi duyệt để xuất bản.", "success");
+      const published = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(created.id)}/publish`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: created.version }),
+      });
+      await loadClassData();
+      notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu.", "success");
       return true;
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể tạo đề thi.", "error");
@@ -1723,15 +1809,25 @@ export function InstructorClassWorkspace({
               </div>
 
               {/* Khung phát bài giảng (Player 16:9 YouTube/Video hoặc Phiếu bài tập trắc nghiệm toán học chuẩn Ảnh 2) */}
-              {selectedLectureForPage.youtubeId ? (
-                <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
-                  <iframe
-                    src={`https://www.youtube.com/embed/${selectedLectureForPage.youtubeId}?autoplay=0&rel=0&modestbranding=1`}
-                    className="w-full h-full border-0"
-                    title={selectedLectureForPage.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+              {selectedLectureForPage.sourceUrl && getLectureEmbedUrl(selectedLectureForPage.sourceUrl) ? (
+                <div>
+                  <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
+                    <iframe
+                      src={getLectureEmbedUrl(selectedLectureForPage.sourceUrl) ?? undefined}
+                      className="h-full w-full border-0"
+                      title={selectedLectureForPage.title}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Nếu không xem được trong trang, <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-600 underline underline-offset-2 hover:text-sky-700">bấm vào đây để mở trang bài giảng</a>.</p>
+                </div>
+              ) : selectedLectureForPage.sourceType === "LINK" && selectedLectureForPage.sourceUrl ? (
+                <div className="flex min-h-64 flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-800 dark:bg-slate-950">
+                  <LinkIcon size={36} className="text-sky-600" />
+                  <p className="text-sm text-slate-700 dark:text-slate-200">Nếu không xem được trong trang, hãy mở bài giảng từ liên kết bên dưới.</p>
+                  <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-semibold text-white hover:bg-sky-700">Mở bài giảng</a>
                 </div>
               ) : selectedLectureForPage.fileType === "pptx" || selectedLectureForPage.title.includes("Phiếu") ? (
                 /* Giao diện Phiếu bài tập / Slide trình chiếu (chuẩn Ảnh 2 của người dùng) */
@@ -2418,14 +2514,7 @@ export function InstructorClassWorkspace({
                       type="button"
                       onClick={() => {
                         setAssignmentDetailSubTab("exam_content");
-                        setPreviewExam({
-                          id: selectedAssignment.id,
-                          title: selectedAssignment.title,
-                          durationMinutes: selectedAssignment.durationMinutes || 45,
-                          totalQuestions: selectedAssignment.totalQuestions || 10,
-                          remainingAttempts: null,
-                          totalScore: selectedAssignment.maxScore,
-                        });
+                        setPreviewAssignment(selectedAssignment);
                       }}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                         assignmentDetailSubTab === "exam_content"
@@ -2805,7 +2894,7 @@ export function InstructorClassWorkspace({
                     </div>
 
                     {/* Danh sách thẻ bài tập (Theo Ảnh 2: Thẻ W xanh, tiêu đề, loại đề, x/y đã làm) */}
-                    <div className="flex-1 space-y-2 overflow-y-auto max-h-[540px] pr-1">
+                    <div className={`flex-1 overflow-y-auto max-h-[540px] pr-1 ${assignmentListDisplayMode === "grid" ? "grid content-start gap-3 sm:grid-cols-2" : "space-y-2"}`}>
                       {assignments.length === 0 ? (
                         <div className="p-8 text-center text-xs text-slate-400">
                           Chưa có bài tập nào. Bấm &quot;+ Tạo bài tập&quot; để thêm mới.
@@ -2822,13 +2911,13 @@ export function InstructorClassWorkspace({
                               <div
                                 key={assign.id}
                                 onClick={() => setSelectedAssignment(assign)}
-                                className={`p-3.5 rounded-xl border text-left cursor-pointer transition flex items-center justify-between gap-3 ${
+                                className={`rounded-xl border text-left cursor-pointer transition ${assignmentListDisplayMode === "grid" ? "flex min-h-36 flex-col items-start justify-between gap-4 p-4" : "flex items-center justify-between gap-3 p-3.5"} ${
                                   isSelected
                                     ? "border-blue-400 dark:border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 shadow-2xs"
                                     : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 bg-white dark:bg-slate-900"
                                 }`}
                               >
-                                <div className="flex items-center gap-3 min-w-0">
+                                <div className={`flex min-w-0 gap-3 ${assignmentListDisplayMode === "grid" ? "w-full flex-col items-start" : "items-center"}`}>
                                   {/* Icon đề bài: W xanh hoặc 3 màu */}
                                   <div className="size-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs">
                                     W
@@ -2843,7 +2932,7 @@ export function InstructorClassWorkspace({
                                   </div>
                                 </div>
 
-                                <div className="text-right shrink-0">
+                                <div className={`${assignmentListDisplayMode === "grid" ? "w-full text-left" : "text-right"} shrink-0`}>
                                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                     {submittedCount}/{totalLearnersCount} đã làm
                                   </span>
@@ -2895,54 +2984,24 @@ export function InstructorClassWorkspace({
 
                         {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (THEO ẢNH 2) */}
                         <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                          {/* Làm thử */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPreviewExam({
-                                id: selectedAssignment.id,
-                                title: selectedAssignment.title,
-                                durationMinutes: selectedAssignment.durationMinutes ?? 45,
-                                totalQuestions: selectedAssignment.totalQuestions ?? 0,
-                                remainingAttempts: null,
-                              });
-                            }}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                          >
-                            <span>Làm thử</span>
-                            <Eye size={16} className="text-slate-400" />
-                          </button>
-
-                          {/* Chi tiết -> CHUYỂN SANG TRANG CHI TIẾT THEO ẢNH 1 */}
                           <button
                             type="button"
                             onClick={() => setAssignmentViewMode("detail")}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+                            aria-label="Xem bài tập"
+                            title="Xem bài tập"
+                            className="inline-flex size-10 items-center justify-center rounded-xl text-blue-600 transition hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
                           >
-                            <span>Chi tiết</span>
-                            <Info size={16} className="text-blue-600 dark:text-blue-400" />
+                            <Eye size={17} />
                           </button>
 
-                          {/* Chỉnh sửa */}
-                          {selectedAssignment.status === "DRAFT" && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditAssignment(selectedAssignment)}
-                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                            >
-                              <span>Chỉnh sửa</span>
-                              <Edit2 size={16} className="text-slate-400" />
-                            </button>
-                          )}
-
-                          {/* Xuất dữ liệu */}
                           <button
                             type="button"
-                            onClick={() => exportAssignmentsCsv(assignments, item.code)}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                            onClick={() => handleOpenEditAssignment(selectedAssignment)}
+                            aria-label="Sửa bài tập"
+                            title="Sửa bài tập"
+                            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                           >
-                            <span>Xuất dữ liệu</span>
-                            <Download size={16} className="text-slate-400" />
+                            <Edit2 size={17} />
                           </button>
 
                         </div>
@@ -3164,9 +3223,11 @@ export function InstructorClassWorkspace({
                     filteredLectures.map((lec) => {
                       const isSelected = (activeLectureItem?.id || filteredLectures[0]?.id) === lec.id;
                       return (
-                        <div
+                          <div
                           key={lec.id}
                           onClick={() => setSelectedLectureId(lec.id)}
+                            onDoubleClick={() => setSelectedLectureForPage(lec)}
+                            title="Bấm đúp để xem bài giảng"
                           className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
                             isSelected
                               ? "bg-purple-50/70 dark:bg-purple-950/30 border-purple-400 dark:border-purple-500 shadow-2xs"
@@ -4165,12 +4226,15 @@ export function InstructorClassWorkspace({
       {/* =========================================================================
           MODAL THÊM BÀI TẬP MỚI TOÀN DIỆN (HỖ TRỢ 2 NGUỒN, AI TÁCH CÂU, TÙY CHỌN NỘP BÀI)
           ========================================================================= */}
-      <AssignmentBuilderModal
-        open={addAssignmentModalOpen}
-        onClose={() => setAddAssignmentModalOpen(false)}
-        targetClassName={item.name || item.code}
-        onSaveAssignment={handleSaveFromBuilder}
-      />
+      {addAssignmentModalOpen && (
+        <AssignmentBuilderModal
+          open
+          onClose={() => setAddAssignmentModalOpen(false)}
+          targetClassName={item.name || item.code}
+          targetClassEndAt={item.endAt}
+          onSaveAssignment={handleSaveFromBuilder}
+        />
+      )}
 
       {/* =========================================================================
           MODAL THỐNG KÊ LƯỢT LÀM BÀI & XEM CHI TIẾT BÀI LÀM
@@ -4460,6 +4524,21 @@ export function InstructorClassWorkspace({
         exam={previewExam}
         isInstructorPreview={true}
       />
+
+      {previewAssignment && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="assignment-preview-title" className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-800">
+              <div><p className="text-xs font-semibold text-sky-600 dark:text-sky-400">Xem thử bài tự luận</p><h2 id="assignment-preview-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{previewAssignment.title}</h2><p className="mt-1 text-sm text-slate-500">Hạn nộp: {new Date(previewAssignment.dueAt).toLocaleString("vi-VN")}</p></div>
+              <button type="button" aria-label="Đóng xem thử bài tự luận" onClick={() => setPreviewAssignment(null)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={19} /></button>
+            </div>
+            {previewAssignment.description && <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">{previewAssignment.description}</p>}
+            <div className="mt-5 rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60"><h3 className="font-semibold text-slate-900 dark:text-white">Đề bài</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">{previewAssignment.instructions}</p></div>
+            {previewAssignment.sourceMaterial && <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/30"><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tệp đề đính kèm</h3><p className="mt-1 break-all text-sm text-slate-700 dark:text-slate-300">{previewAssignment.sourceMaterial.name}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void handlePreviewMaterial(previewAssignment.sourceMaterial!.id)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700">Xem tệp</button><button type="button" onClick={() => void handleDownloadMaterial(previewAssignment.sourceMaterial!.id)} className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950">Tải tệp về</button></div></div>}
+            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setPreviewAssignment(null)} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900">Đóng</button></div>
+          </section>
+        </div>
+      )}
 
       {/* =========================================================================
           MODAL CHỈNH SỬA BÀI GIẢNG DÀNH CHO GIẢNG VIÊN
@@ -5282,7 +5361,7 @@ export function InstructorClassWorkspace({
               )}
 
               <p className="text-xs text-blue-700 dark:text-blue-300">
-                Câu hỏi mới được lưu dạng nháp trong ngân hàng. Sau khi duyệt, có thể dùng câu hỏi để tạo đề thi.
+                Câu hỏi mới được lưu trong ngân hàng và có thể dùng để tạo đề thi ngay.
               </p>
             </div>
 
@@ -5435,7 +5514,7 @@ export function InstructorClassWorkspace({
                 disabled={scanSaving || scanStatus !== "DONE" || !scannedExamQuestions.length}
                 className="px-4 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 transition cursor-pointer"
               >
-                {scanSaving ? "Đang nhập..." : "Nhập câu hỏi nháp vào ngân hàng"}
+                {scanSaving ? "Đang nhập..." : "Nhập câu hỏi vào ngân hàng"}
               </button>
             </div>
           </div>
@@ -5542,9 +5621,9 @@ export function InstructorClassWorkspace({
               {aiGeneratedExam && (
                 <div className="space-y-2 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/30 dark:bg-emerald-950/20 p-4" role="status">
                   <strong className="block text-emerald-700 dark:text-emerald-300">
-                    Đã tạo đề nháp: {aiGeneratedExam.exam.title}
+                    Đã tạo đề: {aiGeneratedExam.exam.title}
                   </strong>
-                  <p>{aiGeneratedExam.generatedQuestionCount} câu hỏi đã được lưu. Kiểm tra và gửi duyệt trước khi xuất bản.</p>
+                  <p>{aiGeneratedExam.generatedQuestionCount} câu hỏi đã được lưu và đề đã phát hành cho học viên.</p>
                   <p>Trạng thái: {aiGeneratedExam.exam.status} · Nguồn AI: {aiGeneratedExam.provider} / {aiGeneratedExam.model}</p>
                   {aiGeneratedExam.context.materialNames.length > 0 && (
                     <p>Tài liệu tham chiếu: {aiGeneratedExam.context.materialNames.join(", ")}</p>

@@ -19,7 +19,7 @@ export function mapAssignment(
         };
       };
     };
-  }>,
+  }> & { sourceMaterial?: { id: string; name: string; mimeType: string; sizeBytes: bigint } | null },
   submission?: Prisma.AssignmentSubmissionGetPayload<{
     include: {
       learner: { select: { displayName: true; email: true } };
@@ -32,6 +32,12 @@ export function mapAssignment(
     classId: row.classId,
     classCode: row.class.code,
     title: row.title,
+    sourceMaterial: row.sourceMaterial ? {
+      id: row.sourceMaterial.id,
+      name: row.sourceMaterial.name,
+      mimeType: row.sourceMaterial.mimeType,
+      sizeBytes: Number(row.sourceMaterial.sizeBytes),
+    } : undefined,
     description: row.description,
     instructions: row.instructions,
     dueAt: row.dueAt.toISOString(),

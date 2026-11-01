@@ -122,7 +122,7 @@ export async function createExam(
   return { ...item, questionIds: [...item.questionIds] };
 }
 
-/** Thay nội dung đề DRAFT nguyên tử, tăng version và từ chối bản chỉnh sửa đã cũ. */
+/** Thay nội dung đề chưa đóng nguyên tử, tăng version và khóa đề đã có lượt làm. */
 export async function updateExam(
   serviceContext: LearningServiceContext,
   examId: string,
@@ -161,8 +161,10 @@ export async function updateExam(
         throw new NotFoundException("Không tìm thấy đề được phép chỉnh sửa.");
       if (current.class.status === "CLOSED")
         throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      if (current.status !== "DRAFT")
-        throw new ConflictException("Chỉ đề nháp mới được chỉnh sửa.");
+      if (!["DRAFT", "PUBLISHED"].includes(current.status))
+        throw new ConflictException("Đề đã đóng nên không thể chỉnh sửa.");
+      if (await transaction.examAttempt.count({ where: { examId } }))
+        throw new ConflictException("Đề đã có lượt làm bài nên không thể sửa nội dung.");
       if (current.version !== input.expectedVersion)
         throw new ConflictException(
           "Đề đã được cập nhật ở nơi khác; hãy tải lại trước khi sửa.",
@@ -181,7 +183,7 @@ export async function updateExam(
       const claimed = await transaction.exam.updateMany({
         where: {
           id: examId,
-          status: "DRAFT",
+          status: { in: ["DRAFT", "PUBLISHED"] },
           version: input.expectedVersion,
         },
         data: {
@@ -212,7 +214,7 @@ export async function updateExam(
       await transaction.auditLog.create({
         data: {
           actorId,
-          action: "EXAM_DRAFT_UPDATED",
+          action: "EXAM_UPDATED",
           entityType: "exam",
           entityId: examId,
           context: {
@@ -232,8 +234,10 @@ export async function updateExam(
     throw new NotFoundException("Không tìm thấy đề được phép chỉnh sửa.");
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (current.status !== "DRAFT")
-    throw new ConflictException("Chỉ đề nháp mới được chỉnh sửa.");
+  if (!["DRAFT", "PUBLISHED"].includes(current.status))
+    throw new ConflictException("Đề đã đóng nên không thể chỉnh sửa.");
+  if (serviceContext.attempts.some((attempt) => attempt.examId === examId))
+    throw new ConflictException("Đề đã có lượt làm bài nên không thể sửa nội dung.");
   if (current.version !== input.expectedVersion)
     throw new ConflictException(
       "Đề đã được cập nhật ở nơi khác; hãy tải lại trước khi sửa.",
@@ -297,10 +301,12 @@ export async function editExamQuestion(
       });
       if (!exam)
         throw new NotFoundException("Không tìm thấy đề được phép sửa.");
-      if (exam.status !== "DRAFT" || exam.class.status === "CLOSED")
+      if (!["DRAFT", "PUBLISHED"].includes(exam.status) || exam.class.status === "CLOSED")
         throw new ConflictException(
-          "Chỉ sửa câu hỏi trong đề nháp của lớp đang hoạt động.",
+          "Chỉ sửa câu hỏi trong đề chưa đóng của lớp đang hoạt động.",
         );
+      if (await tx.examAttempt.count({ where: { examId } }))
+        throw new ConflictException("Đề đã có lượt làm bài nên không thể sửa câu hỏi.");
       const link = exam.questions.find(
         (item) => item.questionId === questionId,
       );
@@ -317,7 +323,7 @@ export async function editExamQuestion(
         correctAnswers: input.correctAnswers,
       });
       const changed = await tx.exam.updateMany({
-        where: { id: examId, status: "DRAFT", version: input.expectedVersion },
+        where: { id: examId, status: { in: ["DRAFT", "PUBLISHED"] }, version: input.expectedVersion },
         data: { version: { increment: 1 } },
       });
       if (changed.count !== 1)
@@ -336,7 +342,7 @@ export async function editExamQuestion(
           correctAnswers: normalized.correctAnswers,
           difficulty: normalized.difficulty,
           tags: normalized.tags,
-          status: "DRAFT",
+          status: exam.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
           version: 1,
           imageObjectKey: link.question.imageObjectKey,
           imageName: link.question.imageName,
@@ -365,13 +371,15 @@ export async function editExamQuestion(
   if (!classItem.instructorIds.includes(actorId))
     throw new NotFoundException("Không tìm thấy đề được phép sửa.");
   if (
-    exam.status !== "DRAFT" ||
+    !["DRAFT", "PUBLISHED"].includes(exam.status) ||
     classItem.status === "CLOSED" ||
     exam.version !== input.expectedVersion
   )
     throw new ConflictException(
-      "Đề không còn được sửa hoặc đã thay đổi. Hãy tải lại.",
+      "Đề đã đóng, đã có lượt làm bài hoặc đã thay đổi. Hãy tải lại.",
     );
+  if (serviceContext.attempts.some((attempt) => attempt.examId === examId))
+    throw new ConflictException("Đề đã có lượt làm bài nên không thể sửa câu hỏi.");
   const original = serviceContext.questions.find(
     (item) => item.id === questionId && exam.questionIds.includes(questionId),
   );
@@ -388,7 +396,7 @@ export async function editExamQuestion(
     ...normalized,
     id: nextId,
     familyId: nextId,
-    status: "DRAFT",
+    status: exam.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
     version: 1,
   };
   serviceContext.questions.push(next);

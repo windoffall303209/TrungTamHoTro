@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import type { Environment } from "../../../config/environment.js";
 import { PrismaService } from "../../../database/prisma.service.js";
+import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../infrastructure/file-transfer.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import {
@@ -1360,11 +1361,13 @@ export class LearningService {
   async publishQuestion(
     questionId: string,
     actorId = "usr-instructor",
+    immediate = false,
   ): Promise<LearningQuestion> {
     return await questions_ops.publishQuestion(
       this.operationContext,
       questionId,
       actorId,
+      immediate,
     );
   }
 
@@ -1515,6 +1518,7 @@ export class LearningService {
     actorId = "usr-instructor",
     confirmQuestions = false,
     expectedVersion?: number,
+    forcePublish = false,
   ): Promise<LearningExam> {
     return await exam_approval_ops.submitExamForReview(
       this.operationContext,
@@ -1522,6 +1526,7 @@ export class LearningService {
       actorId,
       confirmQuestions,
       expectedVersion,
+      forcePublish,
     );
   }
 
@@ -3076,6 +3081,14 @@ export class LearningService {
     allowedMimeTypes: string[];
   }> {
     return await storage_ops.getStoragePolicy(database);
+  }
+
+  /** Cung cấp giới hạn tệp hiện hành cho trình chọn học liệu của giảng viên. */
+  async getMaterialUploadPolicy(): Promise<{ maxFileSizeMb: number; allowedMimeTypes: string[] }> {
+    const policy = this.prisma
+      ? await this.getStoragePolicy(this.prisma)
+      : { maxFileSizeMb: 50, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
+    return { maxFileSizeMb: policy.maxFileSizeMb, allowedMimeTypes: policy.allowedMimeTypes };
   }
 
   /** Kiểm tra quota/chính sách, quét virus rồi ghi upload vào namespace material/quarantine. */

@@ -83,7 +83,7 @@ export function ExamEditorDialog({
       size="xl"
       title={
         editingExam
-          ? "Chỉnh sửa đề nháp"
+          ? "Chỉnh sửa đề thi"
           : createMode === "AI"
             ? "Tạo đề bằng AI"
             : "Tạo đề thủ công"
@@ -92,7 +92,7 @@ export function ExamEditorDialog({
         editingExam
           ? `Phiên bản ${editingExam.version}; khi lưu sẽ tăng version để bảo vệ thay đổi đồng thời.`
           : createMode === "AI"
-            ? "AI tạo câu hỏi đúng ma trận và lưu thành đề nháp. Giảng viên vẫn xem lại toàn bộ trước khi gửi duyệt."
+            ? "AI tạo câu hỏi theo ma trận và phát hành đề ngay sau khi tạo."
             : "Chọn các câu hỏi đã xuất bản trong ngân hàng câu hỏi."
       }
     >
@@ -681,7 +681,7 @@ export function ExamEditorDialog({
               ) : createMode === "AI" ? (
                 <>
                   <Sparkles size={17} />
-                  Tạo đề nháp {aiQuestionTotal} câu
+                  Tạo và phát hành {aiQuestionTotal} câu
                 </>
               ) : (
                 "Tạo đề thi"

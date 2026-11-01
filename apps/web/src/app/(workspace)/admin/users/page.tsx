@@ -44,7 +44,6 @@ const sameRoles = (left: RoleCode[], right: RoleCode[]): boolean =>
 
 interface UserForm {
   username: string;
-  displayName: string;
   roleCodes: RoleCode[];
   initialPassword: string;
 }
@@ -74,7 +73,6 @@ interface IdentityChangeImpact {
 }
 const emptyForm: UserForm = {
   username: "",
-  displayName: "",
   roleCodes: ["LEARNER"],
   initialPassword: "",
 };
@@ -85,11 +83,11 @@ export default function UsersPage() {
   const canView =
     (session.roleCode === "SYSTEM_ADMIN" || session.roleCode === "CENTER_MANAGER") &&
     hasPermission(session, "user:view");
-  // Quản lý trung tâm cấp được mọi vai trò trừ Quản trị hệ thống; API kiểm tra lại quy tắc này.
+  // Quản lý trung tâm chỉ được cấp vai trò giáo viên và học sinh; API áp dụng cùng giới hạn.
   const assignableRoles =
     session.roleCode === "SYSTEM_ADMIN"
       ? roles
-      : roles.filter((role) => role.code !== "SYSTEM_ADMIN");
+      : roles.filter((role) => role.code === "INSTRUCTOR" || role.code === "LEARNER");
   const canCreate = hasPermission(session, "user:create");
   const canUpdate = hasPermission(session, "user:update");
   const canSuspend = hasEveryPermission(session, [
@@ -193,7 +191,6 @@ export default function UsersPage() {
     setHandoffReason("");
     setForm({
       username: user.username,
-      displayName: user.displayName,
       roleCodes: user.roleCodes?.length ? user.roleCodes : [user.roleCode],
       initialPassword: "",
     });
@@ -331,12 +328,7 @@ export default function UsersPage() {
             </span>
           </Field>
         </>
-      ) : (
-        <Field label="Họ và tên">
-          <input className={`${inputClass} cursor-not-allowed bg-slate-100 text-slate-500`} readOnly value={form.displayName} />
-          <p className="mt-1 text-xs text-[var(--ink-soft)]">Họ tên chỉ do người dùng tự cập nhật trong hồ sơ cá nhân.</p>
-        </Field>
-      )}
+      ) : null}
       <Field label="Vai trò sử dụng">
         <div className="grid gap-2 sm:grid-cols-2">
           {assignableRoles.map((role) => (

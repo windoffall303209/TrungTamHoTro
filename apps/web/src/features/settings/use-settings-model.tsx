@@ -159,7 +159,6 @@ export function useSettingsModel() {
             maxFileSizeMb: settings.maxFileSizeMb,
             storageQuotaMb: settings.storageQuotaMb,
             allowedMimeTypes: settings.allowedMimeTypes,
-            moderationEnabled: settings.moderationEnabled,
             notificationSender: settings.notificationSender,
             maintenanceMode: settings.maintenanceMode,
             learnerEmailNotificationsEnabled:
@@ -302,66 +301,6 @@ export function useSettingsModel() {
         error instanceof Error ? error.message : "Sao lưu thất bại.",
         "error",
       );
-    }
-  };
-
-  /** Chuyển giữa tự động duyệt và duyệt tay cho đề thi ở cấp hệ thống. */
-  const saveExamApprovalMode = async (mode: Settings["examApprovalMode"]) => {
-    if (!settings || settings.examApprovalMode === mode) return;
-    setSaving(true);
-    try {
-      const updated = await apiRequest<Settings>("/system/settings", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ examApprovalMode: mode }),
-      });
-      setSettings(updated);
-      notify(
-        mode === "AUTO"
-          ? "Đã bật tự động phê duyệt đề thi."
-          : "Đã chuyển sang phê duyệt đề thi thủ công.",
-      );
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không đổi được chế độ phê duyệt.",
-        "error",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** Chuyển giữa tự động duyệt và duyệt tay cho câu hỏi trong ngân hàng. */
-  const saveQuestionApprovalMode = async (
-    mode: Settings["questionApprovalMode"],
-  ) => {
-    if (!settings || settings.questionApprovalMode === mode) return;
-    setSaving(true);
-    try {
-      const updated = await apiRequest<Settings>("/system/settings", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ questionApprovalMode: mode }),
-      });
-      setSettings(updated);
-      notify(
-        mode === "AUTO"
-          ? "Đã bật tự động phê duyệt câu hỏi."
-          : "Đã chuyển sang phê duyệt câu hỏi thủ công.",
-      );
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không đổi được chế độ phê duyệt câu hỏi.",
-        "error",
-      );
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -582,8 +521,6 @@ export function useSettingsModel() {
     setDefault,
     testMeeting,
     backup,
-    saveExamApprovalMode,
-    saveQuestionApprovalMode,
     saveLearnerEmailNotifications,
     openAiEditor,
     loadProviderModels,

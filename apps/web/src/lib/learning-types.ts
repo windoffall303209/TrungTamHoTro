@@ -171,6 +171,7 @@ export interface Assignment {
   title: string;
   description: string;
   instructions: string;
+  sourceMaterial?: { id: string; name: string; mimeType: string; sizeBytes: number };
   dueAt: string;
   maxScore: number;
   rubric: RubricCriterion[];

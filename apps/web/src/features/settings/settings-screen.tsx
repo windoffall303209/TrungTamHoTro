@@ -22,50 +22,6 @@ import {
 import { SettingsSection, settingsSections } from "./settings.shared";
 import { useSettingsModel } from "./use-settings-model";
 
-/** Hiển thị lựa chọn chế độ phê duyệt dùng chung cho đề thi và câu hỏi. */
-function ApprovalModeCard({
-  title,
-  description,
-  selected,
-  disabled,
-  selectedLabel,
-  onSelect,
-}: {
-  title: string;
-  description: string;
-  selected: boolean;
-  disabled: boolean;
-  selectedLabel: string;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      aria-pressed={selected}
-      className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
-      disabled={disabled}
-      onClick={onSelect}
-      type="button"
-    >
-      <span className="flex items-center justify-between gap-3">
-        <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
-          {title}
-        </span>
-        <span
-          className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
-        >
-          {selected ? <span className="size-2 rounded-full bg-white" /> : null}
-        </span>
-      </span>
-      <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-        {description}
-      </span>
-      <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
-        {selected ? "Đang áp dụng" : selectedLabel}
-      </span>
-    </button>
-  );
-}
-
 /** Lắp ghép màn hình cấu hình hệ thống từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function SettingsScreen() {
   const model = useSettingsModel();
@@ -106,8 +62,6 @@ export default function SettingsScreen() {
     setDefault,
     testMeeting,
     backup,
-    saveExamApprovalMode,
-    saveQuestionApprovalMode,
     saveLearnerEmailNotifications,
     openAiEditor,
     loadProviderModels,
@@ -158,14 +112,6 @@ export default function SettingsScreen() {
                 ? settings?.learnerEmailNotificationsEnabled
                   ? "Đang bật"
                   : "Đang tắt"
-                : item.id === "exam-approval"
-                  ? settings?.examApprovalMode === "MANUAL"
-                    ? "Duyệt thủ công"
-                    : "Tự động duyệt"
-                : item.id === "question-approval"
-                  ? settings?.questionApprovalMode === "MANUAL"
-                    ? "Duyệt thủ công"
-                    : "Tự động duyệt"
                 : item.id === "ai-providers"
                   ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật`
                   : item.id === "health"
@@ -288,86 +234,6 @@ export default function SettingsScreen() {
                       {selected ? "Đang áp dụng" : "Chọn cấu hình này"}
                     </span>
                   </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
-      {activeSection === "exam-approval" && settings ? (
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Thiết lập này áp dụng cho các đề được giảng viên gửi từ thời điểm
-              thay đổi. Đề đã nằm trong hàng chờ vẫn có thể được quản trị viên
-              phê duyệt hoặc trả lại.
-            </p>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {[
-                {
-                  mode: "AUTO" as const,
-                  title: "Tự động phê duyệt",
-                  description:
-                    "Đề hợp lệ được phát hành ngay khi giảng viên gửi. Phù hợp với quy trình vận hành hiện tại.",
-                },
-                {
-                  mode: "MANUAL" as const,
-                  title: "Phê duyệt thủ công",
-                  description:
-                    "Đề chuyển sang trạng thái chờ; quản trị viên cần phê duyệt hoặc trả lại kèm lý do.",
-                },
-              ].map((option) => {
-                const selected = settings.examApprovalMode === option.mode;
-                return (
-                  <ApprovalModeCard
-                    key={option.mode}
-                    title={option.title}
-                    description={option.description}
-                    selected={selected}
-                    disabled={saving}
-                    selectedLabel="Chọn chế độ này"
-                    onSelect={() => void saveExamApprovalMode(option.mode)}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
-      {activeSection === "question-approval" && settings ? (
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Giảng viên vẫn chủ động lưu bản nháp. Chế độ này chỉ được áp dụng
-              khi họ chọn Xuất bản; câu hỏi đang chờ duyệt không tự thay đổi khi
-              cấu hình được cập nhật.
-            </p>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              {[
-                {
-                  mode: "AUTO" as const,
-                  title: "Tự động phê duyệt",
-                  description:
-                    "Câu hỏi hợp lệ được xuất bản ngay và có thể chọn khi tạo đề.",
-                },
-                {
-                  mode: "MANUAL" as const,
-                  title: "Phê duyệt thủ công",
-                  description:
-                    "Câu hỏi chuyển sang chờ duyệt; quản trị viên phê duyệt hoặc trả lại kèm lý do.",
-                },
-              ].map((option) => {
-                const selected = settings.questionApprovalMode === option.mode;
-                return (
-                  <ApprovalModeCard
-                    key={option.mode}
-                    title={option.title}
-                    description={option.description}
-                    selected={selected}
-                    disabled={saving}
-                    selectedLabel="Chọn chế độ này"
-                    onSelect={() => void saveQuestionApprovalMode(option.mode)}
-                  />
                 );
               })}
             </div>
@@ -607,20 +473,6 @@ export default function SettingsScreen() {
                   }
                 />
               </Field>
-              <label className="flex min-h-11 items-center justify-between rounded-xl bg-slate-50 p-4 text-sm font-bold">
-                <span>Bật kiểm duyệt nội dung</span>
-                <input
-                  checked={settings.moderationEnabled}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      moderationEnabled: e.target.checked,
-                    })
-                  }
-                  className="size-5 accent-sky-600"
-                  type="checkbox"
-                />
-              </label>
               <label className="flex min-h-11 items-center justify-between rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">
                 <span>Chế độ bảo trì</span>
                 <input
@@ -692,14 +544,7 @@ export default function SettingsScreen() {
                   </p>
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                     {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
-                    {item.storageQuotaMb} MB ·{" "}
-                    {item.examApprovalMode === "MANUAL"
-                      ? "duyệt đề thủ công"
-                      : "tự động duyệt đề"}{" "}
-                    ·{" "}
-                    {item.questionApprovalMode === "MANUAL"
-                      ? "duyệt câu hỏi thủ công"
-                      : "tự động duyệt câu hỏi"}
+                    {item.storageQuotaMb} MB
                   </p>
                 </article>
               ))

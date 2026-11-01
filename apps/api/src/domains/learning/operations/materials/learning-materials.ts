@@ -25,6 +25,31 @@ const AI_SEARCH_MIME_TYPES = new Set([
   "image/jpeg",
 ]);
 
+const LECTURE_LINK_MIME = "text/uri-list";
+const YOUTUBE_LECTURE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]);
+const FACEBOOK_LECTURE_HOSTS = new Set(["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.watch"]);
+
+/** Xác thực URL bài giảng và metadata trên server để ngăn liên kết giả mạo hoặc nguy hiểm. */
+function validateLectureLinkTags(tags: readonly string[], requireLink = false): string | undefined {
+  const matches = tags.filter((tag) => tag.startsWith("lecture-url:"));
+  if (matches.length > 1 || (requireLink && matches.length !== 1)) throw new BadRequestException("Bài giảng cần đúng một liên kết hợp lệ.");
+  if (!matches.length) return undefined;
+  if (!tags.includes("LECTURE")) throw new BadRequestException("Liên kết phải được gắn loại bài giảng.");
+  const source = matches[0]!.slice("lecture-url:".length);
+  if (source.length > 2048 || source.length < 12 || source !== source.trim()) throw new BadRequestException("Đường dẫn bài giảng không hợp lệ.");
+  let url: URL;
+  try { url = new URL(source); } catch { throw new BadRequestException("Đường dẫn bài giảng không hợp lệ."); }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) throw new BadRequestException("Liên kết bài giảng phải dùng HTTPS và không chứa thông tin đăng nhập.");
+  const host = url.hostname.toLowerCase();
+  if (YOUTUBE_LECTURE_HOSTS.has(host)) {
+    const videoId = host === "youtu.be" ? url.pathname.split("/")[1] : url.pathname === "/watch" ? url.searchParams.get("v") : /^\/(?:embed|shorts|live|v)\//.test(url.pathname) ? url.pathname.split("/")[2] : null;
+    if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) throw new BadRequestException("Liên kết YouTube phải chứa mã video hợp lệ.");
+  } else if (!((FACEBOOK_LECTURE_HOSTS.has(host) || host === "drive.google.com") && url.pathname !== "/")) {
+    throw new BadRequestException("Chỉ hỗ trợ liên kết YouTube, Facebook hoặc Google Drive.");
+  }
+  return source;
+}
+
 /** Trả một trang có giới hạn cho client dùng mảng cũ; API tìm kiếm cung cấp thêm tổng số kết quả. */
 export async function listMaterials(
   serviceContext: LearningServiceContext,
@@ -206,6 +231,12 @@ export async function createMaterial(
   actorId = "usr-instructor",
   actorRole = "INSTRUCTOR",
 ): Promise<LearningMaterial> {
+  const lectureUrl = validateLectureLinkTags(input.tags, input.mimeType === LECTURE_LINK_MIME);
+  if (lectureUrl && input.mimeType !== LECTURE_LINK_MIME)
+    throw new BadRequestException("Liên kết bài giảng phải có MIME text/uri-list.");
+  const isLectureLink = !upload && Boolean(classId) && input.mimeType === LECTURE_LINK_MIME && Boolean(lectureUrl);
+  if (input.mimeType === LECTURE_LINK_MIME && !isLectureLink) throw new BadRequestException("Chỉ được tạo bài giảng bằng liên kết trong lớp.");
+  if (isLectureLink && input.sizeBytes !== Buffer.byteLength(lectureUrl!, "utf8")) throw new BadRequestException("Dung lượng metadata liên kết không khớp URL.");
   const prisma = serviceContext.database();
   const policy = prisma
     ? await serviceContext.getStoragePolicy(prisma)
@@ -218,7 +249,7 @@ export async function createMaterial(
     throw new BadRequestException(
       `Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`,
     );
-  if (!policy.allowedMimeTypes.includes(input.mimeType))
+  if (!isLectureLink && !policy.allowedMimeTypes.includes(input.mimeType))
     throw new BadRequestException(
       "Loại MIME không được chính sách lưu trữ cho phép.",
     );
@@ -422,6 +453,9 @@ export async function updateMaterial(
       include: { class: true, editors: { select: { userId: true } } },
     });
     if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+    const updatedLectureUrl = input.tags === undefined ? undefined : validateLectureLinkTags(input.tags, current.mimeType === LECTURE_LINK_MIME);
+    if (updatedLectureUrl && current.mimeType !== LECTURE_LINK_MIME)
+      throw new BadRequestException("Không thể gắn liên kết bài giảng vào học liệu dạng tệp.");
     if (!canEditMaterial(current, actorId, actorRole))
       throw new NotFoundException("Không tìm thấy học liệu.");
     if (current.class?.status === "CLOSED")
@@ -459,6 +493,7 @@ export async function updateMaterial(
           classId: input.classId !== undefined ? (input.classId || null) : undefined,
           courseId: targetClass?.courseId,
           tags: input.tags,
+          sizeBytes: updatedLectureUrl ? BigInt(Buffer.byteLength(updatedLectureUrl, "utf8")) : undefined,
           visibility: input.visibility,
           scope: nextScope,
           version: { increment: 1 },
@@ -487,6 +522,9 @@ export async function updateMaterial(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  const updatedLectureUrl = input.tags === undefined ? undefined : validateLectureLinkTags(input.tags, item.mimeType === LECTURE_LINK_MIME);
+  if (updatedLectureUrl && item.mimeType !== LECTURE_LINK_MIME)
+    throw new BadRequestException("Không thể gắn liên kết bài giảng vào học liệu dạng tệp.");
   if (
     item.classId &&
     !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
@@ -519,6 +557,7 @@ export async function updateMaterial(
   if (input.name) item.name = input.name.trim();
   if (input.folder !== undefined) item.folder = input.folder.trim();
   if (input.tags) item.tags = input.tags;
+  if (updatedLectureUrl) item.sizeBytes = Buffer.byteLength(updatedLectureUrl, "utf8");
   if (input.visibility) item.visibility = input.visibility;
   if (input.scope && input.classId === undefined) item.scope = input.scope;
   item.version += 1;

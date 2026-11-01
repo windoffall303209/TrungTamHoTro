@@ -9,7 +9,6 @@ import { normalizeMultipartFileName } from "../../../../infrastructure/file-tran
 import {
   id,
   MaterialDownload,
-  now,
   UploadedMaterialFile,
 } from "../../core/learning.shared.js";
 import type {
@@ -529,15 +528,16 @@ export async function readQuestionImage(
   };
 }
 
-/** Xuất bản ngay hoặc chuyển PENDING_REVIEW tùy chế độ phê duyệt câu hỏi. */
+/** Công bố câu hỏi theo cấu hình, hoặc công bố ngay khi thuộc luồng tạo bài đã xác nhận. */
 export async function publishQuestion(
   serviceContext: LearningServiceContext,
   questionId: string,
   actorId = "usr-instructor",
+  immediate = false,
 ): Promise<LearningQuestion> {
   const approvalMode = await serviceContext.getQuestionApprovalMode();
   const nextStatus: LearningQuestion["status"] =
-    approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
+    immediate || approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.question.findUnique({
@@ -546,7 +546,7 @@ export async function publishQuestion(
     if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
     if (current.status === "PUBLISHED")
       return serviceContext.mapQuestion(current);
-    if (current.status === "PENDING_REVIEW")
+    if (current.status === "PENDING_REVIEW" && !immediate)
       return serviceContext.mapQuestion(current);
     const latest = await prisma.question.findFirst({
       where: { familyId: current.familyId },
@@ -565,26 +565,14 @@ export async function publishQuestion(
         data: {
           actorId,
           action:
-            approvalMode === "AUTO"
+            immediate || approvalMode === "AUTO"
               ? "QUESTION_AUTO_APPROVED"
               : "QUESTION_SUBMITTED_FOR_REVIEW",
           entityType: "question",
           entityId: questionId,
-          context: { version: current.version, approvalMode },
+          context: { version: current.version, approvalMode, immediate },
         },
       });
-      if (approvalMode === "AUTO")
-        await transaction.notification.create({
-          data: {
-            id: id("notification"),
-            recipientId: current.authorId,
-            type: "QUESTION_REVIEWED",
-            title: "Câu hỏi đã được tự động phê duyệt",
-            entityType: "QUESTION",
-            entityId: questionId,
-            dedupKey: `question-auto-approval:${questionId}:${current.version}:${current.authorId}`,
-          },
-        });
       return serviceContext.mapQuestion(updated);
     });
   }
@@ -594,7 +582,7 @@ export async function publishQuestion(
   if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
   if (current.status === "PUBLISHED")
     return serviceContext.cloneQuestion(current);
-  if (current.status === "PENDING_REVIEW")
+  if (current.status === "PENDING_REVIEW" && !immediate)
     return serviceContext.cloneQuestion(current);
   const familyId = current.familyId ?? current.id;
   const latest = serviceContext.questions
@@ -605,16 +593,6 @@ export async function publishQuestion(
       "Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.",
     );
   current.status = nextStatus;
-  if (approvalMode === "AUTO")
-    serviceContext.notifications.unshift({
-      id: id("notification"),
-      recipientId: actorId,
-      type: "QUESTION_REVIEWED",
-      title: "Câu hỏi đã được tự động phê duyệt",
-      entityType: "QUESTION",
-      entityId: questionId,
-      createdAt: now(),
-    });
   return serviceContext.cloneQuestion(current);
 }
 

@@ -55,18 +55,8 @@ export default function ExamsScreen() {
     autosaveStatus,
     loading,
     saving,
-    reviewingId,
-    returnTarget,
-    setReturnTarget,
-    returnNote,
-    setReturnNote,
-    confirmExam,
-    setConfirmExam,
-    publishing,
     openEdit,
-    publish,
     preview,
-    review,
     start,
     answer,
     saveTextAnswer,
@@ -82,7 +72,7 @@ export default function ExamsScreen() {
         description={
           learner
             ? "Làm các đề đã được công bố và theo dõi kết quả học tập của bạn."
-            : "Thiết kế, công bố và theo dõi kết quả đánh giá của lớp."
+            : "Tạo, xem, chỉnh sửa và theo dõi kết quả đánh giá của lớp."
         }
         actions={undefined}
       />
@@ -261,8 +251,8 @@ export default function ExamsScreen() {
               learner
                 ? "Đề thi sẽ xuất hiện khi giảng viên công bố cho lớp của bạn."
                 : instructor
-                  ? "Theo dõi đề thi, chỉnh sửa bản nháp và phát hành đề cho lớp."
-                  : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
+                  ? "Đề thi sẽ xuất hiện ngay sau khi tạo để xem hoặc chỉnh sửa."
+                  : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi."
             }
           >
             <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
@@ -317,29 +307,14 @@ export default function ExamsScreen() {
                           </td>
                           <td className="w-[150px] px-3 py-2.5 align-middle">
                             <div className="flex flex-wrap items-center justify-center gap-1">
+                              {instructor || canReview ? (
+                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                  <Eye size={14} />
+                                </Button>
+                              ) : null}
                               {instructor ? (
-                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
-                                  <Eye size={14} />
-                                </Button>
-                              ) : null}
-                              {canReview && item.status === "PENDING_REVIEW" ? (
-                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
-                                  <Eye size={14} />
-                                </Button>
-                              ) : null}
-                              {instructor && item.status === "DRAFT" ? (
                                 <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Pencil size={14} />
-                                </Button>
-                              ) : null}
-                              {instructor && item.status === "DRAFT" ? (
-                                <Button aria-label="Phát hành đề" title="Phát hành đề" onClick={() => setConfirmExam(item)} variant="secondary" className="h-8 px-2 text-xs font-semibold">
-                                  <Send size={13} />
-                                </Button>
-                              ) : null}
-                              {(instructor || canReview) && item.status === "PENDING_REVIEW" ? (
-                                <Button aria-label="Phát hành ngay" title="Phát hành ngay" loading={reviewingId === item.id} onClick={() => void review(item, "APPROVE")} className="h-8 px-2 text-xs font-semibold">
-                                  <CheckCircle2 size={13} />
                                 </Button>
                               ) : null}
                               {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
@@ -491,88 +466,6 @@ export default function ExamsScreen() {
             Gửi yêu cầu
           </Button>
         </form>
-      </Modal>
-      <Modal
-        open={Boolean(returnTarget)}
-        onClose={() => {
-          setReturnTarget(null);
-          setReturnNote("");
-        }}
-        title="Trả lại đề thi"
-        description={
-          returnTarget
-            ? `Đề “${returnTarget.title}” sẽ quay về bản nháp để giảng viên chỉnh sửa.`
-            : undefined
-        }
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (returnTarget) void review(returnTarget, "RETURN", returnNote);
-          }}
-        >
-          <Field label="Lý do trả lại">
-            <textarea
-              autoFocus
-              className={inputClass}
-              minLength={5}
-              onChange={(event) => setReturnNote(event.target.value)}
-              placeholder="Nêu rõ nội dung giảng viên cần điều chỉnh…"
-              required
-              rows={5}
-              value={returnNote}
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              loading={Boolean(returnTarget && reviewingId === returnTarget.id)}
-              type="submit"
-            >
-              <RotateCcw size={15} />
-              Xác nhận trả lại
-            </Button>
-            <Button
-              onClick={() => {
-                setReturnTarget(null);
-                setReturnNote("");
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Hủy
-            </Button>
-          </div>
-        </form>
-      </Modal>
-      <Modal
-        open={Boolean(confirmExam)}
-        onClose={() => {
-          if (!publishing) setConfirmExam(null);
-        }}
-        title="Xác nhận phát hành đề thi"
-        description="Đề thi sẽ được công bố và học viên có thể làm bài theo lịch mở đề."
-      >
-        <p className="text-sm text-[var(--ink-soft)]">
-          Đề thi sẽ được phát hành ngay lập tức và các câu hỏi trong đề sẽ được kích hoạt cho học viên.
-        </p>
-        <div className="mt-5 flex justify-end gap-3">
-          <Button
-            disabled={publishing}
-            variant="ghost"
-            onClick={() => setConfirmExam(null)}
-          >
-            Hủy
-          </Button>
-          <Button
-            loading={publishing}
-            onClick={() => {
-              if (confirmExam) void publish(confirmExam);
-            }}
-          >
-            Phát hành ngay
-          </Button>
-        </div>
       </Modal>
       <ExamPreviewDialog model={model} />
     </div>
