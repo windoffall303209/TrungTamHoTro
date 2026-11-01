@@ -34,6 +34,7 @@ export default function ScanQuestionsPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scanWarnings, setScanWarnings] = useState<string[]>([]);
   const [importIssues, setImportIssues] = useState<Array<{ row: number; message: string }>>([]);
   const [partialImportReady, setPartialImportReady] = useState(false);
   const scanRequestId = useRef(0);
@@ -71,7 +72,7 @@ export default function ScanQuestionsPage() {
     }
     scanRequestId.current += 1;
     setScanning(false);
-    setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]); setImportIssues([]); setPartialImportReady(false);
+    setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]); setScanWarnings([]); setImportIssues([]); setPartialImportReady(false);
   };
   /** Tải ảnh lên dịch vụ quét, nhận các câu hỏi có cấu trúc và đưa vào vùng hiệu đính. */
   const scan = async () => {
@@ -82,7 +83,7 @@ export default function ScanQuestionsPage() {
       const body = new FormData(); body.append("file", file);
       const result = await apiRequest<ScanResult>("/instructor/question-bank/scan-image", { method: "POST", roleCode: session.roleCode, body });
       if (requestId !== scanRequestId.current) return;
-      setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);
+      setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); setScanWarnings(result.warnings ?? []); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);
     } catch (error) { if (requestId === scanRequestId.current) notify(error instanceof Error ? error.message : "Không quét được ảnh đề.", "error"); }
     finally { if (requestId === scanRequestId.current) setScanning(false); }
   };
@@ -140,7 +141,7 @@ export default function ScanQuestionsPage() {
         </div>
         <div className="min-w-0">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3"><div><h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Bản nháp cần rà soát</h2><p className="mt-1 text-xs text-slate-400">{drafts.length ? `${selected.length}/${drafts.length} câu được chọn` : "Kết quả quét sẽ xuất hiện ở đây."}</p></div><Sparkles className="text-sky-600 dark:text-sky-400" size={22} /></div>
-          <div className="mt-4 max-h-[760px] space-y-4 overflow-y-auto pr-1">
+          {scanWarnings.length ? <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{scanWarnings.map((warning) => <p key={warning}>• {warning}</p>)}</div> : null}<div className="mt-4 max-h-[760px] space-y-4 overflow-y-auto pr-1">
             {!drafts.length ? <div className="grid min-h-56 place-items-center text-center text-sm text-slate-400">Chưa có dữ liệu quét.</div> : drafts.map((draft, index) => (
               <article className={`rounded-xl border bg-slate-50/40 p-4 shadow-2xs dark:bg-slate-800/20 ${importIssues.some((issue) => selected[issue.row - 1] === index) ? "border-rose-400 ring-1 ring-rose-300/60 dark:border-rose-700" : "border-slate-200 dark:border-slate-800"}`} key={index}>
                 <div className="flex items-start justify-between gap-3"><label className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"><input checked={selected.includes(index)} className="size-4 rounded-sm accent-sky-600" onChange={(event) => setSelected((current) => event.target.checked ? [...current, index] : current.filter((value) => value !== index))} type="checkbox" />Câu {index + 1}</label><span className="text-xs font-bold tabular-nums text-sky-600 dark:text-sky-400">Tin cậy {Math.round(draft.confidence * 100)}%</span></div>
