@@ -125,17 +125,17 @@ function newChoiceQuestion(order: number): ParsedQuestionItem {
 
 // Chuẩn hóa chuỗi đáp án do OCR hoặc AI trả về để so khớp an toàn.
 function normalizeAnswer(value: string): string {
-  return value.trim().replace(/^(?:đáp\s*án|đáp án đúng|answer)\s*[:.]?\s*/iu, "").trim();
+  return value.trim().replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").replace(/^(?:đáp\s*án(?:\s+đúng)?|answer)(?:\s+là)?\s*[:.]?\s*/iu, "").trim();
 }
 
 // Tìm phương án đúng từ chữ cái hoặc nội dung đáp án mà AI trả về.
 function findAnswerKey(answer: string, options: { key: string; text: string }[]): string {
   const normalized = normalizeAnswer(answer);
   if (!normalized) return "";
-  const letter = normalized.match(/^([A-F])(?:[.)\s]|$)/i)?.[1]?.toUpperCase();
+  const letter = normalized.match(/^([A-F])(?:[.)\s:-]|$)/i)?.[1]?.toUpperCase();
   const byKey = options.find((option) => option.key === letter);
   if (byKey) return byKey.key;
-  const comparable = normalized.replace(/^[A-F][.)\s]+/i, "").trim().toLocaleLowerCase();
+  const comparable = normalized.replace(/^[A-F][.)\s:-]+/i, "").trim().toLocaleLowerCase();
   return options.find((option) => option.text.trim().toLocaleLowerCase() === comparable)?.key ?? "";
 }
 
@@ -154,7 +154,9 @@ function parseTextQuestions(text: string): ParsedQuestionItem[] {
     const option = line.match(/^([A-D])[.:)]\s*(.+)$/i);
     if (option) {
       const key = option[1]!.toUpperCase();
-      current.options = current.options.map((item) => item.key === key ? { ...item, text: option[2]! } : item);
+      const textValue = option[2]!.trim();
+      current.options = current.options.map((item) => item.key === key ? { ...item, text: normalizeAnswer(textValue) } : item);
+      if (/\*\*.+\*\*|<strong>.+<\/strong>|__.+__/iu.test(textValue)) current.correctAnswer = key;
       continue;
     }
     const answer = line.match(/^(?:Đáp án|ĐA|Answer)\s*[:.]?\s*(.+)$/iu);
@@ -196,8 +198,9 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
   }
 
   const questions = scanned.filter((item) => item.type === "SINGLE_CHOICE").map((item, index) => {
-    const options = (item.options ?? []).map((text, position) => ({ key: String.fromCharCode(65 + position), text: text ?? "" }));
-    const correctAnswer = findAnswerKey(item.correctAnswers?.[0] ?? "", options);
+    const options = (item.options ?? []).map((text, position) => ({ key: String.fromCharCode(65 + position), text: normalizeAnswer(text ?? "") }));
+    const markedKeys = options.filter((option) => /\*\*.+\*\*|<strong>.+<\/strong>|__.+__/iu.test(item.options?.[options.indexOf(option)] ?? "")).map((option) => option.key);
+    const correctAnswer = findAnswerKey(item.correctAnswers?.[0] ?? "", options) || markedKeys[0] || "";
     const itemWarnings = [...(item.warnings ?? [])];
     if (!correctAnswer) itemWarnings.push("AI chưa xác định được đáp án đúng. Hãy chọn đáp án trước khi lưu.");
     const question: ParsedQuestionItem = {
@@ -316,7 +319,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
     try {
       let result: { questions: ParsedQuestionItem[]; essayQuestions: string[]; warnings: string[] };
       if (/\.txt$/iu.test(file.name)) result = type === "MULTIPLE_CHOICE" ? { questions: parseTextQuestions(await file.text()), essayQuestions: [], warnings: ["Tệp TXT được đọc theo mẫu; hãy kiểm tra lại đáp án trước khi lưu."] } : { questions: [], essayQuestions: parseTextEssayQuestions(await file.text()), warnings: ["Tệp TXT được đọc theo mẫu; hãy kiểm tra lại nội dung trước khi lưu."] };
-      else { const form = new FormData(); form.append("file", file); const response = await apiRequest<{ questions: ScannedQuestion[] }>("/instructor/question-bank/scan-image", { method: "POST", body: form }); result = normalizeScannedQuestions(response.questions ?? [], type); }
+      else { const form = new FormData(); form.append("file", file); const response = await apiRequest<{ questions: ScannedQuestion[]; warnings?: string[] }>("/instructor/question-bank/scan-image", { method: "POST", body: form }); const normalized = normalizeScannedQuestions(response.questions ?? [], type); result = { ...normalized, warnings: [...(response.warnings ?? []), ...normalized.warnings] }; }
       if (type === "MULTIPLE_CHOICE") {
         if (!result.questions.length) throw new Error("AI chưa nhận diện được câu trắc nghiệm một đáp án. Hãy chọn tệp rõ hơn hoặc chuyển sang nhập thủ công.");
         setQuestions(result.questions.map((question, index) => ({ ...question, order: index + 1 })));
