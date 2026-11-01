@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCircle2, CirclePlus, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Undo2, Upload } from "lucide-react";
+import { Check, CheckCircle2, CirclePlus, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -70,14 +70,13 @@ function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: st
   );
 }
 
-/** Quản lý ngân hàng câu hỏi, editor theo loại, ảnh minh họa, nhập hàng loạt và phê duyệt. */
+/** Quản lý ngân hàng câu hỏi, editor theo loại, ảnh minh họa và nhập hàng loạt. */
 export default function QuestionsPage() {
   const { session, notify } = useApp();
   const searchParams = useSearchParams();
   const selectedCourseId = searchParams?.get("courseId") ?? "";
   const canView = ["SYSTEM_ADMIN", "INSTRUCTOR"].includes(session.roleCode) && hasPermission(session, "question:view");
   const canManage = session.roleCode === "INSTRUCTOR" && hasPermission(session, "question:manage");
-  const canReview = false;
   const canViewCourses = hasPermission(session, "course:view");
   const [items, setItems] = useState<Question[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -93,9 +92,6 @@ export default function QuestionsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importResults, setImportResults] = useState<QuestionImportResult[]>([]);
-  const [reviewTarget, setReviewTarget] = useState<Question | null>(null);
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewSaving, setReviewSaving] = useState(false);
   const [existingImage, setExistingImage] = useState<Pick<Question, "imageUrl" | "imageName" | "imageSizeBytes"> | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
@@ -174,25 +170,18 @@ export default function QuestionsPage() {
       } else if (removeExistingImage && saved.imageUrl) {
         saved = await apiRequest<Question>(`/instructor/question-bank/questions/${saved.id}/image`, { method: "DELETE", roleCode: session.roleCode });
       }
-      notify(editingId ? "Đã tạo phiên bản câu hỏi mới ở trạng thái nháp." : "Đã thêm câu hỏi vào ngân hàng.");
+      if (saved.status !== "PUBLISHED") {
+        saved = await apiRequest<Question>(`/instructor/question-bank/questions/${saved.id}/publish`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ immediate: true }) });
+      }
+      notify(editingId ? "Đã tạo và công bố phiên bản câu hỏi mới." : "Đã thêm và công bố câu hỏi vào ngân hàng.");
       closeEditor(); setEditingId(null); setForm(createBlankForm()); await load();
     } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error"); }
     finally { setSaving(false); }
   };
-  /** Gửi câu hỏi duyệt hoặc tự xuất bản theo chế độ phê duyệt đang cấu hình. */
+  /** Công bố câu hỏi ngay để có thể dùng trong đề thi. */
   const publish = async (item: Question) => {
-    try { const updated = await apiRequest<Question>(`/instructor/question-bank/questions/${item.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify(updated.status === "PUBLISHED" ? `Câu hỏi phiên bản ${item.version} đã được tự động phê duyệt và xuất bản.` : `Câu hỏi phiên bản ${item.version} đã được gửi tới quản trị viên phê duyệt.`); await load(); }
+    try { await apiRequest<Question>(`/instructor/question-bank/questions/${item.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify(`Câu hỏi phiên bản ${item.version} đã được công bố.`); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được câu hỏi.", "error"); }
-  };
-  /** Phê duyệt hoặc trả lại câu hỏi cùng ghi chú cho tác giả. */
-  const review = async (item: Question, decision: "APPROVE" | "RETURN", note?: string) => {
-    setReviewSaving(true);
-    try {
-      await apiRequest<Question>(`/admin/question-bank/questions/${item.id}/review`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ decision, reviewNote: note }) });
-      notify(decision === "APPROVE" ? "Đã phê duyệt và xuất bản câu hỏi." : "Đã trả câu hỏi về bản nháp để chỉnh sửa.");
-      setReviewTarget(null); setReviewNote(""); await load();
-    } catch (error) { notify(error instanceof Error ? error.message : "Không duyệt được câu hỏi.", "error"); }
-    finally { setReviewSaving(false); }
   };
   /** Phân tích dữ liệu nhập hàng loạt và tạo các câu hỏi hợp lệ trong khóa học. */
   const importQuestions = async (event: React.FormEvent) => {
@@ -274,7 +263,7 @@ export default function QuestionsPage() {
                 {canManage ? (
                   <div className="flex flex-wrap items-start justify-end gap-2">
                     <Button aria-label="Sửa thành phiên bản mới" onClick={() => openEdit(item)} variant="secondary" className="h-8 text-xs"><Pencil size={13} />Sửa</Button>
-                    {item.status === "DRAFT" ? <Button aria-label="Gửi xuất bản câu hỏi" onClick={() => void publish(item)} className="h-8 text-xs"><CheckCircle2 size={13} />Xuất bản</Button> : item.status === "PENDING_REVIEW" && canReview ? <><Button aria-label="Trả lại câu hỏi" onClick={() => { setReviewTarget(item); setReviewNote(""); }} variant="secondary" className="h-8 text-xs"><Undo2 size={13} />Trả lại</Button><Button aria-label="Phê duyệt câu hỏi" onClick={() => void review(item, "APPROVE")} className="h-8 text-xs"><CheckCircle2 size={13} />Phê duyệt</Button></> : item.status === "PENDING_REVIEW" ? <span className="px-2 py-1 text-xs font-bold text-amber-600">Đang chờ duyệt</span> : <FileQuestion aria-label="Đã xuất bản" className="ml-2 mt-1 text-emerald-600" size={22} />}
+                    {item.status === "DRAFT" ? <Button aria-label="Công bố câu hỏi" onClick={() => void publish(item)} className="h-8 text-xs"><CheckCircle2 size={13} />Công bố</Button> : <FileQuestion aria-label="Đã công bố" className="ml-2 mt-1 text-emerald-600" size={22} />}
                   </div>
                 ) : null}
               </article>
@@ -284,7 +273,7 @@ export default function QuestionsPage() {
         </div>
       </SectionState>
 
-      <Modal description={editingId ? "Bản hiện tại không thay đổi; lần lưu này tạo một phiên bản nháp mới." : "Chọn dạng câu hỏi, nhập nội dung rồi kiểm tra bản xem trước trước khi lưu."} onClose={closeEditor} open={editorOpen} size="xl" title={editingId ? "Tạo phiên bản câu hỏi" : "Soạn câu hỏi"}>
+      <Modal description={editingId ? "Bản hiện tại không thay đổi; lần lưu này tạo một phiên bản mới." : "Chọn dạng câu hỏi, nhập nội dung rồi kiểm tra bản xem trước trước khi lưu."} onClose={closeEditor} open={editorOpen} size="xl" title={editingId ? "Tạo phiên bản câu hỏi" : "Soạn câu hỏi"}>
         <form className="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]" onSubmit={(event) => void saveQuestion(event)}>
           <div className="min-w-0 space-y-6">
             <section className="space-y-4"><div><h3 className="font-bold">Phân loại câu hỏi</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">Thông tin này quyết định cách học viên trả lời và cách hệ thống chấm.</p></div>
@@ -300,12 +289,11 @@ export default function QuestionsPage() {
             </section> : null}
             {form.type === "SHORT_ANSWER" ? <section className="space-y-4 border-t border-[var(--rule)] pt-6"><div><h3 className="font-bold">Ý trả lời tham khảo</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">Không bắt buộc. Giảng viên vẫn là người chấm câu trả lời ngắn.</p></div>{form.correctAnswers.map((answer, index) => <div className="flex gap-2" key={index}><input aria-label={`Ý trả lời tham khảo ${index + 1}`} className={inputClass} onChange={(event) => setForm({ ...form, correctAnswers: form.correctAnswers.map((item, answerIndex) => answerIndex === index ? event.target.value : item) })} value={answer} /><button aria-label={`Xóa ý trả lời ${index + 1}`} className="grid size-11 shrink-0 place-items-center rounded-xl text-[var(--ink-muted)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]" onClick={() => setForm({ ...form, correctAnswers: form.correctAnswers.filter((_, answerIndex) => answerIndex !== index) })} type="button"><Trash2 size={16} /></button></div>)}<Button onClick={() => setForm({ ...form, correctAnswers: [...form.correctAnswers, ""] })} type="button" variant="secondary"><CirclePlus size={16} />Thêm ý tham khảo</Button></section> : null}
             {form.type === "ESSAY" ? <section className="space-y-4 border-t border-[var(--rule)] pt-6"><div><h3 className="font-bold">Hướng dẫn chấm</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">Không hiển thị cho học viên trong lúc làm bài. Có thể dùng định dạng và công thức.</p></div><FormattedTextarea label="Đáp án tham khảo hoặc tiêu chí chấm" onChange={(value) => setForm({ ...form, correctAnswers: value.trim() ? [value] : [] })} placeholder="Nêu các ý chính, tiêu chí hoặc công thức cần có trong bài làm…" rows={4} value={form.correctAnswers[0] ?? ""} /></section> : null}
-            <section className="space-y-4 border-t border-[var(--rule)] pt-6"><Field label="Thẻ phân loại — phân tách bằng dấu phẩy"><input className={inputClass} placeholder="ngữ pháp, chương-2, ôn-tập" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field><div className="flex flex-wrap items-center gap-3"><Button loading={saving} type="submit">{editingId ? "Lưu phiên bản nháp" : "Lưu câu hỏi"}</Button><p className="text-xs text-[var(--ink-soft)]">Câu hỏi được lưu ở trạng thái nháp và cần xuất bản trước khi dùng trong đề.</p></div></section>
+            <section className="space-y-4 border-t border-[var(--rule)] pt-6"><Field label="Thẻ phân loại — phân tách bằng dấu phẩy"><input className={inputClass} placeholder="ngữ pháp, chương-2, ôn-tập" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field><div className="flex flex-wrap items-center gap-3"><Button loading={saving} type="submit">{editingId ? "Lưu phiên bản" : "Lưu câu hỏi"}</Button><p className="text-xs text-[var(--ink-soft)]">Câu hỏi được công bố ngay sau khi lưu thành công.</p></div></section>
           </div><QuestionPreview form={form} imageUrl={imagePreviewUrl ?? (!removeExistingImage ? existingImage?.imageUrl : undefined)} />
         </form>
       </Modal>
       <Modal open={importOpen} onClose={() => { setImportOpen(false); setImportResults([]); }} title="Nhập câu hỏi JSONL" description="Mỗi dòng là một đối tượng JSON. Trường content, options và correctAnswers chấp nhận Markdown + LaTeX."><form className="space-y-4" onSubmit={(event) => void importQuestions(event)}><Field label="Dữ liệu JSONL"><textarea className={`${inputClass} font-mono text-xs`} minLength={2} placeholder={'{"courseId":"course-web","type":"TRUE_FALSE","content":"**Mệnh đề:** $2 + 2 = 4$","options":["Đúng","Sai"],"correctAnswers":["Đúng"],"difficulty":1,"tags":["toán"]}'} required rows={8} value={importText} onChange={(event) => setImportText(event.target.value)} /></Field><Button loading={saving} type="submit"><Upload size={15} />Kiểm tra và nhập</Button></form>{importResults.length ? <div className="mt-5 space-y-2 border-t border-[var(--rule)] pt-4">{importResults.map((result) => <div className={`rounded-lg px-3 py-2 text-sm ${result.status === "IMPORTED" ? "bg-[var(--success-soft)] text-[var(--success-deep)]" : "bg-[var(--danger-soft)] text-[var(--danger-dark)]"}`} key={result.row}>Dòng {result.row}: {result.message}</div>)}</div> : null}</Modal>
-      <Modal open={Boolean(reviewTarget)} onClose={() => { if (!reviewSaving) { setReviewTarget(null); setReviewNote(""); } }} title="Trả lại câu hỏi" description="Nêu rõ nội dung cần chỉnh để giảng viên có thể sửa đúng ở phiên bản tiếp theo."><form className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (reviewTarget) void review(reviewTarget, "RETURN", reviewNote); }}><Field label="Lý do trả lại"><textarea autoFocus className={inputClass} minLength={5} onChange={(event) => setReviewNote(event.target.value)} required rows={4} value={reviewNote} /></Field><div className="flex justify-end gap-2"><Button disabled={reviewSaving} onClick={() => { setReviewTarget(null); setReviewNote(""); }} type="button" variant="secondary">Hủy</Button><Button disabled={reviewNote.trim().length < 5} loading={reviewSaving} type="submit"><Undo2 size={15} />Xác nhận trả lại</Button></div></form></Modal>
     </div>
   );
 }

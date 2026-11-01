@@ -21,24 +21,20 @@ export function database(
     : undefined;
 }
 
-/** Đọc chế độ duyệt đề từ cấu hình DB và mặc định AUTO khi chưa có cấu hình. */
+/** Đọc chế độ duyệt đề còn lưu để xử lý dữ liệu cũ; luồng mới truyền xác nhận phát hành riêng. */
 export async function getExamApprovalMode(
   serviceContext: LearningServiceContext,
 ): Promise<ExamApprovalMode> {
-  // Các unit test khởi tạo service độc lập vẫn giữ quy trình thủ công cũ;
-  // trong ứng dụng thực tế SystemService luôn được inject.
   if (!serviceContext.system) return "MANUAL";
-
-  return (await serviceContext.system.getSettings()).examApprovalMode;
+  return await serviceContext.system.getSettings().then((settings) => settings.examApprovalMode);
 }
 
-/** Đọc chế độ duyệt câu hỏi dùng chung kiểu AUTO/MANUAL với đề thi. */
+/** Đọc chế độ duyệt câu hỏi còn lưu để xử lý dữ liệu cũ; luồng mới truyền công bố ngay riêng. */
 export async function getQuestionApprovalMode(
   serviceContext: LearningServiceContext,
 ): Promise<ExamApprovalMode> {
-
   if (!serviceContext.system) return "AUTO";
-  return (await serviceContext.system.getSettings()).questionApprovalMode;
+  return await serviceContext.system.getSettings().then((settings) => settings.questionApprovalMode);
 }
 
 /** Ánh xạ Course Prisma, bao gồm JSON outcomes, sang hợp đồng API. */

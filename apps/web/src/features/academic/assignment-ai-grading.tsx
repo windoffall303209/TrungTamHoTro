@@ -141,8 +141,10 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
         </div> : null}
         {result.insufficientEvidence ? <p className="font-semibold">Chưa đủ bằng chứng để gợi ý điểm</p> : <>
           <p className="font-semibold"><span>Tổng điểm đề xuất</span>: {result.suggestedTotal} / {assignment.maxScore}</p>
+          <p className="text-sm leading-6 text-[var(--ink-soft)]">Tổng điểm bằng tổng điểm đạt ở từng tiêu chí bên dưới. Mỗi tiêu chí ghi rõ phần được cộng, phần chưa đạt và dẫn chứng từ bài làm.</p>
           <ol className="divide-y divide-[var(--rule)]">{result.criteria.map((item) => <li key={item.criterionId} className="space-y-2 py-4">
             <p className="flex flex-wrap justify-between gap-2 font-semibold"><span translate="no">{assignment.rubric.find((entry) => entry.id === item.criterionId)?.title}</span><span>{item.suggestedPoints} / {assignment.rubric.find((entry) => entry.id === item.criterionId)?.maxPoints}</span></p>
+            <p className="text-sm text-[var(--ink-soft)]">Điểm chưa đạt: {Math.max(0, Math.round(((assignment.rubric.find((entry) => entry.id === item.criterionId)?.maxPoints ?? 0) - item.suggestedPoints) * 100) / 100)}</p>
             <p translate="no" className="whitespace-pre-wrap break-words text-sm leading-6">{item.reasoning}</p>
             <details><summary className="cursor-pointer py-2 text-sm font-semibold">Đối chiếu trích dẫn bài làm</summary>{item.evidence.map((quote, index) => <div key={index} className="mt-3">
               {result.sources ? <p className="break-words text-sm font-semibold"><span>Nguồn trích dẫn</span>: {result.sources.find((source) => source.text.includes(quote))?.attachmentId ? <span translate="no">{result.sources.find((source) => source.text.includes(quote))?.name}</span> : <span>Nội dung nhập trực tiếp</span>}</p> : null}

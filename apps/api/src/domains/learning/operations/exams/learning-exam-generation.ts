@@ -298,7 +298,7 @@ export async function createGeneratedExam(
           where: {
             courseId,
             contentHash,
-            status: "PUBLISHED",
+            status: "DRAFT",
             type: question.type,
             difficulty: question.difficulty,
             imageObjectKey: null,
@@ -346,6 +346,7 @@ export async function createGeneratedExam(
           attemptLimit: input.attemptLimit,
           shuffleQuestions: input.shuffleQuestions ?? false,
           randomSeed: input.randomSeed?.trim(),
+          status: "DRAFT",
           aiContext: generationContext,
           generationRequestId: clientRequestId,
         },

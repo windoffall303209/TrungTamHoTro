@@ -1,4 +1,6 @@
 import type { Assignment, GradebookRow, Material, Question } from "@/lib/learning-types";
+import { detectLectureLinkPlatform, getLectureSourceUrl, getLectureYoutubeId } from "@/lib/lecture-links";
+export { detectLectureLinkPlatform, getLectureEmbedUrl, getLectureYoutubeId } from "@/lib/lecture-links";
 
 export interface LectureItem {
   id: string;
@@ -24,8 +26,6 @@ export interface LectureItem {
   attachedExamId?: string;
   attachedExamTitle?: string;
 }
-
-type LectureLinkPlatform = "YOUTUBE" | "FACEBOOK" | "DRIVE" | "INVALID";
 
 export interface MaterialDisplayItem {
   id: string;
@@ -128,22 +128,6 @@ export function filterClassQuestions(
   });
 }
 
-// Nhận diện nền tảng liên kết theo cùng quy tắc dùng khi tạo và sửa bài giảng.
-export function detectLectureLinkPlatform(value: string): LectureLinkPlatform {
-  const trimmed = value.trim();
-  if (trimmed.includes("youtube.com") || trimmed.includes("youtu.be")) return "YOUTUBE";
-  if (trimmed.includes("facebook.com") || trimmed.includes("fb.watch")) return "FACEBOOK";
-  if (trimmed.includes("drive.google.com")) return "DRIVE";
-  return "INVALID";
-}
-
-// Trích xuất ID YouTube theo cùng quy tắc dùng để xem trước và cập nhật bài giảng.
-export function getLectureYoutubeId(url?: string): string | null {
-  if (!url) return null;
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-  return match && match[1] ? match[1] : null;
-}
-
 /** Chuyển metadata thực tế từ API thành dữ liệu hiển thị, không tự tạo số liệu thống kê. */
 export function toMaterialDisplayItem(material: Material): MaterialDisplayItem {
   const extension = material.name.split(".").pop()?.toLowerCase();
@@ -172,7 +156,8 @@ export function isLectureMaterial(material: Material): boolean {
 export function toLectureItem(material: Material, authorName: string): LectureItem {
   // Đọc metadata bài giảng đã được lưu trong tags từ API.
   const metadata = (prefix: string) => material.tags.find((tag) => tag.startsWith(prefix))?.slice(prefix.length);
-  const youtubeId = metadata("youtube:");
+  const sourceUrl = getLectureSourceUrl(material.tags);
+  const youtubeId = getLectureYoutubeId(sourceUrl) ?? metadata("youtube:") ?? undefined;
   const extension = material.name.split(".").pop()?.toLowerCase();
   const fileType: LectureItem["fileType"] = extension === "pptx" || extension === "ppt" ? "pptx"
     : material.mimeType.startsWith("audio/") ? "mp3"
@@ -182,10 +167,10 @@ export function toLectureItem(material: Material, authorName: string): LectureIt
     title: material.name,
     tags: material.tags,
     description: metadata("Mô tả: "),
-    sourceType: youtubeId ? "LINK" : "FILE",
-    sourceUrl: youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : undefined,
+    sourceType: sourceUrl ? "LINK" : "FILE",
+    sourceUrl,
     youtubeId,
-    platform: youtubeId ? "YOUTUBE" : "DIRECT",
+    platform: sourceUrl ? detectLectureLinkPlatform(sourceUrl) : "DIRECT",
     fileType,
     fileName: material.name,
     folder: material.folder,

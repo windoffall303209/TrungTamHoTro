@@ -27,10 +27,11 @@ export async function submitExamForReview(
   actorId = "usr-instructor",
   confirmQuestions = false,
   expectedVersion?: number,
+  forcePublish = false,
 ): Promise<LearningExam> {
   const approvalMode = await serviceContext.getExamApprovalMode();
   const nextStatus: LearningExam["status"] =
-    approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
+    forcePublish || approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
   const prisma = serviceContext.database();
   if (prisma) {
     const assignment = await prisma.exam.findFirst({
@@ -48,7 +49,7 @@ export async function submitExamForReview(
     const publishedQuestionCount = await prisma.examQuestion.count({
       where: { examId, question: { status: "PUBLISHED" } },
     });
-    if (!confirmQuestions && approvalMode !== "AUTO" && publishedQuestionCount !== exam.questionIds.length)
+    if (!confirmQuestions && !forcePublish && approvalMode !== "AUTO" && publishedQuestionCount !== exam.questionIds.length)
       throw new ConflictException(
         "Mọi câu hỏi trong đề phải được phê duyệt trước khi gửi duyệt đề.",
       );
@@ -86,7 +87,7 @@ export async function submitExamForReview(
         throw new ConflictException(
           "Đề đã thay đổi. Hãy tải lại trước khi xác nhận.",
         );
-      if (confirmQuestions || approvalMode === "AUTO") {
+      if (confirmQuestions || forcePublish || approvalMode === "AUTO") {
         const linked = await transaction.examQuestion.findMany({
           where: { examId },
           include: { question: true },
@@ -112,29 +113,6 @@ export async function submitExamForReview(
           }
         }
       }
-      if (approvalMode === "AUTO") {
-        await transaction.auditLog.create({
-          data: {
-            actorId,
-            action: "EXAM_AUTO_APPROVED",
-            entityType: "exam",
-            entityId: examId,
-            context: { version: exam.version, approvalMode },
-          },
-        });
-        for (const { instructorId } of assignment.class.instructors)
-          await transaction.notification.create({
-            data: {
-              id: id("notification"),
-              recipientId: instructorId,
-              type: "EXAM_REVIEWED",
-              title: `Đề ${assignment.title} đã được tự động phê duyệt`,
-              entityType: "EXAM",
-              entityId: examId,
-              dedupKey: `exam-auto-approval:${examId}:${exam.version}:${instructorId}`,
-            },
-          });
-      }
       return serviceContext.getDatabaseExam(transaction, examId);
     });
   }
@@ -147,6 +125,7 @@ export async function submitExamForReview(
     throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
   if (
     !confirmQuestions &&
+    !forcePublish &&
     approvalMode !== "AUTO" &&
     item.questionIds.some(
       (questionId) =>
@@ -177,7 +156,7 @@ export async function submitExamForReview(
     );
   if (expectedVersion !== undefined && item.version !== expectedVersion)
     throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
-  if (confirmQuestions || approvalMode === "AUTO") {
+  if (confirmQuestions || forcePublish || approvalMode === "AUTO") {
     const linked = item.questionIds.map((questionId) =>
       serviceContext.questions.find((question) => question.id === questionId),
     );
@@ -188,18 +167,6 @@ export async function submitExamForReview(
     for (const question of linked) question!.status = "PUBLISHED";
   }
   item.status = nextStatus;
-  if (approvalMode === "AUTO")
-    for (const recipientId of serviceContext.findClass(item.classId)
-      .instructorIds)
-      serviceContext.notifications.unshift({
-        id: id("notification"),
-        recipientId,
-        type: "EXAM_REVIEWED",
-        title: `Đề ${item.title} đã được tự động phê duyệt`,
-        entityType: "EXAM",
-        entityId: examId,
-        createdAt: now(),
-      });
   return { ...item, questionIds: [...item.questionIds] };
 }
 

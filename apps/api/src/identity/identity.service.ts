@@ -124,12 +124,13 @@ export class IdentityService {
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
-  /** Giới hạn quản lý trung tâm chỉ thao tác tài khoản dưới cấp quản lý và không cấp quyền quản trị hệ thống. */
+  /** Giới hạn quản lý trung tâm thao tác và cấp vai trò cho giáo viên, học sinh. */
   private assertUserChangeScope(currentRoleCodes: RoleCode[], nextRoleCodes: RoleCode[], actorRoleCode: RoleCode): void {
     if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(actorRoleCode))
       throw new ForbiddenException("Vai trò hiện tại không được chỉnh sửa tài khoản.");
-    if (actorRoleCode === "CENTER_MANAGER" && (currentRoleCodes.some((code) => ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(code)) || nextRoleCodes.includes("SYSTEM_ADMIN")))
-      throw new ForbiddenException("Quản lý trung tâm chỉ được chỉnh sửa tài khoản dưới cấp quản lý và không được cấp vai trò Quản trị hệ thống.");
+    if (actorRoleCode === "CENTER_MANAGER" &&
+      [...currentRoleCodes, ...nextRoleCodes].some((code) => code !== "INSTRUCTOR" && code !== "LEARNER"))
+      throw new ForbiddenException("Quản lý trung tâm chỉ được chỉnh sửa và cấp vai trò Giáo viên hoặc Học sinh.");
   }
 
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
@@ -216,9 +217,9 @@ export class IdentityService {
   ): Promise<IdentityUser> {
     const normalizedUsername = input.username.trim().toLowerCase();
     const roleCodes = [...new Set(input.roleCodes?.length ? input.roleCodes : [input.roleCode])];
-    if (actorRoleCode !== "SYSTEM_ADMIN" && roleCodes.includes("SYSTEM_ADMIN"))
+    if (actorRoleCode !== "SYSTEM_ADMIN" && roleCodes.some((code) => code !== "INSTRUCTOR" && code !== "LEARNER"))
       throw new ForbiddenException(
-        "Chỉ quản trị hệ thống mới được tạo tài khoản có vai trò Quản trị hệ thống.",
+        "Quản lý trung tâm chỉ được tạo tài khoản Giáo viên hoặc Học sinh.",
       );
     const prisma = this.database();
     if (prisma) {
@@ -480,11 +481,11 @@ export class IdentityService {
         );
     }
     const fallbackChangesAccess = Boolean(
-      (input.roleCode && input.roleCode !== user.roleCode) ||
+      !this.sameRoleSet(memoryRoleCodes, user.roleCodes ?? [user.roleCode]) ||
         (input.status && input.status !== user.status),
     );
     if (fallbackChangesAccess) {
-      const impact = await this.previewUserChange(userId, input);
+      const impact = await this.previewUserChange(userId, input, actorRoleCode);
       if (input.impactToken !== impact.token)
         throw new ConflictException(
           "Ảnh hưởng công việc đã thay đổi hoặc chưa được xác nhận. Hãy xem trước lại.",

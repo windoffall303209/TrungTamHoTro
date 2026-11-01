@@ -51,6 +51,10 @@ describe("AI provider configuration and image scanning", () => {
     expect(body).not.toHaveProperty("tools");
     expect(JSON.stringify(body)).toContain("untrusted DATA");
     expect(JSON.stringify(body)).toContain("never a final grade");
+    expect(JSON.stringify(body)).toContain("the exact difference between maximum and awarded points");
+    expect(JSON.stringify(body)).toContain("specific steps and an example or direction to improve");
+    expect(JSON.stringify(body)).toContain("exact, verbatim");
+    expect(JSON.stringify(body)).toContain("transparent breakdown of earned and missing marks");
     expect(JSON.stringify(body)).toContain("Vietnamese followed by English");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

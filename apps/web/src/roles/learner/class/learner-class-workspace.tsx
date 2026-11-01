@@ -44,6 +44,7 @@ import type {
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
+import { getLectureEmbedUrl, getLectureSourceUrl, getLectureYoutubeId } from "@/lib/lecture-links";
 import { useApp } from "@/providers/app-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
@@ -113,6 +114,7 @@ interface LectureItem {
   progressPercent?: number;
   viewsCount?: number;
   description?: string;
+  sourceUrl?: string;
   youtubeId?: string;
   attachedExamId?: string;
   attachedExamTitle?: string;
@@ -626,7 +628,7 @@ export function LearnerClassWorkspace({
       .map((mat) => {
         const tags = Array.isArray(mat.tags) ? mat.tags : [];
         const descTag = tags.find((t) => t.startsWith("Mô tả: "));
-        const youtubeTag = tags.find((t) => t.startsWith("youtube:"));
+        const sourceUrl = getLectureSourceUrl(tags);
         const examIdTag = tags.find((t) => t.startsWith("attachedExamId:"));
         const examTitleTag = tags.find((t) => t.startsWith("attachedExamTitle:"));
 
@@ -643,7 +645,8 @@ export function LearnerClassWorkspace({
           uploadedAt: mat.createdAt,
           folder: mat.folder || undefined,
           description: descTag?.replace("Mô tả: ", ""),
-          youtubeId: youtubeTag ? youtubeTag.replace("youtube:", "") : undefined,
+          sourceUrl,
+          youtubeId: getLectureYoutubeId(sourceUrl) ?? undefined,
           attachedExamId: examIdTag ? examIdTag.replace("attachedExamId:", "") : undefined,
           attachedExamTitle: examTitleTag ? examTitleTag.replace("attachedExamTitle:", "") : undefined,
         };
@@ -662,7 +665,11 @@ export function LearnerClassWorkspace({
 
   // Danh sách tài liệu: 100% NẠP TỪ CSDL POSTGRESQL (TABLE MATERIAL CỦA LỚP)
   const materialsList: MaterialItem[] = useMemo(() => {
-    const dbMats: MaterialItem[] = classMaterials.map((mat) => {
+    const dbMats: MaterialItem[] = classMaterials.filter((mat) => {
+      const mime = mat.mimeType || "";
+      const tags = Array.isArray(mat.tags) ? mat.tags : [];
+      return !tags.some((tag) => /lecture|video|bài giảng/i.test(tag)) && !mime.startsWith("video/") && !mime.startsWith("audio/");
+    }).map((mat) => {
       const isPdf = (mat.mimeType || "").includes("pdf");
       const isDoc =
         (mat.mimeType || "").includes("word") ||
@@ -927,15 +934,26 @@ export function LearnerClassWorkspace({
               </div>
 
               {/* Khung phát bài giảng (Player 16:9 YouTube/Video hoặc Trình xem slide/phiếu bài tập) */}
-              {selectedLectureForPage.youtubeId && /^[A-Za-z0-9_-]{11}$/.test(selectedLectureForPage.youtubeId) ? (
-                <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
-                  <iframe
-                    src={`https://www.youtube.com/embed/${selectedLectureForPage.youtubeId}?autoplay=0&rel=0`}
-                    className="w-full h-full border-0"
-                    title={selectedLectureForPage.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+              {selectedLectureForPage.sourceUrl && getLectureEmbedUrl(selectedLectureForPage.sourceUrl) ? (
+                <div>
+                  <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-lg border border-slate-200 dark:border-slate-800">
+                    <iframe
+                      src={getLectureEmbedUrl(selectedLectureForPage.sourceUrl) ?? undefined}
+                      className="h-full w-full border-0"
+                      title={selectedLectureForPage.title}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Nếu không xem được trong trang, <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 underline underline-offset-2 hover:text-blue-700">bấm vào đây để mở trang bài giảng</a>.</p>
+                </div>
+              ) : selectedLectureForPage.sourceUrl ? (
+                <div className="flex min-h-64 flex-col items-center justify-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-800 dark:bg-slate-950">
+                  <FileText size={38} className="text-blue-500" />
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{selectedLectureForPage.title}</p>
+                  <p className="text-xs text-slate-500">Nếu không xem được trong trang, hãy mở bài giảng từ liên kết bên dưới.</p>
+                  <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Mở bài giảng từ liên kết</a>
                 </div>
               ) : (
                 <div className="w-full aspect-video rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center gap-3 p-6 text-center">
@@ -1774,6 +1792,8 @@ export function LearnerClassWorkspace({
                           <div
                             key={lec.id}
                             onClick={() => setSelectedLectureId(lec.id)}
+                            onDoubleClick={() => setSelectedLectureForPage(lec)}
+                            title="Bấm đúp để xem bài giảng"
                             className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
                               isSelected
                                 ? "bg-purple-50/70 dark:bg-purple-950/30 border-purple-400 dark:border-purple-500 shadow-2xs"
@@ -2140,6 +2160,16 @@ export function LearnerClassWorkspace({
               </div>
               {activeEssayAssignment.description && <p className="mb-3 whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.description}</p>}
               {activeEssayAssignment.instructions && <div className="mb-5 rounded-xl bg-slate-50 p-4 dark:bg-slate-800"><h3 className="mb-1 font-semibold text-slate-900 dark:text-white">Hướng dẫn</h3><p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.instructions}</p></div>}
+              {activeEssayAssignment.sourceMaterial && (
+                <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tệp đề bài</h3>
+                  <p className="mt-1 break-all text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.sourceMaterial.name}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => previewClassMaterial(activeEssayAssignment.sourceMaterial!.id, activeEssayAssignment.sourceMaterial!.name)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 focus-visible:outline-2 focus-visible:outline-sky-500">Xem đề</button>
+                    <button type="button" onClick={() => void downloadClassMaterial(activeEssayAssignment.sourceMaterial!.id)} className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 focus-visible:outline-2 focus-visible:outline-sky-500 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950">Tải đề về</button>
+                  </div>
+                </div>
+              )}
               <form onSubmit={(event) => void submitEssayAssignment(event)} className="space-y-4">
                 <div>
                   <label htmlFor="essay-submission-content" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Nội dung bài làm</label>

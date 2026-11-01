@@ -50,7 +50,9 @@ export function useExamsModel() {
 
   const learner = session.roleCode === "LEARNER";
 
-  const canReview = false;
+  const canReview = ["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(
+    session.roleCode,
+  );
 
   const [items, setItems] = useState<LearnerExam[]>([]);
 
@@ -437,7 +439,7 @@ export function useExamsModel() {
     manualSubmitting.current = true;
     setSaving(true);
     try {
-      await apiRequest(
+      const savedExam = await apiRequest<Exam>(
         editingExam
           ? `/instructor/exams/${editingExam.id}`
           : "/instructor/exams",
@@ -456,7 +458,14 @@ export function useExamsModel() {
           }),
         },
       );
-      notify(editingExam ? "Đã cập nhật đề nháp." : "Đã tạo đề thi bản nháp.");
+      if (!editingExam) {
+        await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(savedExam.id)}/publish`, {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: savedExam.version }),
+        });
+      }
+      notify(editingExam ? "Đã cập nhật đề thi." : "Đã tạo và phát hành đề thi.");
       editorDrafts.current.delete(editorKey);
       removeSessionDraft(editorKey);
       setOpen(false);
@@ -526,12 +535,17 @@ export function useExamsModel() {
           body: JSON.stringify({ ...payload, clientRequestId: requestId }),
         },
       );
+      const publishedExam = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(result.exam.id)}/publish`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: result.exam.version }),
+      });
       const sourceLabel =
         result.context.mode === "COURSE_MATERIALS"
           ? `${result.context.materialNames.length} tệp trong môn học`
           : `${result.context.sources.length || "các"} nguồn web`;
       notify(
-        `Đã tạo đề nháp ${result.generatedQuestionCount} câu từ ${sourceLabel}. Hãy duyệt các câu AI rồi mới gửi duyệt đề.`,
+        `Đã tạo và phát hành đề ${publishedExam.title} gồm ${result.generatedQuestionCount} câu từ ${sourceLabel}.`,
       );
       setOpen(false);
       setForm(blank);
@@ -543,7 +557,7 @@ export function useExamsModel() {
         model: current.model,
       }));
       await load();
-      await preview(result.exam);
+      await preview(publishedExam);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tạo được đề bằng AI.",
@@ -645,7 +659,7 @@ export function useExamsModel() {
     }
   };
 
-  /** Gửi đề vào quy trình duyệt hoặc tự xuất bản tùy cấu hình phê duyệt của hệ thống. */
+  /** Giữ thao tác phát hành cũ cho dữ liệu tồn tại trước khi chuyển sang phát hành tự động. */
   const publish = async (item: Exam) => {
     setPublishing(true);
     try {

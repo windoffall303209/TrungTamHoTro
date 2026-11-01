@@ -28,6 +28,7 @@ export class CreateAssignmentDto {
   @IsString() @MinLength(3) @MaxLength(255) title!: string;
   @IsString() @MinLength(10) @MaxLength(5000) description!: string;
   @IsString() @MinLength(5) @MaxLength(10_000) instructions!: string;
+  @IsOptional() @IsString() @MaxLength(191) sourceMaterialId?: string;
   @IsDateString() dueAt!: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.25) @Max(1000) maxScore!: number;
   @IsArray()

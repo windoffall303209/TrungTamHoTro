@@ -1,7 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { publicApiUrl } from "@/lib/api-client";
+
+// Ghi nhận các URL ảnh đã tải để avatar vừa mở trong menu không phải chờ trạng thái ảnh riêng.
+const loadedAvatarSources = new Set<string>();
+const MAX_CACHED_AVATAR_SOURCES = 200;
+
+/** Ghi nhận ảnh tải thành công và giới hạn bộ nhớ khi danh sách người dùng rất dài. */
+function rememberLoadedAvatar(source: string): void {
+  loadedAvatarSources.delete(source);
+  loadedAvatarSources.add(source);
+  if (loadedAvatarSources.size > MAX_CACHED_AVATAR_SOURCES) {
+    const oldest = loadedAvatarSources.values().next().value;
+    if (oldest) loadedAvatarSources.delete(oldest);
+  }
+}
 
 /** Lấy tối đa hai chữ cái cuối của họ tên làm avatar dự phòng. */
 function initials(name: string): string {
@@ -59,12 +73,17 @@ function AvatarImageOverlay({
   source: string;
   priority: boolean;
 }) {
-  const [loaded, setLoaded] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [loaded, setLoaded] = useState(() => loadedAvatarSources.has(source));
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    setLoaded(false);
-    setFailed(false);
+    // Ảnh có thể đã tải từ cache trước khi React gắn onLoad (ví dụ lúc hydrate).
+    const image = imageRef.current;
+    if (image?.complete && image.naturalWidth > 0) {
+      rememberLoadedAvatar(source);
+      setLoaded(true);
+    }
   }, [source]);
 
   if (failed) return null;
@@ -72,6 +91,7 @@ function AvatarImageOverlay({
   return (
 
     <img
+      ref={imageRef}
       src={source}
       alt=""
       aria-hidden="true"
@@ -79,8 +99,15 @@ function AvatarImageOverlay({
       className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ${
         loaded ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
-      onLoad={() => setLoaded(true)}
-      onError={() => setFailed(true)}
+      onLoad={() => {
+        rememberLoadedAvatar(source);
+        setLoaded(true);
+      }}
+      onError={() => {
+        loadedAvatarSources.delete(source);
+        setLoaded(false);
+        setFailed(true);
+      }}
     />
   );
 }
