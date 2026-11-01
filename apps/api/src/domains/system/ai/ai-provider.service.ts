@@ -407,18 +407,19 @@ export class AiProviderService {
         const optText = optMatch[2].trim();
         current.options = current.options || [];
         current.options.push(optText);
+        if (/\*\*.+\*\*|<strong>.+<\/strong>/iu.test(optText)) {
+          current.correctAnswers = [this.cleanAnswerMarkup(optText)];
+        }
         continue;
       }
 
-      const ansMatch = line.match(/^(?:Đáp án|ĐA|Hướng dẫn giải|Lời giải)[:.]?\s*([A-D])/i);
+      const ansMatch = line.match(/^(?:Đáp án(?: đúng)?|ĐA|Hướng dẫn giải|Lời giải)[:.]?\s*(.+)$/iu);
       if (ansMatch && current && ansMatch[1]) {
-        const ansLetter = ansMatch[1].toUpperCase();
-        const optIndex = ansLetter.charCodeAt(0) - 65;
-        if (current.options && current.options[optIndex]) {
-          current.correctAnswers = [current.options[optIndex]];
-        } else {
-          current.correctAnswers = [ansLetter];
-        }
+        const answer = this.cleanAnswerMarkup(ansMatch[1]);
+        const letter = answer.match(/^([A-F])(?:[.)\s]|$)/iu)?.[1]?.toUpperCase();
+        const optIndex = letter ? letter.charCodeAt(0) - 65 : -1;
+        const option = current.options?.[optIndex];
+        current.correctAnswers = [option ? this.cleanAnswerMarkup(option) : answer];
         continue;
       }
 
@@ -441,6 +442,11 @@ export class AiProviderService {
     }
 
     return questions;
+  }
+
+  /** Bỏ markup hiển thị khỏi văn bản đáp án trước khi so khớp và lưu dữ liệu. */
+  private cleanAnswerMarkup(value: string): string {
+    return value.replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").trim();
   }
 
   /** Chọn provider sẵn sàng, gửi ảnh hoặc tài liệu và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
@@ -949,7 +955,7 @@ export class AiProviderService {
 
   /** Giải mã key và gửi ảnh thật theo giao thức của provider để trích xuất câu hỏi. */
   private async invoke(provider: StoredAiProvider, buffer: Buffer, mimeType: string, fileName: string): Promise<unknown> {
-    const prompt = `Đọc toàn bộ ảnh đề thi ${fileName}. Trích xuất mọi câu hỏi theo đúng thứ tự. Giữ chữ đậm bằng Markdown **...**, chữ nghiêng bằng *...*, đổi mọi công thức toán sang LaTeX ($...$ hoặc $$...$$). Không tự bịa đáp án; nếu ảnh không có đáp án thì để correctAnswers rỗng và thêm cảnh báo. Trả về duy nhất JSON: {"questions":[{"type":"SINGLE_CHOICE|MULTIPLE_CHOICE|TRUE_FALSE|SHORT_ANSWER|ESSAY","content":"...","options":["..."],"correctAnswers":["..."],"difficulty":1,"tags":["..."],"confidence":0.0,"warnings":["..."]}]}.`;
+    const prompt = `Đọc toàn bộ ảnh đề thi ${fileName}. Trích xuất mọi câu hỏi theo đúng thứ tự. Nếu một phương án được in đậm, tô đậm, gạch chân hoặc đánh dấu nổi bật trong ảnh thì đó là đáp án đúng; đưa chính xác nội dung phương án đó vào correctAnswers. Nếu ảnh có dòng đáp án hoặc phần giải thích đáp án, dùng dòng đó để xác định đáp án và ưu tiên nó hơn suy đoán. Không coi chữ đậm trong phần nội dung câu hỏi là đáp án. Không trả về Markdown **...**, HTML hoặc ký hiệu đánh dấu trong content/options/correctAnswers; chỉ trả văn bản sạch. Đổi công thức toán sang LaTeX ($...$ hoặc $$...$$). Không tự bịa đáp án; nếu ảnh không có tín hiệu đáp án thì để correctAnswers rỗng và thêm cảnh báo. Trả về duy nhất JSON: {"questions":[{"type":"SINGLE_CHOICE|MULTIPLE_CHOICE|TRUE_FALSE|SHORT_ANSWER|ESSAY","content":"...","options":["..."],"correctAnswers":["..."],"difficulty":1,"tags":["..."],"confidence":0.0,"warnings":["..."]}]}.`;
     const apiKey = await decryptSecret(provider.encryptedApiKey, this.encryptionSecret());
     const response = provider.provider === "GEMINI"
       ? await fetchProviderEndpoint(`${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } }), signal: AbortSignal.timeout(60_000) })
@@ -977,8 +983,11 @@ export class AiProviderService {
       const content = typeof item.content === "string" ? item.content.trim() : "";
       if (content.length < 5) return [];
       const type = types.has(String(item.type)) ? String(item.type) as ScannedQuestionDraft["type"] : "SHORT_ANSWER";
-      const options = Array.isArray(item.options) ? item.options.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [];
-      const correctAnswers = Array.isArray(item.correctAnswers) ? item.correctAnswers.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [];
+      const rawOptions = Array.isArray(item.options) ? item.options.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [];
+      const explicitAnswers = Array.isArray(item.correctAnswers) ? item.correctAnswers.filter((entry): entry is string => typeof entry === "string").map((entry) => this.cleanAnswerMarkup(entry)).filter(Boolean).slice(0, 20) : [];
+      const markedAnswers = rawOptions.filter((entry) => /\*\*.+\*\*|<strong>.+<\/strong>|__.+__/iu.test(entry)).map((entry) => this.cleanAnswerMarkup(entry));
+      const options = rawOptions.map((entry) => this.cleanAnswerMarkup(entry));
+      const correctAnswers = explicitAnswers.length ? explicitAnswers : markedAnswers;
       const warnings = Array.isArray(item.warnings) ? item.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 10) : [];
       if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(type) && options.length < 2) warnings.push("Chưa nhận diện đủ lựa chọn trả lời.");
       if (!correctAnswers.length) warnings.push("Ảnh không cung cấp hoặc AI chưa xác định được đáp án đúng.");
