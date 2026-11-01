@@ -34,6 +34,8 @@ export default function ScanQuestionsPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importIssues, setImportIssues] = useState<Array<{ row: number; message: string }>>([]);
+  const [partialImportReady, setPartialImportReady] = useState(false);
   const scanRequestId = useRef(0);
 
   // Vô hiệu kết quả quét đang chờ khi người dùng rời trang.
@@ -69,7 +71,7 @@ export default function ScanQuestionsPage() {
     }
     scanRequestId.current += 1;
     setScanning(false);
-    setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]);
+    setFile(next ?? null); setPreviewUrl(next ? URL.createObjectURL(next) : ""); setDrafts([]); setSelected([]); setImportIssues([]); setPartialImportReady(false);
   };
   /** Tải ảnh lên dịch vụ quét, nhận các câu hỏi có cấu trúc và đưa vào vùng hiệu đính. */
   const scan = async () => {
@@ -89,12 +91,34 @@ export default function ScanQuestionsPage() {
   /** Lưu các bản nháp đã chọn và tùy chọn ghép chúng thành một đề thi mới. */
   const save = async (createExam: boolean) => {
     if (!courseId || !selectedDrafts.length) return;
+    if (partialImportReady) {
+      setImportIssues([]); setPartialImportReady(false);
+      if (createExam) router.push("/exams?create=scan"); else router.push("/questions");
+      return;
+    }
+    const localIssues = selectedDrafts.flatMap((question, index) => {
+      const options = question.options.map((item) => item.trim()).filter(Boolean);
+      if (question.content.trim().length < 5) return [{ row: index + 1, message: "Nội dung câu hỏi quá ngắn." }];
+      if (objectiveTypes.has(question.type) && (options.length < 2 || !question.correctAnswers.length)) return [{ row: index + 1, message: "Thiếu phương án hoặc đáp án đúng." }];
+      return [];
+    });
+    if (localIssues.length) {
+      setImportIssues(localIssues); setPartialImportReady(false);
+      notify("Có câu chưa đủ dữ liệu. Hãy sửa các dòng màu đỏ trước khi nhập.", "error");
+      return;
+    }
     setSaving(true);
     try {
       const results = await apiRequest<QuestionImportResult[]>("/instructor/question-bank/questions/import", { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ questions: selectedDrafts.map((question) => ({ courseId, type: question.type, content: question.content, options: question.options, correctAnswers: question.correctAnswers, difficulty: question.difficulty, tags: question.tags })) }) });
       const ids = results.filter((item) => item.status === "IMPORTED" && item.questionId).map((item) => item.questionId!);
       const published = await Promise.allSettled(ids.map((id) => apiRequest<Question>(`/instructor/question-bank/questions/${id}/publish`, { method: "POST", roleCode: session.roleCode })));
       const publishedIds = published.flatMap((result) => result.status === "fulfilled" && result.value.status === "PUBLISHED" ? [result.value.id] : []);
+      const failed = results.filter((item) => item.status === "FAILED").map((item) => ({ row: item.row, message: item.message }));
+      if (failed.length) {
+        setImportIssues(failed); setPartialImportReady(true);
+        notify(`Đã nhập ${ids.length}/${selectedDrafts.length} câu. Các câu lỗi cần được xác nhận trước khi tiếp tục.`, "error");
+        return;
+      }
       notify(`Đã lưu ${ids.length}/${selectedDrafts.length} câu và gửi xuất bản.`);
       if (createExam && publishedIds.length) { sessionStorage.setItem("wind-scan-question-ids", JSON.stringify(publishedIds)); router.push("/exams?create=scan"); }
       else router.push("/questions");
@@ -118,13 +142,13 @@ export default function ScanQuestionsPage() {
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3"><div><h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Bản nháp cần rà soát</h2><p className="mt-1 text-xs text-slate-400">{drafts.length ? `${selected.length}/${drafts.length} câu được chọn` : "Kết quả quét sẽ xuất hiện ở đây."}</p></div><Sparkles className="text-sky-600 dark:text-sky-400" size={22} /></div>
           <div className="mt-4 max-h-[760px] space-y-4 overflow-y-auto pr-1">
             {!drafts.length ? <div className="grid min-h-56 place-items-center text-center text-sm text-slate-400">Chưa có dữ liệu quét.</div> : drafts.map((draft, index) => (
-              <article className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 p-4 shadow-2xs" key={index}>
+              <article className={`rounded-xl border bg-slate-50/40 p-4 shadow-2xs dark:bg-slate-800/20 ${importIssues.some((issue) => selected[issue.row - 1] === index) ? "border-rose-400 ring-1 ring-rose-300/60 dark:border-rose-700" : "border-slate-200 dark:border-slate-800"}`} key={index}>
                 <div className="flex items-start justify-between gap-3"><label className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"><input checked={selected.includes(index)} className="size-4 rounded-sm accent-sky-600" onChange={(event) => setSelected((current) => event.target.checked ? [...current, index] : current.filter((value) => value !== index))} type="checkbox" />Câu {index + 1}</label><span className="text-xs font-bold tabular-nums text-sky-600 dark:text-sky-400">Tin cậy {Math.round(draft.confidence * 100)}%</span></div>
-                <div className="mt-4 space-y-3"><FormattedTextarea label="Nội dung" onChange={(content) => updateDraft(index, { content })} rows={3} value={draft.content} /><div className="grid gap-3 sm:grid-cols-2"><Field label="Dạng câu hỏi"><select className={inputClass} onChange={(event) => updateDraft(index, { type: event.target.value as ScanDraft["type"] })} value={draft.type}>{["SINGLE_CHOICE","MULTIPLE_CHOICE","TRUE_FALSE","SHORT_ANSWER","ESSAY"].map((type) => <option key={type} value={type}>{type}</option>)}</select></Field><Field label="Độ khó"><select className={inputClass} onChange={(event) => updateDraft(index, { difficulty: Number(event.target.value) as 1 | 2 | 3 })} value={draft.difficulty}><option value={1}>Cơ bản</option><option value={2}>Trung bình</option><option value={3}>Nâng cao</option></select></Field></div>{objectiveTypes.has(draft.type) ? <div className="space-y-2">{draft.options.map((option, optionIndex) => <div className="flex gap-2" key={optionIndex}><input className={inputClass} onChange={(event) => updateDraft(index, { options: draft.options.map((item, i) => i === optionIndex ? event.target.value : item) })} value={option} /><button aria-label={`Xóa lựa chọn ${optionIndex + 1}`} className="grid size-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => updateDraft(index, { options: draft.options.filter((_, i) => i !== optionIndex) })} type="button"><Trash2 size={16} /></button></div>)}</div> : null}<Field label="Đáp án đúng / ý tham khảo, mỗi dòng một ý"><textarea className={inputClass} onChange={(event) => updateDraft(index, { correctAnswers: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} rows={2} value={draft.correctAnswers.join("\n")} /></Field>{draft.warnings.length ? <ul className="rounded-lg bg-amber-50 dark:bg-amber-950/40 p-2.5 text-xs text-amber-800 dark:text-amber-300">{draft.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul> : null}<details><summary className="cursor-pointer text-xs font-bold text-sky-600 dark:text-sky-400">Xem bản render Markdown + LaTeX</summary><RichText className="mt-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 text-sm">{draft.content}</RichText></details></div>
+                <div className="mt-4 space-y-3">{importIssues.filter((issue) => selected[issue.row - 1] === index).map((issue) => <p className="rounded-lg bg-rose-50 p-2.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" key={issue.message}>Lỗi nhập: {issue.message}</p>)}<FormattedTextarea label="Nội dung" onChange={(content) => updateDraft(index, { content })} rows={3} value={draft.content} /><div className="grid gap-3 sm:grid-cols-2"><Field label="Dạng câu hỏi"><select className={inputClass} onChange={(event) => updateDraft(index, { type: event.target.value as ScanDraft["type"] })} value={draft.type}>{["SINGLE_CHOICE","MULTIPLE_CHOICE","TRUE_FALSE","SHORT_ANSWER","ESSAY"].map((type) => <option key={type} value={type}>{type}</option>)}</select></Field><Field label="Độ khó"><select className={inputClass} onChange={(event) => updateDraft(index, { difficulty: Number(event.target.value) as 1 | 2 | 3 })} value={draft.difficulty}><option value={1}>Cơ bản</option><option value={2}>Trung bình</option><option value={3}>Nâng cao</option></select></Field></div>{objectiveTypes.has(draft.type) ? <div className="space-y-2">{draft.options.map((option, optionIndex) => <div className="flex gap-2" key={optionIndex}><input className={inputClass} onChange={(event) => updateDraft(index, { options: draft.options.map((item, i) => i === optionIndex ? event.target.value : item) })} value={option} /><button aria-label={`Xóa lựa chọn ${optionIndex + 1}`} className="grid size-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => updateDraft(index, { options: draft.options.filter((_, i) => i !== optionIndex) })} type="button"><Trash2 size={16} /></button></div>)}</div> : null}<Field label="Đáp án đúng / ý tham khảo, mỗi dòng một ý"><textarea className={inputClass} onChange={(event) => updateDraft(index, { correctAnswers: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} rows={2} value={draft.correctAnswers.join("\n")} /></Field>{draft.warnings.length ? <ul className="rounded-lg bg-amber-50 dark:bg-amber-950/40 p-2.5 text-xs text-amber-800 dark:text-amber-300">{draft.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul> : null}<details><summary className="cursor-pointer text-xs font-bold text-sky-600 dark:text-sky-400">Xem bản render Markdown + LaTeX</summary><RichText className="mt-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-3 text-sm">{draft.content}</RichText></details></div>
               </article>
             ))}
           </div>
-          {drafts.length ? <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 dark:border-slate-800 pt-4"><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(false)} variant="secondary"><Check size={16} />Lưu vào ngân hàng</Button><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(true)}><Sparkles size={16} />Lưu và tạo đề</Button></div> : null}
+          {drafts.length ? <div className="mt-5 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">{importIssues.length ? <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200"><p className="font-bold">Có {importIssues.length} câu chưa được lưu</p><ul className="mt-1 list-inside list-disc text-xs">{importIssues.map((issue) => <li key={`${issue.row}-${issue.message}`}>Câu {issue.row}: {issue.message}</li>)}</ul>{partialImportReady ? <p className="mt-2 font-semibold">Nếu tiếp tục, chỉ các câu đã nhập thành công được giữ lại.</p> : <p className="mt-2 font-semibold">Sửa các câu màu đỏ rồi thử lại.</p>}</div> : null}<div className="flex flex-wrap justify-end gap-2"><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(false)} variant="secondary"><Check size={16} />{partialImportReady ? "Xác nhận, lưu phần hợp lệ" : "Lưu vào ngân hàng"}</Button><Button disabled={!courseId || !selected.length} loading={saving} onClick={() => void save(true)}><Sparkles size={16} />{partialImportReady ? "Xác nhận và tạo đề" : "Lưu và tạo đề"}</Button></div></div> : null}
         </div>
       </section>
     </div>
