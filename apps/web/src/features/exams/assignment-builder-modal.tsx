@@ -45,6 +45,7 @@ export interface AssignmentBuilderModalProps {
   onClose: () => void;
   targetClassName?: string;
   targetClassEndAt?: string;
+  initialType?: AssignmentType;
   onSaveAssignment: (data: {
     title: string;
     description: string;
@@ -222,7 +223,7 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
 }
 
 // Hiển thị quy trình tạo bài tập với lựa chọn thủ công, AI và bước xác nhận cuối.
-export function AssignmentBuilderModal({ open, onClose, targetClassName, targetClassEndAt, onSaveAssignment }: AssignmentBuilderModalProps) {
+export function AssignmentBuilderModal({ open, onClose, targetClassName, targetClassEndAt, initialType, onSaveAssignment }: AssignmentBuilderModalProps) {
   const { notify } = useApp();
   const openedRef = useRef(false);
   const [step, setStep] = useState<Step>("TYPE");
@@ -255,10 +256,10 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
 
   // Xóa dữ liệu cũ khi mở lại modal để không trộn hai lần tạo bài.
   const resetForm = useCallback(() => {
-    setStep("TYPE"); setType(null); setMethod(null); setTitle(""); setDescription(""); setQuestions([]); setEssayQuestions([""]);
+    setStep(initialType ? "METHOD" : "TYPE"); setType(initialType ?? null); setMethod(null); setTitle(""); setDescription(""); setQuestions([]); setEssayQuestions([""]);
     setAttachedFile(null); setFileForImport(null); setScanWarnings([]); setScanning(false); setSaving(false); setReviewConfirmed(false);
     setDueAt(defaultDueAt(targetClassEndAt)); setHasStartAt(false); setStartAt(localDateTime(0)); setDurationMinutes(45); setMaxAttempts(1); setShuffleQuestions(false);
-  }, [targetClassEndAt]);
+  }, [initialType, targetClassEndAt]);
 
   // Nạp chính sách tệp của máy chủ mỗi lần mở trình tạo.
   useEffect(() => {

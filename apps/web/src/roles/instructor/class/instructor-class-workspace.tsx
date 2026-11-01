@@ -277,6 +277,7 @@ export function InstructorClassWorkspace({
   // Modal Hub điều phối 5 cách tạo Bài tập & Soạn câu hỏi
   const [creationHubOpen, setCreationHubOpen] = useState(false);
   const [creationTarget, setCreationTarget] = useState<"ASSIGNMENT" | "QUESTION">("ASSIGNMENT");
+  const [assignmentHubType, setAssignmentHubType] = useState<"MULTIPLE_CHOICE" | "ESSAY" | null>(null);
 
   // Cách 1: Soạn câu hỏi thủ công
   const [authoringModalOpen, setAuthoringModalOpen] = useState(false);
@@ -1244,6 +1245,7 @@ export function InstructorClassWorkspace({
   // Mở Hub điều phối chọn 1 trong 5 cách tạo Bài tập hoặc Soạn câu hỏi
   const handleOpenCreationHub = (target: "ASSIGNMENT" | "QUESTION") => {
     setCreationTarget(target);
+    setAssignmentHubType(null);
     setCreationHubOpen(true);
   };
 
@@ -4232,6 +4234,7 @@ export function InstructorClassWorkspace({
           onClose={() => setAddAssignmentModalOpen(false)}
           targetClassName={item.name || item.code}
           targetClassEndAt={item.endAt}
+          initialType={assignmentHubType ?? undefined}
           onSaveAssignment={handleSaveFromBuilder}
         />
       )}
@@ -5116,7 +5119,7 @@ export function InstructorClassWorkspace({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Chọn 1 trong 5 phương thức khởi tạo thông minh dưới đây:
+                  {creationTarget === "ASSIGNMENT" && !assignmentHubType ? "Chọn loại bài trước, sau đó chọn một trong 5 phương thức tạo bài." : "Chọn 1 trong 5 phương thức khởi tạo thông minh dưới đây:"}
                 </p>
               </div>
               <button
@@ -5128,8 +5131,8 @@ export function InstructorClassWorkspace({
               </button>
             </div>
 
-            {/* Danh sách 5 phương thức */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {creationTarget === "ASSIGNMENT" && !assignmentHubType ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" onClick={() => setAssignmentHubType("MULTIPLE_CHOICE")} className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30"><strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">Trắc nghiệm</strong><span className="mt-1 block text-xs leading-relaxed text-slate-500">Chấm tự động, có phương án và đáp án đúng.</span></button><button type="button" onClick={() => setAssignmentHubType("ESSAY")} className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30"><strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">Tự luận</strong><span className="mt-1 block text-xs leading-relaxed text-slate-500">Học viên viết câu trả lời hoặc nộp tệp để giáo viên chấm.</span></button></div> : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Danh sách 5 phương thức */}
               {/* Cách 1: Tạo đề thủ công */}
               <button
                 type="button"
@@ -5236,7 +5239,7 @@ export function InstructorClassWorkspace({
                   Tải tệp Word/PDF có sẵn để AI tự tách câu hỏi, hoặc tạo bài tập tự luận với rubric chấm điểm và cấu hình nộp bài nâng cao.
                 </p>
               </button>
-            </div>
+            </div>}
           </div>
         </div>
       )}
