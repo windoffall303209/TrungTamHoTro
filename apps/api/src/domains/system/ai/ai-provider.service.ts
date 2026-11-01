@@ -446,7 +446,18 @@ export class AiProviderService {
 
   /** Bỏ markup hiển thị khỏi văn bản đáp án trước khi so khớp và lưu dữ liệu. */
   private cleanAnswerMarkup(value: string): string {
-    return value.replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").trim();
+    return value.replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").replace(/^(?:đáp\s*án(?:\s+đúng)?|answer)(?:\s+là)?\s*[:.]?\s*/iu, "").trim();
+  }
+
+  /** Đổi đáp án dạng chữ cái hoặc mô tả về đúng chuỗi phương án đã nhận diện. */
+  private resolveCorrectAnswers(answers: string[], options: string[]): string[] {
+    return answers.map((answer) => {
+      const normalized = this.cleanAnswerMarkup(answer);
+      const letter = normalized.match(/^([A-F])(?:[.)\s:-]|$)/iu)?.[1]?.toUpperCase();
+      if (letter) return options[letter.charCodeAt(0) - 65] ?? normalized;
+      const comparable = normalized.replace(/^[A-F][.)\s:-]+/iu, "").trim().toLocaleLowerCase();
+      return options.find((option) => option.toLocaleLowerCase() === comparable) ?? normalized;
+    }).filter(Boolean);
   }
 
   /** Chọn provider sẵn sàng, gửi ảnh hoặc tài liệu và chuẩn hóa JSON trả về thành bản nháp câu hỏi. */
@@ -987,7 +998,7 @@ export class AiProviderService {
       const explicitAnswers = Array.isArray(item.correctAnswers) ? item.correctAnswers.filter((entry): entry is string => typeof entry === "string").map((entry) => this.cleanAnswerMarkup(entry)).filter(Boolean).slice(0, 20) : [];
       const markedAnswers = rawOptions.filter((entry) => /\*\*.+\*\*|<strong>.+<\/strong>|__.+__/iu.test(entry)).map((entry) => this.cleanAnswerMarkup(entry));
       const options = rawOptions.map((entry) => this.cleanAnswerMarkup(entry));
-      const correctAnswers = explicitAnswers.length ? explicitAnswers : markedAnswers;
+      const correctAnswers = this.resolveCorrectAnswers(explicitAnswers.length ? explicitAnswers : markedAnswers, options);
       const warnings = Array.isArray(item.warnings) ? item.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 10) : [];
       if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(type) && options.length < 2) warnings.push("Chưa nhận diện đủ lựa chọn trả lời.");
       if (!correctAnswers.length) warnings.push("Ảnh không cung cấp hoặc AI chưa xác định được đáp án đúng.");
