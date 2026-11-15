@@ -3157,17 +3157,17 @@ export function InstructorClassWorkspace({
                           <ChevronDown size={16} className="text-slate-400" />
                         </div>
 
-                        {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (ICON TRÁI - TÊN PHẢI) */}
+                        {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (TÊN TRÁI - ICON PHẢI) */}
                         <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <button
                             type="button"
                             onClick={() => setAssignmentViewMode("detail")}
                             aria-label="Xem bài tập"
                             title="Xem bài tập"
-                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-xs font-bold transition-colors cursor-pointer"
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-xs font-bold transition-colors cursor-pointer"
                           >
-                            <Eye size={16} className="shrink-0" />
                             <span>Xem bài tập</span>
+                            <Eye size={16} className="shrink-0" />
                           </button>
 
                           <button
@@ -3175,10 +3175,10 @@ export function InstructorClassWorkspace({
                             onClick={() => handleOpenEditAssignment(selectedAssignment)}
                             aria-label="Sửa bài tập"
                             title="Sửa bài tập"
-                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer"
                           >
-                            <Edit2 size={16} className="shrink-0" />
                             <span>Chỉnh sửa</span>
+                            <Edit2 size={16} className="shrink-0" />
                           </button>
                         </div>
                       </div>
@@ -3509,15 +3509,15 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    {/* Danh sách chức năng bài giảng: từng hàng 1 chức năng, icon trái - tên phải */}
+                    {/* Danh sách chức năng bài giảng: từng hàng 1 chức năng, tên trái - icon phải */}
                     <div className="pt-2 space-y-1.5">
                       <button
                         type="button"
                         onClick={() => setSelectedLectureForPage(activeLectureItem)}
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                       >
-                        <Play size={15} className="shrink-0" />
                         <span>Xem bài giảng</span>
+                        <Play size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3529,27 +3529,27 @@ export function InstructorClassWorkspace({
                             activeLectureItem.title,
                           )
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        {activeLectureItem.visibility === "HIDDEN" ? (
-                          <Eye size={15} className="shrink-0 text-emerald-600" />
-                        ) : (
-                          <EyeOff size={15} className="shrink-0 text-slate-500" />
-                        )}
                         <span>
                           {activeLectureItem.visibility === "HIDDEN"
                             ? "Hiển thị bài giảng"
                             : "Ẩn bài giảng"}
                         </span>
+                        {activeLectureItem.visibility === "HIDDEN" ? (
+                          <Eye size={15} className="shrink-0 text-emerald-600" />
+                        ) : (
+                          <EyeOff size={15} className="shrink-0 text-slate-500" />
+                        )}
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenEditLecture(activeLectureItem)}
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <Edit3 size={15} className="shrink-0" />
                         <span>Chỉnh sửa</span>
+                        <Edit3 size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3561,10 +3561,10 @@ export function InstructorClassWorkspace({
                             "LECTURE",
                           )
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <FolderInput size={15} className="shrink-0" />
                         <span>Di chuyển</span>
+                        <FolderInput size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3572,10 +3572,10 @@ export function InstructorClassWorkspace({
                         onClick={() =>
                           handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <Trash2 size={15} className="shrink-0" />
                         <span>Xóa</span>
+                        <Trash2 size={15} className="shrink-0" />
                       </button>
                     </div>
                   </div>
@@ -3818,15 +3818,15 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    {/* Danh sách chức năng tài liệu: từng hàng 1 chức năng, icon trái - tên phải */}
+                    {/* Danh sách chức năng tài liệu: từng hàng 1 chức năng, tên trái - icon phải */}
                     <div className="pt-2 space-y-1.5">
                       <button
                         type="button"
                         onClick={() => void handleDownloadMaterial(activeMaterialItem.id)}
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                       >
-                        <Download size={15} className="shrink-0" />
                         <span>Tải xuống tài liệu</span>
+                        <Download size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3838,27 +3838,27 @@ export function InstructorClassWorkspace({
                             activeMaterialItem.title,
                           )
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        {activeMaterialItem.visibility === "HIDDEN" ? (
-                          <Eye size={15} className="shrink-0 text-emerald-600" />
-                        ) : (
-                          <EyeOff size={15} className="shrink-0 text-slate-500" />
-                        )}
                         <span>
                           {activeMaterialItem.visibility === "HIDDEN"
                             ? "Hiển thị tài liệu"
                             : "Ẩn tài liệu"}
                         </span>
+                        {activeMaterialItem.visibility === "HIDDEN" ? (
+                          <Eye size={15} className="shrink-0 text-emerald-600" />
+                        ) : (
+                          <EyeOff size={15} className="shrink-0 text-slate-500" />
+                        )}
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenEditMaterial(activeMaterialItem)}
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <Edit3 size={15} className="shrink-0" />
                         <span>Chỉnh sửa</span>
+                        <Edit3 size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3870,10 +3870,10 @@ export function InstructorClassWorkspace({
                             "MATERIAL",
                           )
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <FolderInput size={15} className="shrink-0" />
                         <span>Di chuyển</span>
+                        <FolderInput size={15} className="shrink-0" />
                       </button>
 
                       <button
@@ -3881,10 +3881,10 @@ export function InstructorClassWorkspace({
                         onClick={() =>
                           handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)
                         }
-                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                       >
-                        <Trash2 size={15} className="shrink-0" />
                         <span>Xóa</span>
+                        <Trash2 size={15} className="shrink-0" />
                       </button>
                     </div>
                   </div>

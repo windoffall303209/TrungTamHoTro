@@ -771,32 +771,32 @@ export function InstructorMaterialsView() {
                     {activeMenuFileId === item.id && (
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs"
+                        className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
                       >
                         <button
                           type="button"
                           onClick={() => {
                             void handleToggleFileVisibility(item);
                           }}
-                          className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                         >
+                          <span>
+                            {item.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
+                          </span>
                           {item.visibility === "HIDDEN" ? (
                             <Eye size={14} className="text-emerald-600 shrink-0" />
                           ) : (
                             <EyeOff size={14} className="text-slate-500 shrink-0" />
                           )}
-                          <span>
-                            {item.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
-                          </span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => openAssignModal(item)}
-                          className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                         >
-                          <BookOpen size={14} className="text-blue-600 shrink-0" />
                           <span>Dùng làm tài liệu/bài giảng</span>
+                          <BookOpen size={14} className="text-blue-600 shrink-0" />
                         </button>
 
                         <button
@@ -806,10 +806,10 @@ export function InstructorMaterialsView() {
                             setMoveModalOpen(true);
                             setActiveMenuFileId(null);
                           }}
-                          className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                         >
-                          <Move size={14} className="text-amber-600 shrink-0" />
                           <span>Di chuyển đến thư mục...</span>
+                          <Move size={14} className="text-amber-600 shrink-0" />
                         </button>
 
                         <button
@@ -817,10 +817,10 @@ export function InstructorMaterialsView() {
                           onClick={() => {
                             handleDeleteFile(item);
                           }}
-                          className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                         >
-                          <Trash2 size={14} className="shrink-0" />
                           <span>Xóa</span>
+                          <Trash2 size={14} className="shrink-0" />
                         </button>
                       </div>
                     )}
@@ -1244,7 +1244,7 @@ export function InstructorMaterialsView() {
                       <div className="col-span-3 text-slate-500">{file.size}</div>
                       <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(file.updatedAt, locale, t)}</div>
 
-                      {/* Cột Tùy chọn 3 chấm với: từng hàng 1 chức năng, icon trái - tên phải */}
+                      {/* Cột Tùy chọn 3 chấm với: từng hàng 1 chức năng, tên trái - icon phải */}
                       <div className="col-span-1 text-right relative">
                         <button
                           type="button"
@@ -1268,25 +1268,25 @@ export function InstructorMaterialsView() {
                               onClick={() => {
                                 void handleToggleFileVisibility(file);
                               }}
-                              className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                             >
+                              <span>
+                                {file.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
+                              </span>
                               {file.visibility === "HIDDEN" ? (
                                 <Eye size={14} className="text-emerald-600 shrink-0" />
                               ) : (
                                 <EyeOff size={14} className="text-slate-500 shrink-0" />
                               )}
-                              <span>
-                                {file.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
-                              </span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => openAssignModal(file)}
-                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                             >
-                              <BookOpen size={14} className="text-blue-600 shrink-0" />
                               <span>Dùng làm tài liệu/bài giảng</span>
+                              <BookOpen size={14} className="text-blue-600 shrink-0" />
                             </button>
 
                             <button
@@ -1297,10 +1297,10 @@ export function InstructorMaterialsView() {
                                 setMoveModalOpen(true);
                                 setActiveMenuFileId(null);
                               }}
-                              className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                             >
-                              <Move size={14} className="text-amber-600 shrink-0" />
                               <span>Di chuyển</span>
+                              <Move size={14} className="text-amber-600 shrink-0" />
                             </button>
 
                             <button
@@ -1308,10 +1308,10 @@ export function InstructorMaterialsView() {
                               onClick={() => {
                                 void handleMoveToUnclassified(file);
                               }}
-                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                             >
-                              <FolderMinus size={14} className="text-blue-600 shrink-0" />
                               <span>Chuyển vào Cần phân cấp lại</span>
+                              <FolderMinus size={14} className="text-blue-600 shrink-0" />
                             </button>
 
                             <button
@@ -1319,10 +1319,10 @@ export function InstructorMaterialsView() {
                               onClick={() => {
                                 void handleDeleteFile(file);
                               }}
-                              className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
                             >
-                              <Trash2 size={14} className="shrink-0" />
                               <span>Xóa</span>
+                              <Trash2 size={14} className="shrink-0" />
                             </button>
                           </div>
                         )}
