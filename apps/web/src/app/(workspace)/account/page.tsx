@@ -1313,26 +1313,6 @@ function AccountContent() {
         title={emailOtp ? "Xác minh địa chỉ email mới" : "Thay đổi địa chỉ email"}
       >
         <form className="space-y-4" onSubmit={(event) => void submitEmailModalForm(event)}>
-          {/* Thanh tiến trình từng bước */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold">
-              <span className="text-sky-600 dark:text-sky-400">
-                {emailOtp ? "Bước 2 / 2" : "Bước 1 / 2"}
-              </span>
-              <span className="text-slate-600 dark:text-slate-300">
-                {emailOtp ? "Xác minh mã OTP" : "Nhập email mới"}
-              </span>
-            </div>
-            <div aria-hidden="true" className="grid grid-cols-2 gap-1.5">
-              <div className="h-1.5 rounded-full bg-sky-600 dark:bg-sky-500" />
-              <div
-                className={`h-1.5 rounded-full transition-colors ${
-                  emailOtp ? "bg-sky-600 dark:bg-sky-500" : "bg-slate-200 dark:bg-slate-800"
-                }`}
-              />
-            </div>
-          </div>
-
           {!emailOtp ? (
             <>
               {profile.email ? (
