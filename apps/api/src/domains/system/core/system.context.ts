@@ -3,83 +3,28 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { DatabaseBackupService } from "../../../infrastructure/database-backup.service.js";
 import { EmailDeliveryService } from "../../../infrastructure/email-delivery.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
-import {
-  AuditEvent,
-  AuditFilter,
-  BackupRun,
-  DataExport,
-  IntegrationConfig,
-  LegalHoldView,
-  ModerationPolicy,
-  NotificationTemplate,
-  RestoreRun,
-  RetentionCategory,
-  RetentionJobView,
-  RetentionPolicyView,
-  RetentionPreview,
-  SnapshotAssetAudit,
-  StorageCleanupFailure,
-  StorageOverview,
-  SystemAlertView,
-  SystemSettingRevision,
-  SystemSettings,
-  TemplateTestDelivery,
-} from "./system.shared.js";
+import type { AuditEvent, BackupRun, DataExport, IntegrationConfig, LegalHoldView, RestoreRun, RetentionCategory, RetentionJobView, RetentionPolicyView, RetentionPreview, StorageOverview, SystemAlertView, SystemSettingRevision, SystemSettings } from "./system.shared.js";
 
 /** Hợp đồng nội bộ của các nhóm nghiệp vụ; trạng thái vẫn thuộc một phiên bản service duy nhất. */
 export interface SystemServiceContext {
   settings: SystemSettings;
-  integrations: IntegrationConfig[];
-  backups: BackupRun[];
-  restores: RestoreRun[];
-  exports: DataExport[];
-  exportFiles: Map<string, Buffer<ArrayBufferLike>>;
-  templates: NotificationTemplate[];
-  moderation: ModerationPolicy;
-  audit: AuditEvent[];
-  settingRevisions: SystemSettingRevision[];
-  retentionPolicies: RetentionPolicyView[];
-  retentionJobs: RetentionJobView[];
-  legalHolds: LegalHoldView[];
-  alerts: SystemAlertView[];
+  readonly integrations: IntegrationConfig[];
+  readonly backups: BackupRun[];
+  readonly restores: RestoreRun[];
+  readonly exports: DataExport[];
+  readonly exportFiles: Map<string, Buffer<ArrayBufferLike>>;
+  readonly audit: AuditEvent[];
+  readonly settingRevisions: SystemSettingRevision[];
+  readonly retentionPolicies: RetentionPolicyView[];
+  readonly retentionJobs: RetentionJobView[];
+  readonly legalHolds: LegalHoldView[];
+  readonly alerts: SystemAlertView[];
   prisma: PrismaService | undefined;
   emailDelivery: EmailDeliveryService | undefined;
   databaseBackup: DatabaseBackupService | undefined;
   objectStorage: ObjectStorageService | undefined;
   getSettings(): Promise<SystemSettings>;
-  listSettingRevisions(): Promise<SystemSettingRevision[]>;
-  updateSettings(
-    input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>,
-    actorId?: string,
-  ): Promise<SystemSettings>;
   listIntegrations(): Promise<IntegrationConfig[]>;
-  updateIntegration(
-    integrationId: string,
-    enabled: boolean,
-    actorId?: string,
-  ): Promise<IntegrationConfig>;
-  configureIntegration(
-    input: {
-      provider: IntegrationConfig["provider"];
-      credentialReference?: string;
-      webhookUrl?: string;
-    },
-    actorId?: string,
-  ): Promise<IntegrationConfig>;
-  testIntegration(
-    integrationId: string,
-    actorId?: string,
-  ): Promise<IntegrationConfig>;
-  setDefaultIntegration(
-    integrationId: string,
-    actorId?: string,
-  ): Promise<IntegrationConfig>;
-  createTestMeeting(
-    integrationId: string,
-    actorId?: string,
-  ): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }>;
-  listBackups(): Promise<BackupRun[]>;
-  runBackup(type: BackupRun["type"], actorId?: string): Promise<BackupRun>;
   requestRestore(
     input: {
       backupId: string;
@@ -89,58 +34,9 @@ export interface SystemServiceContext {
     },
     actorId?: string,
   ): Promise<RestoreRun>;
-  approveRestore(restoreId: string, approverId: string): Promise<RestoreRun>;
-  restoreBackup(
-    backupId: string,
-    approvedBy: string,
-    actorId?: string,
-  ): Promise<RestoreRun>;
-  listRestores(): Promise<RestoreRun[]>;
-  previewRetention(categoryInput: string): Promise<RetentionPreview>;
-  listRetentionPolicies(): Promise<RetentionPolicyView[]>;
-  createRetentionPolicy(
-    input: {
-      category: string;
-      retentionDays: number;
-      action: "ARCHIVE" | "DELETE";
-      approvedBy?: string;
-      effectiveAt?: string;
-    },
-    actorId?: string,
-  ): Promise<RetentionPolicyView>;
-  createLegalHold(
-    categoryInput: string,
-    reasonInput: string,
-    actorId?: string,
-  ): Promise<object>;
-  listLegalHolds(): Promise<LegalHoldView[]>;
-  releaseLegalHold(
-    holdId: string,
-    reasonInput: string,
-    actorId?: string,
-  ): Promise<LegalHoldView>;
-  runRetention(
-    policyId: string,
-    requestedBy: string,
-  ): Promise<RetentionJobView>;
-  approveRetention(
-    jobId: string,
-    approverId: string,
-  ): Promise<RetentionJobView>;
-  listRetentionJobs(): Promise<RetentionJobView[]>;
   previewRetentionPolicy(
     policy: Pick<RetentionPolicyView, "category" | "retentionDays" | "action">,
   ): Promise<RetentionPreview>;
-  runExport(
-    category: string,
-    format: DataExport["format"],
-    actorId?: string,
-  ): Promise<DataExport>;
-  drainOperationalJobs(limit?: number): Promise<{
-    backup: number;
-    export: number;
-    retention: number;
-  }>;
   processQueuedBackup(prisma: PrismaService): Promise<boolean>;
   processQueuedExport(prisma: PrismaService): Promise<boolean>;
   processQueuedRetention(prisma: PrismaService): Promise<boolean>;
@@ -166,47 +62,6 @@ export interface SystemServiceContext {
   jobLeaseExpiry(): Date;
   jobRetryAt(attempts: number): Date;
   jobError(error: unknown, fallback: string): string;
-  downloadExport(
-    exportId: string,
-  ): Promise<{ buffer: Buffer; filename: string; mimeType: string }>;
-  listExports(): Promise<DataExport[]>;
-  listTemplates(): Promise<NotificationTemplate[]>;
-  saveTemplate(
-    input: Omit<
-      NotificationTemplate,
-      "id" | "version" | "status" | "updatedAt"
-    >,
-    actorId?: string,
-  ): Promise<NotificationTemplate>;
-  previewTemplate(
-    templateId: string,
-    variables: Record<string, string>,
-  ): Promise<object>;
-  renderPublishedNotification(
-    eventCode: string,
-    variables: Record<string, string>,
-    fallbackTitle: string,
-  ): Promise<string>;
-  sendTemplateTest(
-    templateId: string,
-    recipient: string,
-    variables: Record<string, string>,
-    actorId?: string,
-  ): Promise<TemplateTestDelivery>;
-  getModerationPolicy(): Promise<ModerationPolicy>;
-  updateModerationPolicy(
-    input: Omit<ModerationPolicy, "version" | "updatedAt">,
-    actorId?: string,
-  ): Promise<ModerationPolicy>;
-  listAudit(filter?: AuditFilter): Promise<AuditEvent[]>;
-  healthOverview(): Promise<object>;
-  listAlerts(): Promise<SystemAlertView[]>;
-  updateAlert(
-    alertId: string,
-    action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE",
-    actorId?: string,
-    muteMinutes?: number,
-  ): Promise<SystemAlertView>;
   getStorageOverview(): Promise<StorageOverview>;
   database(): PrismaService | undefined;
   mapSettings(
@@ -219,19 +74,13 @@ export interface SystemServiceContext {
   mapIntegration(
     row: Prisma.IntegrationProviderGetPayload<Record<string, never>>,
   ): IntegrationConfig;
-  mapBackup(row: Prisma.BackupJobGetPayload<Record<string, never>>): BackupRun;
+  mapBackup(row: Prisma.OperationalJobGetPayload<Record<string, never>>): BackupRun;
   mapRestore(
-    row: Prisma.RestoreJobGetPayload<Record<string, never>>,
+    row: Prisma.OperationalJobGetPayload<Record<string, never>>,
   ): RestoreRun;
   mapExport(
-    row: Prisma.DataExportJobGetPayload<Record<string, never>>,
+    row: Prisma.OperationalJobGetPayload<Record<string, never>>,
   ): DataExport;
-  mapTemplate(
-    row: Prisma.NotificationTemplateGetPayload<Record<string, never>>,
-  ): NotificationTemplate;
-  mapModeration(
-    row: Prisma.ModerationPolicyGetPayload<Record<string, never>>,
-  ): ModerationPolicy;
   mapAudit(row: Prisma.AuditLogGetPayload<Record<string, never>>): AuditEvent;
   mapRetentionPolicy(
     row: Prisma.RetentionPolicyGetPayload<Record<string, never>>,
@@ -271,21 +120,6 @@ export interface SystemServiceContext {
     cutoffAt: Date,
   ): Promise<Array<Prisma.SystemSettingGetPayload<Record<string, never>>>>;
   retentionCategory(value: string): RetentionCategory;
-  snapshotAssetAudit(): Promise<SnapshotAssetAudit>;
-  listStorageCleanupFailures(): Promise<StorageCleanupFailure[]>;
-  retryStorageCleanup(
-    attachmentId: string,
-    actorId: string,
-  ): Promise<{ cleaned: true }>;
-  verifyRetentionArchive(
-    jobId: string,
-  ): Promise<{
-    valid: true;
-    category: string;
-    recordCount: number;
-    assetCount: number;
-    checksum: string;
-  }>;
   validateRetentionArchive(content: Buffer): {
     category: string;
     records: unknown[];
@@ -313,7 +147,6 @@ export interface SystemServiceContext {
     threshold?: number,
   ): Promise<void>;
   recoverAlert(fingerprint: string): Promise<void>;
-  countExportRows(prisma: PrismaService, category: string): Promise<number>;
   logDatabase(
     database: PrismaService | Prisma.TransactionClient,
     actorId: string,
@@ -326,7 +159,6 @@ export interface SystemServiceContext {
   numberValue(value: unknown, fallback: number): number;
   booleanValue(value: unknown, fallback: boolean): boolean;
   stringArray(value: unknown, fallback: string[]): string[];
-  extractTemplateVariables(value: string): string[];
   redactSensitive(value: string): string;
   isProvider(value: string): value is IntegrationConfig["provider"];
   log(actorId: string, action: string, target: string, detail: string): void;

@@ -3,8 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
-import { id, now } from "../../core/learning.shared.js";
-import type { AttendanceAppeal, LiveSession } from "../../core/learning.types.js";
+import type { LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
 /** Gắn nguồn bản ghi cho buổi đã hoàn tất và chuyển sang trạng thái xử lý. */
@@ -168,13 +167,6 @@ export async function getSessionSummary(
     });
     if (!enrollment)
       throw new NotFoundException("Học viên không thuộc lớp của buổi học.");
-    const attendance = await prisma.attendanceRecord.findUnique({
-      where: { sessionId_learnerId: { sessionId, learnerId } },
-    });
-    const appeal = await prisma.attendanceAppeal.findFirst({
-      where: { sessionId, learnerId },
-      orderBy: { createdAt: "desc" },
-    });
     const mapped = serviceContext.mapSession(session);
     return {
       session: {
@@ -184,10 +176,6 @@ export async function getSessionSummary(
         recordingUrl: undefined,
       },
       recordingAvailable: serviceContext.isRecordingAvailable(mapped),
-      attendance: attendance
-        ? serviceContext.mapAttendance(attendance)
-        : { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" },
-      appeal: appeal ? serviceContext.mapAttendanceAppeal(appeal) : undefined,
     };
   }
   const session = serviceContext.findSession(sessionId);
@@ -201,12 +189,6 @@ export async function getSessionSummary(
       recordingUrl: undefined,
     },
     recordingAvailable: serviceContext.isRecordingAvailable(session),
-    attendance: serviceContext.attendance.find(
-      (item) => item.sessionId === sessionId && item.learnerId === learnerId,
-    ) ?? { sessionId, learnerId, attendedMinutes: 0, status: "ABSENT" },
-    appeal: serviceContext.attendanceAppeals.find(
-      (item) => item.sessionId === sessionId && item.learnerId === learnerId,
-    ),
   };
 }
 
@@ -297,87 +279,4 @@ export async function resolveRecordingAccess(
       "Bản ghi chưa sẵn sàng, đã hết hạn hoặc học viên không có quyền xem.",
     );
   return { recordingUrl: session.recordingUrl! };
-}
-
-/** Tạo khiếu nại điểm danh duy nhất cho học viên đã tham dự buổi học. */
-export async function requestAttendanceAppeal(
-  serviceContext: LearningServiceContext,
-  sessionId: string,
-  reason: string,
-  learnerId = "usr-learner",
-): Promise<AttendanceAppeal> {
-  const normalized = reason.trim();
-  if (normalized.length < 10)
-    throw new BadRequestException("Lý do điều chỉnh cần ít nhất 10 ký tự.");
-  const prisma = serviceContext.database();
-  if (prisma) {
-    const session = await prisma.liveSession.findFirst({
-      where: {
-        id: sessionId,
-        status: "COMPLETED",
-        class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
-      },
-      include: {
-        attendance: { where: { learnerId } },
-        appeals: {
-          where: { learnerId, status: { in: ["OPEN", "IN_REVIEW"] } },
-        },
-      },
-    });
-    if (!session)
-      throw new NotFoundException(
-        "Không tìm thấy buổi học được phép yêu cầu điều chỉnh.",
-      );
-    if (!session.attendance.length)
-      throw new BadRequestException(
-        "Chưa có dữ liệu điểm danh để yêu cầu điều chỉnh.",
-      );
-    if (session.appeals.length)
-      throw new ConflictException("Đã có yêu cầu điều chỉnh đang được xử lý.");
-    return serviceContext.mapAttendanceAppeal(
-      await prisma.attendanceAppeal.create({
-        data: {
-          id: id("attendance-appeal"),
-          sessionId,
-          learnerId,
-          reason: normalized,
-        },
-      }),
-    );
-  }
-  const session = serviceContext.findSession(sessionId);
-  if (
-    session.status !== "COMPLETED" ||
-    !serviceContext.findClass(session.classId).learnerIds.includes(learnerId)
-  )
-    throw new NotFoundException(
-      "Không tìm thấy buổi học được phép yêu cầu điều chỉnh.",
-    );
-  if (
-    !serviceContext.attendance.some(
-      (item) => item.sessionId === sessionId && item.learnerId === learnerId,
-    )
-  )
-    throw new BadRequestException(
-      "Chưa có dữ liệu điểm danh để yêu cầu điều chỉnh.",
-    );
-  if (
-    serviceContext.attendanceAppeals.some(
-      (item) =>
-        item.sessionId === sessionId &&
-        item.learnerId === learnerId &&
-        ["OPEN", "IN_REVIEW"].includes(item.status),
-    )
-  )
-    throw new ConflictException("Đã có yêu cầu điều chỉnh đang được xử lý.");
-  const appeal: AttendanceAppeal = {
-    id: id("attendance-appeal"),
-    sessionId,
-    learnerId,
-    reason: normalized,
-    status: "OPEN",
-    createdAt: now(),
-  };
-  serviceContext.attendanceAppeals.unshift(appeal);
-  return { ...appeal };
 }

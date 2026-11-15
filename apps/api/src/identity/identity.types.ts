@@ -61,7 +61,6 @@ export interface IdentityChangeImpact {
     regrades: number;
     interventions: number;
     supportTickets: number;
-    moderationReports: number;
     upcomingSessions: number;
   };
 }

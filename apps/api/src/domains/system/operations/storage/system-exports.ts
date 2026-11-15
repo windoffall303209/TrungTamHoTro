@@ -27,8 +27,8 @@ export async function runExport(
         "Kho object chưa sẵn sàng để tạo tệp export.",
       );
     const exportId = `export-${randomUUID()}`;
-    const row = await prisma.dataExportJob.create({
-      data: {
+    const row = await prisma.operationalJob.create({
+      data: { kind: "EXPORT",
         id: exportId,
         category: normalizedCategory,
         format,

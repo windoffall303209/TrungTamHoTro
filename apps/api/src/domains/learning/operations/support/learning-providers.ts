@@ -245,3 +245,10 @@ export async function notifyClassMembers(
       },
     });
 }
+
+/** Type guard giới hạn provider vào danh mục phòng họp được hỗ trợ. */
+export function isLiveProvider(
+  value: string,
+): value is LiveSession["provider"] {
+  return value === "GOOGLE_MEET" || value === "ZOOM" || value === "JITSI";
+}

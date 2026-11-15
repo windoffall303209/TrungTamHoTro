@@ -12,20 +12,7 @@ import {
   StatusBadge,
 } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
-import {
-  BookOpenCheck,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardPenLine,
-  History,
-  Megaphone,
-  MessageCircle,
-  Paperclip,
-  Pencil,
-  Plus,
-  Send,
-  UsersRound,
-} from "lucide-react";
+import { BookOpenCheck, CalendarDays, CheckCircle2, ClipboardPenLine, Megaphone, MessageCircle, Paperclip, Pencil, Plus, Send, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { emptyAssignment } from "./academic.shared";
 import { AssignmentEditorDialog } from "./assignment-editor-dialog";
@@ -56,8 +43,6 @@ export default function AcademicScreen() {
     lifecycleMinDueAt,
     lifecycleReason,
     setLifecycleReason,
-    assignmentHistory,
-    setAssignmentHistory,
     creatingAnnouncement,
     setCreatingAnnouncement,
     setSubmitting,
@@ -77,7 +62,6 @@ export default function AcademicScreen() {
     editAssignment,
     openLifecycle,
     applyLifecycle,
-    openAssignmentHistory,
     publish,
     openAttachment,
     openSubmissions,
@@ -229,14 +213,7 @@ export default function AcademicScreen() {
                               </Button>
                             </>
                           ) : null}
-                          <Button
-                            onClick={() => void openAssignmentHistory(item)}
-                            variant="ghost"
-                            className="h-8 text-xs px-2.5"
-                          >
-                            <History size={13} />
-                            Lịch sử
-                          </Button>
+
                           <Button
                             onClick={() => void openSubmissions(item)}
                             variant="ghost"
@@ -634,40 +611,7 @@ export default function AcademicScreen() {
           </Button>
         </form>
       </Modal>
-      <Modal
-        description="Mỗi thay đổi giữ phiên bản trước, người thực hiện, thời điểm và lý do nghiệp vụ."
-        onClose={() => setAssignmentHistory(null)}
-        open={assignmentHistory !== null}
-        title="Lịch sử bài tập"
-      >
-        {assignmentHistory?.length ? (
-          <ol className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
-            {assignmentHistory.map((change) => (
-              <li className="py-4" key={change.id}>
-                <div className="flex items-center justify-between gap-3">
-                  <strong className="text-sm">{change.action}</strong>
-                  <span className="text-xs tabular-nums text-[var(--ink-muted)]">
-                    v{change.fromVersion} → v{change.toVersion}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                  {new Date(change.createdAt).toLocaleString(activeLocale())} ·{" "}
-                  {change.actorId}
-                </p>
-                {change.reason ? (
-                  <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                    {change.reason}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="py-8 text-center text-sm text-[var(--ink-muted)]">
-            Bài tập chưa có thay đổi sau khi tạo.
-          </p>
-        )}
-      </Modal>
+
     </div>
   );
 }

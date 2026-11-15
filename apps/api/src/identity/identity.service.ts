@@ -319,7 +319,6 @@ export class IdentityService {
           regrades: 0,
           interventions: 0,
           supportTickets: 0,
-          moderationReports: 0,
           upcomingSessions: 0,
         },
       };
@@ -667,12 +666,6 @@ export class IdentityService {
     const supportTickets = await transaction.supportTicket.count({
       where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
     });
-    const moderationReports = await transaction.contentReport.count({
-      where: {
-        assignedToId: userId,
-        status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-      },
-    });
     const upcomingSessions = await transaction.liveSession.count({
       where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
     });
@@ -690,7 +683,6 @@ export class IdentityService {
       regrades,
       interventions,
       supportTickets,
-      moderationReports,
       upcomingSessions,
     };
     const changesAccess =
@@ -755,7 +747,7 @@ export class IdentityService {
       impact.openWork.interventions +
       impact.openWork.upcomingSessions;
     const operationalWork =
-      impact.openWork.supportTickets + impact.openWork.moderationReports;
+      impact.openWork.supportTickets;
     if (teachingWork && targetRole !== "INSTRUCTOR")
       throw new BadRequestException(
         "Công việc giảng dạy phải bàn giao cho một giảng viên đang hoạt động.",
@@ -863,13 +855,6 @@ export class IdentityService {
         status: { in: ["OPEN", "IN_PROGRESS"] },
       },
       data: { assigneeId: toUserId },
-    });
-    await transaction.contentReport.updateMany({
-      where: {
-        assignedToId: fromUserId,
-        status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-      },
-      data: { assignedToId: toUserId },
     });
     await transaction.auditLog.create({
       data: {

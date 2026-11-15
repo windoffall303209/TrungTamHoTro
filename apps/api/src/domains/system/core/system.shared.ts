@@ -10,8 +10,6 @@ export interface SystemSettings {
   maxFileSizeMb: number;
   storageQuotaMb: number;
   allowedMimeTypes: string[];
-  moderationEnabled: boolean;
-  examApprovalMode: ExamApprovalMode;
   questionApprovalMode: ExamApprovalMode;
   notificationSender: string;
   maintenanceMode: boolean;
@@ -59,6 +57,7 @@ export interface BackupRun {
   type: "FULL" | "INCREMENTAL";
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
   createdAt: string;
+  canRestore: boolean;
   checksum: string;
   sizeMb: number;
   attempts: number;
@@ -253,8 +252,6 @@ export const defaultSettings = (): SystemSettings => ({
   maxFileSizeMb: 50,
   storageQuotaMb: 10_240,
   allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
-  moderationEnabled: true,
-  examApprovalMode: "AUTO",
   questionApprovalMode: "AUTO",
   notificationSender: "Wind EDU",
   maintenanceMode: false,

@@ -18,8 +18,6 @@ export interface Settings {
   maxFileSizeMb: number;
   storageQuotaMb: number;
   allowedMimeTypes: string[];
-  moderationEnabled: boolean;
-  examApprovalMode: "AUTO" | "MANUAL";
   questionApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;

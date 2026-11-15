@@ -1,6 +1,6 @@
 "use client";
 
-export type OperationsView = "monitoring" | "data" | "content";
+export type OperationsView = "monitoring" | "data";
 
 const sections: Array<{
   value: OperationsView;
@@ -17,11 +17,6 @@ const sections: Array<{
     label: "Dữ liệu",
     description: "Sao lưu, khôi phục và lưu giữ",
   },
-  {
-    value: "content",
-    label: "Nội dung",
-    description: "Mẫu thông báo và kiểm duyệt",
-  },
 ];
 
 /** Chọn nhóm nghiệp vụ, giữ các biểu mẫu đã nhập khi chuyển vùng làm việc. */
@@ -35,7 +30,7 @@ export function OperationsNavigation({
   return (
     <nav
       aria-label="Nhóm công việc vận hành"
-      className="mb-7 grid grid-cols-1 sm:grid-cols-3 gap-3"
+      className="mb-7 grid grid-cols-1 sm:grid-cols-2 gap-3"
     >
       {sections.map((section) => {
         const active = value === section.value;

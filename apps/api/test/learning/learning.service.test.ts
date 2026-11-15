@@ -331,18 +331,6 @@ describe("LearningService", () => {
         )
       ).authorId,
     ).toBe("learner-forum");
-
-    const report = await service.reportContent({
-      targetType: "TOPIC",
-      targetId: topic.id,
-      reporterId: "learner-forum",
-      reason: "OTHER",
-      details: "Nội dung cần được quản lý xem lại.",
-    });
-    expect((await service.listLearnerReports("learner-forum"))[0]?.id).toBe(
-      report.id,
-    );
-    expect(await service.listLearnerReports("usr-learner")).toHaveLength(0);
   });
 
   it("chặn lịch buổi học trùng", async () => {
@@ -701,41 +689,15 @@ describe("LearningService", () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it("tổng hợp đúng điểm và điểm danh theo lớp", async () => {
-    const service = new LearningService();
-    const attempt = await service.startAttempt("exam-mid-web");
-    await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
-    await service.submitAttempt(attempt.id);
-    await service.transitionSession("session-web-01", "LIVE");
-    await service.transitionSession("session-web-01", "COMPLETED");
-    await service.updateAttendance(
-      "session-web-01",
-      "usr-learner",
-      "PRESENT",
-      60,
-      "Đối soát nhật ký",
-    );
-    const report = (await service.getClassReports())[0] as {
-      submittedAttempts: number;
-      averageScore: number;
-      attendanceRate: number;
-    };
-    expect(report.submittedAttempts).toBe(1);
-    expect(report.averageScore).toBe(5);
-    expect(report.attendanceRate).toBe(100);
-  });
-
   it("giải thích cờ rủi ro và theo dõi hành động hỗ trợ học viên", async () => {
     const service = new LearningService();
     const progress = await service.getClassProgress("class-web-01", {
       from: "2026-01-01T00:00:00.000Z",
       to: "2026-12-31T23:59:59.000Z",
-      attendanceBelow: 70,
       scoreBelow: 50,
       completionBelow: 60,
     });
     expect(progress.thresholds).toEqual({
-      attendanceBelow: 70,
       scoreBelow: 50,
       completionBelow: 60,
     });
@@ -743,9 +705,9 @@ describe("LearningService", () => {
       learnerId: "usr-learner",
       riskLevel: "HIGH",
     });
-    expect(progress.learners[0]?.riskReasons).toHaveLength(3);
+    expect(progress.learners[0]?.riskReasons).toHaveLength(2);
     await expect(
-      service.getClassProgress("class-web-01", { attendanceBelow: 0 }),
+      service.getClassProgress("class-web-01", { scoreBelow: 0 }),
     ).rejects.toThrow(BadRequestException);
 
     const intervention = await service.createProgressIntervention(
@@ -860,146 +822,6 @@ describe("LearningService", () => {
     ).rejects.toThrow("giảng viên");
   });
 
-  it("lưu lần chạy, tạo lịch sử export CSV và kiểm soát hạn tải", async () => {
-    const storageRoot = await mkdtemp(join(tmpdir(), "wind-report-"));
-    try {
-      const config = {
-        get: (key: keyof Environment): string | undefined =>
-          key === "STORAGE_ROOT" ? storageRoot : undefined,
-      } as unknown as ConfigService<Environment, true>;
-      const service = new LearningService(undefined, config);
-      const run = await service.runOperationalReport(
-        "2026-01-01T00:00:00.000Z",
-        "2026-12-31T23:59:59.000Z",
-        "manager-real",
-      );
-      expect(run.result.definitionVersion).toBe("1.0.0");
-      expect(run.result.metricDefinitions.classes).toContain("kỳ báo cáo");
-      const created = await service.createReportExport(
-        run.id,
-        "CSV",
-        "manager-real",
-      );
-      expect(created).toMatchObject({ status: "COMPLETED", format: "CSV" });
-      expect(await service.listReportExports("manager-real")).toHaveLength(1);
-      expect(await service.listReportExports("manager-outside")).toHaveLength(
-        0,
-      );
-      const download = await service.downloadReportExport(
-        created.id,
-        "manager-real",
-      );
-      expect(download.fileName).toMatch(/bao-cao-van-hanh.*\.csv$/);
-      expect(download.buffer.toString("utf8")).toContain(
-        "Phiên bản định nghĩa",
-      );
-      await expect(
-        service.downloadReportExport(created.id, "manager-outside"),
-      ).rejects.toThrow(NotFoundException);
-      await expect(
-        service.runOperationalReport(
-          "2026-12-31T00:00:00.000Z",
-          "2026-01-01T00:00:00.000Z",
-        ),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.createReportExport("run-khong-ton-tai", "CSV", "manager-real"),
-      ).rejects.toThrow(NotFoundException);
-    } finally {
-      await rm(storageRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("đồng bộ, đối chiếu, xử lý điều chỉnh và khóa kỳ điểm danh", async () => {
-    const service = new LearningService();
-    await service.transitionSession("session-web-01", "LIVE");
-    await service.transitionSession("session-web-01", "COMPLETED");
-    await expect(
-      service.syncAttendance("session-web-01", [
-        {
-          providerParticipantId: "provider-01",
-          learnerId: "usr-learner",
-          joinedAt: "2026-08-26T02:12:00.000Z",
-          leftAt: "2026-08-26T03:20:00.000Z",
-        },
-        {
-          providerParticipantId: "provider-01",
-          learnerId: "usr-outsider",
-          joinedAt: "2026-08-26T02:10:00.000Z",
-          leftAt: "2026-08-26T03:00:00.000Z",
-        },
-      ]),
-    ).rejects.toThrow("thuộc nhiều học viên");
-
-    const synced = await service.syncAttendance("session-web-01", [
-      {
-        providerParticipantId: "provider-01",
-        learnerId: "usr-learner",
-        joinedAt: "2026-08-26T02:12:00.000Z",
-        leftAt: "2026-08-26T02:40:00.000Z",
-      },
-      {
-        providerParticipantId: "provider-01",
-        learnerId: "usr-learner",
-        joinedAt: "2026-08-26T02:50:00.000Z",
-        leftAt: "2026-08-26T03:20:00.000Z",
-      },
-      {
-        providerParticipantId: "provider-outside",
-        learnerId: "usr-outsider",
-        joinedAt: "2026-08-26T02:10:00.000Z",
-        leftAt: "2026-08-26T03:00:00.000Z",
-      },
-    ]);
-    expect(synced.skippedLearnerIds).toEqual(["usr-outsider"]);
-    expect(synced.review.records).toMatchObject([
-      {
-        learnerId: "usr-learner",
-        status: "LATE",
-        attendedMinutes: 58,
-        providerParticipantId: "provider-01",
-      },
-    ]);
-
-    const appeal = await service.requestAttendanceAppeal(
-      "session-web-01",
-      "Hệ thống ghi thiếu thời gian em tham dự",
-    );
-    const resolved = await service.resolveAttendanceAppeal(
-      appeal.id,
-      "APPROVE",
-      "Đã đối chiếu bản ghi nhà cung cấp",
-      "PRESENT",
-      80,
-    );
-    expect(resolved.status).toBe("RESOLVED");
-    expect(
-      (await service.getAttendanceReview("session-web-01")).records[0],
-    ).toMatchObject({ status: "PRESENT", attendedMinutes: 80 });
-    expect(
-      (await service.lockAttendance("session-web-01")).attendanceLockedAt,
-    ).toBeTruthy();
-    await expect(
-      service.updateAttendance(
-        "session-web-01",
-        "usr-learner",
-        "ABSENT",
-        0,
-        "Sửa sau khóa",
-      ),
-    ).rejects.toThrow("đã khóa");
-    await expect(
-      service.syncAttendance("session-web-01", [
-        {
-          providerParticipantId: "provider-02",
-          learnerId: "usr-learner",
-          joinedAt: "2026-08-26T02:00:00.000Z",
-          leftAt: "2026-08-26T03:00:00.000Z",
-        },
-      ]),
-    ).rejects.toThrow("đã khóa");
-  });
-
   it("lưu bytes, cấp liên kết có chữ ký và kiểm tra checksum khi tải học liệu", async () => {
     const storageRoot = await mkdtemp(join(tmpdir(), "wind-material-"));
     const config = {
@@ -1030,7 +852,7 @@ describe("LearningService", () => {
           buffer: bytes,
         },
       );
-      await service.reviewClassMaterial(material.id, "APPROVE");
+      expect(material.visibility).toBe("PUBLISHED");
 
       const access = await service.createMaterialAccess(material.id, "LEARNER");
       const signedUrl = new URL(access.url, "http://localhost");
@@ -1066,40 +888,37 @@ describe("LearningService", () => {
       ).rejects.toThrow(BadRequestException);
 
       const replacement = Buffer.from("%PDF-1.7\nnoi-dung-phien-ban-moi");
-      const versionThree = await service.replaceMaterialVersion(
+      const versionTwo = await service.replaceMaterialVersion(
         material.id,
-        { folder: "Tuần kiểm thử", tags: ["bao-mat", "v3"] },
+        { folder: "Tuần kiểm thử", tags: ["bao-mat", "v2"] },
         {
-          originalName: "kiem-thu-v3.pdf",
+          originalName: "kiem-thu-v2.pdf",
           mimeType: "application/pdf",
           size: replacement.length,
           buffer: replacement,
         },
       );
-      expect(versionThree).toMatchObject({ version: 3, visibility: "DRAFT" });
+      expect(versionTwo).toMatchObject({ version: 2, visibility: "PUBLISHED" });
       expect(
         (await service.listMaterialVersions(material.id, "INSTRUCTOR")).map(
           (item) => item.version,
         ),
-      ).toEqual([3, 2, 1]);
+      ).toEqual([2, 1]);
       expect(
         (await service.listMaterialVersions(material.id, "LEARNER")).map(
           (item) => item.version,
         ),
-      ).toEqual([2]);
-      await expect(
-        service.createMaterialVersionAccess(material.id, 3, "LEARNER"),
-      ).rejects.toThrow(NotFoundException);
+      ).toEqual([2, 1]);
 
       const oldAccess = await service.createMaterialVersionAccess(
         material.id,
-        2,
+        1,
         "LEARNER",
       );
       const oldUrl = new URL(oldAccess.url, "http://localhost");
       const oldDownload = await service.readMaterialVersionDownload(
         material.id,
-        2,
+        1,
         Number(oldUrl.searchParams.get("expires")),
         oldUrl.searchParams.get("signature") ?? "",
         "LEARNER",
@@ -1107,18 +926,18 @@ describe("LearningService", () => {
       expect(oldDownload.buffer.equals(bytes)).toBe(true);
       await service.updateMaterial(material.id, { visibility: "HIDDEN" });
       await expect(
-        service.createMaterialVersionAccess(material.id, 2, "LEARNER"),
+        service.createMaterialVersionAccess(material.id, 1, "LEARNER"),
       ).rejects.toThrow(NotFoundException);
       await expect(
         service.readMaterialVersionDownload(
           material.id,
-          2,
+          1,
           Number(oldUrl.searchParams.get("expires")),
           oldUrl.searchParams.get("signature") ?? "",
           "LEARNER",
         ),
       ).rejects.toThrow(NotFoundException);
-      await service.reviewClassMaterial(material.id, "APPROVE");
+      await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
       const currentAccess = await service.createMaterialAccess(
         material.id,
         "LEARNER",
@@ -1233,40 +1052,50 @@ describe("LearningService", () => {
     }
   });
 
-  it("lưu lịch sử kiểm duyệt học liệu, bắt buộc lý do và thông báo người đăng", async () => {
+  it("phát hành mặc định khi tải lên, cho phép ẩn/hiện và chặn quản trị viên xem tệp đã ẩn", async () => {
     const service = new LearningService();
-    const material = await service.createMaterial("class-web-01", {
-      name: "slide-review.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 2048,
-      folder: "Tuần 3",
-      tags: ["review"],
-    });
-    await expect(
-      service.reviewClassMaterial(material.id, "REVOKE", ""),
-    ).rejects.toThrow("lý do");
-    expect(
-      (await service.reviewClassMaterial(material.id, "APPROVE")).visibility,
-    ).toBe("PUBLISHED");
-    expect(
-      (
-        await service.reviewClassMaterial(
-          material.id,
-          "REVOKE",
-          "Cần bổ sung nguồn trích dẫn",
-        )
-      ).visibility,
-    ).toBe("HIDDEN");
-    const reviews = await service.listMaterialReviews(material.id);
-    expect(reviews.map((item) => item.action)).toEqual([
-      "REVOKE",
-      "APPROVE",
-    ]);
-    expect(
-      (await service.listNotifications("usr-instructor")).filter(
-        (item) => item.type === "MATERIAL_REVIEWED",
-      ),
-    ).toHaveLength(2);
+    const bytes = Buffer.from("%PDF-1.7\nnoi-dung-an-hien");
+    const material = await service.createMaterial(
+      "class-web-01",
+      {
+        name: "slide-visibility.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: bytes.length,
+        folder: "Tuần 3",
+        tags: ["visibility"],
+      },
+      {
+        originalName: "slide-visibility.pdf",
+        mimeType: "application/pdf",
+        size: bytes.length,
+        buffer: bytes,
+      },
+    );
+    expect(material.visibility).toBe("PUBLISHED");
+
+    const hidden = await service.updateMaterial(material.id, { visibility: "HIDDEN" });
+    expect(hidden.visibility).toBe("HIDDEN");
+
+    // Học viên không thấy tài liệu đã ẩn trong danh sách và không thể truy cập.
+    const learnerSearch = await service.searchAccessibleMaterials({ classId: "class-web-01" }, "usr-learner", "LEARNER");
+    expect(learnerSearch.items.some((item) => item.id === material.id)).toBe(false);
+    await expect(service.createMaterialAccess(material.id, "LEARNER")).rejects.toThrow(NotFoundException);
+
+    // Quản trị viên / Quản lý trung tâm vẫn thấy tài liệu ở trạng thái HIDDEN trong danh sách nhưng không thể xem hoặc tải xuống.
+    const managerSearch = await service.searchAccessibleMaterials({ classId: "class-web-01" }, "usr-manager", "CENTER_MANAGER");
+    expect(managerSearch.items.find((item) => item.id === material.id)?.visibility).toBe("HIDDEN");
+    await expect(service.createMaterialAccess(material.id, "CENTER_MANAGER")).rejects.toThrow("đã ẩn");
+    await expect(service.createMaterialAccess(material.id, "SYSTEM_ADMIN")).rejects.toThrow("đã ẩn");
+
+    // Giảng viên vẫn xem và tải bình thường khi tài liệu đang ẩn.
+    const instructorAccess = await service.createMaterialAccess(material.id, "INSTRUCTOR");
+    expect(instructorAccess.url).toContain(material.id);
+
+    // Giảng viên bật hiển thị lại thì học viên và quản lý đều truy cập được.
+    const republished = await service.updateMaterial(material.id, { visibility: "PUBLISHED" });
+    expect(republished.visibility).toBe("PUBLISHED");
+    await expect(service.createMaterialAccess(material.id, "LEARNER")).resolves.toHaveProperty("url");
+    await expect(service.createMaterialAccess(material.id, "CENTER_MANAGER")).resolves.toHaveProperty("url");
   });
 
   it("lọc và phân trang học liệu chỉ trong lớp đã ghi danh", async () => {
@@ -1491,7 +1320,6 @@ describe("LearningService", () => {
       folder: "Tuần 1",
       tags: ["ngoai-lop"],
     });
-    await service.reviewClassMaterial(material.id, "APPROVE");
 
     await expect(
       service.createMaterialAccess(material.id, "LEARNER"),
@@ -1816,10 +1644,10 @@ describe("LearningService", () => {
     expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === originalId)?.content).toBe(generated?.content);
     await expect(service.submitExamForReview(exam.id, "usr-instructor", true, 999)).rejects.toThrow("thay đổi");
     expect((await service.submitExamForReview(exam.id, "usr-instructor", true)).status).toBe(
-      "PENDING_REVIEW",
+      "PUBLISHED",
     );
     expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === edited.id)?.status).toBe("PUBLISHED");
-    await expect(service.editExamQuestion(exam.id, edited.id, { content: "Không được sửa lúc chờ duyệt", options: [], correctAnswers: ["Đáp án"], expectedVersion: 2 }, "usr-instructor")).rejects.toThrow();
+    await expect(service.editExamQuestion(exam.id, edited.id, { content: "Nội dung cập nhật khi công bố", options: [], correctAnswers: ["Đáp án"], expectedVersion: 2 }, "usr-instructor")).resolves.toMatchObject({ content: "Nội dung cập nhật khi công bố" });
   });
 
   it("phân bổ điểm từng câu chính xác và dùng đúng trọng số khi chấm tự động", async () => {
@@ -1840,7 +1668,6 @@ describe("LearningService", () => {
     });
     expect(exam.questionScores).toEqual({ "q-rest-01": 7, "q-db-01": 3 });
     await service.submitExamForReview(exam.id);
-    await service.reviewExam(exam.id, "APPROVE");
     const attempt = await service.startAttempt(exam.id);
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
     await service.saveAnswer(attempt.id, "q-db-01", ["Sai"]);
@@ -1914,7 +1741,7 @@ describe("LearningService", () => {
     await expect(
       service.updateExam(draft.id, {
         classId: draft.classId,
-        title: "Không sửa khi chờ duyệt",
+        title: "Đề được cập nhật",
         questionIds: ["q-rest-01"],
         durationMinutes: 20,
         totalScore: 10,
@@ -1923,7 +1750,7 @@ describe("LearningService", () => {
         attemptLimit: 1,
         expectedVersion: 2,
       }),
-    ).rejects.toThrow("Chỉ đề nháp");
+    ).resolves.toMatchObject({ title: "Đề được cập nhật", status: "PUBLISHED" });
   });
 
   it("giữ nguyên Markdown và LaTeX khi chuẩn hóa nội dung câu hỏi", async () => {
@@ -2040,7 +1867,6 @@ describe("LearningService", () => {
       attemptLimit: 1,
     });
     await service.submitExamForReview(exam.id);
-    await service.reviewExam(exam.id, "APPROVE");
 
     await expect(
       service.readQuestionImage(withImage.id, "LEARNER", "usr-learner"),
@@ -2076,7 +1902,7 @@ describe("LearningService", () => {
     ).toBe("PUBLISHED");
     expect(
       (await service.listNotifications("usr-instructor")).some((item) =>
-        item.title.includes("tự động phê duyệt"),
+        item.type === "QUESTION_REVIEWED",
       ),
     ).toBe(true);
   });
@@ -2151,45 +1977,7 @@ describe("LearningService", () => {
     expect(results[1]?.message).toContain("hai lựa chọn");
   });
 
-  it("tách gửi duyệt và phê duyệt đề theo phiên bản có lịch sử", async () => {
-    const service = new LearningService();
-    const exam = await service.createExam({
-      classId: "class-web-01",
-      title: "Đề cần phê duyệt",
-      questionIds: ["q-rest-01"],
-      durationMinutes: 30,
-      totalScore: 10,
-      openAt: "2026-09-01T00:00:00.000Z",
-      closeAt: "2026-12-01T00:00:00.000Z",
-      attemptLimit: 1,
-    });
-    expect((await service.submitExamForReview(exam.id)).status).toBe(
-      "PENDING_REVIEW",
-    );
-    await expect(service.reviewExam(exam.id, "RETURN", "")).rejects.toThrow(
-      "lý do",
-    );
-    expect(
-      (await service.reviewExam(exam.id, "RETURN", "Cần cân đối lại độ khó"))
-        .status,
-    ).toBe("DRAFT");
-    await service.submitExamForReview(exam.id);
-    expect((await service.reviewExam(exam.id, "APPROVE")).status).toBe(
-      "PUBLISHED",
-    );
-    const history = await service.listExamApprovals(exam.id);
-    expect(history.map((item) => item.decision)).toEqual(["APPROVE", "RETURN"]);
-    expect(history.every((item) => item.examVersion === exam.version)).toBe(
-      true,
-    );
-    expect(
-      (await service.listNotifications("usr-instructor")).filter(
-        (item) => item.type === "EXAM_REVIEWED",
-      ),
-    ).toHaveLength(2);
-  });
-
-  it("tự động phê duyệt đề khi cấu hình hệ thống ở chế độ AUTO", async () => {
+  it("công bố đề và gửi thông báo", async () => {
     const system = new SystemService();
     const service = new LearningService(
       undefined,
@@ -2212,10 +2000,9 @@ describe("LearningService", () => {
     expect((await service.submitExamForReview(exam.id)).status).toBe(
       "PUBLISHED",
     );
-    expect(await service.listExamApprovals(exam.id)).toHaveLength(0);
     expect(
       (await service.listNotifications("usr-instructor")).some((item) =>
-        item.title.includes("tự động phê duyệt"),
+        item.type === "EXAM_PUBLISHED",
       ),
     ).toBe(true);
   });
@@ -2270,7 +2057,6 @@ describe("LearningService", () => {
       service.submitExamForReview(exam.id, "instructor-outside"),
     ).rejects.toThrow(NotFoundException);
     await service.submitExamForReview(exam.id, "instructor-real");
-    await service.reviewExam(exam.id, "APPROVE", undefined, "manager-real");
     const attempt = await service.startAttempt(exam.id, "learner-real");
     await service.saveAnswer(
       attempt.id,
@@ -2399,7 +2185,6 @@ describe("LearningService", () => {
       attemptLimit: 1,
     });
     await service.submitExamForReview(exam.id);
-    await service.reviewExam(exam.id, "APPROVE");
     const attempt = await service.startAttempt(exam.id);
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"]);
     await service.saveAnswer(attempt.id, essay.id, [
@@ -2475,13 +2260,10 @@ describe("LearningService", () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it("chặn HTML nguy hiểm, từ khóa cấm và spam trên diễn đàn", async () => {
+  it("chặn HTML nguy hiểm và giới hạn tần suất đăng bài trên diễn đàn", async () => {
     const service = new LearningService();
     await expect(
       service.createPost("topic-rest", "<script>alert(1)</script>"),
-    ).rejects.toThrow(BadRequestException);
-    await expect(
-      service.createPost("topic-rest", "Đây là nội dung lừa đảo"),
     ).rejects.toThrow(BadRequestException);
     await service.createPost("topic-rest", "Phản hồi hợp lệ số một");
     await service.createPost("topic-rest", "Phản hồi hợp lệ số hai");
@@ -2490,43 +2272,6 @@ describe("LearningService", () => {
     await expect(
       service.createPost("topic-rest", "Phản hồi vượt giới hạn"),
     ).rejects.toThrow("vượt giới hạn");
-  });
-
-  it("áp dụng trực tiếp cấu hình moderation đang hiệu lực vào bài đăng", async () => {
-    const system = new SystemService();
-    await system.updateModerationPolicy({
-      prohibitedTerms: ["cần duyệt"],
-      maxPostsPerMinute: 10,
-      action: "HIDE_PENDING_REVIEW",
-    });
-    const service = new LearningService(
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      system,
-    );
-
-    const hidden = await service.createPost(
-      "topic-rest",
-      "Nội dung này cần duyệt trước khi hiển thị",
-    );
-    expect(hidden.status).toBe("HIDDEN");
-    expect(await service.listReports()).toEqual([
-      expect.objectContaining({
-        targetType: "POST",
-        targetId: hidden.id,
-        reason: "AUTO_MODERATION",
-        status: "OPEN",
-      }),
-    ]);
-
-    await system.updateSettings({ moderationEnabled: false });
-    const visible = await service.createPost(
-      "topic-rest",
-      "Nội dung cần duyệt nhưng moderation đã tắt",
-    );
-    expect(visible.status).toBe("VISIBLE");
   });
 
   it("phân tích bài đã chấm, cảnh báo mẫu nhỏ và giữ kín thống kê câu khi đề còn mở", async () => {
@@ -2679,131 +2424,6 @@ describe("LearningService", () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it("điều phối báo cáo diễn đàn đủ ngữ cảnh, audit hành động và kháng nghị", async () => {
-    const service = new LearningService();
-    const report = await service.reportContent({
-      targetType: "TOPIC",
-      targetId: "topic-rest",
-      reporterId: "usr-learner",
-      reason: "Spam",
-      details: "Chủ đề có nội dung lặp lại",
-    });
-    expect(report.status).toBe("OPEN");
-    expect(await service.listLearnerReports()).toHaveLength(1);
-    await expect(
-      service.reportContent({
-        targetType: "TOPIC",
-        targetId: "topic-rest",
-        reporterId: "usr-learner",
-        reason: "Spam",
-        details: "Gửi lại báo cáo đang mở",
-      }),
-    ).rejects.toThrow(ConflictException);
-    await expect(
-      service.reportContent({
-        targetType: "TOPIC",
-        targetId: "topic-khong-ton-tai",
-        reporterId: "usr-learner",
-        reason: "Spam",
-        details: "Không có quyền truy cập",
-      }),
-    ).rejects.toThrow(NotFoundException);
-
-    const context = await service.getReportContext(report.id);
-    expect(context.topicTitle).toContain("REST");
-    expect(context.targetBody).toContain("Chia sẻ");
-    expect(context.surroundingPosts).toHaveLength(1);
-
-    const claimed = await service.claimReport(report.id);
-    expect(claimed.status).toBe("IN_REVIEW");
-    expect(claimed.assignedToId).toBe("usr-manager");
-    expect(claimed.actions.map((item) => item.action)).toEqual(["CLAIM"]);
-
-    const resolved = await service.resolveReport(
-      report.id,
-      "HIDE_CONTENT",
-      "Nội dung vi phạm quy định chống spam.",
-    );
-    expect(resolved.status).toBe("RESOLVED");
-    expect(resolved.resolvedAt).toBeTruthy();
-    expect(resolved.actions.map((item) => item.action)).toEqual([
-      "CLAIM",
-      "HIDE_CONTENT",
-    ]);
-    expect(await service.listTopics("LEARNER")).toHaveLength(0);
-    expect((await service.listNotifications("usr-learner"))[0]?.entityId).toBe(
-      report.id,
-    );
-
-    const appealed = await service.appealReport(
-      report.id,
-      "Em đề nghị xem lại vì nội dung có ngữ cảnh học tập.",
-    );
-    expect(appealed.status).toBe("IN_REVIEW");
-    expect(appealed.appealReason).toContain("xem lại");
-    await expect(
-      service.appealReport(report.id, "Em muốn gửi kháng nghị lần thứ hai."),
-    ).rejects.toThrow(ConflictException);
-    const rejected = await service.resolveReport(
-      report.id,
-      "KEEP_CONTENT",
-      "Giữ nguyên quyết định sau khi xem lại ngữ cảnh.",
-    );
-    expect(rejected.status).toBe("REJECTED");
-    expect(await service.listTopics("LEARNER")).toHaveLength(1);
-    await expect(
-      service.resolveReport(report.id, "HIDE_CONTENT", "Xử lý lại lần nữa."),
-    ).rejects.toThrow(ConflictException);
-  });
-
-  it("chuyển cấp báo cáo nghiêm trọng mà không tự động ẩn nội dung", async () => {
-    const service = new LearningService();
-    const report = await service.reportContent({
-      targetType: "POST",
-      targetId: "post-rest-01",
-      reporterId: "usr-learner",
-      reason: "Quấy rối",
-      details: "Cần quản trị hệ thống rà soát thêm",
-    });
-    const escalated = await service.resolveReport(
-      report.id,
-      "ESCALATE_ADMIN",
-      "Có dấu hiệu vi phạm nghiêm trọng cần quản trị xử lý.",
-    );
-    expect(escalated.status).toBe("ESCALATED");
-    expect(escalated.escalationLevel).toBe(1);
-    expect((await service.listPosts("topic-rest", "LEARNER"))[0]?.status).toBe(
-      "VISIBLE",
-    );
-    expect((await service.listNotifications("usr-admin"))[0]?.entityId).toBe(
-      report.id,
-    );
-    await expect(
-      service.claimReport(report.id, "usr-manager", "CENTER_MANAGER"),
-    ).rejects.toThrow("chỉ quản trị hệ thống");
-    const claimedByAdmin = await service.claimReport(
-      report.id,
-      "usr-admin",
-      "SYSTEM_ADMIN",
-    );
-    expect(claimedByAdmin).toMatchObject({
-      status: "IN_REVIEW",
-      assignedToId: "usr-admin",
-      escalationLevel: 1,
-    });
-    const adminDecision = await service.resolveReport(
-      report.id,
-      "KEEP_CONTENT",
-      "Nội dung không vi phạm sau khi quản trị rà soát.",
-      "usr-admin",
-      "SYSTEM_ADMIN",
-    );
-    expect(adminDecision).toMatchObject({
-      status: "REJECTED",
-      assignedToId: "usr-admin",
-    });
-  });
-
   it("khóa toàn bộ thao tác ghi diễn đàn khi lớp đã lưu trữ", async () => {
     vi.useFakeTimers();
     try {
@@ -2850,18 +2470,6 @@ describe("LearningService", () => {
       await expect(service.deletePost(post.id)).rejects.toThrow(
         "chỉ cho phép đọc",
       );
-      await expect(
-        service.hidePost(post.id, "Không được kiểm duyệt sau lưu trữ"),
-      ).rejects.toThrow("chỉ cho phép đọc");
-      await expect(
-        service.reportContent({
-          targetType: "TOPIC",
-          targetId: topic.id,
-          reporterId: "usr-learner",
-          reason: "OTHER",
-          details: "Không được tạo báo cáo mới sau lưu trữ.",
-        }),
-      ).rejects.toThrow("chỉ cho phép đọc");
     } finally {
       vi.useRealTimers();
     }
@@ -2881,9 +2489,6 @@ describe("LearningService", () => {
       const joined = await service.joinSession("session-web-01");
       expect(joined.attendeeUrl).not.toContain("-host");
       vi.setSystemTime(new Date("2026-08-26T02:10:00.000Z"));
-      const attendance = await service.leaveSession("session-web-01");
-      expect(attendance.attendedMinutes).toBe(10);
-      expect(attendance.leftAt).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
@@ -3143,7 +2748,6 @@ describe("LearningService", () => {
       vi.setSystemTime(new Date("2026-08-26T02:00:00.000Z"));
       const service = new LearningService();
       await service.joinSession("session-web-01");
-      await service.leaveSession("session-web-01");
       await service.transitionSession("session-web-01", "LIVE");
       await service.transitionSession("session-web-01", "COMPLETED");
       await service.attachRecording(
@@ -3200,20 +2804,6 @@ describe("LearningService", () => {
           `${signature}x`,
         ),
       ).rejects.toThrow(BadRequestException);
-      expect(
-        (
-          await service.requestAttendanceAppeal(
-            "session-web-01",
-            "Thời lượng tham gia chưa được ghi nhận đúng",
-          )
-        ).status,
-      ).toBe("OPEN");
-      await expect(
-        service.requestAttendanceAppeal(
-          "session-web-01",
-          "Đề nghị kiểm tra lại một lần nữa",
-        ),
-      ).rejects.toThrow(ConflictException);
     } finally {
       vi.useRealTimers();
     }

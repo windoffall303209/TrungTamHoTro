@@ -62,6 +62,8 @@ async function loadAuthorizedMaterialVersion(
     });
     if (!row || isUnavailableMaterialVersion(role, row.material, row.visibility))
       throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+    if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && (row.material.visibility === "HIDDEN" || row.visibility === "HIDDEN"))
+      throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
     assertMaterialReadAccess(row.material, role, actorId);
     return {
       name: row.name,
@@ -78,6 +80,8 @@ async function loadAuthorizedMaterialVersion(
   );
   if (!material || !row || isUnavailableMaterialVersion(role, material, row.visibility))
     throw new NotFoundException("Không tìm thấy phiên bản học liệu.");
+  if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && (material.visibility === "HIDDEN" || row.visibility === "HIDDEN"))
+    throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
   assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
   return { name: row.name, mimeType: row.mimeType, objectKey: row.objectKey, checksum: row.checksum, prisma };
 }
@@ -293,7 +297,7 @@ export async function replaceMaterialVersion(
             folder: input.folder.trim(),
             tags: input.tags,
             version: nextVersion,
-            visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+            visibility: quarantineReason ? "HIDDEN" : (current.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
             quarantinedAt: quarantineReason ? new Date() : null,
             quarantineReason,
           },
@@ -376,7 +380,7 @@ export async function replaceMaterialVersion(
     folder: input.folder.trim(),
     tags: [...input.tags],
     version: nextVersion,
-    visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+    visibility: quarantineReason ? "HIDDEN" : (current.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
     quarantinedAt: quarantineReason ? now() : undefined,
     quarantineReason,
   });

@@ -2,15 +2,7 @@
 import { usePagination } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
-import type {
-  AcademicCalendarEvent,
-  Assignment,
-  AssignmentChange,
-  AssignmentSubmission,
-  ClassAnnouncement,
-  GradebookRow,
-  LearningClass,
-} from "@/lib/learning-types";
+import type { AcademicCalendarEvent, Assignment, AssignmentSubmission, ClassAnnouncement, GradebookRow, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -64,10 +56,6 @@ export function useAcademicModel() {
   const [lifecycleMinDueAt, setLifecycleMinDueAt] = useState("");
 
   const [lifecycleReason, setLifecycleReason] = useState("");
-
-  const [assignmentHistory, setAssignmentHistory] = useState<
-    AssignmentChange[] | null
-  >(null);
 
   const [creatingAnnouncement, setCreatingAnnouncement] = useState(false);
 
@@ -340,25 +328,6 @@ export function useAcademicModel() {
     }
   }
 
-  /** Tải lịch sử thay đổi để đối soát phiên bản bài tập. */
-  async function openAssignmentHistory(item: Assignment): Promise<void> {
-    try {
-      setAssignmentHistory(
-        await apiRequest<AssignmentChange[]>(
-          `/instructor/assignments/${item.id}/history`,
-          { roleCode: session.roleCode },
-        ),
-      );
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được lịch sử bài tập.",
-        "error",
-      );
-    }
-  }
-
   /** Xuất bản bài tập để học viên trong lớp có thể xem và nộp bài. */
   async function publish(item: Assignment): Promise<void> {
     try {
@@ -610,8 +579,6 @@ export function useAcademicModel() {
     lifecycleMinDueAt,
     lifecycleReason,
     setLifecycleReason,
-    assignmentHistory,
-    setAssignmentHistory,
     creatingAnnouncement,
     setCreatingAnnouncement,
     submitting,
@@ -640,7 +607,6 @@ export function useAcademicModel() {
     editAssignment,
     openLifecycle,
     applyLifecycle,
-    openAssignmentHistory,
     publish,
     submitAssignment,
     chooseSubmissionFiles,

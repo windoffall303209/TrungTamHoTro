@@ -17,7 +17,7 @@ export async function listBackups(
 ): Promise<BackupRun[]> {
   const prisma = serviceContext.database();
   if (prisma) {
-    const rows = await prisma.backupJob.findMany({
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "BACKUP" },
       orderBy: { createdAt: "desc" },
     });
     return rows.map((row) => serviceContext.mapBackup(row));
@@ -45,8 +45,8 @@ export async function runBackup(
       "Sao lưu thật yêu cầu kết nối database và kho object đang hoạt động.",
     );
   const backupId = `backup-${randomUUID()}`;
-  const row = await prisma.backupJob.create({
-    data: {
+  const row = await prisma.operationalJob.create({
+    data: { kind: "BACKUP",
       id: backupId,
       type,
       status: "PENDING",
@@ -89,8 +89,8 @@ export async function requestRestore(
     throw new ServiceUnavailableException(
       "Khôi phục thật yêu cầu kết nối database.",
     );
-  const backup = await prisma.backupJob.findUnique({
-    where: { id: input.backupId },
+  const backup = await prisma.operationalJob.findUnique({
+    where: { kind: "BACKUP", id: input.backupId },
   });
   if (
     !backup ||
@@ -99,8 +99,8 @@ export async function requestRestore(
     !backup.objectKey
   )
     throw new NotFoundException("Không tìm thấy điểm sao lưu thật hợp lệ.");
-  const row = await prisma.restoreJob.create({
-    data: {
+  const row = await prisma.operationalJob.create({
+    data: { kind: "RESTORE",
       id: `restore-${randomUUID()}`,
       backupId: input.backupId,
       mode: input.mode,
@@ -133,8 +133,8 @@ export async function approveRestore(
     !serviceContext.objectStorage
   )
     throw new ServiceUnavailableException("Dịch vụ khôi phục chưa sẵn sàng.");
-  const restore = await prisma.restoreJob.findUnique({
-    where: { id: restoreId },
+  const restore = await prisma.operationalJob.findUnique({
+    where: { kind: "RESTORE", id: restoreId },
     include: { backup: true },
   });
   if (!restore)
@@ -167,6 +167,7 @@ export async function approveRestore(
       "Người phê duyệt không còn tài khoản hoạt động hoặc thiếu quyền vận hành hệ thống.",
     );
   if (
+    restore.backup?.kind !== "BACKUP" ||
     !restore.backup.checksum ||
     !restore.backup.objectKey ||
     restore.backup.status !== "COMPLETED"
@@ -179,8 +180,9 @@ export async function approveRestore(
     throw new BadRequestException(
       "Khôi phục vận hành chỉ được chạy khi hệ thống đang ở chế độ bảo trì.",
     );
-  const claimed = await prisma.restoreJob.updateMany({
-    where: { id: restoreId, status: "PENDING" },
+  const backup = restore.backup;
+  const claimed = await prisma.operationalJob.updateMany({
+    where: { kind: "RESTORE", id: restoreId, status: "PENDING" },
     data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() },
   });
   if (claimed.count !== 1)
@@ -189,18 +191,18 @@ export async function approveRestore(
     );
   try {
     const result = await withTemporaryFile(async (path) => {
-      const expectedSize = Number(restore.backup.sizeBytes);
+      const expectedSize = Number(backup.sizeBytes);
       if (!Number.isSafeInteger(expectedSize) || expectedSize < 5)
         throw new BadRequestException(
           "Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.",
         );
       const downloaded = await serviceContext.objectStorage!.getToFile(
-        restore.backup.objectKey!,
+        backup.objectKey!,
         path,
         expectedSize,
       );
       if (
-        downloaded.checksum !== restore.backup.checksum ||
+        downloaded.checksum !== backup.checksum ||
         downloaded.size !== expectedSize
       )
         throw new BadRequestException(
@@ -217,8 +219,8 @@ export async function approveRestore(
       restore.mode === "OPERATIONAL"
         ? `Checksum hợp lệ; đã khôi phục ${result.tableCount} bảng và ${result.rowCount} dòng vào database staging ${result.database}. Cần cutover hạ tầng theo runbook riêng.`
         : `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
-    const row = await prisma.restoreJob.update({
-      where: { id: restoreId },
+    const row = await prisma.operationalJob.update({
+      where: { kind: "RESTORE", id: restoreId },
       data: { status: "COMPLETED", verification, completedAt: new Date() },
     });
     await serviceContext.logDatabase(
@@ -227,14 +229,14 @@ export async function approveRestore(
       restore.mode === "OPERATIONAL"
         ? "RESTORE_STAGING_COMPLETED"
         : "RESTORE_DRILL_COMPLETED",
-      restore.backupId,
+      restore.backup.id,
       verification,
     );
     return serviceContext.mapRestore(row);
   } catch (error) {
-    await prisma.restoreJob
+    await prisma.operationalJob
       .update({
-        where: { id: restoreId },
+        where: { id: restoreId, kind: "RESTORE" },
         data: {
           status: "FAILED",
           verification:
@@ -281,7 +283,7 @@ export async function listRestores(
 ): Promise<RestoreRun[]> {
   const prisma = serviceContext.database();
   if (prisma) {
-    const rows = await prisma.restoreJob.findMany({
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "RESTORE" },
       orderBy: { createdAt: "desc" },
     });
     return rows.map((row) => serviceContext.mapRestore(row));

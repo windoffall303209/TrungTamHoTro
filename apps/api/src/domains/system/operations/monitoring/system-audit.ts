@@ -109,23 +109,6 @@ export async function recoverAlert(
     });
 }
 
-/** Đếm số bản ghi thuộc danh mục để ghi metadata export. */
-export async function countExportRows(
-  prisma: PrismaService,
-  category: string,
-): Promise<number> {
-  if (category === "AUDIT") return prisma.auditLog.count();
-  if (category === "LEARNING") {
-    const [courses, classes, attempts] = await prisma.$transaction([
-      prisma.course.count(),
-      prisma.learningClass.count(),
-      prisma.examAttempt.count(),
-    ]);
-    return courses + classes + attempts;
-  }
-  return prisma.user.count();
-}
-
 /** Ghi audit vào DB và che dữ liệu nhạy cảm trước khi lưu. */
 export async function logDatabase(
   database: PrismaService | Prisma.TransactionClient,
@@ -165,17 +148,6 @@ export function stringArray(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
     : [...fallback];
-}
-
-/** Trích danh sách placeholder {{name}} duy nhất từ subject/body mẫu. */
-export function extractTemplateVariables(value: string): string[] {
-  return [
-    ...new Set(
-      [...value.matchAll(/{{([a-zA-Z0-9_]+)}}/g)]
-        .map((match) => match[1] ?? "")
-        .filter(Boolean),
-    ),
-  ];
 }
 
 /** Che giá trị password/token/secret/credential trong chuỗi audit. */

@@ -1,9 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import type {
-  LearnerProgress,
-  OperationalReport,
-  RiskThresholds,
-} from "../../core/learning.types.js";
+import type { LearnerProgress, RiskThresholds } from "../../core/learning.types.js";
 
 /** Parse khoảng báo cáo, áp dụng mặc định và từ chối ngày đảo ngược/không hợp lệ. */
 export function reportingPeriod(
@@ -69,10 +65,6 @@ export function buildLearnerProgress(
   },
 ): LearnerProgress {
   const reasons: string[] = [];
-  if (input.attendanceRate < input.thresholds.attendanceBelow)
-    reasons.push(
-      `Điểm danh ${input.attendanceRate}% thấp hơn ngưỡng ${input.thresholds.attendanceBelow}%.`,
-    );
   if (input.averageScore < input.thresholds.scoreBelow)
     reasons.push(
       `Điểm trung bình ${input.averageScore}% thấp hơn ngưỡng ${input.thresholds.scoreBelow}%.`,
@@ -92,37 +84,10 @@ export function buildLearnerProgress(
     learnerId: input.learnerId,
     materialCompletionRate: input.materialCompletionRate,
     assessmentCompletionRate: input.assessmentCompletionRate,
-    attendanceRate: input.attendanceRate,
     averageScore: input.averageScore,
     lastActivityAt: input.lastActivityAt,
     interventions: input.interventions,
     riskLevel,
     riskReasons: reasons,
   };
-}
-
-/** Chuyển snapshot vận hành sang CSV tiếng Việt có escape trường dữ liệu. */
-export function operationalReportCsv(report: OperationalReport): string {
-  const rows: Array<[string, string | number]> = [
-    ["Phiên bản định nghĩa", report.definitionVersion],
-    ["Múi giờ", report.timezone],
-    ["Thời điểm tạo", report.generatedAt],
-    ["Khóa học", report.courses],
-    ["Lớp học", report.classes],
-    ["Lớp đang hoạt động", report.activeClasses],
-    ["Học viên", report.learners],
-    ["Học liệu", report.materials],
-    ["Học liệu đã phát hành", report.publishedMaterials],
-    ["Câu hỏi", report.questions],
-    ["Đề thi", report.exams],
-    ["Buổi trực tuyến", report.liveSessions],
-    ["Báo cáo diễn đàn mở", report.openReports],
-    ["Phiếu hỗ trợ mở", report.openTickets],
-  ];
-  /** Bao ô CSV bằng dấu ngoặc kép và thoát dấu ngoặc kép trong nội dung. */
-  const escape = (value: string | number): string =>
-    `"${String(value).replaceAll('"', '""')}"`;
-  return [["Chỉ số", "Giá trị"], ...rows]
-    .map((row) => row.map(escape).join(","))
-    .join("\r\n");
 }

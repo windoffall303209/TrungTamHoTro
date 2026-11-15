@@ -125,12 +125,6 @@ export function useExamsModel() {
 
   const [saving, setSaving] = useState(false);
 
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
-
-  const [returnTarget, setReturnTarget] = useState<LearnerExam | null>(null);
-
-  const [returnNote, setReturnNote] = useState("");
-
   const [previewExam, setPreviewExam] = useState<LearnerExam | null>(null);
 
   const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
@@ -764,39 +758,6 @@ export function useExamsModel() {
     setPreviewLoading(false);
   };
 
-  /** Gửi quyết định duyệt hoặc trả lại đề cùng ghi chú của người kiểm duyệt. */
-  const review = async (
-    item: LearnerExam,
-    decision: "APPROVE" | "RETURN",
-    reviewNote?: string,
-  ) => {
-    setReviewingId(item.id);
-    try {
-      await apiRequest(`/manager/exams/${item.id}/approve`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ decision, reviewNote }),
-      });
-      notify(
-        decision === "APPROVE"
-          ? "Đã phê duyệt và phát hành đề."
-          : "Đã trả đề về bản nháp cho giảng viên.",
-      );
-      setReturnTarget(null);
-      setReturnNote("");
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không cập nhật được trạng thái phê duyệt.",
-        "error",
-      );
-    } finally {
-      setReviewingId(null);
-    }
-  };
-
   /** Bắt đầu lượt thi, nhận snapshot câu hỏi đã xáo trộn và khởi tạo đồng hồ đếm ngược. */
   const start = async (item: LearnerExam) => {
     try {
@@ -1034,11 +995,6 @@ export function useExamsModel() {
     createMode,
     setCreateMode,
     saving,
-    reviewingId,
-    returnTarget,
-    setReturnTarget,
-    returnNote,
-    setReturnNote,
     previewExam,
     setPreviewExam,
     closePreview,
@@ -1072,7 +1028,6 @@ export function useExamsModel() {
     publish,
     savePreviewQuestion,
     preview,
-    review,
     start,
     answer,
     saveTextAnswer,

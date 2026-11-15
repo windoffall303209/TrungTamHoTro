@@ -37,7 +37,7 @@ describe("class lecture links", () => {
       classId: "class-web-01",
       mimeType: "text/uri-list",
       sizeBytes: Buffer.byteLength(url, "utf8"),
-      visibility: "DRAFT",
+      visibility: "PUBLISHED",
       scope: "CLASS",
     });
     expect(created.tags).toContain(`lecture-url:${url}`);

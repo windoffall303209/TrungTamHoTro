@@ -25,8 +25,9 @@ export async function drainOperationalJobs(
   if (!prisma) return { backup: 0, export: 0, retention: 0 };
   const now = new Date();
   await Promise.all([
-    prisma.backupJob.updateMany({
+    prisma.operationalJob.updateMany({
       where: {
+        kind: { in: ["BACKUP", "EXPORT"] },
         status: { in: ["RUNNING", "PENDING"] },
         attempts: { gte: 5 },
         availableAt: { lte: now },
@@ -35,18 +36,6 @@ export async function drainOperationalJobs(
         status: "FAILED",
         progress: 0,
         completedAt: now,
-        errorMessage: "Tác vụ hết hạn ở lần thử cuối.",
-      },
-    }),
-    prisma.dataExportJob.updateMany({
-      where: {
-        status: { in: ["RUNNING", "PENDING"] },
-        attempts: { gte: 5 },
-        availableAt: { lte: now },
-      },
-      data: {
-        status: "FAILED",
-        progress: 0,
         errorMessage: "Tác vụ hết hạn ở lần thử cuối.",
       },
     }),
@@ -60,16 +49,9 @@ export async function drainOperationalJobs(
     }),
   ]);
   await Promise.all([
-    prisma.backupJob.updateMany({
+    prisma.operationalJob.updateMany({
       where: {
-        status: "RUNNING",
-        attempts: { lt: 5 },
-        availableAt: { lte: now },
-      },
-      data: { status: "PENDING", progress: 0, availableAt: now },
-    }),
-    prisma.dataExportJob.updateMany({
-      where: {
+        kind: { in: ["BACKUP", "EXPORT"] },
         status: "RUNNING",
         attempts: { lt: 5 },
         availableAt: { lte: now },
@@ -109,8 +91,8 @@ export async function processQueuedBackup(
   serviceContext: SystemServiceContext,
   prisma: PrismaService,
 ): Promise<boolean> {
-  const candidate = await prisma.backupJob.findFirst({
-    where: {
+  const candidate = await prisma.operationalJob.findFirst({
+    where: { kind: "BACKUP",
       status: "PENDING",
       availableAt: { lte: new Date() },
       attempts: { lt: 5 },
@@ -118,8 +100,8 @@ export async function processQueuedBackup(
     orderBy: { createdAt: "asc" },
   });
   if (!candidate) return false;
-  const claimed = await prisma.backupJob.updateMany({
-    where: {
+  const claimed = await prisma.operationalJob.updateMany({
+    where: { kind: "BACKUP",
       id: candidate.id,
       status: "PENDING",
       attempts: candidate.attempts,
@@ -134,8 +116,8 @@ export async function processQueuedBackup(
   });
   if (claimed.count !== 1) return true;
   const lease = startOperationalLease(() =>
-    prisma.backupJob.updateMany({
-      where: ownedJobWhere(candidate),
+    prisma.operationalJob.updateMany({
+      where: { kind: "BACKUP", ...ownedJobWhere(candidate) },
       data: { availableAt: serviceContext.jobLeaseExpiry() },
     }),
   );
@@ -146,8 +128,8 @@ export async function processQueuedBackup(
       const content =
         await serviceContext.databaseBackup!.createFullBackup(path);
       await lease.assertOwned();
-      await prisma.backupJob.updateMany({
-        where: ownedJobWhere(candidate),
+      await prisma.operationalJob.updateMany({
+        where: { kind: "BACKUP", ...ownedJobWhere(candidate) },
         data: { progress: 60 },
       });
       const objectKey = `backups/${new Date().toISOString().slice(0, 10)}/${candidate.id}-${candidate.attempts + 1}.dump`;
@@ -155,8 +137,8 @@ export async function processQueuedBackup(
         objectKey,
         path,
       );
-      const completed = await prisma.backupJob.updateMany({
-        where: ownedJobWhere(candidate),
+      const completed = await prisma.operationalJob.updateMany({
+        where: { kind: "BACKUP", ...ownedJobWhere(candidate) },
         data: {
           status: "COMPLETED",
           progress: 100,
@@ -193,8 +175,8 @@ export async function processQueuedExport(
   serviceContext: SystemServiceContext,
   prisma: PrismaService,
 ): Promise<boolean> {
-  const candidate = await prisma.dataExportJob.findFirst({
-    where: {
+  const candidate = await prisma.operationalJob.findFirst({
+    where: { kind: "EXPORT",
       status: "PENDING",
       availableAt: { lte: new Date() },
       attempts: { lt: 5 },
@@ -202,8 +184,8 @@ export async function processQueuedExport(
     orderBy: { createdAt: "asc" },
   });
   if (!candidate) return false;
-  const claimed = await prisma.dataExportJob.updateMany({
-    where: {
+  const claimed = await prisma.operationalJob.updateMany({
+    where: { kind: "EXPORT",
       id: candidate.id,
       status: "PENDING",
       attempts: candidate.attempts,
@@ -218,8 +200,8 @@ export async function processQueuedExport(
   });
   if (claimed.count !== 1) return true;
   const lease = startOperationalLease(() =>
-    prisma.dataExportJob.updateMany({
-      where: ownedJobWhere(candidate),
+    prisma.operationalJob.updateMany({
+      where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
       data: { availableAt: serviceContext.jobLeaseExpiry() },
     }),
   );
@@ -230,15 +212,15 @@ export async function processQueuedExport(
       candidate.format === "JSON" ? "JSON" : "CSV";
     const rows = await serviceContext.collectExportRows(
       prisma,
-      candidate.category,
+      candidate.category!,
     );
     const content = serviceContext.serializeExport(rows, format);
     await lease.assertOwned();
-    await prisma.dataExportJob.updateMany({
-      where: ownedJobWhere(candidate),
+    await prisma.operationalJob.updateMany({
+      where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
       data: { progress: 55 },
     });
-    const objectKey = `exports/${candidate.category.toLowerCase()}/${candidate.id}-${candidate.attempts + 1}.${format.toLowerCase()}`;
+    const objectKey = `exports/${candidate.category!.toLowerCase()}/${candidate.id}-${candidate.attempts + 1}.${format.toLowerCase()}`;
     const stored = await serviceContext.objectStorage.put(objectKey, content);
     const hash = createHash("sha256");
     for await (const chunk of await serviceContext.objectStorage.openReadStream(stored.objectKey)) {
@@ -249,8 +231,8 @@ export async function processQueuedExport(
       throw new ServiceUnavailableException(
         "Tệp export lưu trữ không vượt qua kiểm tra checksum.",
       );
-    const completed = await prisma.dataExportJob.updateMany({
-      where: ownedJobWhere(candidate),
+    const completed = await prisma.operationalJob.updateMany({
+      where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
       data: {
         status: "COMPLETED",
         progress: 100,
@@ -421,8 +403,8 @@ export async function retryBackupJob(
     error,
     "Không thể tạo hoặc lưu bản sao lưu.",
   );
-  const updated = await prisma.backupJob.updateMany({
-    where: {
+  const updated = await prisma.operationalJob.updateMany({
+    where: { kind: "BACKUP",
       id: idValue,
       status: "RUNNING",
       attempts,
@@ -437,8 +419,8 @@ export async function retryBackupJob(
     },
   });
   if (updated.count !== 1) return;
-  const row = await prisma.backupJob.findUniqueOrThrow({
-    where: { id: idValue },
+  const row = await prisma.operationalJob.findUniqueOrThrow({
+    where: { kind: "BACKUP", id: idValue },
   });
   await serviceContext.logDatabase(
     prisma,
@@ -469,8 +451,8 @@ export async function retryExportJob(
     error,
     "Không thể tạo hoặc kiểm chứng tệp export.",
   );
-  const updated = await prisma.dataExportJob.updateMany({
-    where: {
+  const updated = await prisma.operationalJob.updateMany({
+    where: { kind: "EXPORT",
       id: idValue,
       status: "RUNNING",
       attempts,
@@ -484,8 +466,8 @@ export async function retryExportJob(
     },
   });
   if (updated.count !== 1) return;
-  const row = await prisma.dataExportJob.findUniqueOrThrow({
-    where: { id: idValue },
+  const row = await prisma.operationalJob.findUniqueOrThrow({
+    where: { kind: "EXPORT", id: idValue },
   });
   await serviceContext.logDatabase(
     prisma,

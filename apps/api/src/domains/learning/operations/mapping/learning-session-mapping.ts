@@ -1,12 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { SupportTicketWithAttachments } from "../../core/learning.shared.js";
-import type {
-  AttendanceAppeal,
-  AttendanceRecord,
-  LiveSession,
-  SupportTicket,
-} from "../../core/learning.types.js";
+import type { LiveSession, SupportTicket } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
 /** Ánh xạ buổi học trực tuyến và metadata provider/recording sang API. */
@@ -47,45 +42,6 @@ export function mapSession(
     timezone: row.timezone,
     changeReason: row.changeReason ?? undefined,
     cancellationReason: row.cancellationReason ?? undefined,
-    attendanceLockedAt: row.attendanceLockedAt?.toISOString(),
-    attendanceLockedById: row.attendanceLockedById ?? undefined,
-  };
-}
-
-/** Ánh xạ bản ghi điểm danh và các mốc tham dự/điều chỉnh. */
-export function mapAttendance(
-  row: Prisma.AttendanceRecordGetPayload<Record<string, never>>,
-): AttendanceRecord {
-  return {
-    sessionId: row.sessionId,
-    learnerId: row.learnerId,
-    joinedAt: row.joinedAt?.toISOString(),
-    leftAt: row.leftAt?.toISOString(),
-    attendedMinutes: row.attendedMinutes,
-    status: row.status,
-    adjustmentReason: row.adjustmentReason ?? undefined,
-    providerParticipantId: row.providerParticipantId ?? undefined,
-    providerSnapshot:
-      row.providerSnapshot &&
-      typeof row.providerSnapshot === "object" &&
-      !Array.isArray(row.providerSnapshot)
-        ? ({ ...row.providerSnapshot } as Record<string, unknown>)
-        : undefined,
-  };
-}
-
-/** Ánh xạ khiếu nại điểm danh sang dữ liệu hiển thị. */
-export function mapAttendanceAppeal(
-  row: Prisma.AttendanceAppealGetPayload<Record<string, never>>,
-): AttendanceAppeal {
-  return {
-    id: row.id,
-    sessionId: row.sessionId,
-    learnerId: row.learnerId,
-    reason: row.reason,
-    status: row.status,
-    resolution: row.resolution ?? undefined,
-    createdAt: row.createdAt.toISOString(),
   };
 }
 

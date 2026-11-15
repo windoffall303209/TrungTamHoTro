@@ -103,7 +103,7 @@ describe("Xác minh export theo stream", () => {
     const openReadStream = vi.fn((): Promise<Readable> => Promise.resolve(readBack()));
     const updateMany = vi.fn<(input: { data: { status?: string } }) => Promise<{ count: number }>>().mockResolvedValue({ count: 1 });
     const prisma = {
-      dataExportJob: {
+      operationalJob: {
         findFirst: vi.fn().mockResolvedValue({ id: "job-1", attempts: 0, category: "AUDIT", format: "CSV", requestedBy: "admin" }),
         updateMany,
       },

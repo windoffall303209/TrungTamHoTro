@@ -111,8 +111,6 @@ export async function getClassClosureReadiness(
       pendingAssignmentGrades,
       openRegrades,
       activeSessions,
-      unlockedAttendanceSessions,
-      openAppeals,
     ] = await prisma.$transaction([
       prisma.exam.count({
         where: {
@@ -144,15 +142,6 @@ export async function getClassClosureReadiness(
       prisma.liveSession.count({
         where: { classId, status: { in: ["SCHEDULED", "LIVE"] } },
       }),
-      prisma.liveSession.count({
-        where: { classId, status: "COMPLETED", attendanceLockedAt: null },
-      }),
-      prisma.attendanceAppeal.count({
-        where: {
-          session: { classId },
-          status: { in: ["OPEN", "IN_REVIEW"] },
-        },
-      }),
     ]);
     return serviceContext.buildClassClosureReadiness(
       current.status,
@@ -165,8 +154,6 @@ export async function getClassClosureReadiness(
         pendingAssignmentGrades,
         openRegrades,
         activeSessions,
-        unlockedAttendanceSessions,
-        openAppeals,
       },
     );
   }
@@ -211,15 +198,6 @@ export async function getClassClosureReadiness(
         (session) =>
           session.status === "SCHEDULED" || session.status === "LIVE",
       ).length,
-      unlockedAttendanceSessions: classSessions.filter(
-        (session) =>
-          session.status === "COMPLETED" && !session.attendanceLockedAt,
-      ).length,
-      openAppeals: serviceContext.attendanceAppeals.filter(
-        (appeal) =>
-          classSessions.some((session) => session.id === appeal.sessionId) &&
-          ["OPEN", "IN_REVIEW"].includes(appeal.status),
-      ).length,
     },
   );
 }
@@ -242,8 +220,6 @@ export async function databaseClassClosureReadiness(
     pendingAssignmentGrades,
     openRegrades,
     activeSessions,
-    unlockedAttendanceSessions,
-    openAppeals,
   ] = await Promise.all([
     database.exam.count({
       where: {
@@ -275,12 +251,6 @@ export async function databaseClassClosureReadiness(
     database.liveSession.count({
       where: { classId, status: { in: ["SCHEDULED", "LIVE"] } },
     }),
-    database.liveSession.count({
-      where: { classId, status: "COMPLETED", attendanceLockedAt: null },
-    }),
-    database.attendanceAppeal.count({
-      where: { session: { classId }, status: { in: ["OPEN", "IN_REVIEW"] } },
-    }),
   ]);
   return serviceContext.buildClassClosureReadiness(
     current.status,
@@ -293,8 +263,6 @@ export async function databaseClassClosureReadiness(
       pendingAssignmentGrades,
       openRegrades,
       activeSessions,
-      unlockedAttendanceSessions,
-      openAppeals,
     },
   );
 }
@@ -351,8 +319,6 @@ export async function closeClass(
               openExams: readiness.openExams,
               pendingGrades: readiness.pendingGrades,
               activeSessions: readiness.activeSessions,
-              unlockedAttendanceSessions: readiness.unlockedAttendanceSessions,
-              openAppeals: readiness.openAppeals,
             },
           },
         });

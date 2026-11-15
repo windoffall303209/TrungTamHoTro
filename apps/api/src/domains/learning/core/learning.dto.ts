@@ -197,6 +197,7 @@ export class CreateMaterialDto {
   @IsArray() @IsString({ each: true }) tags!: string[];
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
   @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
 }
 
 /** Metadata đi kèm file upload học liệu; nội dung binary do interceptor cung cấp. */
@@ -204,6 +205,7 @@ export class UploadMaterialDto {
   @IsString() folder!: string;
   @IsOptional() @IsString() tags = "";
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
 }
 
 export class UpdateMaterialDto {
@@ -212,18 +214,13 @@ export class UpdateMaterialDto {
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
-  // Giảng viên chỉ ẩn hoặc gửi duyệt (DRAFT); phát hành là quyết định của quản lý.
-  @IsOptional() @IsIn(["DRAFT", "HIDDEN"]) visibility?: "DRAFT" | "HIDDEN";
+  // Cài đặt hiển thị hoặc ẩn học liệu.
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN", "DRAFT"]) visibility?: "PUBLISHED" | "HIDDEN" | "DRAFT";
 }
 
 /** Danh sách giảng viên được người tải lên cấp quyền sửa học liệu. */
 export class ReplaceMaterialEditorsDto {
   @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) userIds!: string[];
-}
-
-export class ReviewMaterialDto {
-  @IsIn(["APPROVE", "REVOKE"]) action!: "APPROVE" | "REVOKE";
-  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 /** Nội dung câu hỏi đa môn, hỗ trợ rich text/LaTeX, đáp án, độ khó và ảnh tùy chọn. */

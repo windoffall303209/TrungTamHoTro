@@ -10,17 +10,7 @@ import {
   StatusBadge,
 } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
-import {
-  CheckCircle2,
-  ChevronRight,
-  ClipboardCheck,
-  Link2,
-  MessageCircle,
-  RotateCcw,
-  Save,
-  Scale,
-  UserCheck,
-} from "lucide-react";
+import { CheckCircle2, ChevronRight, ClipboardCheck, Link2, MessageCircle, RotateCcw, Scale } from "lucide-react";
 import Link from "next/link";
 
 import { K12_GRADES, K12_SUBJECTS } from "@/lib/learning-types";
@@ -52,16 +42,11 @@ export default function TeachingScreen() {
     queueByClass,
     attemptPagination,
     sessions,
-    learners,
     reviewLoading,
-    attendance,
-    setAttendance,
     recording,
     setRecording,
-    selectAttendanceSession,
     openGrade,
     openRegrade,
-    saveAttendance,
     attachRecording,
     markRecordingReady,
   } = model;
@@ -450,107 +435,7 @@ export default function TeachingScreen() {
           </div>
         </section>
         <div className="space-y-6">
-          <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
-            <div className="flex items-center gap-3">
-              <UserCheck className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">
-                Điều chỉnh điểm danh
-              </h2>
-            </div>
-            <form
-              className="mt-5 space-y-4"
-              onSubmit={(e) => void saveAttendance(e)}
-            >
-              <Field label="Buổi học">
-                <SearchableSelect
-                  aria-label="Tìm và chọn buổi học"
-                  onChange={(value) => void selectAttendanceSession(value)}
-                  options={sessions.map((item) => ({
-                    value: item.id,
-                    label: item.title,
-                    description: new Date(item.startsAt).toLocaleString(
-                      activeLocale(),
-                    ),
-                  }))}
-                  placeholder="Gõ tên buổi học để lọc…"
-                  value={attendance.sessionId}
-                />
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Học viên">
-                  <SearchableSelect
-                    aria-label="Tìm và chọn học viên"
-                    disabled={!attendance.sessionId}
-                    emptyMessage="Lớp chưa có học viên đang ghi danh."
-                    onChange={(value) =>
-                      setAttendance({ ...attendance, learnerId: value })
-                    }
-                    options={learners.map((item) => ({
-                      value: item.id,
-                      label: item.displayName,
-                      description: item.email ?? undefined,
-                      keywords: item.id,
-                    }))}
-                    placeholder={
-                      attendance.sessionId
-                        ? "Gõ tên hoặc email học viên…"
-                        : "Chọn buổi học trước"
-                    }
-                    value={attendance.learnerId}
-                  />
-                </Field>
-                <Field label="Trạng thái">
-                  <select
-                    className={inputClass}
-                    value={attendance.status}
-                    onChange={(e) =>
-                      setAttendance({ ...attendance, status: e.target.value })
-                    }
-                  >
-                    <option value="PRESENT">Có mặt</option>
-                    <option value="LATE">Đi muộn</option>
-                    <option value="ABSENT">Vắng</option>
-                    <option value="EXCUSED">Có phép</option>
-                  </select>
-                </Field>
-              </div>
-              <Field label="Số phút tham dự">
-                <input
-                  className={inputClass}
-                  min={0}
-                  type="number"
-                  value={attendance.attendedMinutes}
-                  onChange={(e) =>
-                    setAttendance({
-                      ...attendance,
-                      attendedMinutes: Number(e.target.value),
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Lý do điều chỉnh">
-                <input
-                  className={inputClass}
-                  minLength={3}
-                  required
-                  value={attendance.adjustmentReason}
-                  onChange={(e) =>
-                    setAttendance({
-                      ...attendance,
-                      adjustmentReason: e.target.value,
-                    })
-                  }
-                />
-              </Field>
-              <Button
-                disabled={!attendance.sessionId || !attendance.learnerId}
-                type="submit"
-              >
-                <Save size={16} />
-                Lưu điểm danh
-              </Button>
-            </form>
-          </section>
+
           <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
             <div className="flex items-center gap-3">
               <Link2 className="text-sky-700" />

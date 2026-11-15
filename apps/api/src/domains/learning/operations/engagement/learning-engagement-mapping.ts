@@ -1,17 +1,6 @@
-import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "../../../../generated/prisma/client.js";
-import {
-  ContentReportWithActions,
-  ForumPostWithRelations,
-} from "../../core/learning.shared.js";
-import type {
-  ContentReport,
-  ForumPost,
-  ForumTopic,
-  ModerationActionRecord,
-  ProgressIntervention,
-  ReportExport,
-} from "../../core/learning.types.js";
+import { ForumPostWithRelations } from "../../core/learning.shared.js";
+import type { ForumPost, ForumTopic, ProgressIntervention } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
 /** Ánh xạ chủ đề diễn đàn và trạng thái điều phối. */
@@ -58,46 +47,6 @@ export function mapPost(
     editedAt: row.editedAt?.toISOString(),
     deletedAt: row.deletedAt?.toISOString(),
     editCount: Array.isArray(row.editHistory) ? row.editHistory.length : 0,
-  };
-}
-
-/** Ánh xạ báo cáo nội dung và lịch sử moderation action tùy relation. */
-export function mapReport(
-  row:
-    | Prisma.ContentReportGetPayload<Record<string, never>>
-    | ContentReportWithActions,
-): ContentReport {
-  if (row.targetType !== "TOPIC" && row.targetType !== "POST")
-    throw new BadRequestException("Loại nội dung báo cáo không hợp lệ.");
-  return {
-    id: row.id,
-    targetType: row.targetType,
-    targetId: row.targetId,
-    reporterId: row.reporterId,
-    reason: row.reason,
-    details: row.details,
-    status: row.status,
-    resolution: row.resolution ?? undefined,
-    assignedToId: row.assignedToId ?? undefined,
-    escalationLevel: row.escalationLevel,
-    resolvedAt: row.resolvedAt?.toISOString(),
-    appealReason: row.appealReason ?? undefined,
-    appealedAt: row.appealedAt?.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    actions:
-      "actions" in row
-        ? row.actions.map((action) => ({
-            id: action.id,
-            reportId: action.reportId,
-            actorId: action.actorId,
-            action: action.action as ModerationActionRecord["action"],
-            reason: action.reason,
-            previousStatus: action.previousStatus,
-            nextStatus: action.nextStatus,
-            createdAt: action.createdAt.toISOString(),
-          }))
-        : [],
   };
 }
 
@@ -149,26 +98,4 @@ export function progressInterventionHistory(
         ]
       : [];
   });
-}
-
-/** Ánh xạ trạng thái bản xuất báo cáo mà không lộ object key lưu trữ. */
-export function mapReportExport(
-  row: Prisma.ReportExportGetPayload<Record<string, never>>,
-): ReportExport {
-  const sizeBytes = row.sizeBytes === null ? undefined : Number(row.sizeBytes);
-  if (sizeBytes !== undefined && !Number.isSafeInteger(sizeBytes))
-    throw new BadRequestException(
-      "Kích thước tệp báo cáo vượt giới hạn an toàn.",
-    );
-  return {
-    id: row.id,
-    reportRunId: row.reportRunId,
-    format: row.format as "CSV",
-    status: row.status,
-    fileName: row.fileName,
-    sizeBytes,
-    errorMessage: row.errorMessage ?? undefined,
-    expiresAt: row.expiresAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-  };
 }

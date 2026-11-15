@@ -136,7 +136,7 @@ describe("AcademicService", () => {
       instructor,
     );
     assignmentId = assignment.id;
-    expect(assignment.status).toBe("DRAFT");
+    expect(assignment.status).toBe("PUBLISHED");
     expect(
       (await service.publishAssignment(assignment.id, instructor)).status,
     ).toBe("PUBLISHED");
@@ -375,11 +375,6 @@ describe("AcademicService", () => {
       instructor,
     );
     expect(closed.status).toBe("CLOSED");
-    expect(
-      (await service.assignmentHistory(closed.id, instructor)).map(
-        (item) => item.action,
-      ),
-    ).toEqual(["CLOSED", "DUE_DATE_EXTENDED", "PUBLISHED", "DRAFT_UPDATED"]);
   });
 
   it("yêu cầu lý do khi sửa điểm đã công bố và lưu lịch sử chấm", async () => {

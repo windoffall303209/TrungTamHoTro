@@ -1,15 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import { Prisma } from "../../../../generated/prisma/client.js";
-import type {
-  ContentReport,
-  ExamAttempt,
-  ForumPost,
-  ForumTopic,
-  LearningClass,
-  LearningCourse,
-  LearningExam,
-  LiveSession,
-} from "../../core/learning.types.js";
+import type { ExamAttempt, ForumPost, ForumTopic, LearningClass, LearningCourse, LearningExam, LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
 /** Thu hẹp JSON thành mảng chuỗi, loại mọi phần tử không đúng kiểu. */
@@ -86,18 +77,6 @@ export function findPost(
     (candidate) => candidate.id === postId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy bài viết.");
-  return item;
-}
-
-/** Tìm báo cáo trong fallback và chuẩn hóa lỗi 404. */
-export function findReport(
-  serviceContext: LearningServiceContext,
-  reportId: string,
-): ContentReport {
-  const item = serviceContext.reports.find(
-    (candidate) => candidate.id === reportId,
-  );
-  if (!item) throw new NotFoundException("Không tìm thấy báo cáo.");
   return item;
 }
 

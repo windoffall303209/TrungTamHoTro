@@ -25,9 +25,9 @@ function deferred<T>() {
 }
 
 // Tạo dữ liệu điểm danh có số phút nhận diện riêng cho từng lần tải.
-function makeSummary(minutes: number) {
+function makeSummary(recordingAvailable: boolean) {
   return {
-    session, recordingAvailable: false, attendance: { attendedMinutes: minutes, status: "PRESENT" },
+    session, recordingAvailable,
   };
 }
 
@@ -50,14 +50,14 @@ describe("LearningHistoryPage request lifecycle", () => {
     });
 
     render(<LearningHistoryPage />);
-    const button = await screen.findByRole("button", { name: "Xem điểm danh" });
+    const button = await screen.findByRole("button", { name: "Xem bản ghi buổi học" });
     fireEvent.click(button);
     fireEvent.click(button);
-    await act(async () => second.resolve(makeSummary(80)));
-    expect(screen.getByText("80'")).toBeInTheDocument();
-    await act(async () => first.resolve(makeSummary(20)));
-    expect(screen.getByText("80'")).toBeInTheDocument();
-    expect(screen.queryByText("20'")).not.toBeInTheDocument();
+    await act(async () => second.resolve(makeSummary(true)));
+    expect(screen.getByRole("button", { name: "Xem bản ghi" })).toBeInTheDocument();
+    await act(async () => first.resolve(makeSummary(false)));
+    expect(screen.getByRole("button", { name: "Xem bản ghi" })).toBeInTheDocument();
+    expect(screen.queryByText("Bản ghi chưa sẵn sàng.")).not.toBeInTheDocument();
     expect(notifyMock).not.toHaveBeenCalled();
   });
 

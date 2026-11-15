@@ -1,6 +1,9 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
+import { ContentController } from "../../src/domains/learning/content/content.controller.js";
+import { SystemService } from "../../src/domains/system/core/system.service.js";
 import { AppModule } from "../../src/app.module.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import { LearningService } from "../../src/domains/learning/core/learning.service.js";
@@ -23,13 +26,15 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     learning = moduleRef.get(LearningService);
     await prisma.user.create({ data: { id: fixture, username: fixture, email: `${fixture}@example.test`, displayName: "AI persistence fixture" } });
     await prisma.course.create({ data: { id: fixture, code: fixture, name: "AI fixture", description: "Isolated test", outcomes: [], ownerId: fixture } });
-    await prisma.learningClass.create({ data: { id: fixture, courseId: fixture, courseVersion: 1, code: fixture, name: "AI fixture", term: "test", startAt: new Date("2026-01-01"), endAt: new Date("2027-01-01"), capacity: 1, status: "ACTIVE", instructors: { create: { instructorId: fixture, assignedBy: fixture } } } });
+    await prisma.learningClass.create({ data: { id: fixture, courseId: fixture, courseVersion: 1, code: fixture, name: "AI fixture", term: "test", startAt: new Date("2026-01-01"), endAt: new Date(Math.max(Date.parse("2027-01-01"), Date.now() + 86_400_000)), capacity: 1, status: "ACTIVE", instructors: { create: { instructorId: fixture, assignedBy: fixture } } } });
   });
 
   // Chỉ xóa bản ghi thuộc bộ dữ liệu duy nhất này, theo thứ tự khóa ngoại.
   afterAll(async () => {
     if (prisma) {
       await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
+      const notices = await prisma.notification.findMany({ where: { recipientId: fixture }, select: { id: true } });
+      await prisma.outboxEvent.deleteMany({ where: { id: { in: notices.map(({ id }) => "notification:" + id) } } });
       await prisma.auditLog.deleteMany({ where: { actorId: fixture } });
       await prisma.exam.deleteMany({ where: { classId: fixture } });
       await prisma.question.deleteMany({ where: { courseId: fixture } });
@@ -108,6 +113,41 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     expect(await prisma.exam.count({ where: { generationRequestId: requestId } })).toBe(1);
     expect(await prisma.question.count({ where: { courseId: fixture } })).toBe(before);
     expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: exam.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
+  });
+
+  it.each(["AUTO", "MANUAL"] as const)("records each approval and notification once in %s mode", async (mode) => {
+    const system = moduleRef.get(SystemService);
+    const controller = moduleRef.get(ContentController);
+    const settings = await system.getSettings();
+    const configured = vi.spyOn(system, "getSettings").mockResolvedValue({ ...settings, questionApprovalMode: mode });
+    const actor: AuthenticatedSession = {
+      sessionId: fixture, roleCode: "INSTRUCTOR", availableRoles: [], permissions: [],
+      user: { id: fixture, username: fixture, email: fixture + "@example.test", name: fixture, roleName: "Giảng viên" },
+    };
+    try {
+      const input = { classId: fixture, title: "Review " + mode, durationMinutes: 10, totalScore: 10, attemptLimit: 1,
+        openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3_600_000).toISOString() };
+      const question = { type: "SHORT_ANSWER" as const, content: "Review question " + mode, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
+      const exam = await learning.createGeneratedExam(input, [question], fixture, { mode: "WEB_SEARCH", materialIds: [], sources: [] }, randomUUID(), fixture);
+      const questionId = exam.questionIds[0]!;
+      const manager = { ...actor, roleCode: "CENTER_MANAGER" as const };
+      const admin = { ...actor, roleCode: "SYSTEM_ADMIN" as const };
+      await Promise.all([learning.publishQuestion(questionId, fixture), learning.publishQuestion(questionId, fixture)]);
+      if (mode === "MANUAL") {
+        expect(() => controller.reviewQuestion(questionId, { decision: "APPROVE" }, manager)).toThrow();
+        await controller.reviewQuestion(questionId, { decision: "APPROVE" }, admin);
+      }
+      await learning.submitExamForReview(exam.id, fixture);
+      expect((await prisma.exam.findUniqueOrThrow({ where: { id: exam.id } })).status).toBe("PUBLISHED");
+      for (const entityId of [questionId, exam.id]) {
+        expect(await prisma.notification.count({ where: { entityId, recipientId: fixture } })).toBe(1);
+        expect(await prisma.auditLog.count({ where: { entityId, action: entityId === questionId
+          ? (mode === "AUTO" ? "QUESTION_AUTO_APPROVED" : "QUESTION_APPROVE")
+          : "EXAM_PUBLISHED" } })).toBe(1);
+      }
+    } finally {
+      configured.mockRestore();
+    }
   });
 
   it("rechecks class access before replaying a persisted exam", async () => {

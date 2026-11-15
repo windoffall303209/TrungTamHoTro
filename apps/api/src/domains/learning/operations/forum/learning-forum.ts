@@ -82,11 +82,6 @@ export async function createTopic(
       throw new NotFoundException(
         "Giảng viên chưa được phân công vào lớp này.",
       );
-    const moderationStatus = await serviceContext.enforceForumPolicy(
-      prisma,
-      authorId,
-      `${safeTitle} ${safeBody}`,
-    );
     const created = await prisma.$transaction(async (transaction) => {
       const topic = await transaction.forumTopic.create({
         data: {
@@ -97,23 +92,9 @@ export async function createTopic(
           body: safeBody,
           tags: input.tags,
           isPinned: input.isPinned,
-          status:
-            moderationStatus === "HIDE_PENDING_REVIEW"
-              ? "PENDING_REVIEW"
-              : "PUBLISHED",
+          status: "PUBLISHED",
         },
       });
-      if (moderationStatus)
-        await transaction.contentReport.create({
-          data: {
-            id: id("report"),
-            targetType: "TOPIC",
-            targetId: topic.id,
-            reporterId: authorId,
-            reason: "AUTO_MODERATION",
-            details: "Nội dung khớp chính sách kiểm duyệt đang hiệu lực.",
-          },
-        });
       return topic;
     });
     if (created.status === "PUBLISHED")
@@ -136,10 +117,6 @@ export async function createTopic(
     !classItem.instructorIds.includes(authorId)
   )
     throw new NotFoundException("Giảng viên chưa được phân công vào lớp này.");
-  const moderationStatus = await serviceContext.enforceMemoryForumPolicy(
-    authorId,
-    `${safeTitle} ${safeBody}`,
-  );
   const item: ForumTopic = {
     ...input,
     title: safeTitle,
@@ -148,24 +125,10 @@ export async function createTopic(
     classId,
     authorId,
     isLocked: false,
-    status: moderationStatus === "HIDE_PENDING_REVIEW" ? "HIDDEN" : "VISIBLE",
+    status: "VISIBLE",
     createdAt: now(),
   };
   serviceContext.topics.unshift(item);
-  if (moderationStatus)
-    serviceContext.reports.unshift({
-      id: id("report"),
-      targetType: "TOPIC",
-      targetId: item.id,
-      reporterId: authorId,
-      reason: "AUTO_MODERATION",
-      details: "Nội dung khớp chính sách kiểm duyệt đang hiệu lực.",
-      status: "OPEN",
-      escalationLevel: 0,
-      createdAt: now(),
-      updatedAt: now(),
-      actions: [],
-    });
   for (const recipientId of new Set([
     ...classItem.learnerIds,
     ...classItem.instructorIds,
@@ -317,6 +280,11 @@ export async function createPost(
       "Mỗi phản hồi chỉ được nhắc tối đa 10 thành viên.",
     );
   const prisma = serviceContext.database();
+  const since = new Date(Date.now() - 60_000);
+  const recentPosts = prisma
+    ? await prisma.forumPost.count({ where: { authorId, createdAt: { gte: since } } })
+    : serviceContext.posts.filter((post) => post.authorId === authorId && new Date(post.createdAt) >= since).length;
+  if (recentPosts >= 5) throw new BadRequestException("Bạn đã vượt giới hạn bài viết trong một phút.");
   if (prisma) {
     const topic = await prisma.forumTopic.findUnique({
       where: { id: topicId },
@@ -334,11 +302,6 @@ export async function createPost(
       )
     )
       throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
-    const moderationStatus = await serviceContext.enforceForumPolicy(
-      prisma,
-      authorId,
-      safeBody,
-    );
     if (parentId) {
       const parent = await prisma.forumPost.findFirst({
         where: { id: parentId, topicId },
@@ -389,10 +352,7 @@ export async function createPost(
           authorId,
           body: safeBody,
           parentId,
-          status:
-            moderationStatus === "HIDE_PENDING_REVIEW"
-              ? "PENDING_REVIEW"
-              : "PUBLISHED",
+          status: "PUBLISHED",
           attachments: {
             create: attachmentIds.map((materialId) => ({ materialId })),
           },
@@ -404,17 +364,6 @@ export async function createPost(
         },
         include: { attachments: true, mentions: true },
       });
-      if (moderationStatus)
-        await transaction.contentReport.create({
-          data: {
-            id: id("report"),
-            targetType: "POST",
-            targetId: postId,
-            reporterId: authorId,
-            reason: "AUTO_MODERATION",
-            details: "Nội dung khớp chính sách kiểm duyệt đang hiệu lực.",
-          },
-        });
       if (mentionedUserIds.length && post.status === "PUBLISHED") {
         await transaction.notification.createMany({
           data: mentionedUserIds.map((recipientId) => ({
@@ -439,10 +388,6 @@ export async function createPost(
   const classItem = serviceContext.findClass(topic.classId);
   if (!classItem.learnerIds.includes(authorId))
     throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
-  const moderationStatus = await serviceContext.enforceMemoryForumPolicy(
-    authorId,
-    safeBody,
-  );
   const parent = parentId
     ? serviceContext.posts.find(
         (item) => item.id === parentId && item.topicId === topicId,
@@ -482,26 +427,12 @@ export async function createPost(
     authorId,
     body: safeBody,
     parentId,
-    status: moderationStatus === "HIDE_PENDING_REVIEW" ? "HIDDEN" : "VISIBLE",
+    status: "VISIBLE",
     attachmentIds,
     mentionedUserIds,
     createdAt: now(),
   };
   serviceContext.posts.push(item);
-  if (moderationStatus)
-    serviceContext.reports.unshift({
-      id: id("report"),
-      targetType: "POST",
-      targetId: item.id,
-      reporterId: authorId,
-      reason: "AUTO_MODERATION",
-      details: "Nội dung khớp chính sách kiểm duyệt đang hiệu lực.",
-      status: "OPEN",
-      escalationLevel: 0,
-      createdAt: now(),
-      updatedAt: now(),
-      actions: [],
-    });
   for (const recipientId of mentionedUserIds) {
     if (
       !serviceContext.notifications.some(
@@ -671,74 +602,6 @@ export async function deletePost(
   return {
     ...current,
     body: "[Nội dung đã bị xóa]",
-    attachmentIds: [],
-    mentionedUserIds: [],
-  };
-}
-
-/** Ẩn bài vi phạm, lưu lý do kiểm duyệt và thông báo tác giả. */
-export async function hidePost(
-  serviceContext: LearningServiceContext,
-  postId: string,
-  rawReason: string,
-  actorId = "usr-instructor",
-): Promise<ForumPost> {
-  const reason = rawReason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do ẩn cần ít nhất 5 ký tự.");
-  const prisma = serviceContext.database();
-  if (prisma) {
-    return prisma.$transaction(async (transaction) => {
-      const current = await transaction.forumPost.findFirst({
-        where: {
-          id: postId,
-          topic: {
-            class: { instructors: { some: { instructorId: actorId } } },
-          },
-        },
-        include: {
-          topic: { include: { class: true } },
-          attachments: true,
-          mentions: true,
-        },
-      });
-      if (!current)
-        throw new NotFoundException(
-          "Không tìm thấy phản hồi được phép kiểm duyệt.",
-        );
-      if (current.topic.class.status === "CLOSED")
-        throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      const updated = await transaction.forumPost.update({
-        where: { id: postId },
-        data: { status: "ARCHIVED" },
-        include: { attachments: true, mentions: true },
-      });
-      await transaction.auditLog.create({
-        data: {
-          actorId,
-          action: "FORUM_POST_HIDDEN",
-          entityType: "forum_post",
-          entityId: postId,
-          context: { reason, authorId: current.authorId },
-        },
-      });
-      return serviceContext.mapPost(updated);
-    });
-  }
-  const current = serviceContext.findPost(postId);
-  const classItem = serviceContext.findClass(
-    serviceContext.findTopic(current.topicId).classId,
-  );
-  if (!classItem.instructorIds.includes(actorId))
-    throw new NotFoundException(
-      "Không tìm thấy phản hồi được phép kiểm duyệt.",
-    );
-  if (classItem.status === "CLOSED")
-    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  current.status = "HIDDEN";
-  return {
-    ...current,
-    body: "[Nội dung đã bị ẩn]",
     attachmentIds: [],
     mentionedUserIds: [],
   };

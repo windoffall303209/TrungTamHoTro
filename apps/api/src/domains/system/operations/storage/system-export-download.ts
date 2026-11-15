@@ -14,8 +14,8 @@ export async function downloadExport(
 ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
   const prisma = serviceContext.database();
   if (prisma) {
-    const row = await prisma.dataExportJob.findUnique({
-      where: { id: exportId },
+    const row = await prisma.operationalJob.findUnique({
+      where: { kind: "EXPORT", id: exportId },
     });
     if (!row || row.status !== "COMPLETED" || !row.objectKey || !row.checksum)
       throw new NotFoundException("Không tìm thấy tệp export hoàn tất.");
@@ -34,7 +34,7 @@ export async function downloadExport(
     const format = row.format === "JSON" ? "JSON" : "CSV";
     return {
       buffer,
-      filename: `${row.category.toLowerCase()}-${row.id}.${format.toLowerCase()}`,
+      filename: `${row.category!.toLowerCase()}-${row.id}.${format.toLowerCase()}`,
       mimeType:
         format === "JSON"
           ? "application/json; charset=utf-8"
@@ -65,7 +65,7 @@ export async function listExports(
 ): Promise<DataExport[]> {
   const prisma = serviceContext.database();
   if (prisma) {
-    const rows = await prisma.dataExportJob.findMany({
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "EXPORT" },
       orderBy: { createdAt: "desc" },
     });
     return rows.map((row) => serviceContext.mapExport(row));

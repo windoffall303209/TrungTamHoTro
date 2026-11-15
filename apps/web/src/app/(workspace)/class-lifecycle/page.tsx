@@ -180,7 +180,7 @@ export default function ClassLifecyclePage() {
             )}
           </div>
           <p className="mt-5 text-xs leading-5 text-slate-400">
-            * Lưu trữ chỉ khóa quyền ghi và chỉnh sửa. Học liệu, điểm số, bài nộp, dữ liệu điểm danh và thảo luận diễn đàn luôn được giữ nguyên vẹn để tra cứu lâu dài.
+            * Lưu trữ chỉ khóa quyền ghi và chỉnh sửa. Học liệu, điểm số, bài nộp và thảo luận diễn đàn luôn được giữ nguyên vẹn để tra cứu lâu dài.
           </p>
         </section>
 

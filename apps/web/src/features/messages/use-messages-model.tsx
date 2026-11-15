@@ -53,8 +53,6 @@ export function useMessagesModel() {
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [messageQuery, setMessageQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ChatMessage[]>([]);
-  const [reportTarget, setReportTarget] = useState<ChatMessage | null>(null);
-  const [reportReason, setReportReason] = useState("");
   const [blockOpen, setBlockOpen] = useState(false);
   const [blockReason, setBlockReason] = useState("");
 
@@ -613,27 +611,6 @@ export function useMessagesModel() {
     }
   };
 
-  /** Gửi báo cáo tin nhắn vi phạm */
-  const reportMessage = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!reportTarget) return;
-    try {
-      await apiRequest(`/chat/messages/${reportTarget.id}/report`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ reason: reportReason }),
-      });
-      setReportTarget(null);
-      setReportReason("");
-      notify("Đã gửi báo cáo tin nhắn.");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không gửi được báo cáo.",
-        "error",
-      );
-    }
-  };
-
   /** Chặn liên hệ riêng với người đang chat 1-1 */
   const blockDirectUser = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -698,10 +675,6 @@ export function useMessagesModel() {
     setMessageQuery,
     searchResults,
     setSearchResults,
-    reportTarget,
-    setReportTarget,
-    reportReason,
-    setReportReason,
     blockOpen,
     setBlockOpen,
     blockReason,
@@ -718,7 +691,6 @@ export function useMessagesModel() {
     sendMessage,
     searchConversation,
     toggleMute,
-    reportMessage,
     blockDirectUser,
     openAttachment,
   };

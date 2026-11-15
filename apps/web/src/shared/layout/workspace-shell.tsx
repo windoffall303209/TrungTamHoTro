@@ -473,22 +473,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       ASSIGNMENT: `/academic?assignmentId=${entityId}`,
       CLASS_ANNOUNCEMENT: `/academic?announcementId=${entityId}`,
       LIVE_SESSION: `/live-classes?sessionId=${entityId}`,
-      ATTENDANCE_APPEAL: `/live-classes?appealId=${entityId}`,
-      CONTENT_REPORT: `/forum?reportId=${entityId}`,
       SUPPORT_TICKET: `/support?ticketId=${entityId}`,
       CHAT_CONVERSATION: `/messages?conversationId=${entityId}`,
     };
     if (destinations[entityType]) return destinations[entityType];
     if (item.type.includes("SUPPORT")) return `/support?ticketId=${entityId}`;
-    if (
-      item.type.includes("FORUM") ||
-      item.type.includes("MENTION") ||
-      item.type.includes("REPORT")
-    )
-      return `/forum?reportId=${entityId}`;
+    if (item.type.includes("FORUM") || item.type.includes("MENTION"))
+      return "/forum";
     if (
       item.type.includes("SESSION") ||
-      item.type.includes("ATTENDANCE") ||
       item.type.includes("RECORDING")
     )
       return `/live-classes?sessionId=${entityId}`;

@@ -2,16 +2,7 @@
 import { usePagination } from "@/shared/ui/ui";
 import { hasEveryPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
-import type {
-  DirectoryUser,
-  Exam,
-  ExamAttempt,
-  ExamAttemptReview,
-  GradingQueueGroup,
-  LearningClass,
-  LiveSession,
-  RegradeRequest,
-} from "@/lib/learning-types";
+import type { Exam, ExamAttempt, ExamAttemptReview, GradingQueueGroup, LearningClass, LiveSession, RegradeRequest } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -30,7 +21,6 @@ export function useTeachingModel() {
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [instructorClasses, setInstructorClasses] = useState<LearningClass[]>([]);
   const loadRequestRef = useRef(0);
-  const learnersRequestRef = useRef(0);
 
   // Bộ lọc chuẩn K-12 dành cho giáo viên: Khối -> Môn -> Lớp
   const [gradeFilter, setGradeFilter] = useState<string>("");
@@ -112,9 +102,6 @@ export function useTeachingModel() {
 
   const [sessions, setSessions] = useState<LiveSession[]>([]);
 
-  const [learners, setLearners] = useState<DirectoryUser[]>([]);
-
-  const [learnersSessionId, setLearnersSessionId] = useState("");
 
   const [grading, setGrading] = useState<ExamAttempt | null>(null);
 
@@ -138,14 +125,6 @@ export function useTeachingModel() {
     score: 0,
     feedback: "",
     correctionReason: "",
-  });
-
-  const [attendance, setAttendance] = useState({
-    sessionId: "",
-    learnerId: "",
-    status: "PRESENT",
-    attendedMinutes: 60,
-    adjustmentReason: "Xác nhận theo nhật ký phòng học",
   });
 
   const [recording, setRecording] = useState({
@@ -210,10 +189,6 @@ export function useTeachingModel() {
         (current) => current || attemptData[0]?.examId || examData[0]?.id || "",
       );
       setSessions(sessionData);
-      setAttendance((current) => ({
-        ...current,
-        sessionId: current.sessionId || sessionData[0]?.id || "",
-      }));
       setRecording((current) => ({
         ...current,
         sessionId:
@@ -232,59 +207,6 @@ export function useTeachingModel() {
     }
   }, [canManageTeaching, notify, session.roleCode]);
 
-  /** Chọn buổi học và nạp bảng điểm danh chi tiết để chỉnh sửa. */
-  const selectAttendanceSession = useCallback(
-    async (sessionId: string) => {
-      const requestId = ++learnersRequestRef.current;
-      setAttendance((current) => ({ ...current, sessionId, learnerId: "" }));
-      const classId = sessions.find((item) => item.id === sessionId)?.classId;
-      if (!classId) {
-        setLearners([]);
-        setLearnersSessionId(sessionId);
-        return;
-      }
-      try {
-        const data = await apiRequest<DirectoryUser[]>(
-          `/instructor/classes/${classId}/learners`,
-          { roleCode: session.roleCode },
-        );
-        if (requestId !== learnersRequestRef.current) return;
-        setLearners(data);
-        setLearnersSessionId(sessionId);
-      } catch (error) {
-        if (requestId !== learnersRequestRef.current) return;
-        setLearners([]);
-        setLearnersSessionId(sessionId);
-        notify(
-          error instanceof Error
-            ? error.message
-            : "Không tải được học viên của lớp.",
-          "error",
-        );
-      }
-    },
-    [notify, session.roleCode, sessions],
-  );
-
-  useEffect(() => {
-    if (
-      !attendance.sessionId ||
-      !sessions.length ||
-      learnersSessionId === attendance.sessionId
-    )
-      return;
-    const timer = window.setTimeout(
-      () => void selectAttendanceSession(attendance.sessionId),
-      0,
-    );
-    return () => window.clearTimeout(timer);
-  }, [
-    attendance.sessionId,
-    learnersSessionId,
-    selectAttendanceSession,
-    sessions.length,
-  ]);
-
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => {
@@ -293,8 +215,6 @@ export function useTeachingModel() {
     };
   }, [load]);
 
-  // Vô hiệu hóa các yêu cầu điểm danh còn chạy khi rời màn hình.
-  useEffect(() => () => { learnersRequestRef.current += 1; }, []);
 
   /** Mở toàn bộ đề và đáp án của một lượt thi trước khi cho điểm. */
   const openGrade = async (
@@ -465,32 +385,6 @@ export function useTeachingModel() {
     }
   };
 
-  /** Gửi các thay đổi điểm danh thủ công cùng lý do điều chỉnh. */
-  const saveAttendance = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      await apiRequest(
-        `/instructor/sessions/${attendance.sessionId}/attendance`,
-        {
-          method: "PATCH",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            learnerId: attendance.learnerId,
-            status: attendance.status,
-            attendedMinutes: attendance.attendedMinutes,
-            adjustmentReason: attendance.adjustmentReason,
-          }),
-        },
-      );
-      notify("Đã cập nhật điểm danh và lý do điều chỉnh.");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không lưu được điểm danh.",
-        "error",
-      );
-    }
-  };
-
   /** Gắn đường dẫn bản ghi với buổi học đã kết thúc để đưa vào xử lý. */
   const attachRecording = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -572,7 +466,6 @@ export function useTeachingModel() {
     queueByClass,
     attemptPagination,
     sessions,
-    learners,
     grading,
     setGrading,
     activeRegrade,
@@ -587,16 +480,12 @@ export function useTeachingModel() {
     setQuestionScores,
     grade,
     setGrade,
-    attendance,
-    setAttendance,
     recording,
     setRecording,
-    selectAttendanceSession,
     openGrade,
     openRegrade,
     saveGrade,
     rejectRegrade,
-    saveAttendance,
     attachRecording,
     markRecordingReady,
     objectiveScore,

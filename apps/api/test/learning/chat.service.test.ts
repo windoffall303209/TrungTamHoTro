@@ -77,7 +77,6 @@ describe("ChatService", () => {
     expect(sent.context).toMatchObject({ type: "EXAM", id: "exam-mid-web" });
     expect((await service.searchMessages(conversation.id, "giữa kỳ", learner))[0]?.id).toBe(sent.id);
     expect((await service.muteConversation(conversation.id, new Date(Date.now() + 3_600_000).toISOString(), learner)).mutedUntil).toBeTruthy();
-    expect((await service.reportMessage(sent.id, "Nội dung cần bộ phận kiểm duyệt xem xét", learner)).status).toBe("OPEN");
     await service.blockUser(instructor.user.id, "Tạm dừng liên hệ", learner);
     await expect(service.sendMessage(conversation.id, { clientMessageId: `chat-blocked-${Date.now()}`, content: "Tin không được gửi" }, instructor)).rejects.toThrow("đã chặn");
     await service.unblockUser(instructor.user.id, learner);

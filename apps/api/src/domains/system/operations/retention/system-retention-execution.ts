@@ -121,14 +121,12 @@ export async function executeRetention(
           include: {
             versions: true,
             accessLogs: true,
-            reviews: true,
             forumAttachments: true,
           },
         },
         exams: {
           include: {
             questions: true,
-            approvals: true,
             attempts: {
               include: {
                 answers: true,
@@ -143,7 +141,7 @@ export async function executeRetention(
             posts: { include: { attachments: true, mentions: true } },
           },
         },
-        sessions: { include: { attendance: true, appeals: true } },
+        sessions: true,
         assignments: {
           include: {
             submissions: {
@@ -153,7 +151,6 @@ export async function executeRetention(
                 gradeChanges: true,
               },
             },
-            changes: true,
           },
         },
         announcements: true,

@@ -6,7 +6,7 @@ import { Clock3, ExternalLink, History, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
+import { Button, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -14,20 +14,12 @@ import { useApp } from "@/providers/app-provider";
 interface Summary {
   session: LiveSession;
   recordingAvailable: boolean;
-  appeal?: { id: string; status: string; reason: string; resolution?: string };
-  attendance: {
-    attendedMinutes: number;
-    status: string;
-    adjustmentReason?: string;
-  };
 }
 /** Hiển thị lịch sử tham dự, bản ghi buổi học và luồng khiếu nại của học viên. */
 export default function LearningHistoryPage() {
   const { session, notify } = useApp();
   const [items, setItems] = useState<LiveSession[]>([]);
   const [summaries, setSummaries] = useState<Record<string, Summary>>({});
-  const [appealSession, setAppealSession] = useState<LiveSession | null>(null);
-  const [appealReason, setAppealReason] = useState("");
   const mounted = useRef(true);
   const summaryRequestVersions = useRef(new Map<string, number>());
   const pagination = usePagination(items);
@@ -94,38 +86,12 @@ export default function LearningHistoryPage() {
       );
     }
   };
-  /** Gửi yêu cầu xem xét lại điểm danh của buổi đang chọn. */
-  const requestAppeal = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!appealSession) return;
-    try {
-      await apiRequest(
-        `/learner/sessions/${appealSession.id}/attendance-appeals`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ reason: appealReason }),
-        },
-      );
-      notify("Đã gửi yêu cầu điều chỉnh điểm danh.");
-      setAppealSession(null);
-      setAppealReason("");
-      await view(appealSession);
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không gửi được yêu cầu điều chỉnh.",
-        "error",
-      );
-    }
-  };
   if (session.roleCode !== "LEARNER") return <AccessDenied />;
   return (
     <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
         title="Lịch sử học tập"
-        description="Theo dõi thời lượng tham dự, trạng thái điểm danh và bản ghi được cấp quyền."
+        description="Xem lại các buổi học và bản ghi được cấp quyền."
       />
       <div className="space-y-3 mt-3.5">
         {items.length ? pagination.pageItems.map((item) => {
@@ -150,23 +116,12 @@ export default function LearningHistoryPage() {
                   </p>
                 </div>
                 <Button onClick={() => void view(item)} variant="secondary">
-                  Xem điểm danh
+                  Xem bản ghi buổi học
                 </Button>
               </div>
               {summary ? (
                 <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
-                    <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
-                      {summary.attendance.attendedMinutes}&apos;
-                    </p>
-                    <p className="text-xs text-slate-500">Thời lượng tham dự</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
-                    <StatusBadge status={summary.attendance.status} />
-                    <p className="mt-2 text-xs text-slate-500">
-                      Trạng thái điểm danh
-                    </p>
-                  </div>
+
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
                     {summary.recordingAvailable ? (
                       <button
@@ -187,30 +142,7 @@ export default function LearningHistoryPage() {
                       </div>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 sm:col-span-3">
-                    <div>
-                      {summary.appeal ? (
-                        <>
-                          <StatusBadge status={summary.appeal.status} />
-                          <span className="ml-2 text-xs text-slate-500">
-                            {summary.appeal.reason}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-xs text-slate-400">
-                          Chưa có yêu cầu điều chỉnh
-                        </span>
-                      )}
-                    </div>
-                    {item.status === "COMPLETED" && !summary.appeal ? (
-                      <Button
-                        onClick={() => setAppealSession(item)}
-                        variant="ghost"
-                      >
-                        Yêu cầu điều chỉnh
-                      </Button>
-                    ) : null}
-                  </div>
+
                 </div>
               ) : null}
             </article>
@@ -218,29 +150,7 @@ export default function LearningHistoryPage() {
         }) : <p className="empty-copy">Chưa có buổi học nào trong lịch sử.</p>}
       </div>
       <Pagination itemLabel="buổi học" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
-      <Modal
-        open={Boolean(appealSession)}
-        onClose={() => setAppealSession(null)}
-        title="Yêu cầu điều chỉnh điểm danh"
-        description="Nêu rõ thời điểm tham gia hoặc bằng chứng cần đối soát; mỗi buổi chỉ có một yêu cầu đang xử lý."
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void requestAppeal(event)}
-        >
-          <Field label="Lý do điều chỉnh">
-            <textarea
-              className={inputClass}
-              minLength={10}
-              required
-              rows={5}
-              value={appealReason}
-              onChange={(event) => setAppealReason(event.target.value)}
-            />
-          </Field>
-          <Button type="submit">Gửi yêu cầu</Button>
-        </form>
-      </Modal>
+
     </div>
   );
 }

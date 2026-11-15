@@ -49,9 +49,9 @@ suite("Business concurrency on dedicated test database", () => {
   // Dọn đúng lớp test và các bản ghi cascade, không tác động dữ liệu seed khác.
   afterAll(async () => {
     if (exportJobId) {
-      const exportJob = await prisma.dataExportJob.findUnique({ where: { id: exportJobId } });
+      const exportJob = await prisma.operationalJob.findUnique({ where: { kind: "EXPORT", id: exportJobId } });
       if (exportJob?.objectKey) await objectStorage.remove(exportJob.objectKey);
-      await prisma.dataExportJob.deleteMany({ where: { id: exportJobId } });
+      await prisma.operationalJob.deleteMany({ where: { kind: "EXPORT", id: exportJobId } });
     }
     await prisma.notification.deleteMany({ where: { entityType: "CLASS", entityId: classId } });
     await prisma.notification.deleteMany({ where: { id: notificationId } });
@@ -108,7 +108,7 @@ suite("Business concurrency on dedicated test database", () => {
     expect(queued).toMatchObject({ status: "PENDING", attempts: 0, progress: 0 });
 
     await system.drainOperationalJobs();
-    const completed = await prisma.dataExportJob.findUniqueOrThrow({ where: { id: queued.id } });
+    const completed = await prisma.operationalJob.findUniqueOrThrow({ where: { kind: "EXPORT", id: queued.id } });
     expect(completed).toMatchObject({ status: "COMPLETED", attempts: 1, progress: 100 });
     expect(completed.objectKey).toBeTruthy();
     expect(completed.checksum).toMatch(/^sha256:[a-f0-9]{64}$/);

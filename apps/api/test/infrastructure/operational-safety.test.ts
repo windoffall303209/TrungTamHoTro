@@ -13,8 +13,8 @@ afterEach(() => vi.useRealTimers());
 
 describe("Quyền xử lý tác vụ", () => {
   it("kết thúc cả tác vụ RUNNING và PENDING đã dùng hết lần thử", async () => {
-    const models = Array.from({ length: 3 }, () => ({ updateMany: vi.fn().mockResolvedValue({ count: 0 }), findFirst: vi.fn().mockResolvedValue(null) }));
-    const service = new SystemService({ isStartupConnectionEnabled: () => true, backupJob: models[0], dataExportJob: models[1], retentionJob: models[2] } as unknown as PrismaService);
+    const models = Array.from({ length: 2 }, () => ({ updateMany: vi.fn().mockResolvedValue({ count: 0 }), findFirst: vi.fn().mockResolvedValue(null) }));
+    const service = new SystemService({ isStartupConnectionEnabled: () => true, operationalJob: models[0], retentionJob: models[1] } as unknown as PrismaService);
     expect(await service.drainOperationalJobs()).toEqual({ backup: 0, export: 0, retention: 0 });
     for (const model of models) {
       const first = model.updateMany.mock.calls[0]?.[0] as { where: { status: unknown; attempts: unknown }; data: { status: string } };
@@ -26,7 +26,7 @@ describe("Quyền xử lý tác vụ", () => {
   it("tiến trình cũ không được đặt lại tác vụ của lần thử mới", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 0 });
     const findUniqueOrThrow = vi.fn();
-    const prisma = { backupJob: { updateMany, findUniqueOrThrow } } as unknown as PrismaService;
+    const prisma = { operationalJob: { updateMany, findUniqueOrThrow } } as unknown as PrismaService;
     const service = new SystemService() as unknown as { retryBackupJob(db: PrismaService, id: string, attempts: number, error: unknown): Promise<void> };
     await service.retryBackupJob(prisma, "job", 2, new Error("late failure"));
     const input = updateMany.mock.calls[0]?.[0] as { where: { attempts: number; status: string; availableAt: { gt: Date } } };

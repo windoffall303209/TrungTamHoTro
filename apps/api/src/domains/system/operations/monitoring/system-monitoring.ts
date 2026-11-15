@@ -92,14 +92,14 @@ export async function healthOverview(
   await prisma.$queryRaw`SELECT 1`;
   const storage = await serviceContext.getStorageOverview();
   const queueDepth = await prisma.$transaction([
-    prisma.backupJob.count({
-      where: { status: { in: ["PENDING", "RUNNING"] } },
+    prisma.operationalJob.count({
+      where: { kind: "BACKUP", status: { in: ["PENDING", "RUNNING"] } },
     }),
-    prisma.restoreJob.count({
-      where: { status: { in: ["PENDING", "RUNNING"] } },
+    prisma.operationalJob.count({
+      where: { kind: "RESTORE", status: { in: ["PENDING", "RUNNING"] } },
     }),
-    prisma.dataExportJob.count({
-      where: { status: { in: ["PENDING", "RUNNING"] } },
+    prisma.operationalJob.count({
+      where: { kind: "EXPORT", status: { in: ["PENDING", "RUNNING"] } },
     }),
   ]);
   const apiLatencyMs = Math.max(1, Math.round(performance.now() - startedAt));

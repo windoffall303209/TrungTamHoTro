@@ -19,7 +19,6 @@ export async function getClassProgress(
 ): Promise<ClassProgressReport> {
   const { from, to } = serviceContext.reportingPeriod(input.from, input.to);
   const thresholds: RiskThresholds = {
-    attendanceBelow: input.attendanceBelow ?? 70,
     scoreBelow: input.scoreBelow ?? 50,
     completionBelow: input.completionBelow ?? 60,
   };
@@ -48,13 +47,6 @@ export async function getClassProgress(
             dueAt: { gte: from, lte: to },
           },
           include: { submissions: { where: { submittedAt: { lte: to } } } },
-        },
-        sessions: {
-          where: {
-            startsAt: { gte: from, lte: to },
-            status: { in: ["COMPLETED", "LIVE"] },
-          },
-          include: { attendance: true },
         },
       },
     });
@@ -120,9 +112,6 @@ export async function getClassProgress(
         } else if (assignment.status === "CLOSED" || assignment.dueAt <= to)
           possible += Number(assignment.maxScore);
       }
-      const attendance = classItem.sessions.flatMap((session) =>
-        session.attendance.filter((record) => record.learnerId === learnerId),
-      );
       const activityDates = [
         ...classItem.materials.flatMap((material) =>
           material.accessLogs
@@ -133,9 +122,6 @@ export async function getClassProgress(
           attempt.submittedAt ? [attempt.submittedAt] : [],
         ),
         ...assignmentSubmissions.map((submission) => submission.submittedAt),
-        ...attendance.flatMap((record) =>
-          record.joinedAt ? [record.joinedAt] : [],
-        ),
       ];
       const completedAssessments =
         completedExamIds.size +
@@ -153,12 +139,6 @@ export async function getClassProgress(
         assessmentCompletionRate: serviceContext.percentage(
           completedAssessments,
           totalAssessments,
-        ),
-        attendanceRate: serviceContext.percentage(
-          attendance.filter(
-            (record) => record.status === "PRESENT" || record.status === "LATE",
-          ).length,
-          classItem.sessions.length,
         ),
         averageScore: possible
           ? Math.round((earned / possible) * 10_000) / 100
@@ -191,13 +171,6 @@ export async function getClassProgress(
       new Date(exam.openAt) <= to &&
       new Date(exam.closeAt) >= from,
   );
-  const sessions = serviceContext.sessions.filter(
-    (session) =>
-      session.classId === classId &&
-      new Date(session.startsAt) >= from &&
-      new Date(session.startsAt) <= to &&
-      ["COMPLETED", "LIVE"].includes(session.status),
-  );
   const learners = classItem.learnerIds.map((learnerId) => {
     const accessLogs = serviceContext.materialAccessLogs.filter(
       (log) =>
@@ -214,18 +187,10 @@ export async function getClassProgress(
         new Date(attempt.submittedAt) >= from &&
         new Date(attempt.submittedAt) <= to,
     );
-    const attendance = serviceContext.attendance.filter(
-      (record) =>
-        record.learnerId === learnerId &&
-        sessions.some((session) => session.id === record.sessionId),
-    );
     const activityDates = [
       ...accessLogs.map((log) => new Date(log.createdAt)),
       ...attempts.flatMap((attempt) =>
         attempt.submittedAt ? [new Date(attempt.submittedAt)] : [],
-      ),
-      ...attendance.flatMap((record) =>
-        record.joinedAt ? [new Date(record.joinedAt)] : [],
       ),
     ];
     return serviceContext.buildLearnerProgress({
@@ -237,12 +202,6 @@ export async function getClassProgress(
       assessmentCompletionRate: serviceContext.percentage(
         new Set(attempts.map((attempt) => attempt.examId)).size,
         exams.length,
-      ),
-      attendanceRate: serviceContext.percentage(
-        attendance.filter(
-          (record) => record.status === "PRESENT" || record.status === "LATE",
-        ).length,
-        sessions.length,
       ),
       averageScore: attempts.length
         ? Math.round(

@@ -36,10 +36,6 @@ export type ForumPostWithRelations = Prisma.ForumPostGetPayload<{
   include: { attachments: true; mentions: true };
 }>;
 
-export type ContentReportWithActions = Prisma.ContentReportGetPayload<{
-  include: { actions: true };
-}>;
-
 export type SupportTicketWithAttachments = Prisma.SupportTicketGetPayload<{
   include: { attachments: true };
 }>;

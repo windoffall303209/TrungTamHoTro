@@ -11,58 +11,8 @@ import {
   SystemService,
   type ExamApprovalMode,
 } from "../../system/core/system.service.js";
-import {
-  AttemptWithAnswers,
-  ClassWithMembers,
-  ContentReportWithActions,
-  ExamWithQuestions,
-  ForumPostWithRelations,
-  MaterialAccessAction,
-  MaterialSearchResult,
-  MemoryAttendanceInterval,
-  MemoryMaterialVersion,
-  MemoryQuestionImage,
-  SupportTicketWithAttachments,
-  UploadedMaterialFile,
-} from "./learning.shared.js";
-import type {
-  AttendanceAppeal,
-  AttendanceRecord,
-  AttendanceSessionReview,
-  ClassClosureReadiness,
-  ClassMemberHistory,
-  ContentReport,
-  CourseVersionSnapshot,
-  ExamAnalytics,
-  ExamApprovalRecord,
-  ExamAttempt,
-  FileReviewRecord,
-  ForumPost,
-  ForumTopic,
-  GradeHistoryRecord,
-  InstructorRole,
-  LearnerExamSummary,
-  LearnerProgress,
-  LearnerResult,
-  LearningClass,
-  LearningCourse,
-  LearningExam,
-  LearningMaterial,
-  LearningNotification,
-  LearningQuestion,
-  LiveSession,
-  MaterialVersionSnapshot,
-  ModerationActionRecord,
-  OperationalReport,
-  ProgressIntervention,
-  ProviderAttendanceInput,
-  RegradeRequest,
-  ReportExport,
-  ReportRun,
-  RiskThresholds,
-  SupportTicket,
-  TicketComment,
-} from "./learning.types.js";
+import { AttemptWithAnswers, ClassWithMembers, ExamWithQuestions, ForumPostWithRelations, MaterialAccessAction, MaterialSearchResult, MemoryMaterialVersion, MemoryQuestionImage, SupportTicketWithAttachments, UploadedMaterialFile } from "./learning.shared.js";
+import type { ClassClosureReadiness, ClassMemberHistory, CourseVersionSnapshot, ExamAnalytics, ExamAttempt, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, MaterialVersionSnapshot, ProgressIntervention, RegradeRequest, RiskThresholds, SupportTicket, TicketComment } from "./learning.types.js";
 
 /** Hợp đồng nội bộ của các nhóm nghiệp vụ; trạng thái vẫn thuộc một phiên bản service duy nhất. */
 export interface LearningServiceContext {
@@ -76,17 +26,11 @@ export interface LearningServiceContext {
   exams: LearningExam[];
   attempts: ExamAttempt[];
   gradeHistory: GradeHistoryRecord[];
-  examApprovals: ExamApprovalRecord[];
   regradeRequests: RegradeRequest[];
   topics: ForumTopic[];
   posts: ForumPost[];
   notifications: LearningNotification[];
-  reports: ContentReport[];
-  moderationActions: ModerationActionRecord[];
   sessions: LiveSession[];
-  attendance: AttendanceRecord[];
-  attendanceIntervals: MemoryAttendanceInterval[];
-  attendanceAppeals: AttendanceAppeal[];
   tickets: SupportTicket[];
   ticketComments: TicketComment[];
   supportAttachmentFiles: Map<string, string>;
@@ -97,12 +41,7 @@ export interface LearningServiceContext {
     action: MaterialAccessAction;
     createdAt: string;
   }>;
-  materialReviews: FileReviewRecord[];
   progressInterventions: ProgressIntervention[];
-  reportRuns: ReportRun[];
-  reportExports: Array<
-    ReportExport & { filePath?: string; requestedById: string }
-  >;
   instructorRoles: Map<string, InstructorRole>;
   classMemberHistory: ClassMemberHistory[];
   prisma: PrismaService | undefined;
@@ -185,19 +124,13 @@ export interface LearningServiceContext {
     notificationId: string,
     recipientId?: string,
   ): Promise<LearningNotification>;
-  getAttendanceReview(sessionId: string): Promise<AttendanceSessionReview>;
   isRecordingAvailable(
     session: Pick<
       LiveSession,
       "recordingUrl" | "recordingStatus" | "recordingExpiresAt"
     >,
   ): boolean;
-  getOperationalReport(
-    fromInput?: string,
-    toInput?: string,
-  ): Promise<OperationalReport>;
   database(): PrismaService | undefined;
-  getExamApprovalMode(): Promise<ExamApprovalMode>;
   getQuestionApprovalMode(): Promise<ExamApprovalMode>;
   mapCourse(
     row: Prisma.CourseGetPayload<Record<string, never>>,
@@ -261,20 +194,12 @@ export interface LearningServiceContext {
       | Prisma.ForumPostGetPayload<Record<string, never>>
       | ForumPostWithRelations,
   ): ForumPost;
-  mapReport(
-    row:
-      | Prisma.ContentReportGetPayload<Record<string, never>>
-      | ContentReportWithActions,
-  ): ContentReport;
   mapProgressIntervention(
     row: Prisma.ProgressInterventionGetPayload<Record<string, never>>,
   ): ProgressIntervention;
   progressInterventionHistory(
     value: Prisma.JsonValue,
   ): ProgressIntervention["history"];
-  mapReportExport(
-    row: Prisma.ReportExportGetPayload<Record<string, never>>,
-  ): ReportExport;
   reportingPeriod(
     fromInput?: string,
     toInput?: string,
@@ -288,14 +213,6 @@ export interface LearningServiceContext {
       thresholds: RiskThresholds;
     },
   ): LearnerProgress;
-  operationalReportCsv(report: OperationalReport): string;
-  recordMemoryModeration(
-    report: ContentReport,
-    actorId: string,
-    action: ModerationActionRecord["action"],
-    reason: string,
-    nextStatus: ContentReport["status"],
-  ): void;
   recordMemberHistory(
     classId: string,
     memberId: string,
@@ -338,46 +255,17 @@ export interface LearningServiceContext {
   mapSession(
     row: Prisma.LiveSessionGetPayload<Record<string, never>>,
   ): LiveSession;
-  mapAttendance(
-    row: Prisma.AttendanceRecordGetPayload<Record<string, never>>,
-  ): AttendanceRecord;
-  mapAttendanceAppeal(
-    row: Prisma.AttendanceAppealGetPayload<Record<string, never>>,
-  ): AttendanceAppeal;
   mapTicket(
     row:
       | Prisma.SupportTicketGetPayload<Record<string, never>>
       | SupportTicketWithAttachments,
   ): SupportTicket;
   isLiveProvider(value: string): value is LiveSession["provider"];
-  validateProviderAttendanceInput(records: ProviderAttendanceInput[]): void;
-  calculateProviderAttendanceMinutes(
-    joinedAt: Date,
-    leftAt: Date,
-    startsAt: Date,
-    endsAt: Date,
-  ): number;
-  mergedAttendanceMinutes(
-    intervals: Array<{ joinedAt: Date; leftAt: Date }>,
-    startsAt: Date,
-    endsAt: Date,
-  ): number;
-  deriveProviderAttendanceStatus(
-    joinedAt: Date,
-    attendedMinutes: number,
-    startsAt: Date,
-  ): AttendanceRecord["status"];
-  validateAttendanceMinutes(
-    attendedMinutes: number,
-    startsAt: Date,
-    endsAt: Date,
-  ): void;
   buildClassClosureReadiness(
     status: LearningClass["status"],
     endAt: Date,
     counts: Omit<ClassClosureReadiness, "eligible" | "blockers">,
   ): ClassClosureReadiness;
-  fileReviewAction(value: string): FileReviewRecord["action"];
   getDatabaseClass(
     database: PrismaService | Prisma.TransactionClient,
     classId: string,
@@ -460,16 +348,6 @@ export interface LearningServiceContext {
   detectMaliciousUpload(upload: UploadedMaterialFile): string | undefined;
   validateQuestionImage(upload: UploadedMaterialFile): Promise<void>;
   scanUpload(upload: UploadedMaterialFile): Promise<string | undefined>;
-  enforceForumPolicy(
-    database: PrismaService,
-    authorId: string,
-    content: string,
-  ): Promise<"FLAG" | "HIDE_PENDING_REVIEW" | undefined>;
-  enforceMemoryForumPolicy(
-    authorId: string,
-    content: string,
-  ): Promise<"FLAG" | "HIDE_PENDING_REVIEW" | undefined>;
-  moderationTerms(): string[];
   assertForumClassAccess(
     classItem: ClassWithMembers,
     role: string,
@@ -487,6 +365,5 @@ export interface LearningServiceContext {
   findAttempt(attemptId: string): ExamAttempt;
   findTopic(topicId: string): ForumTopic;
   findPost(postId: string): ForumPost;
-  findReport(reportId: string): ContentReport;
   findSession(sessionId: string): LiveSession;
 }
