@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { useI18n } from "@/providers/i18n-provider";
 import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
@@ -19,6 +20,7 @@ import {
   Edit2,
   Edit3,
   Eye,
+  EyeOff,
   FileCheck2,
   FileQuestion,
   FileText,
@@ -72,7 +74,6 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/exam-question-selection";
 import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
-import { useI18n } from "@/providers/i18n-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
 import {
@@ -194,15 +195,49 @@ export function InstructorClassWorkspace({
   const [searchQuery, setSearchQuery] = useState("");
 
   // Quản lý thư mục cho Bài tập, Bài giảng, Tài liệu
-  const [selectedFolder, setSelectedFolder] = useState<string>("Tất cả");
-  const [customFolders, setCustomFolders] = useState<string[]>([
-    "Tất cả",
-    "Tuần 1 - Nhập môn",
-    "Tuần 2 - Cơ bản",
-    "Ôn tập giữa kỳ",
-  ]);
+  const [selectedFolder, setSelectedFolder] = useState<string>("__ALL__");
+  const [customFolders, setCustomFolders] = useState<string[]>([]);
+  const [customLectureFolders, setCustomLectureFolders] = useState<string[]>([]);
+  const [customMaterialFolders, setCustomMaterialFolders] = useState<string[]>([]);
   const [newFolderInput, setNewFolderInput] = useState("");
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+
+  // Đồng bộ danh sách thư mục tùy chỉnh theo từng lớp học trong bộ nhớ trình duyệt.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(`wind_class_folders_${item.id}`);
+      if (!raw) {
+        setCustomFolders([]);
+        setCustomLectureFolders([]);
+        setCustomMaterialFolders([]);
+        return;
+      }
+      const parsed = JSON.parse(raw) as {
+        assignments?: string[];
+        lectures?: string[];
+        materials?: string[];
+      };
+      setCustomFolders(Array.isArray(parsed.assignments) ? parsed.assignments : []);
+      setCustomLectureFolders(Array.isArray(parsed.lectures) ? parsed.lectures : []);
+      setCustomMaterialFolders(Array.isArray(parsed.materials) ? parsed.materials : []);
+    } catch {
+      setCustomFolders([]);
+      setCustomLectureFolders([]);
+      setCustomMaterialFolders([]);
+    }
+  }, [item.id]);
+
+  // Lưu danh sách thư mục tùy chỉnh của lớp học vào localStorage.
+  const persistClassFolders = useCallback(
+    (next: { assignments: string[]; lectures: string[]; materials: string[] }) => {
+      try {
+        window.localStorage.setItem(`wind_class_folders_${item.id}`, JSON.stringify(next));
+      } catch {
+        // Bỏ qua lỗi ghi bộ nhớ trình duyệt khi đầy dung lượng
+      }
+    },
+    [item.id],
+  );
 
   // Chế độ xem bài tập: "list" (danh sách 3 cột theo Ảnh 2) hoặc "detail" (chi tiết & bảng điểm theo Ảnh 1)
   const [assignmentViewMode, setAssignmentViewMode] = useState<"list" | "detail">("list");
@@ -247,8 +282,10 @@ export function InstructorClassWorkspace({
   const [lectureFileObj, setLectureFileObj] = useState<File | null>(null);
   const [lectureSaving, setLectureSaving] = useState(false);
   const [lectureFormTitle, setLectureFormTitle] = useState("");
-  const [lectureFormDesc, setLectureFormDesc] = useState("");
-  const [lectureFormFolder, setLectureFormFolder] = useState("Toán 1");
+  const [lectureFormVisibility, setLectureFormVisibility] = useState<"PUBLISHED" | "HIDDEN">(
+    "PUBLISHED",
+  );
+  const [lectureFormFolder, setLectureFormFolder] = useState("Bài giảng chung");
   const [lectureAttachedAssignments, setLectureAttachedAssignments] = useState<string[]>([]);
 
   // State chỉnh sửa bài giảng 2 vùng (y hệt tạo mới)
@@ -260,8 +297,10 @@ export function InstructorClassWorkspace({
   >("INVALID");
   const [editLectureFileObj, setEditLectureFileObj] = useState<File | null>(null);
   const [editLectureFormTitle, setEditLectureFormTitle] = useState("");
-  const [editLectureFormDesc, setEditLectureFormDesc] = useState("");
-  const [editLectureFormFolder, setEditLectureFormFolder] = useState("Toán 1");
+  const [editLectureFormVisibility, setEditLectureFormVisibility] = useState<
+    "PUBLISHED" | "HIDDEN"
+  >("PUBLISHED");
+  const [editLectureFormFolder, setEditLectureFormFolder] = useState("Bài giảng chung");
 
   // Modal tạo Bài tập mới
   const [addAssignmentModalOpen, setAddAssignmentModalOpen] = useState(false);
@@ -308,6 +347,7 @@ export function InstructorClassWorkspace({
     difficulty: Question["difficulty"];
     tags: string[];
     confidence: number;
+    answerSource?: string;
     warnings: string[];
   }>>([]);
   const [scanProviderLabel, setScanProviderLabel] = useState("");
@@ -396,15 +436,13 @@ export function InstructorClassWorkspace({
 
   // API là nguồn dữ liệu duy nhất để tránh hiện tài liệu đã xóa/di chuyển hoặc bản ghi giả.
   const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([]);
+  const rawMaterialsMapRef = useRef<Map<string, Material>>(new Map());
 
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>("");
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
   const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
-  const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({
-    "Hình học": true,
-    "Toán 1": true,
-  });
+  const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({});
 
   // Modal tải & chỉnh sửa tài liệu
   const [addMaterialModalOpen, setAddMaterialModalOpen] = useState(false);
@@ -412,16 +450,20 @@ export function InstructorClassWorkspace({
   const [editingMaterial, setEditingMaterial] = useState<MaterialDisplayItem | null>(null);
 
   const [materialFormTitle, setMaterialFormTitle] = useState("");
-  const [materialFormFolder, setMaterialFormFolder] = useState("Toán 1");
+  const [materialFormFolder, setMaterialFormFolder] = useState("Tài liệu chung");
   const [materialUploadFile, setMaterialUploadFile] = useState<File | null>(null);
   const [materialSaving, setMaterialSaving] = useState(false);
-  const [materialFormDesc, setMaterialFormDesc] = useState("");
+  const [materialFormVisibility, setMaterialFormVisibility] = useState<"PUBLISHED" | "HIDDEN">(
+    "PUBLISHED",
+  );
 
   // State chỉnh sửa tài liệu (hỗ trợ thay tệp mới từ máy)
   const [editMaterialFileObj, setEditMaterialFileObj] = useState<File | null>(null);
   const [editMaterialFormTitle, setEditMaterialFormTitle] = useState("");
-  const [editMaterialFormFolder, setEditMaterialFormFolder] = useState("Toán 1");
-  const [editMaterialFormDesc, setEditMaterialFormDesc] = useState("");
+  const [editMaterialFormFolder, setEditMaterialFormFolder] = useState("Tài liệu chung");
+  const [editMaterialFormVisibility, setEditMaterialFormVisibility] = useState<
+    "PUBLISHED" | "HIDDEN"
+  >("PUBLISHED");
 
   // Modal Di chuyển Bài giảng & Tài liệu sang lớp khác hoặc Cần phân cấp lại
   const [moveItemModalOpen, setMoveItemModalOpen] = useState(false);
@@ -566,6 +608,7 @@ export function InstructorClassWorkspace({
       // Đồng bộ tài liệu thật từ CSDL vào danh sách tài liệu lớp
       if (materialsResult.status === "fulfilled") {
         const classMaterials = materialsResult.value.filter((m) => isMaterialForClass(m, item.id, item.courseId));
+        rawMaterialsMapRef.current = new Map(classMaterials.map((m) => [m.id, m]));
         const mappedLectures = classMaterials.filter(isLectureMaterial)
           .map((material) => toLectureItem(material, session.user.name || "Giảng viên"));
         setLectures(mappedLectures);
@@ -679,8 +722,11 @@ export function InstructorClassWorkspace({
     setLectureSaving(true);
     let uploadedId: string | null = null;
     try {
-      const tags = ["LECTURE", ...(lectureFormDesc.trim() ? [`Mô tả: ${lectureFormDesc.trim().replace(/,/g, "，")}`] : []),
-        ...lectureAttachedAssignments.map((id) => `assignmentId:${id}`)];
+      const targetFolder = lectureFormFolder.trim() || "Bài giảng chung";
+      const tags = [
+        "LECTURE",
+        ...lectureAttachedAssignments.map((id) => `assignmentId:${id}`),
+      ];
       let created: Material;
       if (lectureMethod === "LINK") {
         created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/materials`, {
@@ -688,35 +734,43 @@ export function InstructorClassWorkspace({
           body: JSON.stringify({
             name: lectureFormTitle.trim(), mimeType: "text/uri-list",
             sizeBytes: new TextEncoder().encode(lectureUrl).length,
-            folder: lectureFormFolder, tags: [...tags, `lecture-url:${lectureUrl}`], scope: "CLASS",
+            folder: targetFolder,
+            tags: [...tags, `lecture-url:${lectureUrl}`],
+            scope: "CLASS",
+            visibility: lectureFormVisibility,
           }),
         });
       } else {
         const form = new FormData();
         form.append("file", lectureFileObj!);
-        form.append("folder", lectureFormFolder);
+        form.append("folder", targetFolder);
         form.append("tags", tags.join(","));
         form.append("scope", "CLASS");
+        form.append("visibility", lectureFormVisibility);
         created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
           method: "POST", roleCode: session.roleCode, body: form,
         });
       }
       if (!created?.id) throw new Error("Máy chủ không trả về ID bài giảng vừa lưu.");
       uploadedId = created.id;
-      if (lectureFormTitle.trim() !== created.name) {
+      if (lectureFormTitle.trim() !== created.name || created.visibility !== lectureFormVisibility) {
         await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
           method: "PATCH", roleCode: session.roleCode,
-          body: JSON.stringify({ name: lectureFormTitle.trim() }),
+          body: JSON.stringify({
+            name: lectureFormTitle.trim(),
+            visibility: lectureFormVisibility,
+          }),
         });
       }
       await loadClassData();
       setSelectedLectureId(created.id);
+      setSelectedLectureFolder(targetFolder);
       setAddLectureModalOpen(false);
       notify("Đã lưu bài giảng.", "success");
 
       // Reset form
       setLectureFormTitle("");
-      setLectureFormDesc("");
+      setLectureFormVisibility("PUBLISHED");
       setLectureInputUrl("");
       setLectureFileObj(null);
     } catch (err) {
@@ -913,22 +967,14 @@ export function InstructorClassWorkspace({
     await loadClassData();
     setAddAssignmentModalOpen(false);
   };
-  // Tạo thư mục mới
-  const handleCreateFolder = () => {
-    if (!newFolderInput.trim()) return;
-    if (customFolders.includes(newFolderInput.trim())) {
-      notify("Thư mục đã tồn tại!", "error");
-      return;
-    }
-    setCustomFolders([...customFolders, newFolderInput.trim()]);
-    setSelectedFolder(newFolderInput.trim());
-    setNewFolderInput("");
-    setShowNewFolderModal(false);
-    notify("Đã tạo thư mục mới!", "success");
-  };
-
-  // Thư mục bài giảng
-  const lectureFolders = useMemo(() => getClassFolderNames(lectures), [lectures]);
+  // Thư mục bài giảng của lớp học (kết hợp từ dữ liệu thực tế và thư mục giảng viên vừa tạo)
+  const lectureFolders = useMemo(
+    () =>
+      Array.from(new Set([...getClassFolderNames(lectures), ...customLectureFolders])).sort((a, b) =>
+        a.localeCompare(b, "vi"),
+      ),
+    [lectures, customLectureFolders],
+  );
 
   // Danh sách bài giảng lọc
   const filteredLectures = useMemo(
@@ -942,8 +988,69 @@ export function InstructorClassWorkspace({
     return filteredLectures.find((l) => l.id === selectedLectureId) || filteredLectures[0] || null;
   }, [filteredLectures, selectedLectureId]);
 
-  // Thư mục tài liệu
-  const materialFolders = useMemo(() => getClassFolderNames(materialsList), [materialsList]);
+  // Thư mục tài liệu của lớp học (kết hợp từ dữ liệu thực tế và thư mục giảng viên vừa tạo)
+  const materialFolders = useMemo(
+    () =>
+      Array.from(new Set([...getClassFolderNames(materialsList), ...customMaterialFolders])).sort(
+        (a, b) => a.localeCompare(b, "vi"),
+      ),
+    [materialsList, customMaterialFolders],
+  );
+
+  // Tạo thư mục mới đúng theo tab đang mở (Bài tập, Bài giảng hoặc Tài liệu)
+  const handleCreateFolder = () => {
+    const folderName = newFolderInput.trim();
+    if (!folderName) return;
+
+    if (activeTab === "lectures") {
+      if (lectureFolders.includes(folderName)) {
+        notify("Thư mục đã tồn tại!", "error");
+        return;
+      }
+      const nextLectures = [...customLectureFolders, folderName];
+      setCustomLectureFolders(nextLectures);
+      setLectureFolderExpanded((prev) => ({ ...prev, [folderName]: true }));
+      setSelectedLectureFolder(folderName);
+      setLectureFormFolder(folderName);
+      persistClassFolders({
+        assignments: customFolders,
+        lectures: nextLectures,
+        materials: customMaterialFolders,
+      });
+    } else if (activeTab === "materials") {
+      if (materialFolders.includes(folderName)) {
+        notify("Thư mục đã tồn tại!", "error");
+        return;
+      }
+      const nextMaterials = [...customMaterialFolders, folderName];
+      setCustomMaterialFolders(nextMaterials);
+      setMaterialFolderExpanded((prev) => ({ ...prev, [folderName]: true }));
+      setSelectedMaterialFolder(folderName);
+      setMaterialFormFolder(folderName);
+      persistClassFolders({
+        assignments: customFolders,
+        lectures: customLectureFolders,
+        materials: nextMaterials,
+      });
+    } else {
+      if (customFolders.includes(folderName)) {
+        notify("Thư mục đã tồn tại!", "error");
+        return;
+      }
+      const nextAssignments = [...customFolders, folderName];
+      setCustomFolders(nextAssignments);
+      setSelectedFolder(folderName);
+      persistClassFolders({
+        assignments: nextAssignments,
+        lectures: customLectureFolders,
+        materials: customMaterialFolders,
+      });
+    }
+
+    setNewFolderInput("");
+    setShowNewFolderModal(false);
+    notify("Đã tạo thư mục mới!", "success");
+  };
 
   // Danh sách tài liệu lọc
   const filteredMaterials = useMemo(
@@ -999,11 +1106,40 @@ export function InstructorClassWorkspace({
     setEditLectureFileObj(file);
   };
 
+  // Chuyển đổi trạng thái hiển thị hoặc ẩn của bài giảng/tài liệu đối với học viên.
+  const handleToggleResourceVisibility = async (
+    resourceId: string,
+    currentVisibility: "PUBLISHED" | "HIDDEN",
+    resourceLabel: string,
+  ) => {
+    const nextVisibility: "PUBLISHED" | "HIDDEN" =
+      currentVisibility === "HIDDEN" ? "PUBLISHED" : "HIDDEN";
+    try {
+      await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(resourceId)}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+      await loadClassData();
+      notify(
+        nextVisibility === "HIDDEN"
+          ? `Đã ẩn "${resourceLabel}" đối với học sinh.`
+          : `Đã hiển thị "${resourceLabel}" cho học sinh.`,
+        "success",
+      );
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không thể cập nhật trạng thái hiển thị.",
+        "error",
+      );
+    }
+  };
+
   // Mở modal sửa bài giảng với đầy đủ dữ liệu nguồn (Link hoặc File)
   const handleOpenEditLecture = (lec: LectureItem) => {
     setEditingLecture({ ...lec });
     setEditLectureFormTitle(lec.title);
-    setEditLectureFormDesc(lec.description || "");
+    setEditLectureFormVisibility(lec.visibility || "PUBLISHED");
     setEditLectureFormFolder(lec.folder);
     setEditLectureFileObj(null);
 
@@ -1040,10 +1176,10 @@ export function InstructorClassWorkspace({
       notify("Để chuyển bài giảng từ tệp sang liên kết, hãy tạo bài giảng liên kết mới.", "error");
       return;
     }
+    const targetFolder = editLectureFormFolder.trim() || "Bài giảng chung";
     const tags = (editingLecture.tags ?? []).filter((tag) =>
       !tag.startsWith("Mô tả: ") && !tag.startsWith("youtube:") && !tag.startsWith("lecture-url:"));
     if (!tags.some((tag) => /^(lecture|bài giảng)$/i.test(tag))) tags.push("LECTURE");
-    if (editLectureFormDesc.trim()) tags.push(`Mô tả: ${editLectureFormDesc.trim().replace(/,/g, "，")}`);
     if (editLectureMethod === "LINK") tags.push(`lecture-url:${nextUrl}`);
     setLectureSaving(true);
     let versionUploaded = false;
@@ -1053,8 +1189,9 @@ export function InstructorClassWorkspace({
         if (editLectureFileObj.size === 0) throw new Error("Tệp thay thế không có dữ liệu.");
         const form = new FormData();
         form.append("file", editLectureFileObj);
-        form.append("folder", editLectureFormFolder);
+        form.append("folder", targetFolder);
         form.append("tags", tags.join(","));
+        form.append("visibility", editLectureFormVisibility);
         await apiRequest<Material>(`${path}/versions`, {
           method: "POST", roleCode: session.roleCode, body: form,
         });
@@ -1062,7 +1199,12 @@ export function InstructorClassWorkspace({
       }
       await apiRequest<Material>(path, {
         method: "PATCH", roleCode: session.roleCode,
-        body: JSON.stringify({ name: editLectureFormTitle.trim(), folder: editLectureFormFolder, tags }),
+        body: JSON.stringify({
+          name: editLectureFormTitle.trim(),
+          folder: targetFolder,
+          tags,
+          visibility: editLectureFormVisibility,
+        }),
       });
       await loadClassData();
       setEditLectureModalOpen(false);
@@ -1146,7 +1288,7 @@ export function InstructorClassWorkspace({
     setEditingMaterial({ ...mat });
     setEditMaterialFormTitle(mat.title);
     setEditMaterialFormFolder(mat.folder);
-    setEditMaterialFormDesc(mat.description || "");
+    setEditMaterialFormVisibility(mat.visibility || "PUBLISHED");
     setEditMaterialFileObj(null);
     setEditMaterialModalOpen(true);
   };
@@ -1161,19 +1303,27 @@ export function InstructorClassWorkspace({
     setMaterialSaving(true);
     let versionUploaded = false;
     try {
+      const targetFolder = editMaterialFormFolder.trim() || "Tài liệu chung";
       const path = `/instructor/materials/${encodeURIComponent(editingMaterial.id)}`;
-      const tags = editMaterialFormDesc.trim().split(",").map((tag) => tag.trim()).filter(Boolean);
+      const existingTags = rawMaterialsMapRef.current.get(editingMaterial.id)?.tags ?? [];
+      const tags = existingTags.filter((tag) => !tag.startsWith("Mô tả: "));
       if (editMaterialFileObj) {
         const form = new FormData();
         form.append("file", editMaterialFileObj);
-        form.append("folder", editMaterialFormFolder);
+        form.append("folder", targetFolder);
         form.append("tags", tags.join(","));
+        form.append("visibility", editMaterialFormVisibility);
         await apiRequest<Material>(`${path}/versions`, { method: "POST", roleCode: session.roleCode, body: form });
         versionUploaded = true;
       }
       await apiRequest<Material>(path, {
         method: "PATCH", roleCode: session.roleCode,
-        body: JSON.stringify({ name: editMaterialFormTitle.trim(), folder: editMaterialFormFolder, tags }),
+        body: JSON.stringify({
+          name: editMaterialFormTitle.trim(),
+          folder: targetFolder,
+          tags,
+          visibility: editMaterialFormVisibility,
+        }),
       });
       await loadClassData();
       setEditMaterialModalOpen(false);
@@ -1669,28 +1819,33 @@ export function InstructorClassWorkspace({
     setMaterialSaving(true);
     let uploadedId: string | null = null;
     try {
-      const tags = materialFormDesc.trim().split(",").map((tag) => tag.trim()).filter(Boolean);
+      const targetFolder = materialFormFolder.trim() || "Tài liệu chung";
       const form = new FormData();
       form.append("file", materialUploadFile);
-      form.append("folder", materialFormFolder);
-      form.append("tags", tags.join(","));
+      form.append("folder", targetFolder);
+      form.append("tags", "");
       form.append("scope", "CLASS");
+      form.append("visibility", materialFormVisibility);
       const created = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
         method: "POST", roleCode: session.roleCode, body: form,
       });
       if (!created?.id) throw new Error("Máy chủ không trả về ID tài liệu vừa tải lên.");
       uploadedId = created.id;
-      if (materialFormTitle.trim() !== created.name) {
+      if (materialFormTitle.trim() !== created.name || created.visibility !== materialFormVisibility) {
         await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
           method: "PATCH", roleCode: session.roleCode,
-          body: JSON.stringify({ name: materialFormTitle.trim() }),
+          body: JSON.stringify({
+            name: materialFormTitle.trim(),
+            visibility: materialFormVisibility,
+          }),
         });
       }
       await loadClassData();
       setSelectedMaterialId(created.id);
+      setSelectedMaterialFolder(targetFolder);
       setAddMaterialModalOpen(false);
       setMaterialFormTitle("");
-      setMaterialFormDesc("");
+      setMaterialFormVisibility("PUBLISHED");
       setMaterialUploadFile(null);
       notify("Đã tải lên và lưu tài liệu thành công!", "success");
     } catch (err) {
@@ -1880,14 +2035,30 @@ export function InstructorClassWorkspace({
                 </div>
               )}
 
-              {/* Phần Mô tả bài giảng */}
-              <div className="space-y-1.5 pt-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Mô tả
-                </h4>
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {selectedLectureForPage.description || "Bài giảng không có mô tả nào."}
-                </p>
+              {/* Trạng thái hiển thị bài giảng */}
+              <div className="flex items-center justify-between pt-2 text-xs text-slate-600 dark:text-slate-400">
+                <span className="font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Trạng thái hiển thị
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                    selectedLectureForPage.visibility === "HIDDEN"
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                      : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                  }`}
+                >
+                  {selectedLectureForPage.visibility === "HIDDEN" ? (
+                    <>
+                      <EyeOff size={13} />
+                      <span>Đã ẩn với học sinh</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye size={13} />
+                      <span>Đang hiển thị</span>
+                    </>
+                  )}
+                </span>
               </div>
 
               {/* Phần Bài tập & Tài liệu đính kèm (chuẩn Ảnh 2) */}
@@ -2986,16 +3157,17 @@ export function InstructorClassWorkspace({
                           <ChevronDown size={16} className="text-slate-400" />
                         </div>
 
-                        {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (THEO ẢNH 2) */}
+                        {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (ICON TRÁI - TÊN PHẢI) */}
                         <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <button
                             type="button"
                             onClick={() => setAssignmentViewMode("detail")}
                             aria-label="Xem bài tập"
                             title="Xem bài tập"
-                            className="inline-flex size-10 items-center justify-center rounded-xl text-blue-600 transition hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-xs font-bold transition-colors cursor-pointer"
                           >
-                            <Eye size={17} />
+                            <Eye size={16} className="shrink-0" />
+                            <span>Xem bài tập</span>
                           </button>
 
                           <button
@@ -3003,11 +3175,11 @@ export function InstructorClassWorkspace({
                             onClick={() => handleOpenEditAssignment(selectedAssignment)}
                             aria-label="Sửa bài tập"
                             title="Sửa bài tập"
-                            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer"
                           >
-                            <Edit2 size={17} />
+                            <Edit2 size={16} className="shrink-0" />
+                            <span>Chỉnh sửa</span>
                           </button>
-
                         </div>
                       </div>
                     ) : (
@@ -3118,8 +3290,12 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => {
-                  const defaultFolder = selectedLectureFolder !== "__ALL__" ? selectedLectureFolder : (lectureFolders[0] || "Hình học");
+                  const defaultFolder =
+                    selectedLectureFolder !== "__ALL__"
+                      ? selectedLectureFolder
+                      : lectureFolders[0] || "Bài giảng chung";
                   setLectureFormFolder(defaultFolder);
+                  setLectureFormVisibility("PUBLISHED");
                   setAddLectureModalOpen(true);
                 }}
                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -3249,9 +3425,17 @@ export function InstructorClassWorkspace({
                               {lec.fileType}
                             </div>
                             <div className="min-w-0 flex-1 space-y-1">
-                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                {lec.title}
-                              </strong>
+                              <div className="flex items-center gap-2">
+                                <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                  {lec.title}
+                                </strong>
+                                {lec.visibility === "HIDDEN" && (
+                                  <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                    <EyeOff size={11} />
+                                    <span>Đã ẩn</span>
+                                  </span>
+                                )}
+                              </div>
                               <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-purple-500 rounded-full"
@@ -3290,65 +3474,109 @@ export function InstructorClassWorkspace({
                       </h4>
                     </div>
 
-                    {/* Mô tả (hiển thị ngắn gọn) */}
-                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
-                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
-                        Mô tả
-                      </span>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-3 leading-relaxed">
-                        {activeLectureItem.description || "Bài giảng không có mô tả nào."}
-                      </p>
+                    {/* Trạng thái hiển thị và Ngày đăng */}
+                    <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400 py-2 border-t border-b border-slate-200/60 dark:border-slate-800/60">
+                      <div className="flex items-center justify-between">
+                        <span>Trạng thái</span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            activeLectureItem.visibility === "HIDDEN"
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                          }`}
+                        >
+                          {activeLectureItem.visibility === "HIDDEN" ? (
+                            <>
+                              <EyeOff size={12} />
+                              <span>Đã ẩn</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye size={12} />
+                              <span>Đang hiển thị</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar size={13} className="text-slate-400" />
+                          <span>Ngày đăng</span>
+                        </span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activeLectureItem.uploadedAt}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Ngày đăng */}
-                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 py-1.5 border-t border-b border-slate-200/60 dark:border-slate-800/60">
-                      <span className="flex items-center gap-1.5">
-                        <Calendar size={13} className="text-slate-400" />
-                        <span>Ngày đăng</span>
-                      </span>
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {activeLectureItem.uploadedAt}
-                      </span>
-                    </div>
-
-                    {/* Nút Xem bài giảng: Mở trang chi tiết xem bài giảng chuẩn Ảnh 2 */}
-                    <div className="pt-2 space-y-2">
+                    {/* Danh sách chức năng bài giảng: từng hàng 1 chức năng, icon trái - tên phải */}
+                    <div className="pt-2 space-y-1.5">
                       <button
                         type="button"
                         onClick={() => setSelectedLectureForPage(activeLectureItem)}
-                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                       >
-                        <Play size={14} />
+                        <Play size={15} className="shrink-0" />
                         <span>Xem bài giảng</span>
                       </button>
 
-                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa, Di chuyển và Xóa bài giảng */}
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditLecture(activeLectureItem)}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <Edit3 size={13} />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenMoveItem(activeLectureItem.id, activeLectureItem.title, "LECTURE")}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <FolderInput size={13} />
-                          <span>Di chuyển</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <Trash2 size={13} />
-                          <span>Xóa</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleToggleResourceVisibility(
+                            activeLectureItem.id,
+                            activeLectureItem.visibility,
+                            activeLectureItem.title,
+                          )
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        {activeLectureItem.visibility === "HIDDEN" ? (
+                          <Eye size={15} className="shrink-0 text-emerald-600" />
+                        ) : (
+                          <EyeOff size={15} className="shrink-0 text-slate-500" />
+                        )}
+                        <span>
+                          {activeLectureItem.visibility === "HIDDEN"
+                            ? "Hiển thị bài giảng"
+                            : "Ẩn bài giảng"}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditLecture(activeLectureItem)}
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Edit3 size={15} className="shrink-0" />
+                        <span>Chỉnh sửa</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenMoveItem(
+                            activeLectureItem.id,
+                            activeLectureItem.title,
+                            "LECTURE",
+                          )
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <FolderInput size={15} className="shrink-0" />
+                        <span>Di chuyển</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Trash2 size={15} className="shrink-0" />
+                        <span>Xóa</span>
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -3377,8 +3605,12 @@ export function InstructorClassWorkspace({
               <button
                 type="button"
                 onClick={() => {
-                  const defaultFolder = selectedMaterialFolder !== "__ALL__" ? selectedMaterialFolder : (materialFolders[0] || "Toán 1");
+                  const defaultFolder =
+                    selectedMaterialFolder !== "__ALL__"
+                      ? selectedMaterialFolder
+                      : materialFolders[0] || "Tài liệu chung";
                   setMaterialFormFolder(defaultFolder);
+                  setMaterialFormVisibility("PUBLISHED");
                   setAddMaterialModalOpen(true);
                 }}
                 className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -3501,9 +3733,17 @@ export function InstructorClassWorkspace({
                               {mat.fileType}
                             </div>
                             <div className="min-w-0 flex-1 space-y-1">
-                              <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                {mat.title}
-                              </strong>
+                              <div className="flex items-center gap-2">
+                                <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
+                                  {mat.title}
+                                </strong>
+                                {mat.visibility === "HIDDEN" && (
+                                  <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                    <EyeOff size={11} />
+                                    <span>Đã ẩn</span>
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                                 {mat.size} · Tải lên {mat.uploadedAt}
                               </p>
@@ -3533,14 +3773,31 @@ export function InstructorClassWorkspace({
                       <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                         {activeMaterialItem.title}
                       </h4>
-                      {activeMaterialItem.description && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
-                          {activeMaterialItem.description}
-                        </p>
-                      )}
                     </div>
 
                     <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                        <span>Trạng thái</span>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            activeMaterialItem.visibility === "HIDDEN"
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                          }`}
+                        >
+                          {activeMaterialItem.visibility === "HIDDEN" ? (
+                            <>
+                              <EyeOff size={12} />
+                              <span>Đã ẩn</span>
+                            </>
+                          ) : (
+                            <>
+                              <Eye size={12} />
+                              <span>Đang hiển thị</span>
+                            </>
+                          )}
+                        </span>
+                      </div>
                       <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                         <span>Định dạng</span>
                         <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">
@@ -3561,43 +3818,74 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    <div className="pt-2 space-y-2">
+                    {/* Danh sách chức năng tài liệu: từng hàng 1 chức năng, icon trái - tên phải */}
+                    <div className="pt-2 space-y-1.5">
                       <button
                         type="button"
                         onClick={() => void handleDownloadMaterial(activeMaterialItem.id)}
-                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                       >
-                        <Download size={14} />
+                        <Download size={15} className="shrink-0" />
                         <span>Tải xuống tài liệu</span>
                       </button>
 
-                      {/* Các nút dành riêng cho Giảng viên: Chỉnh sửa, Di chuyển và Xóa tài liệu */}
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditMaterial(activeMaterialItem)}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <Edit3 size={13} />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenMoveItem(activeMaterialItem.id, activeMaterialItem.title, "MATERIAL")}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <FolderInput size={13} />
-                          <span>Di chuyển</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)}
-                          className="w-full inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                        >
-                          <Trash2 size={13} />
-                          <span>Xóa</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleToggleResourceVisibility(
+                            activeMaterialItem.id,
+                            activeMaterialItem.visibility,
+                            activeMaterialItem.title,
+                          )
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        {activeMaterialItem.visibility === "HIDDEN" ? (
+                          <Eye size={15} className="shrink-0 text-emerald-600" />
+                        ) : (
+                          <EyeOff size={15} className="shrink-0 text-slate-500" />
+                        )}
+                        <span>
+                          {activeMaterialItem.visibility === "HIDDEN"
+                            ? "Hiển thị tài liệu"
+                            : "Ẩn tài liệu"}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditMaterial(activeMaterialItem)}
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Edit3 size={15} className="shrink-0" />
+                        <span>Chỉnh sửa</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenMoveItem(
+                            activeMaterialItem.id,
+                            activeMaterialItem.title,
+                            "MATERIAL",
+                          )
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <FolderInput size={15} className="shrink-0" />
+                        <span>Di chuyển</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)
+                        }
+                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Trash2 size={15} className="shrink-0" />
+                        <span>Xóa</span>
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -4130,15 +4418,18 @@ export function InstructorClassWorkspace({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Mô tả bài giảng:
+                    Trạng thái hiển thị:
                   </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Tóm tắt nội dung bài giảng..."
-                    value={lectureFormDesc}
-                    onChange={(e) => setLectureFormDesc(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-                  />
+                  <select
+                    value={lectureFormVisibility}
+                    onChange={(e) =>
+                      setLectureFormVisibility(e.target.value as "PUBLISHED" | "HIDDEN")
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="PUBLISHED">Hiển thị với học sinh</option>
+                    <option value="HIDDEN">Ẩn với học sinh</option>
+                  </select>
                 </div>
 
                 <div>
@@ -4151,7 +4442,11 @@ export function InstructorClassWorkspace({
                       onChange={(e) => setLectureFormFolder(e.target.value)}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
                     >
-                      {Array.from(new Set([...lectureFolders, "Hình học", "Toán 1", lectureFormFolder].filter(Boolean))).map((f) => (
+                      {Array.from(
+                        new Set(
+                          [...lectureFolders, lectureFormFolder, "Bài giảng chung"].filter(Boolean),
+                        ),
+                      ).map((f) => (
                         <option key={f} value={f}>
                           📁 {f}
                         </option>
@@ -4703,31 +4998,48 @@ export function InstructorClassWorkspace({
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Thư mục lưu trữ:
                   </label>
-                  <select
-                    value={editLectureFormFolder}
-                    onChange={(e) => setEditLectureFormFolder(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="Toán 1">Toán 1</option>
-                    <option value="Hình học">Hình học</option>
-                    {customFolders.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      value={editLectureFormFolder}
+                      onChange={(e) => setEditLectureFormFolder(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
+                    >
+                      {Array.from(
+                        new Set(
+                          [...lectureFolders, editLectureFormFolder, "Bài giảng chung"].filter(
+                            Boolean,
+                          ),
+                        ),
+                      ).map((f) => (
+                        <option key={f} value={f}>
+                          📁 {f}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Hoặc gõ tên thư mục..."
+                      value={editLectureFormFolder}
+                      onChange={(e) => setEditLectureFormFolder(e.target.value)}
+                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Mô tả bài giảng:
+                    Trạng thái hiển thị:
                   </label>
-                  <textarea
-                    rows={3}
-                    value={editLectureFormDesc}
-                    onChange={(e) => setEditLectureFormDesc(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100 resize-none"
-                  />
+                  <select
+                    value={editLectureFormVisibility}
+                    onChange={(e) =>
+                      setEditLectureFormVisibility(e.target.value as "PUBLISHED" | "HIDDEN")
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="PUBLISHED">Hiển thị với học sinh</option>
+                    <option value="HIDDEN">Ẩn với học sinh</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -4790,7 +5102,7 @@ export function InstructorClassWorkspace({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Thư mục lưu trữ tài liệu:
@@ -4801,7 +5113,13 @@ export function InstructorClassWorkspace({
                       onChange={(e) => setMaterialFormFolder(e.target.value)}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                     >
-                      {Array.from(new Set([...materialFolders, "Toán 1", "Hình học", materialFormFolder].filter(Boolean))).map((f) => (
+                      {Array.from(
+                        new Set(
+                          [...materialFolders, materialFormFolder, "Tài liệu chung"].filter(
+                            Boolean,
+                          ),
+                        ),
+                      ).map((f) => (
                         <option key={f} value={f}>
                           📁 {f}
                         </option>
@@ -4819,7 +5137,6 @@ export function InstructorClassWorkspace({
                     Đang lưu vào thư mục: <strong className="text-blue-600 dark:text-blue-400">{materialFormFolder}</strong>
                   </span>
                 </div>
-
               </div>
 
               <div>
@@ -4839,15 +5156,18 @@ export function InstructorClassWorkspace({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Mô tả tài liệu:
+                  Trạng thái hiển thị:
                 </label>
-                <textarea
-                  rows={3}
-                  placeholder="Mô tả tóm tắt nội dung tài liệu..."
-                  value={materialFormDesc}
-                  onChange={(e) => setMaterialFormDesc(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                />
+                <select
+                  value={materialFormVisibility}
+                  onChange={(e) =>
+                    setMaterialFormVisibility(e.target.value as "PUBLISHED" | "HIDDEN")
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                >
+                  <option value="PUBLISHED">Hiển thị với học sinh</option>
+                  <option value="HIDDEN">Ẩn với học sinh</option>
+                </select>
               </div>
             </div>
 
@@ -4936,11 +5256,15 @@ export function InstructorClassWorkspace({
                     onChange={(e) => setEditMaterialFormFolder(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   >
-                    <option value="Toán 1">Toán 1</option>
-                    <option value="Hình học">Hình học</option>
-                    {customFolders.map((f) => (
+                    {Array.from(
+                      new Set(
+                        [...materialFolders, editMaterialFormFolder, "Tài liệu chung"].filter(
+                          Boolean,
+                        ),
+                      ),
+                    ).map((f) => (
                       <option key={f} value={f}>
-                        {f}
+                        📁 {f}
                       </option>
                     ))}
                   </select>
@@ -4958,14 +5282,18 @@ export function InstructorClassWorkspace({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Mô tả tài liệu:
+                  Trạng thái hiển thị:
                 </label>
-                <textarea
-                  rows={2}
-                  value={editMaterialFormDesc}
-                  onChange={(e) => setEditMaterialFormDesc(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                />
+                <select
+                  value={editMaterialFormVisibility}
+                  onChange={(e) =>
+                    setEditMaterialFormVisibility(e.target.value as "PUBLISHED" | "HIDDEN")
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                >
+                  <option value="PUBLISHED">Hiển thị với học sinh</option>
+                  <option value="HIDDEN">Ẩn với học sinh</option>
+                </select>
               </div>
             </div>
 
@@ -5482,7 +5810,17 @@ export function InstructorClassWorkspace({
                           const prefix = String.fromCharCode(65 + optIdx);
                           const isCorrect = q.correctAnswers.includes(opt);
                           return (
-                            <div
+                            <button
+                              type="button"
+                              disabled={scanSaving}
+                              aria-pressed={isCorrect}
+                              onClick={() => setScannedExamQuestions((rows) => rows.map((row, position) => {
+                                if (position !== index) return row;
+                                const answers = row.type === "MULTIPLE_CHOICE"
+                                  ? (isCorrect ? row.correctAnswers.filter((value) => value !== opt) : [...row.correctAnswers, opt])
+                                  : [opt];
+                                return { ...row, correctAnswers: answers, answerSource: "Giảng viên đã chọn đáp án", warnings: row.warnings.filter((message) => !/đáp án/iu.test(message)) };
+                              }))}
                               key={optIdx}
                               className={`p-1.5 rounded-lg text-[11px] flex items-center gap-1.5 border ${
                                 isCorrect
@@ -5492,10 +5830,11 @@ export function InstructorClassWorkspace({
                             >
                               <span className="font-bold">{prefix}.</span>
                               <span className="truncate">{opt}</span>
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
+                      {q.answerSource && <p className="text-xs">{q.answerSource}</p>}
                       {q.correctAnswers.length > 0 && <p className="text-[11px] text-emerald-700">Đáp án nhận diện: {q.correctAnswers.join("; ")}</p>}
                       <p className="text-[11px] text-slate-500">Độ tin cậy: {Math.round(q.confidence * 100)}%</p>
                       {q.warnings.map((warning, warningIndex) => <p key={warningIndex} className="text-[11px] text-amber-700">{warning}</p>)}

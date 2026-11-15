@@ -119,13 +119,23 @@ const examResult: LearnerResult = {
 const classMaterials: Material[] = [
   {
     id: "lecture-1", classId: dummyClass.id, ownerId: "ins-1", name: "Bài giảng phân số.mp4",
-    mimeType: "video/mp4", sizeBytes: 2097152, folder: "Toán 1", tags: ["lecture", "Mô tả: Bài học về phân số"],
+    mimeType: "video/mp4", sizeBytes: 2097152, folder: "Toán 1", tags: ["lecture"],
     version: 1, visibility: "PUBLISHED", scope: "CLASS", createdAt: "2026-10-20T09:00:00Z",
   },
   {
     id: "material-1", classId: dummyClass.id, ownerId: "ins-1", name: "Tài liệu đại số.pdf",
     mimeType: "application/pdf", sizeBytes: 1048576, folder: "Toán 1", tags: [],
     version: 1, visibility: "PUBLISHED", scope: "CLASS", createdAt: "2026-10-21T09:00:00Z",
+  },
+  {
+    id: "lecture-hidden", classId: dummyClass.id, ownerId: "ins-1", name: "Bài giảng đã ẩn.mp4",
+    mimeType: "video/mp4", sizeBytes: 2097152, folder: "Toán 1", tags: ["lecture"],
+    version: 1, visibility: "HIDDEN", scope: "CLASS", createdAt: "2026-10-20T09:30:00Z",
+  },
+  {
+    id: "material-hidden", classId: dummyClass.id, ownerId: "ins-1", name: "Tài liệu đã ẩn.pdf",
+    mimeType: "application/pdf", sizeBytes: 1048576, folder: "Toán 1", tags: [],
+    version: 1, visibility: "HIDDEN", scope: "CLASS", createdAt: "2026-10-21T09:30:00Z",
   },
 ];
 
@@ -312,7 +322,7 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Chi tiết")).toBeInTheDocument();
   });
 
-  it("tab Bài giảng hiển thị giao diện 3 cột với Cột 3 tinh gọn chỉ gồm Tên, Mô tả ngắn gọn, Ngày đăng", async () => {
+  it("tab Bài giảng hiển thị giao diện 3 cột tinh gọn, không còn mô tả và ẩn học liệu HIDDEN với học viên", async () => {
     renderWorkspace();
 
     fireEvent.click(screen.getAllByText("Bài giảng")[0]!);
@@ -321,7 +331,12 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByPlaceholderText("Tìm kiếm bài giảng...")).toBeInTheDocument();
     expect((await screen.findAllByText(/Xem bài giảng/i)).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Ngày đăng")).toBeInTheDocument();
-    expect(screen.getByText("Mô tả")).toBeInTheDocument();
+    expect(screen.queryByText("Mô tả")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bài giảng đã ẩn.mp4")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByText("Tài liệu")[0]!);
+    expect((await screen.findAllByText("Tài liệu đại số.pdf")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Tài liệu đã ẩn.pdf")).not.toBeInTheDocument();
   });
 
   it("cho phép mở Trang chi tiết bài giảng 3 cột đầy đủ khi bấm nút Xem bài giảng", async () => {
@@ -396,13 +411,14 @@ describe("LearnerClassWorkspace", () => {
   });
 
   it("chỉ hiển thị tài liệu của lớp và học liệu dùng chung đúng môn học", async () => {
+    const publishedMaterial = classMaterials.find((item) => item.id === "material-1")!;
     const originalRequest = mockApiRequest.getMockImplementation();
     mockApiRequest.mockImplementation((path: string, options?: unknown) => {
       if (path === "/materials") return Promise.resolve([
         ...classMaterials,
-        { ...classMaterials[1], id: "other-class", classId: "cls-2", name: "Tệp lớp khác.pdf" },
-        { ...classMaterials[1], id: "shared-course", classId: null, courseId: "crs-1", scope: "SHARED", name: "Tệp dùng chung.pdf" },
-        { ...classMaterials[1], id: "shared-other", classId: null, courseId: "crs-2", scope: "SHARED", name: "Tệp môn khác.pdf" },
+        { ...publishedMaterial, id: "other-class", classId: "cls-2", name: "Tệp lớp khác.pdf" },
+        { ...publishedMaterial, id: "shared-course", classId: null, courseId: "crs-1", scope: "SHARED", name: "Tệp dùng chung.pdf" },
+        { ...publishedMaterial, id: "shared-other", classId: null, courseId: "crs-2", scope: "SHARED", name: "Tệp môn khác.pdf" },
       ]);
       if (!originalRequest) throw new Error(`Unexpected API request: ${path}`);
       return originalRequest(path, options);

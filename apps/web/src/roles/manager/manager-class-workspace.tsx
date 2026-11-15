@@ -8,6 +8,7 @@ import {
   Clock,
   Download,
   Eye,
+  EyeOff,
   FileText,
   Folder,
   LayoutDashboard,
@@ -36,8 +37,9 @@ import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
 import { activeLocale } from "@/i18n/runtime";
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import type {
   ClassClosureReadiness,
@@ -46,8 +48,10 @@ import type {
   EnrollmentImportResult,
   InstructorRole,
   LearningClass,
+  Material,
 } from "@/lib/learning-types";
 import { type RemoveTarget } from "@/features/class-detail/class-detail.shared";
+import { isLectureMaterial, toLectureItem, toMaterialDisplayItem } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { buildManagerFolderView } from "./manager-folder-view";
 import { ManagerFolderSidebar } from "./manager-folder-sidebar";
 
@@ -164,7 +168,11 @@ export function ManagerClassWorkspace({
   removeMember,
   activate,
 }: ManagerClassWorkspaceProps) {
-  const { notify } = useApp();
+  const { notify, session } = useApp();
+  const notifyRef = useRef(notify);
+  useEffect(() => {
+    notifyRef.current = notify;
+  }, [notify]);
   const [currentClass, setCurrentClass] = useState<LearningClass>(item);
   const [activeTab, setActiveTab] = useState<ManagerSubTab>("overview");
   const [copiedLink, setCopiedLink] = useState(false);
@@ -199,15 +207,19 @@ export function ManagerClassWorkspace({
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("asg-1");
 
+  // Trạng thái học liệu & bài giảng thật tải từ máy chủ
+  const [classMaterials, setClassMaterials] = useState<Material[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+
   // Trạng thái tab Bài giảng (chuẩn giao diện học sinh)
   const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
   const [lectureSearch, setLectureSearch] = useState("");
-  const [selectedLectureId, setSelectedLectureId] = useState<string>("lec-1");
+  const [selectedLectureId, setSelectedLectureId] = useState<string>("");
 
   // Trạng thái tab Tài liệu (chuẩn giao diện học sinh)
   const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
   const [materialSearch, setMaterialSearch] = useState("");
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string>("mat-1");
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string>("");
 
   // Đồng bộ lại khi prop item thay đổi
   useEffect(() => {
@@ -219,6 +231,88 @@ export function ManagerClassWorkspace({
       allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
     });
   }, [item]);
+
+  // Nạp toàn bộ học liệu của lớp để quản trị viên thấy cả tài liệu hiển thị và đã ẩn.
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setMaterialsLoading(true);
+    loadAllMaterials<Material>("/materials", {
+      roleCode: session.roleCode,
+      signal: controller.signal,
+    })
+      .then((materials) => {
+        if (!active) return;
+        setClassMaterials(
+          materials.filter((material) => isMaterialForClass(material, currentClass.id, currentClass.courseId)),
+        );
+      })
+      .catch((error) => {
+        if (!active || controller.signal.aborted) return;
+        setClassMaterials([]);
+        notifyRef.current(
+          error instanceof Error ? error.message : "Không thể tải danh sách học liệu của lớp.",
+          "error",
+        );
+      })
+      .finally(() => {
+        if (active) setMaterialsLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [currentClass.id, currentClass.courseId, session.roleCode]);
+
+  // Mở xem trước học liệu hoặc liên kết bài giảng; chặn quản trị viên mở mục đang ẩn.
+  const handlePreviewMaterial = async (
+    materialId: string,
+    title: string,
+    visibility: "PUBLISHED" | "HIDDEN",
+    sourceUrl?: string,
+  ) => {
+    if (visibility === "HIDDEN") {
+      notify("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.", "error");
+      return;
+    }
+    if (sourceUrl) {
+      window.open(sourceUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const previewWindow = window.open("", "_blank");
+    if (!previewWindow) {
+      notify("Trình duyệt đã chặn cửa sổ xem trước.", "error");
+      return;
+    }
+    try {
+      const access = await apiRequest<{ url: string }>(
+        `/materials/${encodeURIComponent(materialId)}/access?action=PREVIEW`,
+        { roleCode: session.roleCode },
+      );
+      await previewApiFile(access.url, session.roleCode, title, previewWindow);
+    } catch (error) {
+      previewWindow.close();
+      notify(error instanceof Error ? error.message : "Không thể xem trước tài liệu.", "error");
+    }
+  };
+
+  // Tải xuống tệp học liệu; chặn quản trị viên tải mục đang ẩn.
+  const handleDownloadMaterial = async (materialId: string, visibility: "PUBLISHED" | "HIDDEN") => {
+    if (visibility === "HIDDEN") {
+      notify("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.", "error");
+      return;
+    }
+    try {
+      const access = await apiRequest<{ url: string }>(
+        `/materials/${encodeURIComponent(materialId)}/access?action=DOWNLOAD`,
+        { roleCode: session.roleCode },
+      );
+      await downloadApiFile(access.url, session.roleCode);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tải xuống tài liệu.", "error");
+    }
+  };
 
   useEffect(() => () => {
     copyRequest.current += 1;
@@ -576,7 +670,7 @@ export function ManagerClassWorkspace({
                     Bảng tin lớp học
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Theo dõi và kiểm duyệt các bài viết, trao đổi giữa giáo viên và học sinh.
+                    Theo dõi các bài viết, trao đổi giữa giáo viên và học sinh.
                   </p>
                 </div>
               </div>
@@ -1232,52 +1326,15 @@ export function ManagerClassWorkspace({
           {/* TAB 7: TÀI LIỆU (MASTER-DETAIL 3 CỘT CHUẨN HỌC SINH - CHỈ XEM) */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "materials" && (() => {
-            const rawMaterials = [
-              {
-                id: "mat-1",
-                title: "Giáo trình bài giảng lý thuyết tuần 1.pdf",
-                folder: "Chương 1: Giáo trình & Đề cương",
-                fileType: "pdf",
-                size: "2.4 MB",
-                pageCount: 28,
-                downloadsCount: 42,
-                uploadedAt: "24/10/2026",
-                author: primaryInstructor?.displayName || "Giảng viên phụ trách",
-              },
-              {
-                id: "mat-2",
-                title: "Slide trình chiếu trực quan chương 1.pptx",
-                folder: "Chương 1: Giáo trình & Đề cương",
-                fileType: "pptx",
-                size: "8.1 MB",
-                pageCount: 35,
-                downloadsCount: 38,
-                uploadedAt: "25/10/2026",
-                author: primaryInstructor?.displayName || "Giảng viên phụ trách",
-              },
-              {
-                id: "mat-3",
-                title: "Phiếu bài tập rèn luyện kỹ năng số 01.docx",
-                folder: "Chương 2: Bài tập bổ trợ",
-                fileType: "doc",
-                size: "450 KB",
-                pageCount: 6,
-                downloadsCount: 29,
-                uploadedAt: "26/10/2026",
-                author: primaryInstructor?.displayName || "Giảng viên phụ trách",
-              },
-              {
-                id: "mat-4",
-                title: "Bảng tổng hợp công thức giải nhanh Toán học.pdf",
-                folder: "Tài liệu công thức nhanh",
-                fileType: "pdf",
-                size: "1.2 MB",
-                pageCount: 12,
-                downloadsCount: 55,
-                uploadedAt: "27/10/2026",
-                author: primaryInstructor?.displayName || "Giảng viên phụ trách",
-              },
-            ];
+            const rawMaterials = classMaterials
+              .filter((material) => !isLectureMaterial(material))
+              .map((material) => {
+                const display = toMaterialDisplayItem(material);
+                return {
+                  ...display,
+                  author: primaryInstructor?.displayName || material.ownerId || "Giảng viên phụ trách",
+                };
+              });
 
             const { folders, counts, filtered, active: activeMat } = buildManagerFolderView(
               rawMaterials, selectedMaterialFolder, materialSearch, selectedMaterialId,
@@ -1320,7 +1377,9 @@ export function ManagerClassWorkspace({
                       {filtered.length === 0 ? (
                         <div className="py-12 text-center space-y-2">
                           <Folder size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
-                          <p className="text-xs text-slate-400">Không có tài liệu nào trong thư mục này</p>
+                          <p className="text-xs text-slate-400">
+                            {materialsLoading ? "Đang tải danh sách tài liệu..." : "Không có tài liệu nào trong thư mục này"}
+                          </p>
                         </div>
                       ) : (
                         filtered.map((mat) => {
@@ -1352,15 +1411,22 @@ export function ManagerClassWorkspace({
                                     {mat.title}
                                   </strong>
                                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                    {mat.size} · {mat.pageCount} trang · Tải lên {mat.uploadedAt}
+                                    {mat.size} · Tải lên {mat.uploadedAt}
                                   </p>
                                 </div>
                               </div>
 
                               <div className="shrink-0 text-right">
-                                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                                  {mat.downloadsCount} lượt tải
-                                </span>
+                                {mat.visibility === "HIDDEN" ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-bold">
+                                    <EyeOff size={11} />
+                                    Đã ẩn
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    Đang hiển thị
+                                  </span>
+                                )}
                               </div>
                             </div>
                           );
@@ -1393,6 +1459,19 @@ export function ManagerClassWorkspace({
                         {/* Bảng thông số chi tiết */}
                         <div className="space-y-2 text-xs">
                           <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Trạng thái</span>
+                            {activeMat.visibility === "HIDDEN" ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-300">
+                                <EyeOff size={12} />
+                                Đã ẩn
+                              </span>
+                            ) : (
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                Đang hiển thị
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                             <span>Định dạng</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100 uppercase">
                               {activeMat.fileType}
@@ -1402,18 +1481,6 @@ export function ManagerClassWorkspace({
                             <span>Dung lượng</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100">
                               {activeMat.size}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Số trang</span>
-                            <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeMat.pageCount} trang
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Lượt tải</span>
-                            <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeMat.downloadsCount} lượt
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
@@ -1430,12 +1497,19 @@ export function ManagerClassWorkspace({
                           </div>
                         </div>
 
+                        {activeMat.visibility === "HIDDEN" && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                            Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.
+                          </div>
+                        )}
+
                         {/* Nút thao tác: Xem trước và Tải xuống */}
                         <div className="border-t border-slate-200 dark:border-slate-800 pt-3 flex items-center justify-between gap-2">
                           <button
                             type="button"
-                            onClick={() => notify(`Đang mở xem trước tài liệu: ${activeMat.title}`, "info")}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer"
+                            disabled={activeMat.visibility === "HIDDEN"}
+                            onClick={() => void handlePreviewMaterial(activeMat.id, activeMat.title, activeMat.visibility)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Eye size={13} />
                             <span>Xem trước</span>
@@ -1443,8 +1517,9 @@ export function ManagerClassWorkspace({
 
                           <button
                             type="button"
-                            onClick={() => notify(`Đang tải file: ${activeMat.title}`, "success")}
-                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                            disabled={activeMat.visibility === "HIDDEN"}
+                            onClick={() => void handleDownloadMaterial(activeMat.id, activeMat.visibility)}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Download size={13} />
                             <span>Tải xuống</span>
@@ -1466,44 +1541,26 @@ export function ManagerClassWorkspace({
           {/* TAB 8: BÀI GIẢNG (MASTER-DETAIL 3 CỘT CHUẨN HỌC SINH - CHỈ XEM) */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "lectures" && (() => {
-            const rawLectures = [
-              {
-                id: "lec-1",
-                title: "Bài 01: Giới thiệu tổng quan và phương pháp tiếp cận",
-                folder: "Chương 1: Kiến thức nền tảng",
-                fileType: "mp4",
-                duration: "45:20",
-                teacher: primaryInstructor?.displayName || "Giảng viên phụ trách",
-                views: 28,
-                uploadedAt: "24/10/2026",
-                progressPercent: 85,
-                description: "Bài học cung cấp nền tảng kiến thức cơ bản về phương pháp giải toán, làm quen với hệ thống học tập trực tuyến và lộ trình học tập toàn khóa.",
-              },
-              {
-                id: "lec-2",
-                title: "Bài 02: Phân tích mô hình dữ liệu và giải thuật cốt lõi",
-                folder: "Chương 1: Kiến thức nền tảng",
-                fileType: "mp4",
-                duration: "52:10",
-                teacher: primaryInstructor?.displayName || "Giảng viên phụ trách",
-                views: 24,
-                uploadedAt: "26/10/2026",
-                progressPercent: 70,
-                description: "Đi sâu vào phân tích các dạng bài tập trọng tâm, phương pháp tư duy suy luận logic và các bài toán mẫu kinh điển của chuyên đề.",
-              },
-              {
-                id: "lec-3",
-                title: "Bài 03: Hướng dẫn thực hành và giải đáp thắc mắc chuyên sâu",
-                folder: "Chương 2: Ứng dụng thực tế",
-                fileType: "mp4",
-                duration: "38:45",
-                teacher: primaryInstructor?.displayName || "Giảng viên phụ trách",
-                views: 19,
-                uploadedAt: "28/10/2026",
-                progressPercent: 45,
-                description: "Giải quyết các lỗi sai học viên thường gặp phải khi làm bài thi, sửa trực tiếp các bài tập khó và câu hỏi mở rộng.",
-              },
-            ];
+            const rawLectures = classMaterials
+              .filter((material) => isLectureMaterial(material))
+              .map((material) => {
+                const lec = toLectureItem(material, primaryInstructor?.displayName || "Giảng viên phụ trách");
+                const createdDate = material.createdAt ? new Date(material.createdAt) : null;
+                const uploadedAtLabel = createdDate && !Number.isNaN(createdDate.getTime())
+                  ? createdDate.toLocaleDateString(activeLocale())
+                  : "—";
+                return {
+                  id: lec.id,
+                  title: lec.title,
+                  folder: lec.folder?.trim() || "Chuyên đề chung",
+                  fileType: lec.fileType || (lec.sourceType === "LINK" ? "link" : "mp4"),
+                  teacher: lec.teacher || primaryInstructor?.displayName || "Giảng viên phụ trách",
+                  uploadedAt: uploadedAtLabel,
+                  visibility: lec.visibility,
+                  sourceType: lec.sourceType,
+                  sourceUrl: lec.sourceUrl,
+                };
+              });
 
             const { folders, counts, filtered, active: activeLec } = buildManagerFolderView(
               rawLectures, selectedLectureFolder, lectureSearch, selectedLectureId,
@@ -1546,7 +1603,9 @@ export function ManagerClassWorkspace({
                       {filtered.length === 0 ? (
                         <div className="py-12 text-center space-y-2">
                           <Video size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
-                          <p className="text-xs text-slate-400">Không có bài giảng nào trong thư mục này</p>
+                          <p className="text-xs text-slate-400">
+                            {materialsLoading ? "Đang tải danh sách bài giảng..." : "Không có bài giảng nào trong thư mục này"}
+                          </p>
                         </div>
                       ) : (
                         filtered.map((lec) => {
@@ -1569,22 +1628,23 @@ export function ManagerClassWorkspace({
                                   <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
                                     {lec.title}
                                   </strong>
-                                  <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-purple-500 rounded-full"
-                                      style={{ width: `${lec.progressPercent}%` }}
-                                    />
-                                  </div>
                                   <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                    {lec.duration} · GV: {lec.teacher}
+                                    GV: {lec.teacher} · Đăng ngày {lec.uploadedAt}
                                   </p>
                                 </div>
                               </div>
 
                               <div className="shrink-0 text-right">
-                                <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
-                                  {lec.progressPercent}% đã xem
-                                </span>
+                                {lec.visibility === "HIDDEN" ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-bold">
+                                    <EyeOff size={11} />
+                                    Đã ẩn
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                    Đang hiển thị
+                                  </span>
+                                )}
                               </div>
                             </div>
                           );
@@ -1604,20 +1664,26 @@ export function ManagerClassWorkspace({
                           <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
                             {activeLec.title}
                           </h4>
-                        </div>
-
-                        {/* Mô tả tóm tắt */}
-                        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
-                          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
-                            Tóm tắt nội dung
+                          <span className="text-[11px] text-slate-400 mt-0.5 block">
+                            Thư mục: {activeLec.folder}
                           </span>
-                          <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-3 leading-relaxed">
-                            {activeLec.description}
-                          </p>
                         </div>
 
                         {/* Bảng thông số */}
                         <div className="space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
+                            <span>Trạng thái</span>
+                            {activeLec.visibility === "HIDDEN" ? (
+                              <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-300">
+                                <EyeOff size={12} />
+                                Đã ẩn
+                              </span>
+                            ) : (
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                Đang hiển thị
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                             <span>Giảng viên</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[140px]">
@@ -1625,15 +1691,9 @@ export function ManagerClassWorkspace({
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Thời lượng</span>
+                            <span>Loại nguồn</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeLec.duration}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Tổng lượt xem lớp</span>
-                            <span className="font-semibold text-purple-600 dark:text-purple-400">
-                              {activeLec.views} lượt xem
+                              {activeLec.sourceType === "LINK" ? "Liên kết ngoài" : "Tệp bài giảng"}
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
@@ -1644,12 +1704,26 @@ export function ManagerClassWorkspace({
                           </div>
                         </div>
 
+                        {activeLec.visibility === "HIDDEN" && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                            Bài giảng đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.
+                          </div>
+                        )}
+
                         {/* Nút Xem bài giảng */}
                         <div className="pt-2">
                           <button
                             type="button"
-                            onClick={() => notify(`Đang mở xem bài giảng: ${activeLec.title}`, "info")}
-                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                            disabled={activeLec.visibility === "HIDDEN"}
+                            onClick={() =>
+                              void handlePreviewMaterial(
+                                activeLec.id,
+                                activeLec.title,
+                                activeLec.visibility,
+                                activeLec.sourceUrl,
+                              )
+                            }
+                            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Play size={14} />
                             <span>Xem bài giảng</span>
@@ -1784,7 +1858,7 @@ export function ManagerClassWorkspace({
           </p>
           {closeReadinessLoading ? (
             <p role="status" className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              Đang kiểm tra bài thi, bài tập, buổi học và điểm danh còn mở...
+              Đang kiểm tra bài thi, bài tập, buổi học còn mở...
             </p>
           ) : closeReadiness?.eligible ? (
             <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">

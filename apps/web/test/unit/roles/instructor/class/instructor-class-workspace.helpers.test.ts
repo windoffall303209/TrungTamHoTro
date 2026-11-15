@@ -69,9 +69,9 @@ describe("instructor class workspace helpers", () => {
 
   it("lọc tài liệu theo thư mục và từ khóa, không làm thay đổi dữ liệu nguồn", () => {
     const items = [
-      { title: "Số học", folder: "Toán", description: "Bài giảng nền tảng", fileType: "pdf", uploadedAt: "2026-10-01" },
-      { title: "Hình học", folder: "Toán", description: "Phân tích", fileType: "mp4", uploadedAt: "2026-10-03" },
-      { title: "Văn học", folder: "Văn", description: "Bài tập", fileType: "docx", uploadedAt: "2026-10-02" },
+      { title: "Số học", folder: "Toán", fileType: "pdf", uploadedAt: "2026-10-01" },
+      { title: "Hình học", folder: "Toán", fileType: "mp4", uploadedAt: "2026-10-03" },
+      { title: "Văn học", folder: "Văn", fileType: "docx", uploadedAt: "2026-10-02" },
       { title: "Không phân loại", folder: "", fileType: "txt", uploadedAt: "2026-10-04" },
     ];
     const original = [...items];
@@ -80,7 +80,7 @@ describe("instructor class workspace helpers", () => {
     expect(filterClassResources(items, "Toán", "HÌNH", "alpha", true).map((item) => item.title)).toEqual(["Hình học"]);
     expect(filterClassResources(items, "__ALL__", "  ", "alpha", false).map((item) => item.title))
       .toEqual(["Hình học", "Không phân loại", "Số học", "Văn học"]);
-    expect(filterClassResources(items, "Toán", "tảng", "alpha", false).map((item) => item.title)).toEqual(["Số học"]);
+    expect(filterClassResources(items, "Toán", "số", "alpha", false).map((item) => item.title)).toEqual(["Số học"]);
     expect(filterClassResources(items, "Toán", "học ", "alpha", true)).toEqual([]);
     expect(items).toEqual(original);
   });
@@ -149,19 +149,21 @@ describe("instructor class workspace helpers", () => {
       size: "1.0 MB",
       uploadedAt: new Date(material.createdAt).toLocaleDateString("vi-VN"),
       folder: "Tuần 1",
-      description: material.tags.join(", "),
+      visibility: "PUBLISHED",
     });
+    expect(toMaterialDisplayItem({ ...material, visibility: "HIDDEN" }).visibility).toBe("HIDDEN");
     expect(toMaterialDisplayItem({ ...material, name: "filename", folder: "", sizeBytes: 0, createdAt: "broken-date" })).toMatchObject({
-      fileType: "mp4", size: "—", uploadedAt: "—", folder: "Tài liệu chung",
+      fileType: "mp4", size: "—", uploadedAt: "—", folder: "Tài liệu chung", visibility: "PUBLISHED",
     });
     expect(toLectureItem(material, "Giảng viên")).toMatchObject({
       id: "material-1", title: "Bài giảng.mp4", sourceType: "LINK", youtubeId: "abc123",
       sourceUrl: "https://www.youtube.com/watch?v=abc123", platform: "YOUTUBE",
       fileType: "mp4", authorName: "Giảng viên", attachedExamId: "exam-1",
-      description: "Khởi động",
+      visibility: "PUBLISHED",
     });
+    expect(toLectureItem({ ...material, visibility: "HIDDEN" }, "Giảng viên").visibility).toBe("HIDDEN");
     expect(toLectureItem({ ...material, name: "Slides.pptx", tags: [] }, "GV")).toMatchObject({
-      sourceType: "FILE", platform: "DIRECT", fileType: "pptx",
+      sourceType: "FILE", platform: "DIRECT", fileType: "pptx", visibility: "PUBLISHED",
     });
   });
 

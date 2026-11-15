@@ -8,7 +8,7 @@ export interface LectureItem {
   id: string;
   title: string;
   tags?: string[];
-  description?: string;
+  visibility: "PUBLISHED" | "HIDDEN";
   sourceType: "LINK" | "FILE";
   sourceUrl?: string;
   youtubeId?: string;
@@ -36,7 +36,7 @@ export interface MaterialDisplayItem {
   size: string;
   uploadedAt: string;
   folder: string;
-  description?: string;
+  visibility: "PUBLISHED" | "HIDDEN";
   url?: string;
 }
 
@@ -74,7 +74,6 @@ export function toClassQuestion(question: Question & { solution?: string; create
 type ClassResource = {
   title: string;
   folder: string;
-  description?: string;
   fileType?: string;
   uploadedAt: string;
 };
@@ -92,7 +91,7 @@ export function filterClassResources<T extends ClassResource>(
   if (search.trim()) {
     const query = search.toLowerCase();
     result = result.filter((item) =>
-      item.title.toLowerCase().includes(query) || (item.description && item.description.toLowerCase().includes(query))
+      item.title.toLowerCase().includes(query) || item.folder.toLowerCase().includes(query)
     );
   }
   if (sort === "alpha") {
@@ -144,7 +143,7 @@ export function toMaterialDisplayItem(material: Material): MaterialDisplayItem {
     size: material.sizeBytes > 0 ? `${(material.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "—",
     uploadedAt: Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString(activeLocale()),
     folder: material.folder || "Tài liệu chung",
-    description: material.tags?.join(", ") || "",
+    visibility: material.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED",
   };
 }
 
@@ -168,7 +167,7 @@ export function toLectureItem(material: Material, authorName: string): LectureIt
     id: material.id,
     title: material.name,
     tags: material.tags,
-    description: metadata("Mô tả: "),
+    visibility: material.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED",
     sourceType: sourceUrl ? "LINK" : "FILE",
     sourceUrl,
     youtubeId,

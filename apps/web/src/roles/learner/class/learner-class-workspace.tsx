@@ -114,7 +114,6 @@ interface LectureItem {
   folder?: string;
   progressPercent?: number;
   viewsCount?: number;
-  description?: string;
   sourceUrl?: string;
   youtubeId?: string;
   attachedExamId?: string;
@@ -616,6 +615,7 @@ export function LearnerClassWorkspace({
   const lecturesList: LectureItem[] = useMemo(() => {
     const dbLectures: LectureItem[] = classMaterials
       .filter((mat) => {
+        if (mat.visibility === "HIDDEN") return false;
         const mime = mat.mimeType || "";
         const tags = Array.isArray(mat.tags) ? mat.tags : [];
         return (
@@ -629,7 +629,6 @@ export function LearnerClassWorkspace({
       })
       .map((mat) => {
         const tags = Array.isArray(mat.tags) ? mat.tags : [];
-        const descTag = tags.find((t) => t.startsWith("Mô tả: "));
         const sourceUrl = getLectureSourceUrl(tags);
         const examIdTag = tags.find((t) => t.startsWith("attachedExamId:"));
         const examTitleTag = tags.find((t) => t.startsWith("attachedExamTitle:"));
@@ -646,7 +645,6 @@ export function LearnerClassWorkspace({
           teacher: teacherName,
           uploadedAt: mat.createdAt,
           folder: mat.folder || undefined,
-          description: descTag?.replace("Mô tả: ", ""),
           sourceUrl,
           youtubeId: getLectureYoutubeId(sourceUrl) ?? undefined,
           attachedExamId: examIdTag ? examIdTag.replace("attachedExamId:", "") : undefined,
@@ -668,6 +666,7 @@ export function LearnerClassWorkspace({
   // Danh sách tài liệu: 100% NẠP TỪ CSDL POSTGRESQL (TABLE MATERIAL CỦA LỚP)
   const materialsList: MaterialItem[] = useMemo(() => {
     const dbMats: MaterialItem[] = classMaterials.filter((mat) => {
+      if (mat.visibility === "HIDDEN") return false;
       const mime = mat.mimeType || "";
       const tags = Array.isArray(mat.tags) ? mat.tags : [];
       return !tags.some((tag) => /lecture|video|bài giảng/i.test(tag)) && !mime.startsWith("video/") && !mime.startsWith("audio/");
@@ -967,15 +966,6 @@ export function LearnerClassWorkspace({
                 </div>
               )}
 
-                            {/* Phần Mô tả bài giảng */}
-              <div className="space-y-1.5 pt-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Mô tả
-                </h4>
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {selectedLectureForPage.description || "Bài giảng không có mô tả nào."}
-                </p>
-              </div>
 
               {/* Phần Bài tập & Tài liệu đính kèm (chuẩn Ảnh 2 của người dùng) */}
               <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1853,15 +1843,6 @@ export function LearnerClassWorkspace({
                         </h4>
                       </div>
 
-                      {/* Mô tả (hiển thị ngắn gọn) */}
-                      <div className="p-3.5 rounded-xl bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1 shadow-2xs">
-                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
-                          Mô tả
-                        </span>
-                        <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-3 leading-relaxed">
-                          {activeLectureItem.description || "Bài giảng không có mô tả nào."}
-                        </p>
-                      </div>
 
                       {/* Ngày đăng */}
                       <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 py-1.5 border-t border-b border-slate-200/60 dark:border-slate-800/60">
