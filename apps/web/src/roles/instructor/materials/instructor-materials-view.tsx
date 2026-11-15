@@ -18,6 +18,8 @@ import {
   Video,
   X,
   Check,
+  Eye,
+  EyeOff,
   FolderMinus,
   FolderOpen,
 } from "lucide-react";
@@ -37,7 +39,7 @@ export interface MaterialFileItem {
   isUnclassified?: boolean;
   tag?: string;
   url?: string;
-  description?: string;
+  visibility: "PUBLISHED" | "HIDDEN";
   tags?: string[];
   assignedRole?: "MATERIAL" | "LECTURE";
 }
@@ -132,7 +134,7 @@ export function InstructorMaterialsView() {
             size: sizeMb,
             updatedAt: m.createdAt ?? "",
             folderCategory: m.folder || "Tài liệu chung",
-            description: m.tags?.join(", ") || "",
+            visibility: m.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED",
             tags: m.tags ?? [],
             tag: m.folder || "Tài liệu",
             assignedRole: m.tags?.includes("LECTURE") ? "LECTURE" : "MATERIAL",
@@ -253,7 +255,7 @@ export function InstructorMaterialsView() {
     fileName: "",
     fileSize: "",
     targetClassId: "unclassified",
-    description: "",
+    visibility: "PUBLISHED" as "PUBLISHED" | "HIDDEN",
   });
   const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -348,7 +350,12 @@ export function InstructorMaterialsView() {
   // Khởi tạo biểu mẫu tải tệp mới, loại bỏ tệp và metadata từ lần mở trước.
   const openUploadModal = (targetClassId: string) => {
     setUploadForm({
-      title: "", category: "MATERIAL", fileName: "", fileSize: "", targetClassId, description: "",
+      title: "",
+      category: "MATERIAL",
+      fileName: "",
+      fileSize: "",
+      targetClassId,
+      visibility: "PUBLISHED",
     });
     setSelectedUploadFile(null);
     setUploadModalStep("SELECT_TYPE");
@@ -370,7 +377,7 @@ export function InstructorMaterialsView() {
     targetClassId: string,
     category: "MATERIAL" | "LECTURE",
     title?: string,
-    description?: string,
+    visibility: "PUBLISHED" | "HIDDEN" = "PUBLISHED",
   ): Promise<Material> => {
     const selectedClass = allClassesList.find((item) => item.classId === targetClassId);
     if (targetClassId !== "unclassified" && !selectedClass) {
@@ -389,7 +396,8 @@ export function InstructorMaterialsView() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("folder", category === "LECTURE" ? "Bài giảng" : "Tài liệu");
-    formData.append("tags", [category, file.name.split(".").pop()?.toLowerCase() ?? "file", ...(description?.trim() ? [description.trim()] : [])].join(","));
+    formData.append("tags", [category, file.name.split(".").pop()?.toLowerCase() ?? "file"].join(","));
+    formData.append("visibility", visibility);
     if (selectedClass) formData.append("scope", "CLASS");
     const endpoint = selectedClass
       ? `/instructor/classes/${selectedClass.classId}/material-uploads`
@@ -400,12 +408,13 @@ export function InstructorMaterialsView() {
       body: formData,
     });
     if (!created?.id) throw new Error("API không trả về ID học liệu mới.");
-    if (title?.trim() && title.trim() !== created.name) {
+    const nextName = title?.trim() || created.name;
+    if (nextName !== created.name || created.visibility !== visibility) {
       try {
         return await apiRequest<Material>(`/instructor/materials/${created.id}`, {
           method: "PATCH",
           roleCode: session.roleCode,
-          body: JSON.stringify({ name: title.trim() }),
+          body: JSON.stringify({ name: nextName, visibility }),
         });
       } catch (error) {
         await loadData();
@@ -428,19 +437,53 @@ export function InstructorMaterialsView() {
     }
     setIsUploading(true);
     try {
-      const created = await uploadMaterialFile(selectedUploadFile, uploadForm.targetClassId, uploadForm.category, uploadForm.title, uploadForm.description);
+      const created = await uploadMaterialFile(
+        selectedUploadFile,
+        uploadForm.targetClassId,
+        uploadForm.category,
+        uploadForm.title,
+        uploadForm.visibility,
+      );
       await refreshMaterialList(`Đã tải lên '${created.name}' (${formatMaterialSize(created.sizeBytes)}).`);
       setUploadModalOpen(false);
       setSelectedUploadFile(null);
       setUploadForm({
-        title: "", category: "MATERIAL", fileName: "",
-        fileSize: "", targetClassId: currentContextLocation.classId, description: "",
+        title: "",
+        category: "MATERIAL",
+        fileName: "",
+        fileSize: "",
+        targetClassId: currentContextLocation.classId,
+        visibility: "PUBLISHED",
       });
     } catch (err) {
       console.error("Lỗi tải lên học liệu:", err);
       notify(err instanceof Error ? err.message : "Không thể tải lên học liệu.", "error");
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // Chuyển đổi trạng thái hiển thị hoặc ẩn của học liệu đối với học viên.
+  const handleToggleFileVisibility = async (file: MaterialFileItem) => {
+    const nextVisibility: "PUBLISHED" | "HIDDEN" =
+      file.visibility === "HIDDEN" ? "PUBLISHED" : "HIDDEN";
+    try {
+      await apiRequest(`/instructor/materials/${encodeURIComponent(file.id)}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+      await refreshMaterialList(
+        nextVisibility === "HIDDEN"
+          ? `Đã ẩn '${file.name}' đối với học sinh.`
+          : `Đã hiển thị '${file.name}' cho học sinh.`,
+      );
+      setActiveMenuFileId(null);
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Không thể cập nhật trạng thái hiển thị.",
+        "error",
+      );
     }
   };
 
@@ -728,14 +771,31 @@ export function InstructorMaterialsView() {
                     {activeMenuFileId === item.id && (
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs"
+                        className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs"
                       >
                         <button
                           type="button"
-                          onClick={() => openAssignModal(item)}
-                          className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                          onClick={() => {
+                            void handleToggleFileVisibility(item);
+                          }}
+                          className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
                         >
-                          <BookOpen size={14} className="text-blue-600" />
+                          {item.visibility === "HIDDEN" ? (
+                            <Eye size={14} className="text-emerald-600 shrink-0" />
+                          ) : (
+                            <EyeOff size={14} className="text-slate-500 shrink-0" />
+                          )}
+                          <span>
+                            {item.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openAssignModal(item)}
+                          className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                        >
+                          <BookOpen size={14} className="text-blue-600 shrink-0" />
                           <span>Dùng làm tài liệu/bài giảng</span>
                         </button>
 
@@ -746,9 +806,9 @@ export function InstructorMaterialsView() {
                             setMoveModalOpen(true);
                             setActiveMenuFileId(null);
                           }}
-                          className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
                         >
-                          <Move size={14} className="text-amber-600" />
+                          <Move size={14} className="text-amber-600 shrink-0" />
                           <span>Di chuyển đến thư mục...</span>
                         </button>
 
@@ -757,9 +817,9 @@ export function InstructorMaterialsView() {
                           onClick={() => {
                             handleDeleteFile(item);
                           }}
-                          className="w-full px-3 py-2 text-left hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center gap-2 cursor-pointer font-medium"
+                          className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 cursor-pointer font-medium"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={14} className="shrink-0" />
                           <span>Xóa</span>
                         </button>
                       </div>
@@ -781,9 +841,17 @@ export function InstructorMaterialsView() {
                     {item.type === "word" ? "W" : item.type === "pdf" ? "PDF" : item.type === "video" ? "MP4" : "DOC"}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition">
-                      {item.name}
-                    </strong>
+                    <div className="flex items-center gap-1.5">
+                      <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition">
+                        {item.name}
+                      </strong>
+                      {item.visibility === "HIDDEN" && (
+                        <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                          <EyeOff size={10} />
+                          <span>Đã ẩn</span>
+                        </span>
+                      )}
+                    </div>
                     {showDetail && (
                       <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                         <span>{item.size}</span>
@@ -1146,9 +1214,17 @@ export function InstructorMaterialsView() {
                           {file.type === "word" ? "W" : file.type === "pdf" ? "PDF" : file.type === "video" ? "MP4" : "DOC"}
                         </span>
                         <div className="min-w-0">
-                          <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition block truncate">
-                            {file.name}
-                          </strong>
+                          <div className="flex items-center gap-2">
+                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition block truncate">
+                              {file.name}
+                            </strong>
+                            {file.visibility === "HIDDEN" && (
+                              <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                <EyeOff size={10} />
+                                <span>Đã ẩn</span>
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             {file.tag && (
                               <span className="text-[10px] text-blue-600 font-semibold">{file.tag}</span>
@@ -1168,7 +1244,7 @@ export function InstructorMaterialsView() {
                       <div className="col-span-3 text-slate-500">{file.size}</div>
                       <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(file.updatedAt, locale, t)}</div>
 
-                      {/* Cột Tùy chọn 3 chấm với: Dùng làm tài liệu/bài giảng, Di chuyển, Chuyển vào Cần phân cấp lại, Xóa */}
+                      {/* Cột Tùy chọn 3 chấm với: từng hàng 1 chức năng, icon trái - tên phải */}
                       <div className="col-span-1 text-right relative">
                         <button
                           type="button"
@@ -1185,14 +1261,31 @@ export function InstructorMaterialsView() {
                         {activeMenuFileId === file.id && (
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
+                            className="absolute right-0 top-full mt-1 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
                           >
                             <button
                               type="button"
-                              onClick={() => openAssignModal(file)}
-                              className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                              onClick={() => {
+                                void handleToggleFileVisibility(file);
+                              }}
+                              className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
                             >
-                              <BookOpen size={14} className="text-blue-600" />
+                              {file.visibility === "HIDDEN" ? (
+                                <Eye size={14} className="text-emerald-600 shrink-0" />
+                              ) : (
+                                <EyeOff size={14} className="text-slate-500 shrink-0" />
+                              )}
+                              <span>
+                                {file.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openAssignModal(file)}
+                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                            >
+                              <BookOpen size={14} className="text-blue-600 shrink-0" />
                               <span>Dùng làm tài liệu/bài giảng</span>
                             </button>
 
@@ -1204,9 +1297,9 @@ export function InstructorMaterialsView() {
                                 setMoveModalOpen(true);
                                 setActiveMenuFileId(null);
                               }}
-                              className="w-full px-3 py-2 text-left hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
                             >
-                              <Move size={14} className="text-amber-600" />
+                              <Move size={14} className="text-amber-600 shrink-0" />
                               <span>Di chuyển</span>
                             </button>
 
@@ -1215,9 +1308,9 @@ export function InstructorMaterialsView() {
                               onClick={() => {
                                 void handleMoveToUnclassified(file);
                               }}
-                              className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer font-medium"
                             >
-                              <FolderMinus size={14} className="text-blue-600" />
+                              <FolderMinus size={14} className="text-blue-600 shrink-0" />
                               <span>Chuyển vào Cần phân cấp lại</span>
                             </button>
 
@@ -1226,9 +1319,9 @@ export function InstructorMaterialsView() {
                               onClick={() => {
                                 void handleDeleteFile(file);
                               }}
-                              className="w-full px-3 py-2 text-left hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center gap-2 cursor-pointer font-medium"
+                              className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 cursor-pointer font-medium"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={14} className="shrink-0" />
                               <span>Xóa</span>
                             </button>
                           </div>
@@ -1445,15 +1538,21 @@ export function InstructorMaterialsView() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Mô tả tài liệu:
+                      Trạng thái hiển thị:
                     </label>
-                    <textarea
-                      rows={2}
-                      placeholder="Mô tả tóm tắt nội dung tài liệu..."
-                      value={uploadForm.description}
-                      onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                    />
+                    <select
+                      value={uploadForm.visibility}
+                      onChange={(e) =>
+                        setUploadForm({
+                          ...uploadForm,
+                          visibility: e.target.value as "PUBLISHED" | "HIDDEN",
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="PUBLISHED">Hiển thị với học sinh</option>
+                      <option value="HIDDEN">Ẩn với học sinh</option>
+                    </select>
                   </div>
                 </div>
               )}
@@ -1522,15 +1621,21 @@ export function InstructorMaterialsView() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Mô tả bài giảng:
+                        Trạng thái hiển thị:
                       </label>
-                      <textarea
-                        rows={2}
-                        placeholder="Tóm tắt nội dung bài học..."
-                        value={uploadForm.description}
-                        onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                      />
+                      <select
+                        value={uploadForm.visibility}
+                        onChange={(e) =>
+                          setUploadForm({
+                            ...uploadForm,
+                            visibility: e.target.value as "PUBLISHED" | "HIDDEN",
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        <option value="PUBLISHED">Hiển thị với học sinh</option>
+                        <option value="HIDDEN">Ẩn với học sinh</option>
+                      </select>
                     </div>
 
                     {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở */}
