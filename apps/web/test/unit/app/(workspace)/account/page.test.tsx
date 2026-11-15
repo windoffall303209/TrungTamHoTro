@@ -29,7 +29,7 @@ function makeProfile(displayName: string): AccountProfile {
   return {
     id: "user-1", username: "user", displayName, email: "user@example.com", phone: "",
     timezone: "Asia/Bangkok", locale: "vi-VN", avatarUrl: null, status: "ACTIVE",
-    emailVerifiedAt: null, mfaEnabled: false, hasPassword: true, createdAt: "2026-10-01T00:00:00Z",
+    emailVerifiedAt: "2026-10-01T00:00:00Z", mfaEnabled: false, hasPassword: true, createdAt: "2026-10-01T00:00:00Z",
   };
 }
 
@@ -173,7 +173,7 @@ describe("AccountPage request lifecycle", () => {
       if (path === "/account/mfa/confirm") {
         confirmAttempts += 1;
         if (confirmAttempts === 1) return Promise.reject(new Error("Mã OTP không chính xác."));
-        return Promise.resolve({ recoveryCodes: ["REC-1111", "REC-2222"] });
+        return Promise.resolve({ enabled: true });
       }
       return originalImplementation(path);
     });
@@ -207,8 +207,6 @@ describe("AccountPage request lifecycle", () => {
     await finishLoad(1, "Initial");
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByText("REC-1111")).toBeInTheDocument();
-    expect(screen.getByText("REC-2222")).toBeInTheDocument();
   });
 
   it("có đầy đủ bản dịch tiếng Anh cho toàn bộ chuỗi giao diện modal 2FA", () => {
@@ -266,6 +264,8 @@ describe("AccountPage request lifecycle", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
+    expect(screen.getByText("Bước 1 / 2")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Mã gồm 6 chữ số")).not.toBeInTheDocument();
 
     const newEmailInput = screen.getByLabelText("Email mới");
     fireEvent.change(newEmailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
@@ -280,13 +280,16 @@ describe("AccountPage request lifecycle", () => {
         }),
       );
     });
-    expect(await screen.findByText(/Mã xác minh 6 chữ số đã được gửi tới:/)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Xác minh địa chỉ email mới" })).toBeInTheDocument();
+    expect(screen.getByText("Bước 2 / 2")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email mới")).not.toBeInTheDocument();
+    expect(screen.getByText(/Mã xác minh 6 chữ số đã được gửi tới:/)).toBeInTheDocument();
 
     const otpInput = screen.getByLabelText("Mã gồm 6 chữ số");
     fireEvent.change(otpInput, { target: { value: "000000" } });
     fireEvent.click(screen.getByRole("button", { name: "Xác minh" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Mã OTP không chính xác.");
-    expect(screen.getByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Xác minh địa chỉ email mới" })).toBeInTheDocument();
 
     fireEvent.change(otpInput, { target: { value: "654321" } });
     await act(async () => {
@@ -306,7 +309,7 @@ describe("AccountPage request lifecycle", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Thay đổi địa chỉ email" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: "Xác minh địa chỉ email mới" })).not.toBeInTheDocument();
     });
     expect(emailInput).toBeDisabled();
     expect(emailInput).toHaveValue("newemail@wind.edu.vn");
@@ -316,10 +319,48 @@ describe("AccountPage request lifecycle", () => {
     expect(screen.getByLabelText("Email xác thực để nhận mã OTP")).toHaveValue("newemail@wind.edu.vn");
   });
 
+  it("cho phép quay lại bước nhập email từ bước xác minh OTP", async () => {
+    const originalImplementation = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/account/email/otp" && init?.method === "POST") {
+        return Promise.resolve({
+          challengeId: "challenge-email-back",
+          email: "typo@wind.edu.vn",
+          expiresInSeconds: 300,
+          resendAfterSeconds: 60,
+        });
+      }
+      return originalImplementation(path);
+    });
+
+    render(<AccountPage />);
+    await waitFor(() => expect(profiles).toHaveLength(1));
+    await finishLoad(0, "Initial");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
+    fireEvent.change(screen.getByLabelText("Email mới"), { target: { value: "typo@wind.edu.vn" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gửi mã xác minh" }));
+
+    expect(await screen.findByRole("dialog", { name: "Xác minh địa chỉ email mới" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Quay lại đổi email" }));
+
+    expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
+    expect(screen.getByText("Bước 1 / 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email mới")).toHaveValue("typo@wind.edu.vn");
+    expect(screen.queryByLabelText("Mã gồm 6 chữ số")).not.toBeInTheDocument();
+  });
+
   it("có đầy đủ bản dịch tiếng Anh cho toàn bộ chuỗi giao diện modal đổi email", () => {
     const requiredKeys = [
       "Thay đổi địa chỉ email",
-      "Nhập địa chỉ email mới, gửi mã xác minh gồm 6 chữ số rồi xác nhận để cập nhật tài khoản",
+      "Xác minh địa chỉ email mới",
+      "Nhập địa chỉ email mới để nhận mã xác minh gồm 6 chữ số",
+      "Nhập mã xác minh gồm 6 chữ số đã được gửi tới email mới",
+      "Bước 1 / 2",
+      "Bước 2 / 2",
+      "Nhập email mới",
+      "Xác minh mã OTP",
+      "Quay lại đổi email",
       "Email hiện tại:",
       "Gửi mã xác minh",
       "Gửi lại mã",
