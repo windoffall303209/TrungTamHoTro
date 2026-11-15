@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { apiRequest, publicApiUrl } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 
@@ -229,6 +230,7 @@ function SingleMiniChatWindow({
   onRetryMessage: (message: MiniChatMessage) => void;
   onAttachImage: (file: File) => void;
 }) {
+  const { t, locale } = useI18n();
   const [inputText, setInputText] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const textInputRef = useRef<HTMLInputElement>(null);
@@ -330,7 +332,7 @@ function SingleMiniChatWindow({
         </div>
 
         <p className="text-center text-[10px] text-slate-500 font-semibold my-2">
-          Hôm nay, {new Date().toLocaleDateString("vi-VN")}
+          {t("Hôm nay")}, {new Date().toLocaleDateString(locale)}
         </p>
 
         {/* Render danh sách tin nhắn */}
@@ -410,7 +412,7 @@ function SingleMiniChatWindow({
         )}
         <button
           type="button"
-          onClick={() => alert("Chức năng ghi âm tin nhắn thoại")}
+          onClick={() => alert(t("Chức năng ghi âm tin nhắn thoại"))}
           className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
           title="Ghi âm thoại"
         >

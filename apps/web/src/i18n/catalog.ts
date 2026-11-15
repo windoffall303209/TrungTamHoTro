@@ -756,13 +756,134 @@ const englishCatalog: Record<string, string> = {
   ...curatedEnglishCatalog,
 };
 
+// Định dạng số lượng kèm danh từ số ít hoặc số nhiều tiếng Anh.
+function formatCount(raw: string, singular: string, plural: string): string {
+  const numeric = Number(raw.replace(",", "."));
+  return `${raw} ${numeric === 1 ? singular : plural}`;
+}
+
+const STRICT_NUMERIC_TEMPLATES = new Set([
+  "{{0}} điểm",
+  "{{0}} / {{1}} điểm",
+  "{{0}} điểm tự động tạm tính",
+  "{{0}} bản sao",
+  "{{0}} phiên bản",
+  "{{0}} thành viên",
+  "{{0}} nguồn Internet",
+  "{{0}} nguồn web",
+  "{{0}} tài liệu trong môn học",
+  "{{0}} tệp trong môn học",
+  "{{0}} mục chưa đọc",
+  "{{0}} giờ trước",
+  "{{0}} ngày trước",
+  "{{0}} phút trước",
+  "{{0}}% đã dùng",
+  "{{0}}/{{1}} học viên",
+  "{{0}}/{{1}} câu được chọn",
+  "{{0}} câu không phải tự luận đã được bỏ qua.",
+  "{{0}} câu nhiều đáp án, đúng/sai hoặc trả lời ngắn chưa được đưa vào đề này.",
+  "{{0}} câu trắc nghiệm · {{1}} điểm",
+  "{{0}} câu tự luận{{1}}",
+  "· {{0}} lần thử",
+  "· đã sửa {{0}} lần",
+  "· Điểm {{0}}",
+  "Chấm {{0}}",
+  "Tạo đề thi thủ công ({{0}} câu)",
+  "Lớp trực thuộc ({{0}})",
+  "{{0}} câu",
+  "{{0}} câu · Tổng {{1}} điểm",
+  "{{0}} lớp",
+  "{{0}} mục",
+  "{{0}} tệp",
+  "{{0}} phút",
+  "{{0}} bài nộp",
+  "{{0}} học viên",
+  "Bước {{0}}/5",
+]);
+
+const strictDomainPatterns: ReadonlyArray<readonly [RegExp, (...groups: string[]) => string]> = [
+  [/^(\d+(?:[.,]\d+)?) điểm$/, (n = "0") => formatCount(n, "point", "points")],
+  [/^(\d+(?:[.,]\d+)?) \/ (\d+(?:[.,]\d+)?) điểm$/, (a = "0", b = "0") => `${a} / ${formatCount(b, "point", "points")}`],
+  [/^(\d+(?:[.,]\d+)?) điểm tự động tạm tính$/, (n = "0") => formatCount(n, "auto-graded point", "auto-graded points")],
+  [/^· Điểm (\d+(?:[.,]\d+)?)$/, (n = "0") => `· Score ${n}`],
+  [/^Chấm (\d+(?:[.,]\d+)?)$/, (n = "0") => `Graded ${n}`],
+  [/^(\d+) mục$/, (n = "0") => formatCount(n, "item", "items")],
+  [/^(\d+) mục chưa đọc$/, (n = "0") => formatCount(n, "unread item", "unread items")],
+  [/^(\d+) lớp$/, (n = "0") => formatCount(n, "class", "classes")],
+  [/^(\d+) tệp$/, (n = "0") => formatCount(n, "file", "files")],
+  [/^(\d+) câu$/, (n = "0") => formatCount(n, "question", "questions")],
+  [/^(\d+) câu · Tổng (\d+(?:[.,]\d+)?) điểm$/, (q = "0", pts = "0") => `${formatCount(q, "question", "questions")} · Total ${formatCount(pts, "point", "points")}`],
+  [/^(\d+) câu · (\d+(?:[.,]\d+)?) điểm$/, (q = "0", pts = "0") => `${formatCount(q, "question", "questions")} · ${formatCount(pts, "point", "points")}`],
+  [/^(\d+) câu ·$/, (q = "0") => `${formatCount(q, "question", "questions")} ·`],
+  [/^(\d+) bản sao$/, (n = "0") => formatCount(n, "copy", "copies")],
+  [/^(\d+) phiên bản$/, (n = "0") => formatCount(n, "version", "versions")],
+  [/^(\d+) thành viên$/, (n = "0") => formatCount(n, "member", "members")],
+  [/^(\d+) học viên$/, (n = "0") => formatCount(n, "student", "students")],
+  [/^(\d+) bài nộp$/, (n = "0") => formatCount(n, "submission", "submissions")],
+  [/^(\d+) phút$/, (n = "0") => formatCount(n, "minute", "minutes")],
+  [/^(\d+) nguồn Internet$/, (n = "0") => formatCount(n, "Internet source", "Internet sources")],
+  [/^(\d+) nguồn web$/, (n = "0") => formatCount(n, "web source", "web sources")],
+  [/^(\d+) tài liệu trong môn học$/, (n = "0") => `${formatCount(n, "material", "materials")} in course`],
+  [/^(\d+) tệp trong môn học$/, (n = "0") => `${formatCount(n, "file", "files")} in subject`],
+  [/^(\d+) giờ trước$/, (n = "0") => `${formatCount(n, "hour", "hours")} ago`],
+  [/^(\d+) ngày trước$/, (n = "0") => `${formatCount(n, "day", "days")} ago`],
+  [/^(\d+) phút trước$/, (n = "0") => `${formatCount(n, "minute", "minutes")} ago`],
+  [/^(\d+(?:[.,]\d+)?)% đã dùng$/, (n = "0") => `${n}% used`],
+  [/^(\d+)\/(\d+) học viên$/, (a = "0", b = "0") => `${a}/${formatCount(b, "student", "students")}`],
+  [/^(\d+)\/(\d+) câu được chọn$/, (a = "0", b = "0") => `${a}/${b} ${Number(b) === 1 ? "question" : "questions"} selected`],
+  [/^(\d+) câu không phải tự luận đã được bỏ qua\.$/, (n = "0") => `${formatCount(n, "non-essay question was", "non-essay questions were")} skipped.`],
+  [/^(\d+) câu nhiều đáp án, đúng\/sai hoặc trả lời ngắn chưa được đưa vào đề này\.$/, (n = "0") => `${formatCount(n, "multi-select, true/false, or short-answer question has", "multi-select, true/false, or short-answer questions have")} not been added to this exam.`],
+  [/^(\d+) câu trắc nghiệm · (\d+(?:[.,]\d+)?) điểm$/, (q = "0", pts = "0") => `${formatCount(q, "multiple-choice question", "multiple-choice questions")} · ${formatCount(pts, "point", "points")}`],
+  [/^(\d+) câu tự luận và (\d+) tệp đề$/, (q = "0", f = "1") => `${formatCount(q, "essay question", "essay questions")} and ${formatCount(f, "prompt file", "prompt files")}`],
+  [/^(\d+) câu tự luận(.*)$/, (q = "0", tail = "") => `${formatCount(q, "essay question", "essay questions")}${tail}`],
+  [/^· (\d+) lần thử$/, (n = "0") => `· ${formatCount(n, "attempt", "attempts")}`],
+  [/^· đã sửa (\d+) lần$/, (n = "0") => `· edited ${formatCount(n, "time", "times")}`],
+  [/^Tạo đề thi thủ công \((\d+) câu\)$/, (n = "0") => `Create exam manually (${formatCount(n, "question", "questions")})`],
+  [/^Lớp trực thuộc \((\d+)\)$/, (n = "0") => `Assigned classes (${n})`],
+  [/^Thiết bị đăng nhập \((\d+)\)$/, (n = "0") => `Signed-in devices (${n})`],
+  [/^Bước (\d+)\/(\d+)$/, (step = "1", total = "1") => `Step ${step}/${total}`],
+  [/^Thông báo lớp: (.+)$/, (title = "") => `Class announcement: ${title}`],
+  [/^Gia hạn bài (.+?) đến (.+)$/, (title = "", dueAt = "") => `Extended deadline for ${title} to ${dueAt}`],
+  [/^Bài tập mới: (.+)$/, (title = "") => `New assignment: ${title}`],
+  [/^Thời gian lớp (.+)$/, (name = "") => `Class schedule: ${name}`],
+  [/^Mở đề: (.+)$/, (title = "") => `Exam opens: ${title}`],
+  [/^Đóng đề: (.+)$/, (title = "") => `Exam closes: ${title}`],
+  [/^Hạn bài: (.+)$/, (title = "") => `Assignment due: ${title}`],
+  [/^Điểm bài (.+?) đã được cập nhật$/, (title = "") => `Grade updated for assignment: ${title}`],
+  [/^Đã chấm bài: (.+)$/, (title = "") => `Graded assignment: ${title}`],
+  [/^Bạn đã được ghi danh vào lớp (.+)$/, (code = "") => `You have been enrolled in class ${code}`],
+  [/^Bạn được phân công giảng viên chính cho lớp (.+)$/, (code = "") => `You were assigned as lead instructor for class ${code}`],
+  [/^Bạn được phân công đồng giảng viên cho lớp (.+)$/, (code = "") => `You were assigned as co-instructor for class ${code}`],
+  [/^Bạn được phân công vào lớp (.+)$/, (code = "") => `You were assigned to class ${code}`],
+  [/^Lớp (.+?) đã bàn giao giảng viên chính$/, (code = "") => `Lead instructor transferred for class ${code}`],
+  [/^Chủ đề mới: (.+)$/, (title = "") => `New topic: ${title}`],
+  [/^Bạn được nhắc trong chủ đề (.+)$/, (title = "") => `You were mentioned in topic ${title}`],
+  [/^Tệp (.+?) đã bị cách ly$/, (name = "") => `File ${name} has been quarantined`],
+  [/^Học liệu "(.+?)" đã được duyệt và phát hành\.$/, (name = "") => `Material "${name}" has been approved and published.`],
+  [/^Học liệu "(.+?)" bị thu hồi: (.+)$/, (name = "", reason = "") => `Material "${name}" was revoked: ${reason}`],
+  [/^Câu hỏi đã được trả lại: (.+)$/, (reason = "") => `Question returned for revision: ${reason}`],
+  [/^Bạn được giao hỗ trợ một học viên của lớp (.+)$/, (code = "") => `You were assigned to support a student in class ${code}`],
+  [/^P0 mới: (.+)$/, (detail = "") => `New P0 ticket: ${detail}`],
+  [/^(.+?) đã nhắc bạn trong tin nhắn$/, (sender = "") => `${sender} mentioned you in a message`],
+  [/^Tin nhắn mới từ (.+)$/, (sender = "") => `New message from ${sender}`],
+];
+
 /** Biên dịch template có placeholder thành biểu thức chỉ khớp toàn bộ chuỗi UI. */
 function templatePattern(source: string): RegExp {
   const escaped = source.split(/\{\{\d+\}\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(`^${escaped.join("(.+?)")}$`);
 }
 
-const templateEnglishCatalog = Object.entries(generatedTemplateEnglishCatalog).map(([source, translation]) => ({ pattern: templatePattern(source), translation }));
+// Ưu tiên mẫu có phần chữ tĩnh dài hơn trước để mẫu tiền tố ngắn không nuốt nhầm câu dài.
+const templateEnglishCatalog = Object.entries(generatedTemplateEnglishCatalog)
+  .filter(([source]) => !STRICT_NUMERIC_TEMPLATES.has(source))
+  .sort(([left], [right]) => {
+    const leftStatic = left.replace(/\{\{\d+\}\}/g, "").length;
+    const rightStatic = right.replace(/\{\{\d+\}\}/g, "").length;
+    if (rightStatic !== leftStatic) return rightStatic - leftStatic;
+    return right.length - left.length;
+  })
+  .map(([source, translation]) => ({ pattern: templatePattern(source), translation }));
 
 const englishPatterns: Array<[RegExp, (...matches: string[]) => string]> = [
   [/^(\d+) mục chưa đọc$/, (count) => `${count} unread item${count === "1" ? "" : "s"}`],
@@ -802,6 +923,10 @@ export function translateText(value: string, locale: SupportedLocale): string {
   const core = value.slice(leading.length, value.length - trailing.length);
   const exact = englishCatalog[core];
   if (exact) return `${leading}${exact}${trailing}`;
+  for (const [pattern, render] of strictDomainPatterns) {
+    const match = core.match(pattern);
+    if (match) return `${leading}${render(...match.slice(1))}${trailing}`;
+  }
   for (const [pattern, render] of englishPatterns) {
     const match = core.match(pattern);
     if (match) return `${leading}${render(...match.slice(1))}${trailing}`;

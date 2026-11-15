@@ -72,6 +72,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/exam-question-selection";
 import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
 import {
@@ -137,6 +138,7 @@ export function InstructorClassWorkspace({
 }: InstructorClassWorkspaceProps) {
   const router = useRouter();
   const { session, notify } = useApp();
+  const { t, locale } = useI18n();
 
   // Tab điều hướng dọc của giáo viên: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
   const [activeTab, setActiveTab] = useState<InstructorSubTab>(() => {
@@ -957,7 +959,7 @@ export function InstructorClassWorkspace({
 
   // Xóa học liệu bài giảng tại máy chủ rồi đồng bộ lại danh sách.
   const handleDeleteLecture = async (lectureId: string, lectureTitle: string) => {
-    if (lectureSaving || !window.confirm(`Bạn có chắc muốn xóa bài giảng "${lectureTitle}" không?`)) return;
+    if (lectureSaving || !window.confirm(t(`Bạn có chắc muốn xóa bài giảng "${lectureTitle}" không?`))) return;
     setLectureSaving(true);
     try {
       await apiRequest(`/instructor/materials/${encodeURIComponent(lectureId)}`, {
@@ -1079,7 +1081,7 @@ export function InstructorClassWorkspace({
 
   // Xóa tài liệu thực tế trên máy chủ rồi đồng bộ lại danh sách.
   const handleDeleteMaterial = async (materialId: string, materialTitle: string) => {
-    if (materialSaving || !window.confirm(`Bạn có chắc muốn xóa tài liệu "${materialTitle}" không?`)) return;
+    if (materialSaving || !window.confirm(t(`Bạn có chắc muốn xóa tài liệu "${materialTitle}" không?`))) return;
     setMaterialSaving(true);
     try {
       await apiRequest(`/instructor/materials/${encodeURIComponent(materialId)}`, {
@@ -1638,7 +1640,7 @@ export function InstructorClassWorkspace({
 
   // Xóa câu hỏi khỏi ngân hàng của lớp
   const handleDeleteClassQuestion = async (questionId: string) => {
-    if (window.confirm("Bạn có chắc muốn xóa câu hỏi này khỏi ngân hàng câu hỏi lớp không?")) {
+    if (window.confirm(t("Bạn có chắc muốn xóa câu hỏi này khỏi ngân hàng câu hỏi lớp không?"))) {
       try {
         await apiRequest(`/instructor/question-bank/questions/${questionId}`, {
           method: "DELETE",
@@ -2747,7 +2749,7 @@ export function InstructorClassWorkspace({
                                   —
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-500">
-                                  {submission ? new Date(submission.submittedAt).toLocaleString("vi-VN") : "—"}
+                                  {submission ? new Date(submission.submittedAt).toLocaleString(locale) : "—"}
                                 </td>
                                 <td className="px-4 py-3.5 text-center text-slate-500">
                                   —
@@ -3625,7 +3627,7 @@ export function InstructorClassWorkspace({
                   type="button"
                   onClick={() => {
                     setExamCreationMode("MANUAL");
-                    setManualExamTitle(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString("vi-VN")}`);
+                    setManualExamTitle(t(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString(locale)}`));
                     setManualExamModalOpen(true);
                   }}
                   className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -4275,7 +4277,7 @@ export function InstructorClassWorkspace({
                     <div className="text-xs">
                       Trạng thái: {selectedStudentAttempt.status === "GRADED" ? "Đã chấm" : "Chờ chấm"} ·
                       Lần nộp {selectedStudentAttempt.revision} ·
-                      Nộp lúc {new Date(selectedStudentAttempt.submittedAt).toLocaleString("vi-VN")}
+                      Nộp lúc {new Date(selectedStudentAttempt.submittedAt).toLocaleString(locale)}
                     </div>
                     {typeof selectedStudentAttempt.score === "number" && (
                       <span className={`inline-flex px-3 py-1 rounded-full text-xs font-extrabold border ${getScoreColorClass(selectedStudentAttempt.score, selectedAssignment?.maxScore ?? 10)}`}>
@@ -4336,7 +4338,7 @@ export function InstructorClassWorkspace({
                               ? `${submission.score} / ${selectedAssignment?.maxScore ?? "—"}`
                               : "Chờ chấm"}
                           </td>
-                          <td className="px-4 py-3">{new Date(submission.submittedAt).toLocaleString("vi-VN")}</td>
+                          <td className="px-4 py-3">{new Date(submission.submittedAt).toLocaleString(locale)}</td>
                           <td className="px-4 py-3 text-right">
                             <button type="button" onClick={() => setSelectedStudentAttempt(submission)} className="font-bold text-sky-600 hover:underline">
                               Xem bài làm
@@ -4532,7 +4534,7 @@ export function InstructorClassWorkspace({
         <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="presentation">
           <section role="dialog" aria-modal="true" aria-labelledby="assignment-preview-title" className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-800">
-              <div><p className="text-xs font-semibold text-sky-600 dark:text-sky-400">Xem thử bài tự luận</p><h2 id="assignment-preview-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{previewAssignment.title}</h2><p className="mt-1 text-sm text-slate-500">Hạn nộp: {new Date(previewAssignment.dueAt).toLocaleString("vi-VN")}</p></div>
+              <div><p className="text-xs font-semibold text-sky-600 dark:text-sky-400">Xem thử bài tự luận</p><h2 id="assignment-preview-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{previewAssignment.title}</h2><p className="mt-1 text-sm text-slate-500">Hạn nộp: {new Date(previewAssignment.dueAt).toLocaleString(locale)}</p></div>
               <button type="button" aria-label="Đóng xem thử bài tự luận" onClick={() => setPreviewAssignment(null)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={19} /></button>
             </div>
             {previewAssignment.description && <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">{previewAssignment.description}</p>}

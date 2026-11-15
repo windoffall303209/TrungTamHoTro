@@ -633,7 +633,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       />
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
-                          {item.title}
+                          {t(item.title)}
                         </p>
                         <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
                           {formatDateTime(item.createdAt)}

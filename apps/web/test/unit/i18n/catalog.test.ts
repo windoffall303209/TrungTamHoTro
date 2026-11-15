@@ -45,5 +45,70 @@ describe("i18n catalog", () => {
     expect(isSupportedLocale("en-US")).toBe(true);
     expect(isSupportedLocale("fr-FR")).toBe(false);
   });
+
+  it("dịch đầy đủ các nhãn tài khoản, học liệu và điều hướng khảo thí", () => {
+    expect(translateText("Tạo đề, giao bài & bảng điểm", "en-US")).toBe("Exams, assignments & gradebook");
+    expect(translateText("Tải lên tài liệu / bài giảng", "en-US")).toBe("Upload material / lecture");
+    expect(translateText("Sửa đổi lần cuối", "en-US")).toBe("Last modified");
+    expect(translateText("Chức năng khảo thí", "en-US")).toBe("Examination functions");
+    expect(translateText("Đề thi & Kết quả", "en-US")).toBe("Exams & Results");
+    expect(translateText("Cần phân cấp lại", "en-US")).toBe("Needs reclassification");
+    expect(translateText("Hiển thị chi tiết học liệu", "en-US")).toBe("Show material details");
+    expect(translateText("Tên khối", "en-US")).toBe("Grade level name");
+    expect(translateText("Kích thước tệp", "en-US")).toBe("File size");
+    expect(translateText("Tùy chọn", "en-US")).toBe("Options");
+    expect(translateText("Tên tài khoản đăng nhập", "en-US")).toBe("Username");
+    expect(translateText("Tên định danh cố định không thể sửa.", "en-US")).toBe("Fixed identifier cannot be modified.");
+    expect(translateText("Ngôn ngữ hiển thị", "en-US")).toBe("Display language");
+    expect(translateText("Tham gia hệ thống từ:", "en-US")).toBe("Member since:");
+    expect(translateText("Hồ Chí Minh, Bangkok (UTC+7)", "en-US")).toBe("Ho Chi Minh, Bangkok (UTC+7)");
+    expect(translateText("Hỗ trợ định dạng PNG, JPEG hoặc WebP; dung lượng tối đa 3 MB.", "en-US")).toBe("Supports PNG, JPEG, or WebP; maximum size 3 MB.");
+    expect(translateText("Đã cập nhật thông tin cá nhân thành công.", "en-US")).toBe("Profile updated successfully.");
+  });
+
+  it("áp dụng quy tắc số ít, số nhiều, bước tiến trình và thông báo động", () => {
+    expect(translateText("1 mục", "en-US")).toBe("1 item");
+    expect(translateText("24 mục", "en-US")).toBe("24 items");
+    expect(translateText("1 điểm", "en-US")).toBe("1 point");
+    expect(translateText("5 điểm", "en-US")).toBe("5 points");
+    expect(translateText("1 lớp", "en-US")).toBe("1 class");
+    expect(translateText("5 lớp", "en-US")).toBe("5 classes");
+    expect(translateText("1 tệp", "en-US")).toBe("1 file");
+    expect(translateText("5 tệp", "en-US")).toBe("5 files");
+    expect(translateText("1 câu · Tổng 1 điểm", "en-US")).toBe("1 question · Total 1 point");
+    expect(translateText("10 câu · Tổng 20 điểm", "en-US")).toBe("10 questions · Total 20 points");
+    expect(translateText("Tạo đề thi thủ công (1 câu)", "en-US")).toBe("Create exam manually (1 question)");
+    expect(translateText("Tạo đề thi thủ công (12 câu)", "en-US")).toBe("Create exam manually (12 questions)");
+    expect(translateText("1 câu tự luận", "en-US")).toBe("1 essay question");
+    expect(translateText("2 câu tự luận và 1 tệp đề", "en-US")).toBe("2 essay questions and 1 prompt file");
+    expect(translateText("Bước 1/5", "en-US")).toBe("Step 1/5");
+    expect(translateText("Thiết bị đăng nhập (2)", "en-US")).toBe("Signed-in devices (2)");
+    expect(translateText("Thông báo lớp: Nghỉ lễ", "en-US")).toBe("Class announcement: Nghỉ lễ");
+    expect(translateText("Gia hạn bài Midterm đến 20/11", "en-US")).toBe("Extended deadline for Midterm to 20/11");
+    expect(translateText("Bài tập mới: Quiz 1", "en-US")).toBe("New assignment: Quiz 1");
+    expect(translateText("Đã chấm bài: Essay 1", "en-US")).toBe("Graded assignment: Essay 1");
+    expect(translateText("Tin nhắn mới từ Nguyen Van A", "en-US")).toBe("New message from Nguyen Van A");
+    expect(translateText("Hoàng Thanh Mai đã nhắc bạn trong tin nhắn", "en-US")).toBe("Hoàng Thanh Mai mentioned you in a message");
+  });
+
+  it("loại bỏ các lỗi dịch máy sai ngữ cảnh giáo dục", () => {
+    expect(translateText("Chấm", "en-US")).toBe("Grade");
+    expect(translateText("Chấm 8.5", "en-US")).toBe("Graded 8.5");
+    expect(translateText("câu", "en-US")).toBe("questions");
+    expect(translateText("Phiếu", "en-US")).toBe("Ticket");
+    expect(translateText("Rời phòng và chốt điểm danh", "en-US")).toBe("Leave the room and take attendance");
+    expect(translateText("· duyệt bởi Admin", "en-US")).toBe("· reviewed by Admin");
+    expect(translateText("Ảnh đại diện của Admin", "en-US")).toBe("Avatar of Admin");
+    expect(translateText("Khối 10 · Môn Toán · v2", "en-US")).toBe("Grade 10 · Subject Toán · v2");
+    expect(translateText("Phương án A câu 3", "en-US")).toBe("Option A for question 3");
+    expect(translateText("Đã chuyển 'Tai lieu.pdf' vào Cần phân cấp lại.", "en-US")).toBe("Moved 'Tai lieu.pdf' to Needs reclassification.");
+    expect(translateText("Xác nhận gỡ Nguyen Van A khỏi lớp học.", "en-US")).toBe("Confirm removing Nguyen Van A from the class.");
+    const aiErr = translateText("Không thể kết nối OpenAI để tạo đề.", "en-US");
+    expect(aiErr.toLowerCase()).toContain("exam");
+    expect(aiErr.toLowerCase()).not.toContain("topic");
+    const returnedExam = translateText("Đề “Midterm” sẽ quay về bản nháp để giảng viên chỉnh sửa.", "en-US");
+    expect(returnedExam).toContain("Exam");
+    expect(returnedExam.toLowerCase()).not.toContain("topic");
+  });
 });
 

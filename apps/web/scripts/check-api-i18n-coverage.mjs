@@ -18,7 +18,7 @@ function extractExceptionMessages(path) {
       if (vietnamesePattern.test(value)) values.push(value);
     }
   };
-  /** Duyệt lệnh tạo ngoại lệ để thu thập thông báo cần có bản dịch. */
+  /** Duyệt lệnh tạo ngoại lệ và decorator validation để thu thập thông báo cần dịch. */
   const visit = (node) => {
     if (ts.isNewExpression(node) && /Exception$/.test(node.expression.getText(source))) {
       const first = node.arguments?.[0];
@@ -28,6 +28,14 @@ function extractExceptionMessages(path) {
           for (const property of first.properties) {
             if (ts.isPropertyAssignment(property) && property.name.getText(source).replace(/["']/g, "") === "message") addLiteral(property.initializer);
           }
+        }
+      }
+    }
+    if (ts.isDecorator(node) && ts.isCallExpression(node.expression)) {
+      for (const argument of node.expression.arguments) {
+        if (!ts.isObjectLiteralExpression(argument)) continue;
+        for (const property of argument.properties) {
+          if (ts.isPropertyAssignment(property) && property.name.getText(source).replace(/["']/g, "") === "message") addLiteral(property.initializer);
         }
       }
     }
