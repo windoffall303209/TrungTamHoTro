@@ -229,7 +229,7 @@ describe("AccountPage request lifecycle", () => {
     }
   });
 
-  it("cho phép sửa email nhưng giữ cố định tên đăng nhập và đồng bộ sang mục đổi mật khẩu", async () => {
+  it("mặc định khóa ô email, cho phép bấm Sửa/Hủy và đồng bộ email mới sau khi lưu", async () => {
     const originalImplementation = apiMock.getMockImplementation()!;
     const updatedProfile = { ...makeProfile("Initial"), email: "newemail@wind.edu.vn" };
     apiMock.mockImplementation((path: string, init?: RequestInit) => {
@@ -248,9 +248,23 @@ describe("AccountPage request lifecycle", () => {
     expect(usernameInput).toHaveAttribute("readonly");
 
     const emailInput = screen.getByLabelText("Email");
+    expect(emailInput).toBeDisabled();
+    expect(emailInput).toHaveAttribute("readonly");
+    expect(emailInput).toHaveValue("user@example.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     expect(emailInput).not.toBeDisabled();
     expect(emailInput).not.toHaveAttribute("readonly");
 
+    fireEvent.change(emailInput, { target: { value: "tam-thoi@example.com" } });
+    expect(emailInput).toHaveValue("tam-thoi@example.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(emailInput).toBeDisabled();
+    expect(emailInput).toHaveAttribute("readonly");
+    expect(emailInput).toHaveValue("user@example.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     fireEvent.change(emailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Lưu thay đổi/ }));
@@ -269,6 +283,10 @@ describe("AccountPage request lifecycle", () => {
         }),
       }),
     );
+
+    expect(emailInput).toBeDisabled();
+    expect(emailInput).toHaveValue("newemail@wind.edu.vn");
+    expect(screen.getByRole("button", { name: "Sửa" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
     expect(screen.getByLabelText("Email xác thực để nhận mã OTP")).toHaveValue("newemail@wind.edu.vn");
