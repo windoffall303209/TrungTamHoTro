@@ -724,6 +724,10 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Tôi đã lưu mã khôi phục": "I have saved my recovery codes",
   "Nhập mật khẩu hiện tại của bạn để tiến hành tắt 2FA:": "Enter your current password to proceed with disabling 2FA:",
   "Nhập mã 6 số từ ứng dụng xác thực để hoàn tất:": "Enter the 6-digit code from your authenticator app to finish:",
+  "Họ tên phải có từ 2 đến 150 ký tự.": "Full name must be between 2 and 150 characters.",
+  "Email không đúng định dạng.": "Invalid email address.",
+  "Mật khẩu mới cần có chữ hoa, chữ thường, số và ký tự đặc biệt.": "New password must include uppercase letters, lowercase letters, numbers, and special characters.",
+  "Gửi lại mã OTP": "Resend OTP code",
 };
 
 

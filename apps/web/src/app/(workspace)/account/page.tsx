@@ -193,21 +193,42 @@ function AccountContent() {
 
   const passwordResendSeconds = Math.max(0, Math.ceil((passwordResendAt - clock) / 1000));
 
-  /** Lưu thông tin hồ sơ cá nhân */
+  /** Kiểm tra và lưu thông tin hồ sơ cá nhân, đồng bộ lại email dùng cho bảo mật và phiên hiện tại. */
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
+    const trimmedName = profile.displayName.trim();
+    const normalizedEmail = (profile.email ?? "").trim().toLowerCase();
+    const trimmedPhone = profile.phone.trim();
+
+    if (trimmedName.length < 2 || trimmedName.length > 150) {
+      notify("Họ tên phải có từ 2 đến 150 ký tự.", "error");
+      return;
+    }
+    if (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      notify("Email không đúng định dạng.", "error");
+      return;
+    }
+
     setSaving(true);
     try {
       const updated = await apiRequest<AccountProfile>("/account/profile", {
         method: "PATCH",
         body: JSON.stringify({
-          displayName: profile.displayName,
-          phone: profile.phone,
+          displayName: trimmedName,
+          email: normalizedEmail,
+          phone: trimmedPhone,
           timezone: profile.timezone,
           locale: profile.locale,
         }),
       });
       setProfile(updated);
+      if (updated.email) {
+        setPasswordEmail(updated.email);
+        if (passwordOtp && passwordOtp.email.toLowerCase() !== updated.email.toLowerCase()) {
+          setPasswordOtp(null);
+          setPasswordCode("");
+        }
+      }
       await refreshSession();
       notify("Đã cập nhật thông tin cá nhân thành công.", "success");
     } catch (error) {
@@ -264,17 +285,25 @@ function AccountContent() {
     }
   }
 
-  /** Gửi yêu cầu OTP để đổi mật khẩu */
-  async function submitPasswordEmail(event: FormEvent) {
-    event.preventDefault();
+  /** Gửi hoặc gửi lại mã OTP xác nhận đổi mật khẩu tới email đã xác thực của tài khoản. */
+  async function requestPasswordOtp() {
+    const normalizedEmail = passwordEmail.trim().toLowerCase();
+    if (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      notify("Email không đúng định dạng.", "error");
+      return;
+    }
     setPasswordSaving(true);
     try {
-      const challenge = await apiRequest<{ challengeId: string; email: string }>("/account/password/challenge", {
-        method: "POST",
-        body: JSON.stringify({ email: passwordEmail }),
-      });
-      setPasswordOtp(challenge);
-      setPasswordResendAt(Date.now() + 60000);
+      const challenge = await apiRequest<{ challengeId: string; email: string; resendAfterSeconds?: number }>(
+        "/account/password/otp",
+        {
+          method: "POST",
+          body: JSON.stringify({ email: normalizedEmail }),
+        },
+      );
+      setPasswordEmail(challenge.email);
+      setPasswordOtp({ challengeId: challenge.challengeId, email: challenge.email });
+      setPasswordResendAt(Date.now() + (challenge.resendAfterSeconds ?? 60) * 1000);
       notify("Mã xác thực OTP đã được gửi đến email của bạn.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể gửi mã xác thực.", "error");
@@ -283,9 +312,23 @@ function AccountContent() {
     }
   }
 
-  /** Hoàn tất đổi mật khẩu */
+  /** Gửi yêu cầu OTP để đổi mật khẩu từ biểu mẫu nhập email. */
+  async function submitPasswordEmail(event: FormEvent) {
+    event.preventDefault();
+    await requestPasswordOtp();
+  }
+
+  /** Hoàn tất đổi mật khẩu sau khi kiểm tra định dạng mật khẩu mới và xác nhận OTP. */
   async function changePassword(event: FormEvent) {
     event.preventDefault();
+    if (
+      passwords.newPassword.length < 8
+      || passwords.newPassword.length > 128
+      || !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/.test(passwords.newPassword)
+    ) {
+      notify("Mật khẩu mới cần có chữ hoa, chữ thường, số và ký tự đặc biệt.", "error");
+      return;
+    }
     if (passwords.newPassword !== passwords.confirmPassword) {
       notify("Mật khẩu xác nhận không khớp.", "error");
       return;
@@ -293,7 +336,7 @@ function AccountContent() {
     setPasswordSaving(true);
     try {
       await apiRequest("/account/password", {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify({
           challengeId: passwordOtp?.challengeId,
           code: passwordCode,
@@ -467,9 +510,10 @@ function AccountContent() {
   }
 
   /** Đóng toàn bộ phiên khác */
+  /** Đăng xuất khỏi toàn bộ thiết bị khác nhưng giữ nguyên phiên đang thao tác. */
   async function revokeOthers() {
     try {
-      await apiRequest("/account/sessions", { method: "DELETE" });
+      await apiRequest("/account/sessions/revoke-others", { method: "POST", body: "{}" });
       setSessions((prev) => prev.filter((s) => s.current));
       notify("Đã đăng xuất khỏi mọi thiết bị khác.");
     } catch (error) {
@@ -603,8 +647,19 @@ function AccountContent() {
             </Field>
 
             <Field label="Email">
-              <input aria-label="Email" className={inputClass} disabled readOnly value={profile.email ?? ""} />
-              <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
+              <input
+                aria-label="Email"
+                autoComplete="email"
+                className={inputClass}
+                disabled={loading}
+                maxLength={191}
+                onChange={(event) => setProfile({ ...profile, email: event.target.value })}
+                placeholder="name@example.com"
+                required
+                type="email"
+                value={profile.email ?? ""}
+              />
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 {profile.emailVerifiedAt ? (
                   <>
                     <MailCheck size={14} className="text-emerald-500" />
@@ -733,8 +788,8 @@ function AccountContent() {
                       type="password"
                       value={passwords.newPassword}
                     />
-                    <span className="mt-1 block text-[11px] text-slate-600">
-                      Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường và số.
+                    <span className="mt-1 block text-[11px] text-slate-600 dark:text-slate-400">
+                      Tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.
                     </span>
                   </Field>
 
@@ -767,6 +822,14 @@ function AccountContent() {
                     <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode)} loading={passwordSaving} type="submit">
                       <ShieldCheck size={16} />
                       Xác nhận đổi mật khẩu
+                    </Button>
+                    <Button
+                      disabled={passwordSaving || passwordResendSeconds > 0}
+                      onClick={() => void requestPasswordOtp()}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Gửi lại mã OTP{passwordResendSeconds > 0 ? ` (${passwordResendSeconds}s)` : null}
                     </Button>
                     <Button
                       disabled={passwordSaving}
