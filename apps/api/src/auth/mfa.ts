@@ -48,14 +48,6 @@ export async function decryptMfaSecret(payload: string, encryptionSecret: string
   return Buffer.concat([decipher.update(Buffer.from(encodedCiphertext, "base64url")), decipher.final()]).toString("utf8");
 }
 
-/** Sinh bộ mã khôi phục dùng một lần; AuthService chỉ lưu bản băm của các mã này. */
-export function createRecoveryCodes(count = 8): string[] {
-  return Array.from({ length: count }, () => {
-    const value = randomBytes(5).toString("hex").toUpperCase();
-    return `${value.slice(0, 5)}-${value.slice(5)}`;
-  });
-}
-
 /** Tạo mã HOTP sáu chữ số cho bộ đếm thời gian theo RFC 4226/6238. */
 function generateTotp(secret: string, counter: number): string {
   const buffer = Buffer.alloc(8);

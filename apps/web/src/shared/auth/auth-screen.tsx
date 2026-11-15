@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { saveAccountSetup } from "@/lib/account-setup";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
 import { ThemeToggle } from "@/shared/layout/theme-toggle";
@@ -36,7 +36,7 @@ export function AuthScreen() {
   const [notice, setNotice] = useState("");
   const [challengeToken, setChallengeToken] = useState("");
   const [mfaValue, setMfaValue] = useState("");
-  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [otpId, setOtpId] = useState("");
 
   useEffect(() => {
     if (!authLoading && authenticated) router.replace("/dashboard");
@@ -49,6 +49,23 @@ export function AuthScreen() {
     );
   }, []);
 
+  /** Yêu cầu mã đăng nhập qua địa chỉ email tài khoản đã xác minh. */
+  async function sendEmailCode() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const otp = await apiRequest<{ challengeId: string }>("/auth/mfa/email/send", {
+        method: "POST", body: JSON.stringify({ challengeToken }),
+      });
+      setOtpId(otp.challengeId);
+      setMfaValue("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Không gửi được mã qua email.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   /** Gửi biểu mẫu đăng nhập và điều phối các nhánh MFA hoặc thiết lập tài khoản. */
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -56,7 +73,7 @@ export function AuthScreen() {
     setSubmitting(true);
     try {
       if (challengeToken) {
-        await completeMfa(challengeToken, mfaValue, rememberMe, useRecoveryCode);
+        await completeMfa(challengeToken, mfaValue, rememberMe, otpId || undefined);
       } else {
         const result = await login({ username, password, rememberMe });
         if (result.requiresMfa && result.challengeToken) {
@@ -156,7 +173,7 @@ export function AuthScreen() {
           </h2>
           <p className="mt-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             {challengeToken
-              ? "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập."
+              ? (otpId ? "Nhập mã 6 số vừa gửi đến email đã xác minh." : "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập.")
               : "Chào mừng bạn quay lại. Hãy nhập thông tin để truy cập không gian làm việc."}
           </p>
 
@@ -173,16 +190,17 @@ export function AuthScreen() {
             {challengeToken ? (
               <>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  {useRecoveryCode ? "Mã khôi phục" : "Mã xác thực"}
+                  {otpId ? "Mã OTP email" : "Mã xác thực"}
                   <span className="relative block">
                     <input
                       autoComplete="one-time-code"
                       autoFocus
                       className={`${fieldClass} pr-10 font-mono tracking-widest`}
-                      inputMode={useRecoveryCode ? "text" : "numeric"}
-                      maxLength={useRecoveryCode ? 11 : 6}
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
                       onChange={(event) => setMfaValue(event.target.value.toUpperCase())}
-                      placeholder={useRecoveryCode ? "ABCDE-12345" : "000000"}
+                      placeholder="000000"
                       required
                       value={mfaValue}
                     />
@@ -194,14 +212,19 @@ export function AuthScreen() {
                 </label>
                 <button
                   className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
-                  onClick={() => {
-                    setUseRecoveryCode((value) => !value);
-                    setMfaValue("");
-                  }}
+                  disabled={submitting}
+                  onClick={() => void sendEmailCode()}
                   type="button"
                 >
-                  {useRecoveryCode ? "Dùng mã từ ứng dụng xác thực" : "Dùng mã khôi phục"}
+                  {otpId ? "Gửi lại mã qua email" : "Gửi mã qua email đã xác minh"}
                 </button>
+                {otpId && (
+                  <button type="button" className="block text-xs font-semibold hover:underline" disabled={submitting}
+                    onClick={() => { setOtpId(""); setMfaValue(""); setError(""); }}>
+                    Dùng mã từ ứng dụng xác thực
+                  </button>
+                )}
+
               </>
             ) : (
               <>
@@ -300,6 +323,7 @@ export function AuthScreen() {
                 className="mx-auto mt-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                 onClick={() => {
                   setChallengeToken("");
+                  setOtpId("");
                   setMfaValue("");
                 }}
                 type="button"

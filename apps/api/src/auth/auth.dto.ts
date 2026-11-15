@@ -186,18 +186,16 @@ export class DisableMfaDto extends MfaCodeDto {
   challengeToken!: string;
 }
 
-export class RecoveryMfaLoginDto {
+export class MfaEmailRequestDto {
   @IsString()
-  @Length(32, 512, { message: "Phiên xác thực hai bước không hợp lệ." })
+  @Length(32, 512)
   challengeToken!: string;
+}
 
+export class MfaEmailVerifyDto extends MfaLoginDto {
   @IsString()
-  @Matches(/^[A-F0-9]{5}-[A-F0-9]{5}$/i, { message: "Mã khôi phục không đúng định dạng." })
-  recoveryCode!: string;
-
-  @IsOptional()
-  @IsBoolean()
-  rememberMe?: boolean;
+  @Matches(/^[a-f0-9]{36}$/)
+  otpId!: string;
 }
 
 /** Yêu cầu gửi mã OTP xác minh địa chỉ email mới cho tài khoản đang đăng nhập. */

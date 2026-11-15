@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, MfaEmailRequestDto, MfaEmailVerifyDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -45,11 +45,18 @@ export class SessionController {
     return { ...result.session, csrfToken: result.csrfToken };
   }
 
-  @Post("mfa/recovery")
+  @Post("mfa/email/send")
   @HttpCode(200)
-  /** Hoàn tất đăng nhập mật khẩu bằng mã khôi phục MFA dùng một lần. */
-  async recoverMfa(@Body() input: RecoveryMfaLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.completeMfaLogin(input.challengeToken, "000000", input.rememberMe, this.context(request), input.recoveryCode);
+  /** Gửi OTP cho thử thách đăng nhập hiện tại. */
+  sendMfaEmail(@Body() input: MfaEmailRequestDto): Promise<object> {
+    return this.auth.sendMfaLoginOtp(input.challengeToken);
+  }
+
+  @Post("mfa/email/verify")
+  @HttpCode(200)
+  /** Hoàn tất đăng nhập mật khẩu bằng OTP email dùng một lần. */
+  async verifyMfaEmail(@Body() input: MfaEmailVerifyDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.completeMfaLogin(input.challengeToken, input.code, input.rememberMe, this.context(request), input.otpId);
     this.setSessionCookie(response, result.token, result.maxAgeMs);
     return { ...result.session, csrfToken: result.csrfToken };
   }
@@ -254,8 +261,8 @@ export class AccountController {
   }
 
   @Post("mfa/confirm")
-  /** Xác nhận mã TOTP đầu tiên, bật MFA và trả bộ mã khôi phục chỉ một lần. */
-  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ recoveryCodes: string[] }> {
+  /** Xác nhận mã TOTP đầu tiên, bật MFA khi email đã xác minh. */
+  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ enabled: true }> {
     const session = await this.session(cookies);
     return this.auth.confirmMfa(session.user.id, input.code);
   }
@@ -268,7 +275,7 @@ export class AccountController {
   }
 
   @Delete("mfa")
-  /** Xác minh TOTP lần cuối rồi xóa bí mật và mã khôi phục MFA. */
+  /** Xác minh TOTP lần cuối rồi xóa bí mật MFA. */
   async disableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaDto): Promise<{ disabled: true }> {
     const session = await this.session(cookies);
     return this.auth.disableMfa(session.user.id, input.challengeToken, input.code);
