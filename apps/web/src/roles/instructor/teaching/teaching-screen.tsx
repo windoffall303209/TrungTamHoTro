@@ -469,7 +469,7 @@ export default function TeachingScreen() {
                     value: item.id,
                     label: item.title,
                     description: new Date(item.startsAt).toLocaleString(
-                      "vi-VN",
+                      activeLocale(),
                     ),
                   }))}
                   placeholder="Gõ tên buổi học để lọc…"
@@ -574,7 +574,7 @@ export default function TeachingScreen() {
                       value: item.id,
                       label: item.title,
                       description: new Date(item.startsAt).toLocaleString(
-                        "vi-VN",
+                        activeLocale(),
                       ),
                     }))}
                   placeholder="Gõ tên buổi học để lọc…"

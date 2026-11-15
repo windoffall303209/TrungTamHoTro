@@ -46,6 +46,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
 import { getLectureEmbedUrl, getLectureSourceUrl, getLectureYoutubeId } from "@/lib/lecture-links";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
@@ -184,6 +185,7 @@ export function LearnerClassWorkspace({
 }: LearnerClassWorkspaceProps) {
   const router = useRouter();
   const { session, notify } = useApp();
+  const { locale } = useI18n();
 
   // Tab điều hướng dọc của học sinh: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
   const [activeTab, setActiveTab] = useState<SubTab>(() => {
@@ -527,7 +529,7 @@ export function LearnerClassWorkspace({
         score: r.attempt.score == null ? undefined : Number(r.attempt.score),
         maxScore: Number(exam.totalScore),
         submittedAt: r.attempt.submittedAt
-          ? new Date(r.attempt.submittedAt).toLocaleDateString("vi-VN", {
+          ? new Date(r.attempt.submittedAt).toLocaleDateString(locale, {
               day: "2-digit",
               month: "2-digit",
               year: "numeric",
@@ -591,17 +593,17 @@ export function LearnerClassWorkspace({
           attemptNo: 1,
           score: assign.submission.score == null ? undefined : Number(assign.submission.score),
           maxScore: Number(assign.maxScore),
-          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString("vi-VN") : undefined,
+          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString(locale) : undefined,
           feedback: assign.submission.feedback,
         },
       ] : [],
       subtypeText: "Bài tập tự luận",
       scoringMethod: "Điểm đánh giá",
-      createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString("vi-VN") : undefined,
+      createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString(locale) : undefined,
     }));
 
     return [...dbExams, ...dbAssigns];
-  }, [classExams, classAssignments, learnerResults]);
+  }, [classExams, classAssignments, learnerResults, locale]);
 
   // State cho Bài giảng
   const [lectureSearch, setLectureSearch] = useState("");
@@ -1282,8 +1284,8 @@ export function LearnerClassWorkspace({
                     return (
                       <div key={day.toISOString()} className="p-3 rounded-xl border bg-slate-50/60 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 min-h-36">
                         <div className="flex justify-between border-b border-slate-200 dark:border-slate-700 pb-2 mb-2">
-                          <span className="text-xs font-bold">{day.toLocaleDateString("vi-VN", { weekday: "long" })}</span>
-                          <span className="text-[10px] text-slate-500">{day.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}</span>
+                          <span className="text-xs font-bold">{day.toLocaleDateString(locale, { weekday: "long" })}</span>
+                          <span className="text-[10px] text-slate-500">{day.toLocaleDateString(locale, { day: "2-digit", month: "2-digit" })}</span>
                         </div>
                         {daySessions.length === 0 ? <p className="text-[11px] text-slate-400 italic text-center pt-4">Không có lịch</p> : (
                           <div className="space-y-3">
@@ -1291,7 +1293,7 @@ export function LearnerClassWorkspace({
                               <div key={entry.id} className="space-y-1">
                                 <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{entry.title}</p>
                                 <p className="text-[10px] text-slate-500">
-                                  {new Date(entry.startsAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                                  {new Date(entry.startsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
                                 </p>
                                 <p className="text-[10px] text-slate-500">{entry.status}</p>
                                 {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">Vào phòng</button>}
@@ -1310,7 +1312,7 @@ export function LearnerClassWorkspace({
                       <div className="space-y-1">
                         <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{entry.title}</strong>
                         <p className="text-xs text-slate-500">
-                          {new Date(entry.startsAt).toLocaleString("vi-VN")} – {new Date(entry.endsAt).toLocaleString("vi-VN")} · {entry.status}
+                          {new Date(entry.startsAt).toLocaleString(locale)} – {new Date(entry.endsAt).toLocaleString(locale)} · {entry.status}
                         </p>
                       </div>
                       {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Vào phòng học</button>}
@@ -1868,7 +1870,7 @@ export function LearnerClassWorkspace({
                           <span>Ngày đăng</span>
                         </span>
                         <span className="font-semibold text-slate-900 dark:text-slate-100">
-                          {new Date(activeLectureItem.uploadedAt).toLocaleDateString("vi-VN")}
+                          {new Date(activeLectureItem.uploadedAt).toLocaleDateString(locale)}
                         </span>
                       </div>
 
@@ -2020,7 +2022,7 @@ export function LearnerClassWorkspace({
                                   {mat.title}
                                 </strong>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {mat.size ? `${mat.size} · ` : ""}Tải lên {new Date(mat.uploadedAt).toLocaleDateString("vi-VN")}
+                                  {mat.size ? `${mat.size} · ` : ""}Tải lên {new Date(mat.uploadedAt).toLocaleDateString(locale)}
                                 </p>
                               </div>
                             </div>
@@ -2085,7 +2087,7 @@ export function LearnerClassWorkspace({
                         <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
                           <span>Ngày tải lên</span>
                           <span className="font-semibold text-slate-900 dark:text-slate-100">
-                            {new Date(activeMaterialItem.uploadedAt).toLocaleDateString("vi-VN")}
+                            {new Date(activeMaterialItem.uploadedAt).toLocaleDateString(locale)}
                           </span>
                         </div>
                       </div>
@@ -2154,7 +2156,7 @@ export function LearnerClassWorkspace({
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h2 id="essay-submission-title" className="text-xl font-bold text-slate-900 dark:text-white break-words">{activeEssayAssignment.title}</h2>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hạn nộp: {new Date(activeEssayAssignment.dueAt).toLocaleString("vi-VN")}</p>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hạn nộp: {new Date(activeEssayAssignment.dueAt).toLocaleString(locale)}</p>
                 </div>
                 <button type="button" aria-label="Đóng bài tập" disabled={essaySubmitting} onClick={() => setActiveEssayAssignment(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-50 dark:hover:bg-slate-800"><X size={20} /></button>
               </div>

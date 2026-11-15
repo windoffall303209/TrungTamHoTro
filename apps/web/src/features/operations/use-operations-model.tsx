@@ -1,4 +1,6 @@
 "use client";
+import { translateText } from "@/i18n/catalog";
+import { activeLocale } from "@/i18n/runtime";
 import { usePagination } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
@@ -415,7 +417,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     if (
       retentionBusy ||
       !window.confirm(
-        "Phê duyệt xử lý dữ liệu theo chính sách này? Hành động có thể xóa dữ liệu đã hết hạn.",
+        translateText("Phê duyệt xử lý dữ liệu theo chính sách này? Hành động có thể xóa dữ liệu đã hết hạn.", activeLocale()),
       )
     )
       return;

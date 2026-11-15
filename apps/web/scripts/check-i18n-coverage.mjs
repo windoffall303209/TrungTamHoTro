@@ -14,9 +14,21 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
   const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const values = [];
   /** Duyệt JSX và chuỗi mẫu để thu thập nội dung tiếng Việt cần dịch. */
+  // Giải mã thực thể HTML trong JSX để chuỗi đối chiếu khớp với Text.data trên DOM.
+  const decodeJsxEntities = (text) =>
+    text
+      .replace(/&quot;/g, "\"")
+      .replace(/&apos;|&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
+
   const visit = (node) => {
     if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const value = normalize(node.text);
+      const rawText = ts.isJsxText(node) || (ts.isStringLiteral(node) && ts.isJsxAttribute(node.parent)) ? decodeJsxEntities(node.text) : node.text;
+      const value = normalize(rawText);
       if (value && vietnamesePattern.test(value)) values.push(value);
     }
     if (ts.isTemplateExpression(node)) {

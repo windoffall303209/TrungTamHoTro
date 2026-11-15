@@ -47,8 +47,8 @@ const emptyProfile: AccountProfile = {
 
 
 /** Rút gọn user-agent thành tên trình duyệt, nền tảng và loại thiết bị dễ đọc. */
-function deviceName(userAgent: string): { label: string; mobile: boolean } {
-  if (userAgent === "Thiết bị không xác định") return { label: userAgent, mobile: false };
+function deviceName(userAgent: string, translate: (value: string) => string = (value) => value): { label: string; mobile: boolean } {
+  if (userAgent === "Thiết bị không xác định") return { label: translate(userAgent), mobile: false };
   const mobile = /Android|iPhone|iPad/i.test(userAgent);
   const browser = /Edg/i.test(userAgent)
     ? "Microsoft Edge"
@@ -58,7 +58,7 @@ function deviceName(userAgent: string): { label: string; mobile: boolean } {
     ? "Firefox"
     : /Safari/i.test(userAgent)
     ? "Safari"
-    : "Trình duyệt khác";
+    : translate("Trình duyệt khác");
   const platform = /Windows/i.test(userAgent)
     ? "Windows"
     : /Android/i.test(userAgent)
@@ -67,7 +67,7 @@ function deviceName(userAgent: string): { label: string; mobile: boolean } {
     ? "iOS/iPadOS"
     : /Mac OS/i.test(userAgent)
     ? "macOS"
-    : "Thiết bị khác";
+    : translate("Thiết bị khác");
   return { label: `${browser} · ${platform}`, mobile };
 }
 
@@ -87,7 +87,7 @@ function AccountContent() {
   const [activeTab, setActiveTab] = useState<"profile" | "security">(initialTab);
 
   const { notify, refreshSession } = useApp();
-  const { formatDateTime, locale, setLocale } = useI18n();
+  const { t, formatDateTime, locale, setLocale } = useI18n();
 
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
@@ -1240,7 +1240,7 @@ function AccountContent() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                    Thiết bị đăng nhập ({sessions.length})
+                    {t("Thiết bị đăng nhập")} ({sessions.length})
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
                     Kiểm tra và quản lý các thiết bị đang đăng nhập vào tài khoản của bạn.
@@ -1258,7 +1258,7 @@ function AccountContent() {
 
             <div className="mt-4 space-y-2.5">
               {sessions.map((item) => {
-                const device = deviceName(item.userAgent);
+                const device = deviceName(item.userAgent, t);
                 const Icon = device.mobile ? Smartphone : Laptop;
                 return (
                   <div

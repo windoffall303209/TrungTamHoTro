@@ -22,6 +22,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import { apiRequest } from "@/lib/api-client";
 import { loadAllMaterials } from "@/lib/materials";
 import type { LearningClass, Material } from "@/lib/learning-types";
@@ -86,9 +87,17 @@ function getMaterialFileType(name: string, mimeType = ""): MaterialFileItem["typ
   return "pdf";
 }
 
+// Định dạng mốc thời gian cập nhật học liệu theo ngôn ngữ hiển thị hiện hành.
+function formatMaterialUpdatedAt(raw: string, locale: string, translate: (value: string) => string): string {
+  if (!raw) return translate("Hôm nay");
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString(locale);
+}
+
 // Giao diện học liệu chuẩn xác với phân cấp Khối -> Môn -> Lớp nạp trực tiếp từ CSDL PostgreSQL
 export function InstructorMaterialsView() {
   const { session, notify } = useApp();
+  const { t, locale } = useI18n();
   const [gradesData, setGradesData] = useState<GradeFolderItem[]>([]);
   const [unclassifiedExams, setUnclassifiedExams] = useState<MaterialFileItem[]>([]);
   const loadRequestRef = useRef(0);
@@ -121,7 +130,7 @@ export function InstructorMaterialsView() {
             name: rawName,
             type: fType,
             size: sizeMb,
-            updatedAt: m.createdAt ? new Date(m.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+            updatedAt: m.createdAt ?? "",
             folderCategory: m.folder || "Tài liệu chung",
             description: m.tags?.join(", ") || "",
             tags: m.tags ?? [],
@@ -179,7 +188,7 @@ export function InstructorMaterialsView() {
             name: c.name,
             code: c.code,
             itemsCount: classFiles.length,
-            updatedAt: "Hôm nay",
+            updatedAt: "",
             files: classFiles,
           });
         });
@@ -194,7 +203,7 @@ export function InstructorMaterialsView() {
             id: `sub-${gName}-${sName}`,
             name: sName,
             itemsCount: totalFiles,
-            updatedAt: "Hôm nay",
+            updatedAt: "",
             classes,
           };
         });
@@ -204,7 +213,7 @@ export function InstructorMaterialsView() {
           name: gName,
           label: `Khối ${gName}`,
           itemsCount: totalItemsInGrade,
-          updatedAt: "Hôm nay",
+          updatedAt: "",
           subjects,
         };
       });
@@ -779,7 +788,7 @@ export function InstructorMaterialsView() {
                       <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                         <span>{item.size}</span>
                         <span>•</span>
-                        <span>{item.updatedAt}</span>
+                        <span>{formatMaterialUpdatedAt(item.updatedAt, locale, t)}</span>
                       </div>
                     )}
                   </div>
@@ -974,8 +983,8 @@ export function InstructorMaterialsView() {
                           )}
                         </div>
                       </div>
-                      <div className="col-span-3 text-slate-500">{grade.itemsCount} mục</div>
-                      <div className="col-span-2 text-slate-500">{grade.updatedAt}</div>
+                      <div className="col-span-3 text-slate-500">{t(`${grade.itemsCount} mục`)}</div>
+                      <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(grade.updatedAt, locale, t)}</div>
                       <div className="col-span-1 text-right text-slate-400">...</div>
                     </div>
                   );
@@ -1019,8 +1028,8 @@ export function InstructorMaterialsView() {
                             )}
                           </div>
                         </div>
-                        <div className="col-span-3 text-slate-500">{sub.classes.length} lớp</div>
-                        <div className="col-span-2 text-slate-500">{sub.updatedAt}</div>
+                        <div className="col-span-3 text-slate-500">{t(`${sub.classes.length} lớp`)}</div>
+                        <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(sub.updatedAt, locale, t)}</div>
                         <div className="col-span-1 text-right text-slate-400">...</div>
                       </div>
                     );
@@ -1071,8 +1080,8 @@ export function InstructorMaterialsView() {
                             )}
                           </div>
                         </div>
-                        <div className="col-span-3 text-slate-500">{cls.files.length} tệp</div>
-                        <div className="col-span-2 text-slate-500">{cls.updatedAt}</div>
+                        <div className="col-span-3 text-slate-500">{t(`${cls.files.length} tệp`)}</div>
+                        <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(cls.updatedAt, locale, t)}</div>
                         <div className="col-span-1 text-right text-slate-400">...</div>
                       </div>
                     );
@@ -1157,7 +1166,7 @@ export function InstructorMaterialsView() {
                         </div>
                       </div>
                       <div className="col-span-3 text-slate-500">{file.size}</div>
-                      <div className="col-span-2 text-slate-500">{file.updatedAt}</div>
+                      <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(file.updatedAt, locale, t)}</div>
 
                       {/* Cột Tùy chọn 3 chấm với: Dùng làm tài liệu/bài giảng, Di chuyển, Chuyển vào Cần phân cấp lại, Xóa */}
                       <div className="col-span-1 text-right relative">

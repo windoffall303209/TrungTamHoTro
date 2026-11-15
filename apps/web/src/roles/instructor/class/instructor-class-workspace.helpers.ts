@@ -1,3 +1,5 @@
+import { translateText } from "@/i18n/catalog";
+import { activeLocale } from "@/i18n/runtime";
 import type { Assignment, GradebookRow, Material, Question } from "@/lib/learning-types";
 import { detectLectureLinkPlatform, getLectureSourceUrl, getLectureYoutubeId } from "@/lib/lecture-links";
 export { detectLectureLinkPlatform, getLectureEmbedUrl, getLectureYoutubeId } from "@/lib/lecture-links";
@@ -65,7 +67,7 @@ export function toClassQuestion(question: Question & { solution?: string; create
     options: Array.isArray(question.options) ? question.options : [],
     correctAnswers: Array.isArray(question.correctAnswers) ? question.correctAnswers.map((answer: string) => (Array.isArray(question.options) ? question.options : []).indexOf(answer)).filter((index: number) => index >= 0) : [],
     solution: question.solution || "",
-    createdAt: question.createdAt ? new Date(question.createdAt).toLocaleDateString("vi-VN") : "Hôm nay",
+    createdAt: question.createdAt ? new Date(question.createdAt).toLocaleDateString(activeLocale()) : translateText("Hôm nay", activeLocale()),
   };
 }
 
@@ -140,7 +142,7 @@ export function toMaterialDisplayItem(material: Material): MaterialDisplayItem {
     title: material.name,
     fileType: format,
     size: material.sizeBytes > 0 ? `${(material.sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "—",
-    uploadedAt: Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("vi-VN"),
+    uploadedAt: Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString(activeLocale()),
     folder: material.folder || "Tài liệu chung",
     description: material.tags?.join(", ") || "",
   };

@@ -17,6 +17,7 @@ import {
   Flag,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
+import { useI18n } from "@/providers/i18n-provider";
 import type { ClassPost, PostComment, ClassFeedViewProps } from "./class-feed-types";
 import { loadClassFeedPosts, saveClassFeedPosts } from "./class-feed-storage";
 import { createClassFeedId } from "./class-feed-ids";
@@ -30,6 +31,7 @@ export function ClassFeedView(props: ClassFeedViewProps) {
 /** Bảng tin của một lớp với bài đăng, bình luận và dữ liệu lưu theo mã lớp. */
 function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedViewProps) {
   const { session, notify } = useApp();
+  const { t, locale } = useI18n();
 
   // Xác định thông tin người dùng hiện tại đang đăng nhập
   const currentUserName = useMemo(() => {
@@ -184,7 +186,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
 
   /** Xóa bài viết */
   const handleDeletePost = (postId: string) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa bài viết này không?")) return;
+    if (!window.confirm(t("Bạn có chắc chắn muốn xóa bài viết này không?"))) return;
     const updated = posts.filter((p) => p.id !== postId);
     if (!persistPosts(updated)) return;
     if (selectedPost?.id === postId) setSelectedPost(null);
@@ -206,7 +208,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
     // Lưu vào lịch sử chỉnh sửa
     const historyItem = {
       content: post.content,
-      editedAt: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }),
+      editedAt: new Date().toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }),
     };
     setPostEditHistories((prev) => ({
       ...prev,

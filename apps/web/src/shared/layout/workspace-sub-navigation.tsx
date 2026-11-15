@@ -37,10 +37,10 @@ export function WorkspaceSubNavigation({
     <aside className={asideClassName}>
       <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs space-y-1">
         <div className="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
-          {title}
+          {t(title)}
         </div>
 
-        <nav aria-label={ariaLabel} className="space-y-1">
+        <nav aria-label={t(ariaLabel)} className="space-y-1">
           {items.map(({ href, label, description, icon: Icon, badge, exact }) => {
             const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
             return (
@@ -65,7 +65,7 @@ export function WorkspaceSubNavigation({
                         <span className="block truncate font-bold text-xs sm:text-[13px]">{t(label)}</span>
                         {badge && (
                           <span className="inline-flex items-center rounded-md bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 text-[9px] font-extrabold text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                            {badge}
+                            {typeof badge === "string" ? t(badge) : badge}
                           </span>
                         )}
                       </div>
@@ -73,7 +73,7 @@ export function WorkspaceSubNavigation({
                       <span className="block truncate font-bold text-xs sm:text-[13px]">{t(label)}</span>
                     )}
                     <span className="block truncate text-[10px] font-normal text-slate-600 dark:text-slate-500">
-                      {description}
+                      {description ? t(description) : description}
                     </span>
                   </div>
                 </div>
