@@ -264,7 +264,7 @@ describe("AccountPage request lifecycle", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
-    expect(screen.getByText("Bước 1 / 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Bước \d \/ 2/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Mã gồm 6 chữ số")).not.toBeInTheDocument();
 
     const newEmailInput = screen.getByLabelText("Email mới");
@@ -281,7 +281,7 @@ describe("AccountPage request lifecycle", () => {
       );
     });
     expect(await screen.findByRole("dialog", { name: "Xác minh địa chỉ email mới" })).toBeInTheDocument();
-    expect(screen.getByText("Bước 2 / 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Bước \d \/ 2/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Email mới")).not.toBeInTheDocument();
     expect(screen.getByText(/Mã xác minh 6 chữ số đã được gửi tới:/)).toBeInTheDocument();
 
@@ -345,7 +345,6 @@ describe("AccountPage request lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Quay lại đổi email" }));
 
     expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
-    expect(screen.getByText("Bước 1 / 2")).toBeInTheDocument();
     expect(screen.getByLabelText("Email mới")).toHaveValue("typo@wind.edu.vn");
     expect(screen.queryByLabelText("Mã gồm 6 chữ số")).not.toBeInTheDocument();
   });
@@ -356,10 +355,6 @@ describe("AccountPage request lifecycle", () => {
       "Xác minh địa chỉ email mới",
       "Nhập địa chỉ email mới để nhận mã xác minh gồm 6 chữ số",
       "Nhập mã xác minh gồm 6 chữ số đã được gửi tới email mới",
-      "Bước 1 / 2",
-      "Bước 2 / 2",
-      "Nhập email mới",
-      "Xác minh mã OTP",
       "Quay lại đổi email",
       "Email hiện tại:",
       "Gửi mã xác minh",
