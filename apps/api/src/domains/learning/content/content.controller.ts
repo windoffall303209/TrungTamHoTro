@@ -9,9 +9,9 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, ReviewExamDto, ReviewMaterialDto, ReplaceMaterialEditorsDto, ReviewQuestionDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, ReplaceMaterialEditorsDto, ReviewQuestionDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "../core/learning.service.js";
-import type { AiGeneratedExamResult, ExamApprovalRecord, ExamAttempt, ExamAttemptReview, FileReviewRecord, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
+import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
@@ -137,6 +137,7 @@ export class ContentController {
       folder: input.folder,
       tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       scope: input.scope,
+      visibility: input.visibility,
     }, upload, session.user.id, session.roleCode);
   }
 
@@ -189,6 +190,7 @@ export class ContentController {
       folder: input.folder,
       tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       courseId,
+      visibility: input.visibility,
     }, upload, session.user.id, session.roleCode);
   }
 
@@ -211,22 +213,6 @@ export class ContentController {
   @Delete("instructor/materials/:materialId") @RequirePermissions("material:manage") @HttpCode(204)
   /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
   deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> { return this.learning.deleteMaterial(materialId, session.user.id, session.roleCode); }
-
-  @Get("instructor/materials/:materialId/reviews") @RequirePermissions("material:manage")
-  /** Người tải lên và người được cấp quyền sửa xem quyết định kiểm duyệt kèm lý do. */
-  listOwnMaterialReviews(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId, session.user.id); }
-
-  @Patch("instructor/materials/:materialId/review") @RequirePermissions("material:manage")
-  /** Giảng viên tự kiểm duyệt, công bố hoặc thu hồi học liệu của mình. */
-  reviewOwnMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }
-
-  @Patch("manager/materials/:materialId/review") @RequirePermissions("class:manage", "material:manage")
-  /** Quản lý duyệt, ẩn hoặc cách ly học liệu và lưu lý do. */
-  reviewMaterial(@Param("materialId") materialId: string, @Body() input: ReviewMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.reviewClassMaterial(materialId, input.action, input.reason, session.user.id); }
-
-  @Get("manager/materials/:materialId/reviews") @RequirePermissions("class:manage")
-  /** Trả lịch sử các quyết định kiểm duyệt tệp học liệu. */
-  listMaterialReviews(@Param("materialId") materialId: string): Promise<FileReviewRecord[]> { return this.learning.listMaterialReviews(materialId); }
 
   @Get("materials/:materialId/access") @RequirePermissions("material:view")
   /** Phát URL ký ngắn hạn cho phiên bản học liệu hiện tại. */
@@ -323,7 +309,10 @@ export class ContentController {
 
   @Post("admin/question-bank/questions/:questionId/review") @RequirePermissions("system:configure")
   /** Cho quản trị duyệt hoặc từ chối câu hỏi khi chế độ duyệt tay được bật. */
-  reviewQuestion(@Param("questionId") questionId: string, @Body() input: ReviewQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.reviewQuestion(questionId, input.decision, input.reviewNote, session.user.id); }
+  reviewQuestion(@Param("questionId") questionId: string, @Body() input: ReviewQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> {
+    if (session.roleCode !== "SYSTEM_ADMIN") throw new ForbiddenException("Chỉ quản trị hệ thống được duyệt câu hỏi.");
+    return this.learning.reviewQuestion(questionId, input.decision, input.reviewNote, session.user.id);
+  }
 
   @Post("instructor/question-bank/questions/import") @RequirePermissions("question:manage")
   /** Nhập hàng loạt câu hỏi và trả kết quả riêng cho từng mục. */
@@ -338,8 +327,7 @@ export class ContentController {
   ): Promise<QuestionScanResult> {
     this.assertInstructorMutation(session);
     if (!file) throw new BadRequestException("Cần chọn ảnh đề thi để quét.");
-    const config = await this.aiProviders.resolveTask("SCAN_IMAGE");
-    return this.aiProviders.scanImage({ ...config, fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
+    return this.aiProviders.scanImage({ fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
   }
 
   @Get("instructor/question-bank/ai-providers") @RequirePermissions("question:manage")
@@ -391,7 +379,7 @@ export class ContentController {
   getInstructorExamPreview(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { this.assertInstructorMutation(session); return this.learning.getInstructorExamPreview(examId, session.user.id); }
 
   @Get("manager/exams/:examId/preview") @RequirePermissions("class:manage")
-  /** Cho người duyệt xem nội dung đề đang chờ phê duyệt mà không cần được phân công lớp. */
+  /** Cho quản lý xem nội dung đề đã công bố. */
   getReviewerExamPreview(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getReviewerExamPreview(examId); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
@@ -466,16 +454,8 @@ export class ContentController {
   editExamQuestion(@Param("examId") examId: string, @Param("questionId") questionId: string, @Body() input: EditExamQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.editExamQuestion(examId, questionId, input, session.user.id); }
 
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
-  /** Gửi đề duyệt hoặc tự động công bố theo chính sách hệ thống. */
+  /** Công bố đề sau khi kiểm tra câu hỏi và lịch học. */
   publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession, @Body() input: SubmitExamDto = {}): Promise<LearningExam> { this.assertInstructorMutation(session); return this.learning.submitExamForReview(examId, session.user.id, input.confirmQuestions, input.expectedVersion, input.forcePublish); }
-
-  @Post("manager/exams/:examId/approve") @RequirePermissions("class:manage")
-  /** Duyệt hoặc từ chối đề khi hệ thống đang dùng chế độ duyệt tay. */
-  approveExam(@Param("examId") examId: string, @Body() input: ReviewExamDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningExam> { this.assertInstructorMutation(session); return this.learning.reviewExam(examId, input.decision, input.reviewNote, session.user.id); }
-
-  @Get("manager/exams/:examId/approvals") @RequirePermissions("class:manage")
-  /** Trả lịch sử quyết định phê duyệt đề thi. */
-  listExamApprovals(@Param("examId") examId: string): Promise<ExamApprovalRecord[]> { return this.learning.listExamApprovals(examId); }
 
   @Post("learner/exams/:examId/attempts") @RequirePermissions("exam:view")
   /** Mở hoặc tiếp tục lượt thi hợp lệ cho học viên. */

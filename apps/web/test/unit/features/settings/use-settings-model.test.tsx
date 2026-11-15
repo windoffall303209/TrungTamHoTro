@@ -20,7 +20,7 @@ function makeSettings(centerName: string): Settings {
   return {
     centerName, timezone: "Asia/Bangkok", locale: "vi", retentionDays: 30,
     maxFileSizeMb: 10, storageQuotaMb: 100, allowedMimeTypes: [],
-    moderationEnabled: true, examApprovalMode: "MANUAL", questionApprovalMode: "MANUAL",
+    questionApprovalMode: "MANUAL",
     notificationSender: "support@example.com", maintenanceMode: false,
     learnerEmailNotificationsEnabled: false, version: 1,
     effectiveAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z", updatedBy: "admin",

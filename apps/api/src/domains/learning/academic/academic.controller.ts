@@ -20,17 +20,7 @@ import {
   RequireAuthentication,
   RequirePermissions,
 } from "../../../auth/require-permissions.decorator.js";
-import {
-  AcademicService,
-  type AcademicCalendarEvent,
-  type AssignmentChangeView,
-  type AssignmentSubmissionView,
-  type AssignmentView,
-  type ClassAnnouncementView,
-  type GradebookRow,
-  type GradingQueueGroup,
-  type UploadedAssignmentFile,
-} from "./academic.service.js";
+import { AcademicService, type AcademicCalendarEvent, type AssignmentSubmissionView, type AssignmentView, type ClassAnnouncementView, type GradebookRow, type GradingQueueGroup, type UploadedAssignmentFile } from "./academic.service.js";
 import {
   AcademicQueryDto,
   CloseAssignmentDto,
@@ -114,16 +104,6 @@ export class AcademicController {
       input.expectedVersion,
       session,
     );
-  }
-
-  @Get("instructor/assignments/:assignmentId/history")
-  @RequirePermissions("exam:manage")
-  /** Đọc lịch sử sửa, gia hạn, công bố và đóng bài tập. */
-  assignmentHistory(
-    @Param("assignmentId") assignmentId: string,
-    @CurrentSession() session: AuthenticatedSession,
-  ): Promise<AssignmentChangeView[]> {
-    return this.academic.assignmentHistory(assignmentId, session);
   }
 
   @Post("instructor/assignments/:assignmentId/publish")

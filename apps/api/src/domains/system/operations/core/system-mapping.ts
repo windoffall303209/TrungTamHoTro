@@ -2,20 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../../../database/prisma.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { includeSupportedDocumentMimeTypes } from "../../../../infrastructure/file-transfer.js";
-import {
-  AuditEvent,
-  BackupRun,
-  DataExport,
-  defaultSettings,
-  IntegrationConfig,
-  ModerationPolicy,
-  NotificationTemplate,
-  RestoreRun,
-  RetentionJobView,
-  RetentionPolicyView,
-  SystemAlertView,
-  SystemSettings,
-} from "../../core/system.shared.js";
+import { AuditEvent, BackupRun, DataExport, defaultSettings, IntegrationConfig, RestoreRun, RetentionJobView, RetentionPolicyView, SystemAlertView, SystemSettings } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
 /** Chọn Prisma khi DB được bật, nếu không dùng state in-memory của service. */
@@ -63,11 +50,6 @@ export function mapSettings(
         fallback.allowedMimeTypes,
       ),
     ),
-    moderationEnabled: serviceContext.booleanValue(
-      record.moderationEnabled,
-      fallback.moderationEnabled,
-    ),
-    examApprovalMode: record.examApprovalMode === "MANUAL" ? "MANUAL" : "AUTO",
     questionApprovalMode:
       record.questionApprovalMode === "MANUAL" ? "MANUAL" : "AUTO",
     notificationSender: serviceContext.stringValue(
@@ -122,10 +104,11 @@ export function mapIntegration(
 
 /** Ánh xạ job sao lưu, bao gồm metadata và thông tin lỗi đã lưu. */
 export function mapBackup(
-  row: Prisma.BackupJobGetPayload<Record<string, never>>,
+  row: Prisma.OperationalJobGetPayload<Record<string, never>>,
 ): BackupRun {
   return {
     id: row.id,
+    canRestore: row.status === "COMPLETED" && Boolean(row.objectKey && row.checksum),
     type: row.type === "INCREMENTAL" ? "INCREMENTAL" : "FULL",
     status: row.status,
     createdAt: row.createdAt.toISOString(),
@@ -141,11 +124,11 @@ export function mapBackup(
 
 /** Ánh xạ yêu cầu phục hồi, loại thao tác và dấu vết hai người. */
 export function mapRestore(
-  row: Prisma.RestoreJobGetPayload<Record<string, never>>,
+  row: Prisma.OperationalJobGetPayload<Record<string, never>>,
 ): RestoreRun {
   return {
     id: row.id,
-    backupId: row.backupId,
+    backupId: row.backupId!,
     mode: row.mode === "OPERATIONAL" ? "OPERATIONAL" : "DRILL",
     status: row.status,
     requestedBy: row.requestedBy,
@@ -159,11 +142,11 @@ export function mapRestore(
 
 /** Ánh xạ job xuất dữ liệu và URL/checksum khi hoàn thành. */
 export function mapExport(
-  row: Prisma.DataExportJobGetPayload<Record<string, never>>,
+  row: Prisma.OperationalJobGetPayload<Record<string, never>>,
 ): DataExport {
   return {
     id: row.id,
-    category: row.category,
+    category: row.category!,
     format: row.format === "JSON" ? "JSON" : "CSV",
     status: row.status,
     rowCount: row.rowCount ?? 0,
@@ -177,38 +160,6 @@ export function mapExport(
     createdAt: row.createdAt.toISOString(),
     attempts: row.attempts,
     progress: row.progress,
-  };
-}
-
-/** Ánh xạ mẫu thông báo Prisma sang hợp đồng quản trị. */
-export function mapTemplate(
-  row: Prisma.NotificationTemplateGetPayload<Record<string, never>>,
-): NotificationTemplate {
-  return {
-    id: row.id,
-    eventCode: row.eventCode,
-    locale: row.locale,
-    subject: row.subject,
-    body: row.body,
-    version: row.version,
-    status: row.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-/** Ánh xạ JSON từ cấm và tham số kiểm duyệt sang policy. */
-export function mapModeration(
-  serviceContext: SystemServiceContext,
-  row: Prisma.ModerationPolicyGetPayload<Record<string, never>>,
-): ModerationPolicy {
-  if (row.action !== "FLAG" && row.action !== "HIDE_PENDING_REVIEW")
-    throw new BadRequestException("Hành động kiểm duyệt không hợp lệ.");
-  return {
-    version: row.version,
-    prohibitedTerms: serviceContext.stringArray(row.prohibitedTerms, []),
-    maxPostsPerMinute: row.maxPostsPerMinute,
-    action: row.action,
-    updatedAt: row.createdAt.toISOString(),
   };
 }
 

@@ -1,19 +1,7 @@
 "use client";
 
 import { activeLocale } from "@/i18n/runtime";
-import {
-  CalendarPlus,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  ExternalLink,
-  Pencil,
-  Play,
-  Radio,
-  Trash2,
-  UserCheck,
-  Video,
-} from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Clock, ExternalLink, Pencil, Play, Radio, Trash2, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
@@ -86,7 +74,6 @@ export default function LiveClassesPage() {
   const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LiveSession | null>(null);
-  const [joinedSessionId, setJoinedSessionId] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
   const [form, setForm] = useState({
     classId: "",
@@ -330,34 +317,13 @@ export default function LiveClassesPage() {
         method: "POST",
         roleCode: session.roleCode,
       });
-      setJoinedSessionId(item.id);
       window.open(result.attendeeUrl, "_blank", "noopener,noreferrer");
       notify(
-        `Đã ghi nhận tham gia lúc ${new Date(result.joinedAt).toLocaleTimeString(activeLocale())}.`,
+        `Đã mở liên kết phòng học lúc ${new Date(result.joinedAt).toLocaleTimeString(activeLocale())}.`,
       );
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Chưa thể vào lớp.",
-        "error",
-      );
-    }
-  };
-  /** Ghi nhận thời điểm rời phòng để phục vụ đối soát điểm danh. */
-  const leave = async (item: LiveSession) => {
-    try {
-      const result = await apiRequest<{ attendedMinutes: number }>(
-        `/learner/sessions/${item.id}/leave`,
-        { method: "POST", roleCode: session.roleCode },
-      );
-      setJoinedSessionId(null);
-      notify(
-        `Đã kết thúc phiên tham gia và ghi nhận ${result.attendedMinutes} phút.`,
-      );
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không kết thúc được phiên tham gia.",
         "error",
       );
     }
@@ -372,8 +338,8 @@ export default function LiveClassesPage() {
           title={learner ? t("Lịch học trực tuyến") : t("Lớp học online")}
           description={
             learner
-              ? t("Thời khóa biểu các ca học theo tuần và theo tháng, hỗ trợ điểm danh và vào phòng trực tuyến.")
-              : t("Lập lịch, mở phòng, điểm danh và gắn bản ghi sau buổi học.")
+              ? t("Xem thời khóa biểu và vào phòng trực tuyến.")
+              : t("Lập lịch, mở phòng và gắn bản ghi sau buổi học.")
           }
           actions={
             instructor || manager ? (
@@ -514,7 +480,6 @@ export default function LiveClassesPage() {
                           const canJoin =
                             clock >= new Date(session.startsAt).getTime() - 15 * 60_000 &&
                             clock <= new Date(session.endsAt).getTime() + 30 * 60_000;
-                          const isAttended = joinedSessionId === session.id;
 
                           return (
                             <div
@@ -588,22 +553,8 @@ export default function LiveClassesPage() {
                                   </div>
                                 ) : (
                                   <>
-                                    <div className="flex items-center justify-between text-[10px] text-white/90">
-                                      <span className="flex items-center gap-1 font-semibold">
-                                        <UserCheck size={12} />
-                                        {isAttended ? t("Đã điểm danh") : t("Chưa điểm danh")}
-                                      </span>
-                                    </div>
 
-                                    {isAttended ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => void leave(session)}
-                                        className="w-full py-1.5 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                      >
-                                        {t("Rời phòng")}
-                                      </button>
-                                    ) : (
+                                    { (
                                       <button
                                         type="button"
                                         disabled={!canJoin && !isLive}
@@ -699,10 +650,6 @@ export default function LiveClassesPage() {
                     {instructor ? (
                       <Button onClick={() => void join(item)} variant="secondary">
                         Vào phòng <ExternalLink size={15} />
-                      </Button>
-                    ) : joinedSessionId === item.id ? (
-                      <Button onClick={() => void leave(item)} variant="secondary">
-                        {t("Rời phòng và chốt điểm danh")}
                       </Button>
                     ) : (
                       <Button
@@ -804,11 +751,7 @@ export default function LiveClassesPage() {
                       </Button>
                     </>
                   ) : null}
-                  {learner && joinedSessionId === item.id ? (
-                    <Button onClick={() => void leave(item)} variant="secondary">
-                      Rời phòng và chốt điểm danh
-                    </Button>
-                  ) : learner &&
+                  { learner &&
                     (item.status === "SCHEDULED" || item.status === "LIVE") ? (
                     <Button
                       disabled={

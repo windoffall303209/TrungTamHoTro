@@ -6,12 +6,45 @@ import {
 import { randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
-import {
-  AssignmentChangeView,
-  AssignmentView,
-  RubricCriterion,
-} from "../../academic/academic.shared.js";
+import { AssignmentView, RubricCriterion } from "../../academic/academic.shared.js";
 import type { AcademicServiceContext } from "../../academic/academic.context.js";
+
+/** Công bố tệp đề và lưu phiên bản học liệu trong cùng giao dịch với bài tập. */
+async function publishSourceMaterial(
+  transaction: Prisma.TransactionClient,
+  materialId: string | null | undefined,
+  classId: string,
+  actorId: string,
+): Promise<void> {
+  if (!materialId) return;
+  const material = await transaction.material.findFirst({
+    where: { id: materialId, classId, scope: "CLASS", quarantinedAt: null },
+  });
+  if (!material)
+    throw new ConflictException("Tệp đề bài không còn khả dụng. Hãy kiểm tra học liệu trước khi phát hành.");
+  if (material.visibility !== "PUBLISHED") {
+    const publishedMaterial = await transaction.material.update({
+      where: { id: material.id },
+      data: { visibility: "PUBLISHED", version: { increment: 1 } },
+    });
+    await transaction.materialVersion.create({
+      data: {
+        id: `material-version-${randomUUID()}`,
+        materialId: publishedMaterial.id,
+        version: publishedMaterial.version,
+        name: publishedMaterial.name,
+        objectKey: publishedMaterial.objectKey,
+        mimeType: publishedMaterial.mimeType,
+        sizeBytes: publishedMaterial.sizeBytes,
+        checksum: publishedMaterial.checksum,
+        folder: publishedMaterial.folder,
+        tags: publishedMaterial.tags as Prisma.InputJsonValue,
+        visibility: publishedMaterial.visibility,
+        createdBy: actorId,
+      },
+    });
+  }
+}
 
 /** Lọc bài tập theo lớp truy cập được và chỉ gắn bài nộp của chính học viên. */
 export async function listAssignments(
@@ -93,35 +126,7 @@ export async function createAssignment(
     maxPoints: item.maxPoints,
   }));
   const row = await serviceContext.prisma.$transaction(async (transaction) => {
-    if (input.sourceMaterialId) {
-      const material = await transaction.material.findFirst({
-        where: { id: input.sourceMaterialId, classId, scope: "CLASS", quarantinedAt: null },
-      });
-      if (!material)
-        throw new ConflictException("Tệp đề bài không còn khả dụng. Hãy kiểm tra học liệu trước khi phát hành.");
-      if (material.visibility !== "PUBLISHED") {
-        const publishedMaterial = await transaction.material.update({
-          where: { id: material.id },
-          data: { visibility: "PUBLISHED", version: { increment: 1 } },
-        });
-        await transaction.materialVersion.create({
-          data: {
-            id: `material-version-${randomUUID()}`,
-            materialId: publishedMaterial.id,
-            version: publishedMaterial.version,
-            name: publishedMaterial.name,
-            objectKey: publishedMaterial.objectKey,
-            mimeType: publishedMaterial.mimeType,
-            sizeBytes: publishedMaterial.sizeBytes,
-            checksum: publishedMaterial.checksum,
-            folder: publishedMaterial.folder,
-            tags: publishedMaterial.tags as Prisma.InputJsonValue,
-            visibility: publishedMaterial.visibility,
-            createdBy: session.user.id,
-          },
-        });
-      }
-    }
+    await publishSourceMaterial(transaction, input.sourceMaterialId, classId, session.user.id);
     return transaction.assignment.create({
       data: {
         id: `assignment-${randomUUID()}`,
@@ -134,6 +139,7 @@ export async function createAssignment(
         dueAt,
         maxScore: input.maxScore,
         rubric: rubric as unknown as Prisma.InputJsonValue,
+        status: "PUBLISHED",
       },
       include: {
         class: { select: { code: true } },
@@ -233,22 +239,11 @@ export async function updateAssignment(
         },
       },
     });
-    await transaction.assignmentChange.create({
-      data: {
-        id: `assignment-change-${randomUUID()}`,
-        assignmentId,
-        actorId: session.user.id,
-        action: "DRAFT_UPDATED",
-        fromVersion: current.version,
-        toVersion: updated.version,
-        snapshot: serviceContext.assignmentSnapshot(current),
-      },
-    });
     return serviceContext.mapAssignment(updated);
   });
 }
 
-/** Gia hạn bài đã công bố, ghi lịch sử và thông báo lại cho toàn bộ học viên đang học. */
+/** Gia hạn bài đã công bố, ghi lý do và thông báo cho toàn bộ học viên đang học. */
 export async function extendAssignment(
   serviceContext: AcademicServiceContext,
   assignmentId: string,
@@ -295,16 +290,10 @@ export async function extendAssignment(
         },
       },
     });
-    await transaction.assignmentChange.create({
+    await transaction.auditLog.create({
       data: {
-        id: `assignment-change-${randomUUID()}`,
-        assignmentId,
-        actorId: session.user.id,
-        action: "DUE_DATE_EXTENDED",
-        reason: reason.trim(),
-        fromVersion: current.version,
-        toVersion: updated.version,
-        snapshot: serviceContext.assignmentSnapshot(current),
+        actorId: session.user.id, action: "ASSIGNMENT_EXTENDED", entityType: "assignment", entityId: assignmentId,
+        context: { reason, dueAt: dueAt.toISOString() },
       },
     });
     const learners = await transaction.classEnrollment.findMany({
@@ -327,7 +316,7 @@ export async function extendAssignment(
   });
 }
 
-/** Đóng bài sớm bằng cập nhật có điều kiện và bảo toàn lý do trong lịch sử. */
+/** Đóng bài sớm bằng cập nhật có điều kiện và lưu lý do đóng. */
 export async function closeAssignment(
   serviceContext: AcademicServiceContext,
   assignmentId: string,
@@ -374,46 +363,8 @@ export async function closeAssignment(
         },
       },
     });
-    await transaction.assignmentChange.create({
-      data: {
-        id: `assignment-change-${randomUUID()}`,
-        assignmentId,
-        actorId: session.user.id,
-        action: "CLOSED",
-        reason: reason.trim(),
-        fromVersion: current.version,
-        toVersion: updated.version,
-        snapshot: serviceContext.assignmentSnapshot(current),
-      },
-    });
     return serviceContext.mapAssignment(updated);
   });
-}
-
-/** Trả lịch sử thay đổi bài tập cho người dạy có quyền trên lớp. */
-export async function assignmentHistory(
-  serviceContext: AcademicServiceContext,
-  assignmentId: string,
-  session: AuthenticatedSession,
-): Promise<AssignmentChangeView[]> {
-  const assignment = await serviceContext.prisma.assignment.findUnique({
-    where: { id: assignmentId },
-  });
-  if (!assignment) throw new NotFoundException("Không tìm thấy bài tập.");
-  await serviceContext.requireTeachingAccess(assignment.classId, session);
-  const rows = await serviceContext.prisma.assignmentChange.findMany({
-    where: { assignmentId },
-    orderBy: { createdAt: "desc" },
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    action: row.action,
-    actorId: row.actorId,
-    reason: row.reason ?? undefined,
-    fromVersion: row.fromVersion,
-    toVersion: row.toVersion,
-    createdAt: row.createdAt.toISOString(),
-  }));
 }
 
 /** Chuyển bài tập sang PUBLISHED sau khi xác nhận quyền phụ trách lớp. */
@@ -427,7 +378,7 @@ export async function publishAssignment(
   });
   if (!current) throw new NotFoundException("Không tìm thấy bài tập.");
   await serviceContext.requireTeachingAccess(current.classId, session, true);
-  if (current.status !== "DRAFT")
+  if (current.status === "CLOSED")
     throw new ConflictException("Chỉ bài tập nháp mới có thể xuất bản.");
   const classWindow = await serviceContext.prisma.learningClass.findUnique({
     where: { id: current.classId },
@@ -442,34 +393,9 @@ export async function publishAssignment(
       "Hạn nộp không còn hợp lệ để xuất bản bài tập.",
     );
   const row = await serviceContext.prisma.$transaction(async (transaction) => {
-    if (current.sourceMaterialId) {
-      const material = await transaction.material.findFirst({
-        where: { id: current.sourceMaterialId, classId: current.classId, scope: "CLASS", quarantinedAt: null },
-      });
-      if (!material) throw new ConflictException("Tệp đề bài không còn khả dụng. Hãy kiểm tra học liệu trước khi phát hành.");
-      if (material.visibility !== "PUBLISHED") {
-        const publishedMaterial = await transaction.material.update({
-          where: { id: material.id },
-          data: { visibility: "PUBLISHED", version: { increment: 1 } },
-        });
-        await transaction.materialVersion.create({ data: {
-          id: `material-version-${randomUUID()}`,
-          materialId: publishedMaterial.id,
-          version: publishedMaterial.version,
-          name: publishedMaterial.name,
-          objectKey: publishedMaterial.objectKey,
-          mimeType: publishedMaterial.mimeType,
-          sizeBytes: publishedMaterial.sizeBytes,
-          checksum: publishedMaterial.checksum,
-          folder: publishedMaterial.folder,
-          tags: publishedMaterial.tags as Prisma.InputJsonValue,
-          visibility: publishedMaterial.visibility,
-          createdBy: session.user.id,
-        } });
-      }
-    }
+    await publishSourceMaterial(transaction, current.sourceMaterialId, current.classId, session.user.id);
     const changed = await transaction.assignment.updateMany({
-      where: { id: assignmentId, status: "DRAFT", version: current.version },
+      where: { id: assignmentId, status: { in: ["DRAFT", "PUBLISHED"] }, version: current.version },
       data: { status: "PUBLISHED", version: { increment: 1 } },
     });
     if (changed.count !== 1)
@@ -487,17 +413,6 @@ export async function publishAssignment(
             attachments: true,
           },
         },
-      },
-    });
-    await transaction.assignmentChange.create({
-      data: {
-        id: `assignment-change-${randomUUID()}`,
-        assignmentId,
-        actorId: session.user.id,
-        action: "PUBLISHED",
-        fromVersion: current.version,
-        toVersion: updated.version,
-        snapshot: serviceContext.assignmentSnapshot(current),
       },
     });
     const learners = await transaction.classEnrollment.findMany({

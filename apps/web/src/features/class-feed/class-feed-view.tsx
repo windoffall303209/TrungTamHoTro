@@ -1,21 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import {
-  MessageSquare,
-  ThumbsUp,
-  MessageCircle,
-  Send,
-  X,
-  ImageIcon,
-  MoreHorizontal,
-  Trash2,
-  Edit3,
-  EyeOff,
-  Bell,
-  History,
-  Flag,
-} from "lucide-react";
+import { MessageSquare, ThumbsUp, MessageCircle, Send, X, ImageIcon, MoreHorizontal, Trash2, Edit3, EyeOff, Bell, History } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import type { ClassPost, PostComment, ClassFeedViewProps } from "./class-feed-types";
@@ -68,11 +54,6 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
   const [editingPostContent, setEditingPostContent] = useState("");
   const [postEditHistories, setPostEditHistories] = useState<Record<string, Array<{ content: string; editedAt: string }>>>({});
   const [historyModalPost, setHistoryModalPost] = useState<ClassPost | null>(null);
-
-  // Báo cáo bài viết
-  const [reportModalPost, setReportModalPost] = useState<ClassPost | null>(null);
-  const [reportReason, setReportReason] = useState("");
-  const [reportSuccess, setReportSuccess] = useState(false);
 
   // Ô nhập bình luận chính trong Modal (cấp 1)
   const [mainCommentText, setMainCommentText] = useState("");
@@ -554,19 +535,6 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
 
                         <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReportModalPost(post);
-                            setReportReason("");
-                            setReportSuccess(false);
-                            setActivePostMenuId(null);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-semibold text-left transition-colors cursor-pointer"
-                        >
-                          <Flag size={14} />
-                          <span>Báo cáo bài viết</span>
-                        </button>
                       </div>
                     )}
                   </div>
@@ -1006,90 +974,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
       )}
 
       {/* ================= MODAL BÁO CÁO BÀI VIẾT ================= */}
-      {reportModalPost && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-md rounded-2xl bg-[#1c1d22] border border-slate-700 p-5 shadow-2xl space-y-4 text-white">
-            <div className="flex items-center justify-between border-b border-slate-700 pb-3">
-              <div className="flex items-center gap-2 font-bold text-sm text-amber-400">
-                <Flag size={16} />
-                <span>Báo cáo bài viết</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalPost(null)}
-                className="size-7 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white grid place-items-center cursor-pointer"
-              >
-                <X size={15} />
-              </button>
-            </div>
 
-            {reportSuccess ? (
-              <div className="py-6 text-center space-y-2">
-                <div className="size-12 rounded-full bg-emerald-500/20 text-emerald-400 grid place-items-center mx-auto text-xl font-bold">
-                  ✓
-                </div>
-                <p className="text-sm font-bold text-white">Đã gửi báo cáo vi phạm</p>
-                <p className="text-xs text-slate-400">
-                  Cảm ơn bạn đã phản hồi. Quản trị viên và giáo viên phụ trách sẽ kiểm tra nội dung này.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setReportModalPost(null)}
-                  className="mt-3 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer"
-                >
-                  Đóng
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-xs text-slate-300">
-                  Vui lòng chọn hoặc nhập lý do bài viết này vi phạm quy tắc cộng đồng:
-                </p>
-                <div className="space-y-1.5">
-                  {[
-                    "Nội dung xúc phạm, quấy rối hoặc bạo lực",
-                    "Spam, quảng cáo không liên quan đến bài học",
-                    "Chia sẻ đáp án thi / gian lận học thuật",
-                    "Nội dung sai sự thật, gây hiểu lầm",
-                  ].map((reason, idx) => (
-                    <label
-                      key={idx}
-                      className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="radio"
-                        name="reportReason"
-                        checked={reportReason === reason}
-                        onChange={() => setReportReason(reason)}
-                        className="text-blue-600"
-                      />
-                      <span>{reason}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() => setReportModalPost(null)}
-                    className="px-3 py-1.5 rounded-xl border border-slate-600 text-xs hover:bg-slate-800 cursor-pointer"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!reportReason}
-                    onClick={() => setReportSuccess(true)}
-                    className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
-                  >
-                    Gửi báo cáo
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

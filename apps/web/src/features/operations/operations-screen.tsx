@@ -12,15 +12,8 @@ import {
 } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { downloadApiFile } from "@/lib/api-client";
-import {
-  BellRing,
-  DatabaseZap,
-  FileClock,
-  Plus,
-  Search,
-  ShieldAlert,
-} from "lucide-react";
-import { operationalStatusText, Policy } from "./operations.shared";
+import { DatabaseZap, FileClock, Search, ShieldAlert } from "lucide-react";
+import { operationalStatusText } from "./operations.shared";
 import { useOperationsModel } from "./use-operations-model";
 import { useState } from "react";
 import {
@@ -38,8 +31,6 @@ export default function OperationsScreen() {
     backups,
     exports,
     restores,
-    policy,
-    setPolicy,
     query,
     setQuery,
     auditFilter,
@@ -55,10 +46,7 @@ export default function OperationsScreen() {
     cleanupFailures,
     outboxStats,
     auditPagination,
-    templatePagination,
     alertPagination,
-    templateOpen,
-    setTemplateOpen,
     restoreOpen,
     setRestoreOpen,
     legalHoldOpen,
@@ -71,8 +59,6 @@ export default function OperationsScreen() {
     setReleaseReason,
     restoreForm,
     setRestoreForm,
-    form,
-    setForm,
     requestRestore,
     approveRestore,
     retryCleanup,
@@ -87,9 +73,6 @@ export default function OperationsScreen() {
     createLegalHold,
     releaseLegalHold,
     actOnAlert,
-    saveTemplate,
-    testTemplate,
-    savePolicy,
   } = model;
 
   if (!canConfigure) return <AccessDenied />;
@@ -97,7 +80,7 @@ export default function OperationsScreen() {
     <div className="w-full space-y-4">
       <PageHeader
         title="Vận hành và tuân thủ"
-        description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
+        description="Xem nhật ký hoạt động, sao lưu, khôi phục và xuất dữ liệu."
       />
       <OperationsNavigation value={view} onChange={setView} />
       <RequestError
@@ -391,134 +374,7 @@ export default function OperationsScreen() {
             ))}
           </div>
         </section>
-        <section
-          hidden={view !== "content"}
-          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BellRing className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">
-                Mẫu thông báo
-              </h2>
-            </div>
-            <Button onClick={() => setTemplateOpen(true)} variant="secondary">
-              <Plus size={15} />
-              Tạo mẫu
-            </Button>
-          </div>
-          <div className="mt-5 space-y-3">
-            {templatePagination.pageItems.map((item) => (
-              <div
-                className="rounded-xl border border-slate-100 p-4"
-                key={item.id}
-              >
-                <div className="flex justify-between">
-                  <p className="text-xs font-extrabold text-sky-700">
-                    {item.eventCode} · {item.locale}
-                  </p>
-                  <StatusBadge status={item.status} />
-                </div>
-                <p className="mt-2 text-sm font-bold">{item.subject}</p>
-                <p className="mt-1 line-clamp-2 text-xs text-[var(--ink-soft)]">
-                  {item.body}
-                </p>
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs font-bold text-[var(--ink-soft)]">
-                    Phiên bản {item.version}
-                  </p>
-                  <Button
-                    onClick={() => void testTemplate(item)}
-                    variant="ghost"
-                  >
-                    Gửi thử
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Pagination
-            itemLabel="mẫu thông báo"
-            onPageChange={templatePagination.setPage}
-            onPageSizeChange={templatePagination.setPageSize}
-            page={templatePagination.page}
-            pageSize={templatePagination.pageSize}
-            totalItems={templatePagination.totalItems}
-          />
-        </section>
-        <section
-          hidden={view !== "content"}
-          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
-        >
-          <div className="flex items-center gap-3">
-            <ShieldAlert className="text-sky-700" />
-            <h2 className="font-heading text-xl font-extrabold">
-              Chính sách kiểm duyệt
-            </h2>
-          </div>
-          {policy ? (
-            <div className="mt-5 space-y-4">
-              <Field label="Từ khóa cấm — ngăn cách bằng dấu phẩy">
-                <textarea
-                  className={inputClass}
-                  rows={3}
-                  value={policy.prohibitedTerms.join(", ")}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      prohibitedTerms: e.target.value
-                        .split(",")
-                        .map((v) => v.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Số bài/phút">
-                  <input
-                    className={inputClass}
-                    min={1}
-                    max={100}
-                    type="number"
-                    value={policy.maxPostsPerMinute}
-                    onChange={(e) =>
-                      setPolicy({
-                        ...policy,
-                        maxPostsPerMinute: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Hành động">
-                  <select
-                    className={inputClass}
-                    value={policy.action}
-                    onChange={(e) =>
-                      setPolicy({
-                        ...policy,
-                        action: e.target.value as Policy["action"],
-                      })
-                    }
-                  >
-                    <option value="FLAG">Gắn cờ</option>
-                    <option value="HIDE_PENDING_REVIEW">Ẩn chờ duyệt</option>
-                  </select>
-                </Field>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-[var(--ink-soft)]">
-                  Phiên bản {policy.version}
-                </p>
-                <Button onClick={() => void savePolicy()}>
-                  Phát hành chính sách
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-5 h-52 animate-pulse rounded-xl bg-slate-100" />
-          )}
-        </section>
+
         <section
           hidden={view !== "data"}
           className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
@@ -836,6 +692,15 @@ export default function OperationsScreen() {
           className="space-y-4"
           onSubmit={(event) => void requestRestore(event)}
         >
+          <Field label="Bản sao lưu nguồn">
+            <select className={inputClass} required value={restoreForm.backupId}
+              onChange={(event) => setRestoreForm({ ...restoreForm, backupId: event.target.value })}>
+              <option value="">{backups.some((item) => item.canRestore) ? "Chọn bản sao lưu đã hoàn tất" : "Chưa có bản sao lưu có thể khôi phục"}</option>
+              {backups.filter((item) => item.canRestore).map((item) => (
+                <option key={item.id} value={item.id}>{item.id} · {new Date(item.createdAt).toLocaleString(activeLocale())}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Chế độ">
             <select
               className={inputClass}
@@ -885,7 +750,7 @@ export default function OperationsScreen() {
             Người tạo yêu cầu không thể tự phê duyệt. Chế độ vận hành chỉ chạy
             khi hệ thống đang bảo trì và không ghi đè database hiện tại.
           </p>
-          <Button type="submit">Gửi yêu cầu</Button>
+          <Button disabled={!backups.some((item) => item.canRestore && item.id === restoreForm.backupId)} type="submit">Gửi yêu cầu</Button>
         </form>
       </Modal>
       <Modal
@@ -977,52 +842,7 @@ export default function OperationsScreen() {
           </Button>
         </form>
       </Modal>
-      <Modal
-        open={templateOpen}
-        onClose={() => setTemplateOpen(false)}
-        title="Phát hành mẫu thông báo"
-      >
-        <form className="space-y-4" onSubmit={(e) => void saveTemplate(e)}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Mã sự kiện">
-              <input
-                className={inputClass}
-                required
-                value={form.eventCode}
-                onChange={(e) =>
-                  setForm({ ...form, eventCode: e.target.value.toUpperCase() })
-                }
-              />
-            </Field>
-            <Field label="Ngôn ngữ">
-              <input
-                className={inputClass}
-                required
-                value={form.locale}
-                onChange={(e) => setForm({ ...form, locale: e.target.value })}
-              />
-            </Field>
-          </div>
-          <Field label="Tiêu đề">
-            <input
-              className={inputClass}
-              required
-              value={form.subject}
-              onChange={(e) => setForm({ ...form, subject: e.target.value })}
-            />
-          </Field>
-          <Field label="Nội dung">
-            <textarea
-              className={inputClass}
-              required
-              rows={5}
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-            />
-          </Field>
-          <Button type="submit">Phát hành</Button>
-        </form>
-      </Modal>
+
     </div>
   );
 }

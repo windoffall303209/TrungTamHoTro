@@ -286,7 +286,7 @@ export async function getInstructorExamPreview(
   );
 }
 
-/** Trả nội dung đề cho quản lý duyệt, chỉ khi đề đang ở hàng chờ phê duyệt. */
+/** Trả nội dung đề đã công bố cho quản lý. */
 export async function getReviewerExamPreview(
   serviceContext: LearningServiceContext,
   examId: string,
@@ -294,7 +294,7 @@ export async function getReviewerExamPreview(
   const prisma = serviceContext.database();
   if (prisma) {
     const exam = await prisma.exam.findFirst({
-      where: { id: examId, status: "PENDING_REVIEW" },
+      where: { id: examId, status: "PUBLISHED" },
       include: {
         questions: {
           include: { question: true },
@@ -303,14 +303,14 @@ export async function getReviewerExamPreview(
       },
     });
     if (!exam)
-      throw new NotFoundException("Không tìm thấy đề đang chờ phê duyệt.");
+      throw new NotFoundException("Không tìm thấy đề đã công bố.");
     return exam.questions.map(({ question }) =>
       serviceContext.mapQuestion(question),
     );
   }
   const exam = serviceContext.findExam(examId);
-  if (exam.status !== "PENDING_REVIEW")
-    throw new NotFoundException("Không tìm thấy đề đang chờ phê duyệt.");
+  if (exam.status !== "PUBLISHED")
+    throw new NotFoundException("Không tìm thấy đề đã công bố.");
   return exam.questionIds.map((questionId) =>
     serviceContext.cloneQuestion(
       serviceContext.questions.find((question) => question.id === questionId)!,

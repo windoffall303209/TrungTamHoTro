@@ -5,25 +5,7 @@ import {
   shouldSendChatMessage,
   shouldStartChatTimeGroup,
 } from "@/lib/chat-message";
-import {
-  ArrowLeft,
-  ArrowUp,
-  Bell,
-  BellOff,
-  Download,
-  LoaderCircle,
-  MessageCircle,
-  Mic,
-  Paperclip,
-  Reply,
-  Search,
-  ShieldAlert,
-  Smile,
-  Square,
-  SquarePen,
-  UserX,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ArrowUp, Bell, BellOff, Download, LoaderCircle, MessageCircle, Mic, Paperclip, Reply, Search, Smile, Square, SquarePen, UserX, X } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { InlineChatImage, roleLabels } from "./messages.shared";
@@ -86,10 +68,6 @@ export default function MessagesScreen() {
     setMessageQuery,
     searchResults,
     setSearchResults,
-    reportTarget,
-    setReportTarget,
-    reportReason,
-    setReportReason,
     blockOpen,
     setBlockOpen,
     blockReason,
@@ -106,7 +84,6 @@ export default function MessagesScreen() {
     sendMessage,
     searchConversation,
     toggleMute,
-    reportMessage,
     blockDirectUser,
     openAttachment,
   } = model;
@@ -576,18 +553,7 @@ export default function MessagesScreen() {
                           >
                             <Reply size={13} />
                           </button>
-                          {!mine && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReportTarget(message);
-                                setReportReason("");
-                              }}
-                              className="p-1 text-slate-400 hover:text-rose-500 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
-                              title="Báo cáo tin nhắn"
-                            >
-                              <ShieldAlert size={13} />
-                            </button>
+                          {!mine && (null
                           )}
                         </div>
                       </div>
@@ -788,33 +754,6 @@ export default function MessagesScreen() {
       </div>
 
       {/* Modal báo cáo tin nhắn */}
-      <Modal
-        open={Boolean(reportTarget)}
-        onClose={() => setReportTarget(null)}
-        title="Báo cáo tin nhắn"
-        description="Báo cáo được gửi trực tiếp cho bộ phận quản trị và kiểm duyệt."
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void reportMessage(event)}
-        >
-          <Field label="Lý do báo cáo">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              onChange={(event) => setReportReason(event.target.value)}
-              required
-              rows={4}
-              value={reportReason}
-              placeholder="Nhập chi tiết lý do bạn báo cáo tin nhắn này…"
-            />
-          </Field>
-          <Button disabled={reportReason.trim().length < 5} type="submit">
-            <ShieldAlert size={15} />
-            Gửi báo cáo
-          </Button>
-        </form>
-      </Modal>
 
       {/* Modal chặn người dùng */}
       <Modal

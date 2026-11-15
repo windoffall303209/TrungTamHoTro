@@ -19,14 +19,7 @@ import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication } from "../../../auth/require-permissions.decorator.js";
-import {
-  BlockUserDto,
-  MuteConversationDto,
-  OpenClassConversationDto,
-  OpenDirectConversationDto,
-  ReportChatMessageDto,
-  SendChatMessageDto,
-} from "./chat.dto.js";
+import { BlockUserDto, MuteConversationDto, OpenClassConversationDto, OpenDirectConversationDto, SendChatMessageDto } from "./chat.dto.js";
 import { ChatService } from "./chat.service.js";
 import type {
   ChatConversationView,
@@ -161,15 +154,6 @@ export class ChatController {
       input.mutedUntil,
       session,
     );
-  }
-
-  /** Báo cáo một tin nhắn trong hội thoại đang xem. */
-  @Post("messages/:messageId/report") report(
-    @Param("messageId") messageId: string,
-    @Body() input: ReportChatMessageDto,
-    @CurrentSession() session: AuthenticatedSession,
-  ): Promise<{ id: string; status: string }> {
-    return this.chat.reportMessage(messageId, input.reason, session);
   }
 
   /** Chặn một người dùng để dừng gửi tin riêng hai chiều. */

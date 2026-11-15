@@ -14,10 +14,8 @@ async function authenticate(api: APIRequestContext, username: string) {
 
 test("học viên làm bài, lưu đáp án, nộp và nhận điểm thật", async ({ page, playwright }) => {
   const instructor = await playwright.request.newContext();
-  const manager = await playwright.request.newContext();
   try {
     const instructorCsrf = await authenticate(instructor, "instructor@wind.edu.vn");
-    const managerCsrf = await authenticate(manager, "manager@wind.edu.vn");
     await authenticate(page.request, "learner@wind.edu.vn");
     const teacherHeaders = { "x-role-code": "INSTRUCTOR", "x-csrf-token": instructorCsrf };
     const classResponse = await instructor.get(`${apiBase}/classes`, { headers: teacherHeaders });
@@ -44,12 +42,7 @@ test("học viên làm bài, lưu đáp án, nộp và nhận điểm thật", a
       headers: teacherHeaders, data: { confirmQuestions: true, expectedVersion: exam.version },
     });
     expect(published.ok()).toBe(true);
-    if ((await published.json()).data.status === "PENDING_REVIEW") {
-      const approved = await manager.post(`${apiBase}/manager/exams/${exam.id}/approve`, {
-        headers: { "x-role-code": "CENTER_MANAGER", "x-csrf-token": managerCsrf }, data: { decision: "APPROVE" },
-      });
-      expect(approved.ok()).toBe(true);
-    }
+    expect((await published.json()).data.status).toBe("PUBLISHED");
     await page.goto("/exams");
     const card = page.getByText(title, { exact: true }).locator("xpath=ancestor::*[self::article or self::tr][1]");
     await expect(card).toContainText(title);
@@ -66,6 +59,5 @@ test("học viên làm bài, lưu đáp án, nộp và nhận điểm thật", a
     await expect(page.getByText(/Biên nhận nộp bài:/)).toBeVisible();
   } finally {
     await instructor.dispose();
-    await manager.dispose();
   }
 });

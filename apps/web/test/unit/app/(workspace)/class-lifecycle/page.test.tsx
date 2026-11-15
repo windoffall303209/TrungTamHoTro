@@ -42,7 +42,6 @@ function makeReadiness(openExams: number): ClassClosureReadiness {
     eligible: false, blockers: ["Còn kỳ thi đang mở"], openExams,
     inProgressAttempts: 0, pendingGrades: 0, openAssignments: 0,
     pendingAssignmentGrades: 0, openRegrades: 0, activeSessions: 0,
-    unlockedAttendanceSessions: 0, openAppeals: 0,
   };
 }
 

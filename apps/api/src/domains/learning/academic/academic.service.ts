@@ -5,18 +5,7 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { AcademicServiceContext } from "./academic.context.js";
-import {
-  AcademicCalendarEvent,
-  AssignmentChangeView,
-  AssignmentSubmissionView,
-  AssignmentView,
-  ClassAnnouncementView,
-  GradebookRow,
-  GradingQueueGroup,
-  MappableSubmissionRow,
-  RubricCriterion,
-  UploadedAssignmentFile,
-} from "./academic.shared.js";
+import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, ClassAnnouncementView, GradebookRow, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
 import {
   type GradingAnswerSource,
   type GradingDocumentReader,
@@ -57,28 +46,9 @@ export class AcademicService {
       get antivirus(): AcademicServiceContext["antivirus"] {
         return owner.antivirus;
       },
-      listAssignments: (...args) => owner.listAssignments(...args),
-      createAssignment: (...args) => owner.createAssignment(...args),
-      updateAssignment: (...args) => owner.updateAssignment(...args),
-      extendAssignment: (...args) => owner.extendAssignment(...args),
-      closeAssignment: (...args) => owner.closeAssignment(...args),
-      assignmentHistory: (...args) => owner.assignmentHistory(...args),
-      publishAssignment: (...args) => owner.publishAssignment(...args),
       submitAssignment: (...args) => owner.submitAssignment(...args),
-      addSubmissionAttachments: (...args) =>
-        owner.addSubmissionAttachments(...args),
-      removeSubmissionAttachment: (...args) =>
-        owner.removeSubmissionAttachment(...args),
       readSubmissionAttachment: (...args) =>
         owner.readSubmissionAttachment(...args),
-      listSubmissions: (...args) => owner.listSubmissions(...args),
-      gradingAiContext: (...args) => owner.gradingAiContext(...args),
-      gradeSubmission: (...args) => owner.gradeSubmission(...args),
-      gradebook: (...args) => owner.gradebook(...args),
-      gradingQueue: (...args) => owner.gradingQueue(...args),
-      calendar: (...args) => owner.calendar(...args),
-      listAnnouncements: (...args) => owner.listAnnouncements(...args),
-      createAnnouncement: (...args) => owner.createAnnouncement(...args),
       accessibleClassIds: (...args) => owner.accessibleClassIds(...args),
       requireTeachingAccess: (...args) => owner.requireTeachingAccess(...args),
       mapAssignment: (...args) => owner.mapAssignment(...args),
@@ -178,18 +148,6 @@ export class AcademicService {
       assignmentId,
       reason,
       expectedVersion,
-      session,
-    );
-  }
-
-  /** Trả lịch sử thay đổi bài tập cho người dạy có quyền trên lớp. */
-  async assignmentHistory(
-    assignmentId: string,
-    session: AuthenticatedSession,
-  ): Promise<AssignmentChangeView[]> {
-    return await assignments_ops.assignmentHistory(
-      this.operationContext,
-      assignmentId,
       session,
     );
   }

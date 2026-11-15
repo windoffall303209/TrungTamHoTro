@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { prepareVerifiedDownload } from "../../../../infrastructure/verified-download.js";
@@ -32,6 +32,8 @@ export async function createMaterialAccess(
       );
     if (role === "LEARNER" && material.visibility !== "PUBLISHED")
       throw new NotFoundException("Không tìm thấy học liệu đã phát hành.");
+    if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && material.visibility === "HIDDEN")
+      throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
     assertMaterialReadAccess(material, role, actorId);
     if (!serviceContext.isMaterialObjectKey(material.objectKey))
       throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
@@ -48,6 +50,8 @@ export async function createMaterialAccess(
       (role === "LEARNER" && material.visibility !== "PUBLISHED")
     )
       throw new NotFoundException("Không tìm thấy học liệu.");
+    if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && material.visibility === "HIDDEN")
+      throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
     assertMemoryMaterialReadAccess(serviceContext, material, role, actorId);
     if (!serviceContext.materialFiles.has(materialId))
       throw new NotFoundException("Học liệu này chưa có tệp bytes để tải.");
@@ -154,6 +158,8 @@ export async function resolveMaterialDownload(
       (role === "LEARNER" && material.visibility !== "PUBLISHED")
     )
       throw new NotFoundException("Không tìm thấy học liệu.");
+    if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && material.visibility === "HIDDEN")
+      throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
     if (material.quarantinedAt)
       throw new BadRequestException(
         "Tệp đang bị cách ly và không thể truy cập.",
@@ -174,6 +180,8 @@ export async function resolveMaterialDownload(
       (role === "LEARNER" && material.visibility !== "PUBLISHED")
     )
       throw new NotFoundException("Không tìm thấy học liệu.");
+    if ((role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER") && material.visibility === "HIDDEN")
+      throw new ForbiddenException("Tài liệu đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống.");
     if (material.quarantinedAt)
       throw new BadRequestException(
         "Tệp đang bị cách ly và không thể truy cập.",

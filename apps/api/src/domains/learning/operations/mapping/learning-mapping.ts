@@ -21,14 +21,6 @@ export function database(
     : undefined;
 }
 
-/** Đọc chế độ duyệt đề còn lưu để xử lý dữ liệu cũ; luồng mới truyền xác nhận phát hành riêng. */
-export async function getExamApprovalMode(
-  serviceContext: LearningServiceContext,
-): Promise<ExamApprovalMode> {
-  if (!serviceContext.system) return "MANUAL";
-  return await serviceContext.system.getSettings().then((settings) => settings.examApprovalMode);
-}
-
 /** Đọc chế độ duyệt câu hỏi còn lưu để xử lý dữ liệu cũ; luồng mới truyền công bố ngay riêng. */
 export async function getQuestionApprovalMode(
   serviceContext: LearningServiceContext,

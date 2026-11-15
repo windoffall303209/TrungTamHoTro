@@ -8,6 +8,7 @@ export interface Audit {
 }
 
 export interface Backup {
+  canRestore: boolean;
   id: string;
   type: string;
   checksum: string;

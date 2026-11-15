@@ -1,10 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, StreamableFile } from "@nestjs/common";
 import { ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
-import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type LegalHoldView, type ModerationPolicy, type NotificationTemplate, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type SnapshotAssetAudit, type StorageCleanupFailure, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings, type TemplateTestDelivery } from "./system.service.js";
+import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type LegalHoldView, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type SnapshotAssetAudit, type StorageCleanupFailure, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings } from "./system.service.js";
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "../ai/ai-provider.service.js";
 import { OutboxDeliveryService } from "../../../infrastructure/outbox-delivery.service.js";
 
@@ -16,16 +16,12 @@ class ConfigureAiTaskDto {
 }
 
 const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
-class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsBoolean() moderationEnabled?: boolean; @IsOptional() @IsIn(["AUTO", "MANUAL"]) examApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsIn(["AUTO", "MANUAL"]) questionApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
+class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsIn(["AUTO", "MANUAL"]) questionApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
 class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() credentialReference?: string; @IsOptional() @IsString() webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
 class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsString() @MinLength(10) @MaxLength(500) reason!: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
-class SaveTemplateDto { @IsString() eventCode!: string; @IsString() locale!: string; @IsString() subject!: string; @IsString() body!: string }
-class PreviewTemplateDto { @IsObject() variables!: Record<string, string> }
-class TestTemplateDto extends PreviewTemplateDto { @IsEmail() recipient!: string }
-class UpdateModerationDto { @IsArray() @IsString({ each: true }) prohibitedTerms!: string[]; @IsInt() @Min(1) @Max(100) maxPostsPerMinute!: number; @IsIn(["FLAG", "HIDE_PENDING_REVIEW"]) action!: "FLAG" | "HIDE_PENDING_REVIEW" }
 class CreateRetentionPolicyDto { @IsString() category!: string; @IsInt() @Min(30) @Max(3650) retentionDays!: number; @IsIn(["ARCHIVE", "DELETE"]) action!: "ARCHIVE" | "DELETE"; @IsOptional() @IsDateString() effectiveAt?: string }
 class RunRetentionDto { @IsString() @MinLength(1) @MaxLength(191) policyId!: string }
 class CreateLegalHoldDto { @IsString() category!: string; @IsString() @MinLength(5) @MaxLength(500) reason!: string }
@@ -109,18 +105,6 @@ export class SystemController {
   @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto, @CurrentSession() session: AuthenticatedSession): Promise<DataExport> { return this.system.runExport(input.category, input.format, session.user.id); }
   /** Stream tệp export còn hạn sau khi xác minh checksum tại thời điểm tải. */
   @Get("exports/:exportId/download") @RequirePermissions("system:configure") async downloadExport(@Param("exportId") exportId: string): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: `attachment; filename="${file.filename}"` }); }
-  /** Liệt kê các mẫu thông báo và version. */
-  @Get("notification-templates") @RequirePermissions("system:configure") listTemplates(): Promise<NotificationTemplate[]> { return this.system.listTemplates(); }
-  /** Lưu phiên bản mới của mẫu thông báo. */
-  @Post("notification-templates") @RequirePermissions("system:configure") saveTemplate(@Body() input: SaveTemplateDto, @CurrentSession() session: AuthenticatedSession): Promise<NotificationTemplate> { return this.system.saveTemplate(input, session.user.id); }
-  /** Render thử mẫu với biến do quản trị cung cấp. */
-  @Post("notification-templates/:templateId/preview") @RequirePermissions("system:configure") previewTemplate(@Param("templateId") id: string, @Body() input: PreviewTemplateDto): Promise<object> { return this.system.previewTemplate(id, input.variables ?? {}); }
-  /** Gửi email thử từ mẫu đã render và ghi audit kết quả. */
-  @Post("notification-templates/:templateId/test-send") @RequirePermissions("system:configure") testTemplate(@Param("templateId") id: string, @Body() input: TestTemplateDto, @CurrentSession() session: AuthenticatedSession): Promise<TemplateTestDelivery> { return this.system.sendTemplateTest(id, input.recipient, input.variables ?? {}, session.user.id); }
-  /** Đọc chính sách kiểm duyệt diễn đàn hiện hành. */
-  @Get("moderation-policy") @RequirePermissions("system:configure") getModeration(): Promise<ModerationPolicy> { return this.system.getModerationPolicy(); }
-  /** Cập nhật từ cấm, rate limit và hành động kiểm duyệt. */
-  @Patch("moderation-policy") @RequirePermissions("system:configure") updateModeration(@Body() input: UpdateModerationDto, @CurrentSession() session: AuthenticatedSession): Promise<ModerationPolicy> { return this.system.updateModerationPolicy(input, session.user.id); }
   /** Tìm audit theo từ khóa, actor, action, target và khoảng thời gian. */
   @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string, @Query("actor") actor?: string, @Query("action") action?: string, @Query("target") target?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<AuditEvent[]> { return this.system.listAudit({ query, actor, action, target, from, to }); }
   /** Tổng hợp sức khỏe DB, storage và các dịch vụ ngoài. */

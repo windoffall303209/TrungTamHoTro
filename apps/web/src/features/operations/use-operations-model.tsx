@@ -7,20 +7,7 @@ import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OperationsView } from "@/roles/manager/operations-navigation";
-import {
-  Audit,
-  Backup,
-  ExportJob,
-  LegalHold,
-  Policy,
-  RestoreJob,
-  RetentionJob,
-  RetentionPolicy,
-  RetentionPreview,
-  StorageCleanupFailure,
-  SystemAlert,
-  Template,
-} from "./operations.shared";
+import { Audit, Backup, ExportJob, LegalHold, RestoreJob, RetentionJob, RetentionPolicy, RetentionPreview, StorageCleanupFailure, SystemAlert } from "./operations.shared";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình vận hành; giữ nguyên thứ tự hook. */
 export function useOperationsModel(view: OperationsView = "monitoring") {
@@ -38,16 +25,11 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
 
   const [restores, setRestores] = useState<RestoreJob[]>([]);
 
-  const [templates, setTemplates] = useState<Template[]>([]);
-
-  const [policy, setPolicy] = useState<Policy | null>(null);
-
   const [query, setQuery] = useState("");
   const [loadError, setLoadError] = useState("");
   const [auditError, setAuditError] = useState("");
   const auditSequence = useRef(0);
   const loadSequence = useRef(0);
-  const policyLoaded = useRef(false);
 
   const [auditFilter, setAuditFilter] = useState({
     actor: "",
@@ -86,11 +68,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
 
   const auditPagination = usePagination(audit);
 
-  const templatePagination = usePagination(templates);
-
   const alertPagination = usePagination(alerts);
-
-  const [templateOpen, setTemplateOpen] = useState(false);
 
   const [restoreOpen, setRestoreOpen] = useState(false);
 
@@ -106,16 +84,10 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   const [releaseReason, setReleaseReason] = useState("");
 
   const [restoreForm, setRestoreForm] = useState({
+    backupId: "",
     mode: "DRILL" as "DRILL" | "OPERATIONAL",
     reason: "Kiểm tra định kỳ khả năng phục hồi bản sao lưu",
     targetDatabase: "",
-  });
-
-  const [form, setForm] = useState({
-    eventCode: "EXAM_PUBLISHED",
-    locale: "vi-VN",
-    subject: "",
-    body: "",
   });
 
   /** Tìm nhật ký độc lập để không tải lại mọi phân hệ hoặc ghi đè form khi gõ bộ lọc. */
@@ -146,7 +118,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   }, [auditFilter, canConfigure, query, session.roleCode, view]);
 
   /** Nạp dữ liệu vận hành; bộ lọc nhật ký không kích hoạt lại các request này. */
-  const load = useCallback(async (refreshPolicy = true) => {
+  const load = useCallback(async () => {
     if (!canConfigure) return;
     const sequence = ++loadSequence.current;
     setLoadError("");
@@ -158,8 +130,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
         backupData,
         exportData,
         restoreData,
-        templateData,
-        policyData,
         retentionPolicyData,
         retentionJobData,
         legalHoldData,
@@ -170,8 +140,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
         requestGroup<Backup[]>("data", "/system/backups"),
         requestGroup<ExportJob[]>("data", "/system/exports"),
         requestGroup<RestoreJob[]>("data", "/system/restores"),
-        requestGroup<Template[]>("content", "/system/notification-templates"),
-        (refreshPolicy || !policyLoaded.current) ? requestGroup<Policy>("content", "/system/moderation-policy") : Promise.resolve(null),
         requestGroup<RetentionPolicy[]>("data", "/system/retention-policies"),
         requestGroup<RetentionJob[]>("data", "/system/retention-jobs"),
         requestGroup<LegalHold[]>("data", "/system/legal-holds"),
@@ -184,18 +152,13 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
       if (backupData.status === "fulfilled" && backupData.value) setBackups(backupData.value);
       if (exportData.status === "fulfilled" && exportData.value) setExports(exportData.value);
       if (restoreData.status === "fulfilled" && restoreData.value) setRestores(restoreData.value);
-      if (templateData.status === "fulfilled" && templateData.value) setTemplates(templateData.value);
-      if (policyData.status === "fulfilled" && policyData.value) {
-        setPolicy(policyData.value);
-        policyLoaded.current = true;
-      }
       if (retentionPolicyData.status === "fulfilled" && retentionPolicyData.value) setRetentionPolicies(retentionPolicyData.value);
       if (retentionJobData.status === "fulfilled" && retentionJobData.value) setRetentionJobs(retentionJobData.value);
       if (legalHoldData.status === "fulfilled" && legalHoldData.value) setLegalHolds(legalHoldData.value);
       if (alertData.status === "fulfilled" && alertData.value) setAlerts(alertData.value);
       if (cleanupData.status === "fulfilled" && cleanupData.value) setCleanupFailures(cleanupData.value);
       if (outboxData.status === "fulfilled" && outboxData.value) setOutboxStats(outboxData.value);
-      const failures = [backupData, exportData, restoreData, templateData, policyData,
+      const failures = [backupData, exportData, restoreData,
         retentionPolicyData, retentionJobData, legalHoldData, alertData, cleanupData, outboxData]
         .filter((item) => item.status === "rejected");
       setLoadError([...new Set(failures.map((item) =>
@@ -226,7 +189,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   }, [loadAudit]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(false), 180);
+    const timer = window.setTimeout(() => void load(), 180);
     return () => { window.clearTimeout(timer); loadSequence.current += 1; };
   }, [load]);
 
@@ -235,15 +198,18 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
       (item) => item.status === "PENDING" || item.status === "RUNNING",
     );
     if (!hasActiveJobs || view !== "data") return;
-    const timer = window.setInterval(() => void load(false), 5_000);
+    const timer = window.setInterval(() => void load(), 5_000);
     return () => window.clearInterval(timer);
   }, [backups, exports, load, retentionJobs, view]);
 
   /** Tạo yêu cầu drill để một quản trị viên khác phê duyệt bằng phiên đăng nhập của họ. */
   const requestRestore = async (event: React.FormEvent) => {
     event.preventDefault();
-    const backup = backups[0];
-    if (!backup) return;
+    const backup = backups.find((item) => item.id === restoreForm.backupId && item.canRestore);
+    if (!backup) {
+      notify("Hãy chọn một bản sao lưu đã hoàn tất.", "error");
+      return;
+    }
     try {
       await apiRequest("/system/restores", {
         method: "POST",
@@ -417,7 +383,10 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     if (
       retentionBusy ||
       !window.confirm(
-        translateText("Phê duyệt xử lý dữ liệu theo chính sách này? Hành động có thể xóa dữ liệu đã hết hạn.", activeLocale()),
+        translateText(
+          "Phê duyệt xử lý dữ liệu theo chính sách này? Hành động có thể xóa dữ liệu đã hết hạn.",
+          activeLocale(),
+        ),
       )
     )
       return;
@@ -554,74 +523,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
       );
     }
   };
-
-  /** Tạo hoặc cập nhật mẫu email mà không làm mất phiên bản đang chỉnh sửa. */
-  const saveTemplate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      await apiRequest("/system/notification-templates", {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify(form),
-      });
-      notify("Đã phát hành phiên bản mẫu mới.");
-      setTemplateOpen(false);
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không lưu được mẫu.",
-        "error",
-      );
-    }
-  };
-
-  /** Gửi thử mẫu email bằng dữ liệu mẫu để kiểm tra nội dung và cấu hình gửi. */
-  const testTemplate = async (item: Template) => {
-    try {
-      const variables = Object.fromEntries(
-        [
-          ...`${item.subject} ${item.body}`.matchAll(/{{([a-zA-Z0-9_]+)}}/g),
-        ].map((match) => [match[1], `demo-${match[1]}`]),
-      );
-      const result = await apiRequest<{ status: string; subject: string }>(
-        `/system/notification-templates/${item.id}/test-send`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ recipient: session.user.email, variables }),
-        },
-      );
-      notify(`Resend đã nhận email thử: ${result.subject}`);
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không gửi thử được mẫu.",
-        "error",
-      );
-    }
-  };
-
-  /** Lưu các ngưỡng cảnh báo vận hành dùng bởi dịch vụ giám sát. */
-  const savePolicy = async () => {
-    if (!policy) return;
-    try {
-      await apiRequest("/system/moderation-policy", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          prohibitedTerms: policy.prohibitedTerms,
-          maxPostsPerMinute: policy.maxPostsPerMinute,
-          action: policy.action,
-        }),
-      });
-      notify("Đã phát hành chính sách kiểm duyệt mới.");
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không lưu được chính sách.",
-        "error",
-      );
-    }
-  };
   return {
     loadError,
     auditError,
@@ -633,8 +534,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     backups,
     exports,
     restores,
-    policy,
-    setPolicy,
     query,
     setQuery,
     auditFilter,
@@ -650,10 +549,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     cleanupFailures,
     outboxStats,
     auditPagination,
-    templatePagination,
     alertPagination,
-    templateOpen,
-    setTemplateOpen,
     restoreOpen,
     setRestoreOpen,
     legalHoldOpen,
@@ -666,8 +562,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     setReleaseReason,
     restoreForm,
     setRestoreForm,
-    form,
-    setForm,
     requestRestore,
     approveRestore,
     retryCleanup,
@@ -682,8 +576,5 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     createLegalHold,
     releaseLegalHold,
     actOnAlert,
-    saveTemplate,
-    testTemplate,
-    savePolicy,
   };
 }

@@ -769,53 +769,6 @@ export class ChatService {
     return { mutedUntil: mutedUntil?.toISOString() };
   }
 
-  /** Ghi nhận báo cáo tin nhắn một lần cho mỗi người và lưu audit để kiểm duyệt. */
-  async reportMessage(
-    messageId: string,
-    rawReason: string,
-    session: AuthenticatedSession,
-  ): Promise<{ id: string; status: string }> {
-    const message = await this.prisma.chatMessage.findUnique({
-      where: { id: messageId },
-    });
-    if (!message) throw new NotFoundException("Không tìm thấy tin nhắn.");
-    const membership = await this.resolveMembership(
-      message.conversationId,
-      session.user.id,
-    );
-    if (membership.removedAt && message.createdAt > membership.removedAt)
-      throw new NotFoundException(
-        "Không tìm thấy tin nhắn trong phạm vi truy cập.",
-      );
-    if (message.senderId === session.user.id)
-      throw new BadRequestException(
-        "Không thể báo cáo tin nhắn của chính mình.",
-      );
-    const reason = rawReason.trim();
-    const row = await this.prisma.chatMessageReport.upsert({
-      where: {
-        messageId_reporterId: { messageId, reporterId: session.user.id },
-      },
-      update: { reason, status: "OPEN" },
-      create: {
-        id: `chat-report-${randomUUID()}`,
-        messageId,
-        reporterId: session.user.id,
-        reason,
-      },
-    });
-    await this.prisma.auditLog.create({
-      data: {
-        actorId: session.user.id,
-        action: "CHAT_MESSAGE_REPORTED",
-        entityType: "CHAT_MESSAGE",
-        entityId: messageId,
-        context: { reportId: row.id },
-      },
-    });
-    return { id: row.id, status: row.status };
-  }
-
   /** Chặn liên hệ riêng với một người dùng nhưng không thay đổi quyền xem nhóm lớp. */
   async blockUser(
     userId: string,

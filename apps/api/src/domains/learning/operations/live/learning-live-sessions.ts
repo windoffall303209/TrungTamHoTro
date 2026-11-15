@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { id, now } from "../../core/learning.shared.js";
-import type { AttendanceRecord, LiveSession } from "../../core/learning.types.js";
+import type { LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
 /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
@@ -434,33 +434,6 @@ export async function joinSession(
       throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
     if (joinedAt > new Date(session.endsAt.getTime() + 30 * 60_000))
       throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
-    await prisma.$transaction(async (transaction) => {
-      const existingAttendance = await transaction.attendanceRecord.findUnique({
-        where: { sessionId_learnerId: { sessionId, learnerId } },
-        select: { joinedAt: true },
-      });
-      await transaction.attendanceRecord.upsert({
-        where: { sessionId_learnerId: { sessionId, learnerId } },
-        update: {
-          joinedAt: existingAttendance?.joinedAt ?? joinedAt,
-          status: "PRESENT",
-        },
-        create: { sessionId, learnerId, joinedAt, status: "PRESENT" },
-      });
-      const openInterval = await transaction.attendanceInterval.findFirst({
-        where: { sessionId, learnerId, source: "APP", leftAt: null },
-      });
-      if (!openInterval)
-        await transaction.attendanceInterval.create({
-          data: {
-            id: id("attendance-interval"),
-            sessionId,
-            learnerId,
-            joinedAt,
-            source: "APP",
-          },
-        });
-    });
     return {
       attendeeUrl: session.attendeeUrl,
       joinedAt: joinedAt.toISOString(),
@@ -478,126 +451,5 @@ export async function joinSession(
   if (timestamp > new Date(new Date(item.endsAt).getTime() + 30 * 60_000))
     throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
   const joinedAt = now();
-  const existing = serviceContext.attendance.find(
-    (record) =>
-      record.sessionId === sessionId && record.learnerId === learnerId,
-  );
-  if (existing) existing.joinedAt = existing.joinedAt ?? joinedAt;
-  else
-    serviceContext.attendance.push({
-      sessionId,
-      learnerId,
-      joinedAt,
-      attendedMinutes: 0,
-      status: "PRESENT",
-    });
-  if (
-    !serviceContext.attendanceIntervals.some(
-      (interval) =>
-        interval.sessionId === sessionId &&
-        interval.learnerId === learnerId &&
-        interval.source === "APP" &&
-        !interval.leftAt,
-    )
-  )
-    serviceContext.attendanceIntervals.push({
-      sessionId,
-      learnerId,
-      joinedAt,
-      source: "APP",
-    });
   return { attendeeUrl: item.attendeeUrl, joinedAt };
-}
-
-/** Đóng lần tham dự và tính phút có mặt trong giới hạn thời gian buổi học. */
-export async function leaveSession(
-  serviceContext: LearningServiceContext,
-  sessionId: string,
-  learnerId = "usr-learner",
-): Promise<AttendanceRecord> {
-  const prisma = serviceContext.database();
-  if (prisma) {
-    return prisma.$transaction(async (transaction) => {
-      const session = await transaction.liveSession.findUnique({
-        where: { id: sessionId },
-      });
-      if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
-      const openInterval = await transaction.attendanceInterval.findFirst({
-        where: { sessionId, learnerId, source: "APP", leftAt: null },
-        orderBy: { joinedAt: "desc" },
-      });
-      if (!openInterval)
-        throw new BadRequestException(
-          "Chưa có lượt tham gia đang mở để kết thúc.",
-        );
-      const leftAt = new Date();
-      await transaction.attendanceInterval.update({
-        where: { id: openInterval.id },
-        data: { leftAt },
-      });
-      const intervals = await transaction.attendanceInterval.findMany({
-        where: { sessionId, learnerId, leftAt: { not: null } },
-        orderBy: { joinedAt: "asc" },
-      });
-      const attendedMinutes = serviceContext.mergedAttendanceMinutes(
-        intervals.map((item) => ({
-          joinedAt: item.joinedAt,
-          leftAt: item.leftAt!,
-        })),
-        session.startsAt,
-        session.endsAt,
-      );
-      const firstJoinedAt = intervals.reduce<Date | undefined>(
-        (earliest, item) =>
-          !earliest || item.joinedAt < earliest ? item.joinedAt : earliest,
-        undefined,
-      );
-      return serviceContext.mapAttendance(
-        await transaction.attendanceRecord.update({
-          where: { sessionId_learnerId: { sessionId, learnerId } },
-          data: {
-            joinedAt: firstJoinedAt,
-            leftAt,
-            attendedMinutes,
-            status: serviceContext.deriveProviderAttendanceStatus(
-              firstJoinedAt ?? openInterval.joinedAt,
-              attendedMinutes,
-              session.startsAt,
-            ),
-          },
-        }),
-      );
-    });
-  }
-  const attendance = serviceContext.attendance.find(
-    (item) => item.sessionId === sessionId && item.learnerId === learnerId,
-  );
-  const openInterval = serviceContext.attendanceIntervals.findLast(
-    (item) =>
-      item.sessionId === sessionId &&
-      item.learnerId === learnerId &&
-      item.source === "APP" &&
-      !item.leftAt,
-  );
-  if (!attendance?.joinedAt || !openInterval)
-    throw new BadRequestException("Chưa có lượt tham gia đang mở để kết thúc.");
-  openInterval.leftAt = now();
-  attendance.leftAt = openInterval.leftAt;
-  const session = serviceContext.findSession(sessionId);
-  attendance.attendedMinutes = serviceContext.mergedAttendanceMinutes(
-    serviceContext.attendanceIntervals
-      .filter(
-        (item) =>
-          item.sessionId === sessionId &&
-          item.learnerId === learnerId &&
-          item.leftAt,
-      )
-      .map((item) => ({
-        joinedAt: new Date(item.joinedAt),
-        leftAt: new Date(item.leftAt!),
-      })),
-    new Date(session.startsAt),
-    new Date(session.endsAt),
-  );
-  return { ...attendance };
 }

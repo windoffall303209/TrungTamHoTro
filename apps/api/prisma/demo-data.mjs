@@ -154,8 +154,8 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
     for (let index = 0; index < 6; index += 1) {
       const id = `demo-material-${pad(classInfo.index + 1)}-${pad(index + 1)}`;
       const version = index % 4 === 0 ? 2 : 1;
-      const visibility = index === 5 ? "DRAFT" : index === 4 ? "HIDDEN" : "PUBLISHED";
-      const material = { id, classId: classInfo.id, courseId: classInfo.courseId, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Bản nháp nội bộ"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: `Tuần ${index + 1}`, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, createdAt: addDays(-30 + index) };
+      const visibility = index === 4 ? "HIDDEN" : "PUBLISHED";
+      const material = { id, classId: classInfo.id, courseId: classInfo.courseId, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Tài liệu nâng cao"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: `Tuần ${index + 1}`, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, createdAt: addDays(-30 + index) };
       materials.push(material);
       for (let materialVersion = 1; materialVersion <= version; materialVersion += 1) materialVersions.push({ id: `${id}-v${materialVersion}`, materialId: id, version: materialVersion, name: material.name, objectKey: `${material.objectKey}.v${materialVersion}`, mimeType: material.mimeType, sizeBytes: material.sizeBytes, checksum: `${material.checksum}-v${materialVersion}`, folder: material.folder, tags: material.tags, visibility, createdBy: material.ownerId, createdAt: addDays(-31 + materialVersion) });
     }
@@ -242,22 +242,15 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
   await createMany(prisma.forumPost, posts);
 
   const sessions = [];
-  const attendance = [];
   for (const classInfo of classes) {
-    const classLearners = enrollments.filter((item) => item.classId === classInfo.id && item.status !== "PENDING").slice(0, 22);
     const schedule = [[-14, "COMPLETED"], [-7, "COMPLETED"], [3, "SCHEDULED"], [10, "SCHEDULED"], [17, "CANCELLED"]];
     for (const [sessionIndex, [dayOffset, status]] of schedule.entries()) {
       const id = `demo-session-${pad(classInfo.index + 1)}-${sessionIndex + 1}`;
       const startsAt = addDays(dayOffset, 2 + (classInfo.index % 6));
-      sessions.push({ id, classId: classInfo.id, hostId: instructorIds[classInfo.index % instructorIds.length], title: `${["Khởi động chuyên đề", "Thực hành có hướng dẫn", "Giải đáp trực tuyến", "Chữa bài tập", "Buổi học thay đổi lịch"][sessionIndex]} — ${classInfo.code}`, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), provider: sessionIndex % 2 === 0 ? "GOOGLE_MEET" : "JITSI", requestedProvider: sessionIndex % 2 === 0 ? "GOOGLE_MEET" : "JITSI", providerRef: `demo-${classInfo.code}-${sessionIndex + 1}`, hostUrl: `https://meet.google.com/demo-${classInfo.index + 1}-${sessionIndex + 1}-host`, attendeeUrl: `https://meet.google.com/demo-${classInfo.index + 1}-${sessionIndex + 1}`, status, cancellationReason: status === "CANCELLED" ? "Điều chỉnh kế hoạch đào tạo." : null, attendanceLockedAt: status === "COMPLETED" ? addDays(dayOffset, 5) : null, attendanceLockedById: status === "COMPLETED" ? instructorIds[classInfo.index % instructorIds.length] : null, recordingStatus: status === "COMPLETED" && sessionIndex === 0 ? "READY" : "NONE", recordingUrl: status === "COMPLETED" && sessionIndex === 0 ? `https://media.wind.edu.vn/recordings/${id}` : null, recordingReadyAt: status === "COMPLETED" && sessionIndex === 0 ? addDays(dayOffset, 6) : null });
-      if (status === "COMPLETED") for (const [learnerIndex, enrollment] of classLearners.entries()) {
-        const attendanceStatus = learnerIndex % 11 === 0 ? "ABSENT" : learnerIndex % 7 === 0 ? "LATE" : learnerIndex % 13 === 0 ? "EXCUSED" : "PRESENT";
-        attendance.push({ sessionId: id, learnerId: enrollment.learnerId, joinedAt: attendanceStatus === "ABSENT" ? null : new Date(startsAt.getTime() + (attendanceStatus === "LATE" ? 18 : 2) * 60_000), leftAt: attendanceStatus === "ABSENT" ? null : new Date(startsAt.getTime() + (attendanceStatus === "LATE" ? 80 : 88) * 60_000), attendedMinutes: attendanceStatus === "ABSENT" ? 0 : attendanceStatus === "LATE" ? 62 : 86, status: attendanceStatus, providerParticipantId: `participant-${classInfo.index + 1}-${sessionIndex + 1}-${learnerIndex + 1}`, providerSnapshot: { source: "DEMO", synced: true } });
-      }
+      sessions.push({ id, classId: classInfo.id, hostId: instructorIds[classInfo.index % instructorIds.length], title: `${["Khởi động chuyên đề", "Thực hành có hướng dẫn", "Giải đáp trực tuyến", "Chữa bài tập", "Buổi học thay đổi lịch"][sessionIndex]} — ${classInfo.code}`, startsAt, endsAt: new Date(startsAt.getTime() + 90 * 60_000), provider: sessionIndex % 2 === 0 ? "GOOGLE_MEET" : "JITSI", requestedProvider: sessionIndex % 2 === 0 ? "GOOGLE_MEET" : "JITSI", providerRef: `demo-${classInfo.code}-${sessionIndex + 1}`, hostUrl: `https://meet.google.com/demo-${classInfo.index + 1}-${sessionIndex + 1}-host`, attendeeUrl: `https://meet.google.com/demo-${classInfo.index + 1}-${sessionIndex + 1}`, status, cancellationReason: status === "CANCELLED" ? "Điều chỉnh kế hoạch đào tạo." : null, recordingStatus: status === "COMPLETED" && sessionIndex === 0 ? "READY" : "NONE", recordingUrl: status === "COMPLETED" && sessionIndex === 0 ? `https://media.wind.edu.vn/recordings/${id}` : null, recordingReadyAt: status === "COMPLETED" && sessionIndex === 0 ? addDays(dayOffset, 6) : null });
     }
   }
   await createMany(prisma.liveSession, sessions);
-  await createMany(prisma.attendanceRecord, attendance);
 
   const notifications = learnerIds.flatMap((learnerId, learnerIndex) => Array.from({ length: 4 }, (_, index) => ({ id: `demo-notification-${pad(learnerIndex + 1, 3)}-${index + 1}`, recipientId: learnerId, type: ["CLASS_REMINDER", "ASSIGNMENT", "GRADE", "ANNOUNCEMENT"][index], title: ["Lớp học sắp bắt đầu", "Có bài tập mới", "Điểm đã được công bố", "Thông báo mới từ giảng viên"][index], entityType: ["LIVE_SESSION", "ASSIGNMENT", "EXAM_ATTEMPT", "CLASS_ANNOUNCEMENT"][index], entityId: `demo-entity-${index + 1}`, dedupKey: `demo:${learnerId}:${index + 1}`, readAt: index < 2 ? addDays(-1) : null, createdAt: addDays(-4 + index) })));
   await createMany(prisma.notification, notifications);
@@ -283,7 +276,6 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
     forumTopics: topics.length,
     forumPosts: posts.length,
     liveSessions: sessions.length,
-    attendanceRecords: attendance.length,
     notifications: notifications.length,
     supportTickets: tickets.length,
   };

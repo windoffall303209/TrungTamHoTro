@@ -67,7 +67,6 @@ interface IdentityChangeImpact {
     regrades: number;
     interventions: number;
     supportTickets: number;
-    moderationReports: number;
     upcomingSessions: number;
   };
 }
@@ -384,7 +383,6 @@ export default function UsersPage() {
             </li>
             <li>
               {impact.openWork.supportTickets} phiếu hỗ trợ ·{" "}
-              {impact.openWork.moderationReports} hồ sơ kiểm duyệt
             </li>
             <li>{impact.activeSessions} phiên đăng nhập sẽ bị thu hồi ngay</li>
           </ul>

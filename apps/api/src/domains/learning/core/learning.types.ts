@@ -67,8 +67,6 @@ export interface ClassClosureReadiness {
   pendingAssignmentGrades: number;
   openRegrades: number;
   activeSessions: number;
-  unlockedAttendanceSessions: number;
-  openAppeals: number;
 }
 export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
 interface ClassInstructorAssignment {
@@ -138,17 +136,6 @@ export interface LearningMaterial {
 }
 /** SHARED: mọi học viên tra cứu được khi đã phát hành; CLASS: chỉ học viên của lớp. */
 type MaterialScope = "SHARED" | "CLASS";
-/** Quyết định kiểm duyệt hiện hành; HIDE và REQUEST_CHANGES chỉ còn trong lịch sử cũ. */
-export type MaterialReviewDecision = "APPROVE" | "REVOKE";
-
-export interface FileReviewRecord {
-  id: string;
-  materialId: string;
-  reviewerId: string;
-  action: MaterialReviewDecision | "HIDE" | "REQUEST_CHANGES";
-  reason?: string;
-  createdAt: string;
-}
 
 export interface LearningQuestion {
   id: string;
@@ -430,7 +417,6 @@ export interface ModerationContext {
 }
 
 export interface RiskThresholds {
-  attendanceBelow: number;
   scoreBelow: number;
   completionBelow: number;
 }
@@ -461,7 +447,6 @@ export interface LearnerProgress {
   learnerId: string;
   materialCompletionRate: number;
   assessmentCompletionRate: number;
-  attendanceRate: number;
   averageScore: number;
   lastActivityAt?: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";

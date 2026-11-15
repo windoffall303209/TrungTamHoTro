@@ -1,6 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
-import type { EmailDeliveryService } from "../../src/infrastructure/email-delivery.service.js";
+import { describe, expect, it } from "vitest";
 import { SystemService } from "../../src/domains/system/core/system.service.js";
 
 describe("SystemService", () => {
@@ -9,42 +8,6 @@ describe("SystemService", () => {
     await expect(service.runBackup("FULL")).rejects.toThrow("yêu cầu kết nối database");
     await expect(service.runBackup("INCREMENTAL")).rejects.toThrow("binary log");
     await expect(service.restoreBackup("backup-unknown", "")).rejects.toThrow(BadRequestException);
-  });
-
-  it("chặn mã script trong mẫu thông báo", async () => {
-    const service = new SystemService();
-    await expect(service.saveTemplate({ eventCode: "TEST", locale: "vi-VN", subject: "Kiểm tra", body: "<script>alert(1)</script>" })).rejects.toThrow(BadRequestException);
-  });
-
-  it("kiểm soát biến, giữ phiên bản và gửi thử mẫu thông báo", async () => {
-    const send = vi.fn().mockResolvedValue({ provider: "resend", providerMessageId: "email-test-01", acceptedAt: "2026-08-29T00:00:00.000Z" });
-    const emailDelivery = {
-      send,
-    } as unknown as EmailDeliveryService;
-    const service = new SystemService(undefined, emailDelivery);
-    await expect(service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề {{unknown}}", body: "Mở lúc {{openAt}}" })).rejects.toThrow("không được phép");
-    const first = await service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề {{examTitle}}", body: "Lớp {{className}} mở lúc {{openAt}} và đóng lúc {{closeAt}}" });
-    const second = await service.saveTemplate({ eventCode: "EXAM_PUBLISHED", locale: "vi-VN", subject: "Đề mới {{examTitle}}", body: "Lớp {{className}} mở {{openAt}}, đóng {{closeAt}}" });
-    expect(second.version).toBe(first.version + 1);
-    expect((await service.listTemplates()).find((item) => item.eventCode === "EXAM_PUBLISHED")?.id).toBe(second.id);
-    const delivery = await service.sendTemplateTest(second.id, "admin@wind.edu.vn", { examTitle: "Giữa kỳ", className: "WEB-K01", openAt: "08:00", closeAt: "09:00" });
-    expect(delivery.status).toBe("SENT");
-    expect(delivery.providerMessageId).toBe("email-test-01");
-    expect(delivery.subject).toContain("Giữa kỳ");
-    expect(send).toHaveBeenCalledOnce();
-    expect(
-      await service.renderPublishedNotification(
-        "EXAM_PUBLISHED",
-        {
-          examTitle: "Giữa kỳ",
-          className: "WEB-K01",
-          openAt: "08:00",
-          closeAt: "09:00",
-        },
-        "Thông báo dự phòng",
-      ),
-    ).toBe("Đề mới Giữa kỳ");
-    await expect(service.sendTemplateTest(second.id, "admin@wind.edu.vn", {})).rejects.toThrow("Chưa cung cấp biến");
   });
 
   it("không coi credential reference là health check và chỉ tạo phòng thật bằng provider sẵn sàng", async () => {
@@ -65,16 +28,8 @@ describe("SystemService", () => {
     await expect(service.configureIntegration({ provider: "ZOOM", credentialReference: "vault://zoom", webhookUrl: "http://unsafe.local" })).rejects.toThrow("HTTPS");
   });
 
-  it("tăng phiên bản chính sách kiểm duyệt và chuẩn hóa từ khóa", async () => {
-    const service = new SystemService();
-    const policy = await service.updateModerationPolicy({ prohibitedTerms: [" Spam ", "spam", "Lừa đảo"], maxPostsPerMinute: 4, action: "FLAG" });
-    expect(policy.version).toBe(2);
-    expect(policy.prohibitedTerms).toEqual(["spam", "lừa đảo"]);
-  });
-
   it("lập phiên bản cấu hình theo thời điểm hiệu lực và giữ lịch sử", async () => {
     const service = new SystemService();
-    expect((await service.getSettings()).examApprovalMode).toBe("AUTO");
     expect((await service.getSettings()).questionApprovalMode).toBe("AUTO");
     await expect(service.updateSettings({ timezone: "Mars/Olympus" })).rejects.toThrow("Múi giờ");
     const scheduled = await service.updateSettings({ timezone: "Asia/Ho_Chi_Minh", effectiveAt: "2030-01-01T00:00:00.000Z" });
@@ -84,7 +39,6 @@ describe("SystemService", () => {
     const active = await service.updateSettings({ locale: "en-US" });
     expect(active.version).toBe(3);
     expect((await service.getSettings()).locale).toBe("en-US");
-    expect((await service.updateSettings({ examApprovalMode: "MANUAL" })).examApprovalMode).toBe("MANUAL");
     expect((await service.updateSettings({ questionApprovalMode: "MANUAL" })).questionApprovalMode).toBe("MANUAL");
   });
 

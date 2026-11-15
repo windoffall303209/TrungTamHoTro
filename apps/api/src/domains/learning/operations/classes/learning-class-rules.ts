@@ -4,7 +4,6 @@ import { Prisma } from "../../../../generated/prisma/client.js";
 import type {
   ClassClosureReadiness,
   ExamAttempt,
-  FileReviewRecord,
   LearningClass,
   LearningExam,
 } from "../../core/learning.types.js";
@@ -32,20 +31,7 @@ export function buildClassClosureReadiness(
     blockers.push(`${counts.openRegrades} yêu cầu phúc khảo chưa kết thúc`);
   if (counts.activeSessions)
     blockers.push(`${counts.activeSessions} buổi học chưa kết thúc`);
-  if (counts.unlockedAttendanceSessions)
-    blockers.push(
-      `${counts.unlockedAttendanceSessions} kỳ điểm danh chưa khóa`,
-    );
-  if (counts.openAppeals)
-    blockers.push(`${counts.openAppeals} yêu cầu điểm danh chưa xử lý`);
   return { eligible: blockers.length === 0, blockers, ...counts };
-}
-
-/** Thu hẹp action lưu trong DB về tập hành động kiểm duyệt tệp hỗ trợ. */
-export function fileReviewAction(value: string): FileReviewRecord["action"] {
-  if (value === "APPROVE" || value === "REVOKE" || value === "HIDE" || value === "REQUEST_CHANGES")
-    return value;
-  throw new BadRequestException("Hành động kiểm duyệt học liệu không hợp lệ.");
 }
 
 /** Tải lớp cùng thành viên và ném 404 nhất quán nếu không tồn tại. */

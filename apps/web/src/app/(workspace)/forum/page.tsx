@@ -1,53 +1,16 @@
 "use client";
 
-import {
-  ArrowLeft,
-  AtSign,
-  CornerDownRight,
-  Eye,
-  EyeOff,
-  Flag,
-  Heart,
-  Lock,
-  MessageCircle,
-  MessageSquare,
-  MessageSquareText,
-  Paperclip,
-  Pencil,
-  Pin,
-  Plus,
-  Search,
-  Send,
-  Share2,
-  ShieldAlert,
-  Trash2,
-  Unlock,
-  X,
-} from "lucide-react";
+import { ArrowLeft, AtSign, CornerDownRight, Heart, Lock, MessageCircle, MessageSquare, MessageSquareText, Paperclip, Pencil, Pin, Plus, Search, Send, Share2, Trash2, Unlock, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
-import {
-  Button,
-  Field,
-  inputClass,
-  Modal,
-  Pagination,
-  StatusBadge,
-  usePagination,
-} from "@/shared/ui/ui";
+import { Button, Field, inputClass, Modal, Pagination, usePagination } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { useMaterialSearch } from "@/features/materials/material-search";
-import type {
-  ContentReport,
-  ForumPost,
-  ForumTopic,
-  LearningClass,
-  ModerationContext,
-} from "@/lib/learning-types";
+import type { ForumPost, ForumTopic, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { hasPermission } from "@/lib/access-control";
@@ -69,7 +32,6 @@ export default function ForumPage() {
 
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
-  const [reports, setReports] = useState<ContentReport[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
   const postsRequestId = useRef(0);
@@ -79,7 +41,6 @@ export default function ForumPage() {
   const [classFilter, setClassFilter] = useState<string>("");
   const [topicSearch, setTopicSearch] = useState<string>("");
   const [topicTab, setTopicTab] = useState<"all" | "pinned" | "mine">("all");
-  const [showReportsPanel, setShowReportsPanel] = useState(false);
 
   // Trạng thái mở rộng bài viết dài ngoài Feed (Show more / Show less)
   const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(new Set());
@@ -118,22 +79,12 @@ export default function ForumPage() {
   const [showAttachDrawer, setShowAttachDrawer] = useState(false);
   const [showMentionDrawer, setShowMentionDrawer] = useState(false);
 
-  // Phản hồi và kiểm duyệt
+  // Phản hồi theo chủ đề
   const [replyTo, setReplyTo] = useState<ForumPost | null>(null);
   const [editingPost, setEditingPost] = useState<ForumPost | null>(null);
   const [editBody, setEditBody] = useState("");
   const [topicAction, setTopicAction] = useState<{ isLocked?: boolean; isPinned?: boolean; label: string } | null>(null);
   const [topicReason, setTopicReason] = useState("");
-  const [hideTarget, setHideTarget] = useState<ForumPost | null>(null);
-  const [hideReason, setHideReason] = useState("");
-  const [reportTarget, setReportTarget] = useState<ForumTopic | null>(null);
-  const [reportForm, setReportForm] = useState({ reason: "Nội dung không phù hợp", details: "" });
-  const [moderationTarget, setModerationTarget] = useState<ContentReport | null>(null);
-  const [moderationContext, setModerationContext] = useState<ModerationContext | null>(null);
-  const [moderationForm, setModerationForm] = useState({ action: "HIDE_CONTENT", resolution: "" });
-  const [appealTarget, setAppealTarget] = useState<ContentReport | null>(null);
-  const [appealReason, setAppealReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
   // Form tạo bài viết / chủ đề mới
   const [form, setForm] = useState({
@@ -224,19 +175,13 @@ export default function ForumPage() {
     const requestId = ++forumRequestId.current;
     setLoading(true);
     try {
-      const [topicData, classData, reportData] = await Promise.all([
+      const [topicData, classData] = await Promise.all([
         apiRequest<ForumTopic[]>("/forum/topics", { roleCode: session.roleCode }),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
-        manager
-          ? apiRequest<ContentReport[]>("/manager/forum/reports", { roleCode: session.roleCode })
-          : learner
-            ? apiRequest<ContentReport[]>("/learner/content-reports", { roleCode: session.roleCode })
-            : Promise.resolve([]),
       ]);
       if (requestId !== forumRequestId.current) return;
       setTopics(topicData);
       setClasses(classData);
-      setReports(reportData);
 
       const requestedClassId = searchParams.get("classId");
       if (requestedClassId && classData.some((item) => item.id === requestedClassId)) {
@@ -256,7 +201,7 @@ export default function ForumPage() {
     } finally {
       if (requestId === forumRequestId.current) setLoading(false);
     }
-  }, [allowed, choose, learner, manager, notify, searchParams, session.roleCode]);
+  }, [allowed, choose, notify, searchParams, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -393,121 +338,6 @@ export default function ForumPage() {
     }
   };
 
-  // Ẩn bình luận vi phạm nguyên tắc cộng đồng.
-  const hidePost = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!hideTarget || !selected) return;
-    try {
-      await apiRequest(`/instructor/forum/posts/${hideTarget.id}/hide`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ reason: hideReason }),
-      });
-      setHideTarget(null);
-      setHideReason("");
-      notify("Đã ẩn bình luận vi phạm.");
-      await choose(selected);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không ẩn được bình luận.", "error");
-    }
-  };
-
-  // Báo cáo nội dung bài viết vi phạm lên ban quản lý.
-  const report = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!reportTarget) return;
-    try {
-      await apiRequest("/learner/content-reports", {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          targetType: "TOPIC",
-          targetId: reportTarget.id,
-          reason: reportForm.reason,
-          details: reportForm.details,
-        }),
-      });
-      notify("Đã gửi báo cáo vi phạm.");
-      setReportTarget(null);
-      setReportForm({ reason: "Nội dung không phù hợp", details: "" });
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không gửi được báo cáo.", "error");
-    }
-  };
-
-  // Mở hồ sơ xử lý báo cáo kiểm duyệt của quản lý.
-  const openModeration = async (item: ContentReport) => {
-    try {
-      setSubmitting(true);
-      const claimed =
-        item.status === "OPEN"
-          ? await apiRequest<ContentReport>(`/manager/forum/reports/${item.id}/claim`, {
-              method: "POST",
-              roleCode: session.roleCode,
-            })
-          : item;
-      const context = await apiRequest<ModerationContext>(`/manager/forum/reports/${item.id}/context`, {
-        roleCode: session.roleCode,
-      });
-      setModerationTarget(claimed);
-      setModerationContext(context);
-      setModerationForm({ action: "HIDE_CONTENT", resolution: "" });
-      if (item.status === "OPEN") await load();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không mở được hồ sơ kiểm duyệt.", "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Lưu quyết định xử lý báo cáo kiểm duyệt.
-  const resolve = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!moderationTarget) return;
-    try {
-      setSubmitting(true);
-      await apiRequest(`/manager/forum/reports/${moderationTarget.id}/resolve`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify(moderationForm),
-      });
-      notify(
-        moderationForm.action === "ESCALATE_ADMIN"
-          ? "Đã chuyển cấp quản trị hệ thống."
-          : "Đã ban hành quyết định kiểm duyệt.",
-      );
-      setModerationTarget(null);
-      setModerationContext(null);
-      await load();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không xử lý được báo cáo.", "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Gửi đơn kháng nghị về quyết định xử lý kiểm duyệt.
-  const appeal = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!appealTarget) return;
-    try {
-      setSubmitting(true);
-      await apiRequest(`/learner/content-reports/${appealTarget.id}/appeal`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ reason: appealReason }),
-      });
-      notify("Đã gửi kháng nghị để ban quản lý xem xét lại.");
-      setAppealTarget(null);
-      setAppealReason("");
-      await load();
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không gửi được kháng nghị.", "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   // Phân chia bình luận gốc và các phản hồi lồng nhau.
   const { rootPosts, repliesByParent } = useMemo(() => {
     const roots: ForumPost[] = [];
@@ -530,8 +360,6 @@ export default function ForumPage() {
     const members = [...(selectedClass.learnerIds ?? []), ...(selectedClass.instructorIds ?? [])];
     return Array.from(new Set(members)).filter((id) => id !== session.user.id);
   }, [selectedClass, session.user.id]);
-
-  const pendingReportsCount = reports.filter((item) => ["OPEN", "IN_REVIEW"].includes(item.status)).length;
   const pinnedTopicsCount = topics.filter((t) => t.isPinned).length;
   const myTopicsCount = topics.filter((t) => t.authorId === session.user.id).length;
 
@@ -542,19 +370,10 @@ export default function ForumPage() {
       {/* Tiêu đề trang chính */}
       <PageHeader
         title="Diễn đàn trao đổi"
-        description="Thảo luận theo lớp, trao đổi bài học theo luồng và kiểm duyệt nội dung an toàn."
+        description="Thảo luận theo lớp, trao đổi bài học theo luồng."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {manager && reports.length > 0 ? (
-              <Button
-                onClick={() => setShowReportsPanel(!showReportsPanel)}
-                variant={showReportsPanel ? "primary" : "secondary"}
-                className="h-9.5 text-xs sm:text-sm"
-              >
-                <ShieldAlert size={15} />
-                {t("Báo cáo")} ({pendingReportsCount})
-              </Button>
-            ) : null}
+
             {!selected && (instructor || learner) ? (
               <Button onClick={() => setComposerOpen(true)} className="h-9.5 text-xs sm:text-sm">
                 <Plus size={16} />
@@ -564,57 +383,6 @@ export default function ForumPage() {
           </div>
         }
       />
-
-      {/* Khu vực xử lý báo cáo kiểm duyệt dành cho Quản lý */}
-      {manager && reports.length > 0 && showReportsPanel ? (
-        <section className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/30 p-5 shadow-xs transition-all">
-          <div className="flex items-center justify-between pb-3 border-b border-rose-200/80 dark:border-rose-900/50 mb-3">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="text-rose-600 dark:text-rose-400" size={18} />
-              <h2 className="text-sm sm:text-base font-bold text-rose-900 dark:text-rose-200">
-                Hàng đợi kiểm duyệt báo cáo nội dung ({reports.length})
-              </h2>
-            </div>
-            <button
-              onClick={() => setShowReportsPanel(false)}
-              className="text-xs text-rose-700 dark:text-rose-300 hover:underline cursor-pointer"
-              type="button"
-            >
-              {t("Thu gọn")}
-            </button>
-          </div>
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {reports.map((item) => (
-              <div
-                className="flex flex-col justify-between gap-3 rounded-xl bg-white dark:bg-slate-900/90 border border-rose-200/80 dark:border-rose-900/50 p-3.5 shadow-2xs"
-                key={item.id}
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-rose-700 dark:text-rose-400 truncate">
-                      {item.reason}
-                    </span>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                    {item.details || "Không có mô tả chi tiết."}
-                  </p>
-                </div>
-                {["OPEN", "IN_REVIEW"].includes(item.status) ? (
-                  <Button
-                    disabled={submitting}
-                    onClick={() => void openModeration(item)}
-                    variant="secondary"
-                    className="h-8 text-xs w-full"
-                  >
-                    <Eye size={13} /> {item.status === "OPEN" ? "Nhận xử lý" : "Mở hồ sơ"}
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {/* CHẾ ĐỘ 1: XEM CHI TIẾT BÀI VIẾT & CÁC BÌNH LUẬN (THREAD VIEW GIỐNG X / FACEBOOK) */}
       {selected ? (
@@ -701,16 +469,6 @@ export default function ForumPage() {
                   </div>
                 ) : null}
 
-                {selected.authorId !== session.user.id ? (
-                  <button
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    onClick={() => setReportTarget(selected)}
-                    title="Báo cáo vi phạm"
-                    type="button"
-                  >
-                    <Flag size={15} />
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -987,16 +745,6 @@ export default function ForumPage() {
                             </>
                           ) : null}
 
-                          {(instructor || manager) && !isAuthor ? (
-                            <button
-                              type="button"
-                              onClick={() => setHideTarget(root)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                              title="Ẩn bình luận vi phạm"
-                            >
-                              <EyeOff size={13} />
-                            </button>
-                          ) : null}
                         </div>
                       </div>
 
@@ -1063,16 +811,7 @@ export default function ForumPage() {
                                         <Trash2 size={12} />
                                       </button>
                                     ) : null}
-                                    {(instructor || manager) && !isReplyAuthor ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => setHideTarget(reply)}
-                                        className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                                        title="Ẩn phản hồi vi phạm"
-                                      >
-                                        <EyeOff size={12} />
-                                      </button>
-                                    ) : null}
+
                                   </div>
                                 </div>
                                 <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line pl-8">
@@ -1373,19 +1112,7 @@ export default function ForumPage() {
                         ) : null}
 
                         {/* Nút hành động */}
-                        {topic.authorId !== session.user.id ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReportTarget(topic);
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                            title="Báo cáo bài viết"
-                          >
-                            <Flag size={14} />
-                          </button>
-                        ) : null}
+
                       </div>
                     </div>
 
@@ -1496,49 +1223,6 @@ export default function ForumPage() {
       )}
 
       {/* MODAL 1: BÁO CÁO VI PHẠM NỘI DUNG */}
-      {reportTarget ? (
-        <Modal
-          open={Boolean(reportTarget)}
-          onClose={() => setReportTarget(null)}
-          title="Báo cáo vi phạm nội dung"
-          description="Nội dung báo cáo sẽ được chuyển tới ban quản trị kiểm duyệt và xử lý theo quy tắc cộng đồng."
-        >
-          <form onSubmit={report} className="space-y-4">
-            <Field label="Lý do báo cáo">
-              <select
-                className={inputClass}
-                value={reportForm.reason}
-                onChange={(e) => setReportForm({ ...reportForm, reason: e.target.value })}
-              >
-                <option value="Nội dung không phù hợp">Nội dung không phù hợp</option>
-                <option value="Spam / Quảng cáo">Spam / Quảng cáo</option>
-                <option value="Ngôn từ đả kích / Xúc phạm">Ngôn từ đả kích / Xúc phạm</option>
-                <option value="Tiết lộ đề thi / Đáp án gian lận">Tiết lộ đề thi / Đáp án gian lận</option>
-                <option value="Khác">Lý do khác</option>
-              </select>
-            </Field>
-
-            <Field label="Mô tả chi tiết">
-              <textarea
-                rows={3}
-                className={inputClass}
-                placeholder="Cung cấp thêm ngữ cảnh vi phạm để ban quản trị xử lý nhanh hơn..."
-                value={reportForm.details}
-                onChange={(e) => setReportForm({ ...reportForm, details: e.target.value })}
-              />
-            </Field>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button variant="ghost" onClick={() => setReportTarget(null)}>
-                Hủy
-              </Button>
-              <Button type="submit" variant="danger">
-                Gửi báo cáo
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
 
       {/* MODAL 2: ĐIỀU PHỐI CHỦ ĐỀ (GHIM / KHÓA) */}
       {topicAction ? (
@@ -1546,13 +1230,13 @@ export default function ForumPage() {
           open={Boolean(topicAction)}
           onClose={() => setTopicAction(null)}
           title={`Xác nhận ${topicAction.label.toLowerCase()}`}
-          description="Hành động này sẽ được ghi nhận vào nhật ký kiểm duyệt hệ thống."
+          description="Hành động này sẽ được ghi nhận vào nhật ký hoạt động."
         >
           <form onSubmit={moderateTopic} className="space-y-4">
             <Field label="Lý do giải trình *">
               <input
                 className={inputClass}
-                placeholder="Nhập lý do thực hiện thao tác kiểm duyệt này..."
+                placeholder="Nhập lý do cập nhật chủ đề..."
                 value={topicReason}
                 onChange={(e) => setTopicReason(e.target.value)}
                 required
@@ -1571,130 +1255,11 @@ export default function ForumPage() {
       ) : null}
 
       {/* MODAL 3: ẨN PHẢN HỒI VI PHẠM */}
-      {hideTarget ? (
-        <Modal
-          open={Boolean(hideTarget)}
-          onClose={() => setHideTarget(null)}
-          title="Ẩn phản hồi vi phạm"
-          description="Phản hồi này sẽ bị ẩn khỏi học viên và chỉ hiển thị đối với ban quản lý."
-        >
-          <form onSubmit={hidePost} className="space-y-4">
-            <Field label="Lý do ẩn bình luận *">
-              <input
-                className={inputClass}
-                placeholder="Nhập lý do kiểm duyệt..."
-                value={hideReason}
-                onChange={(e) => setHideReason(e.target.value)}
-                required
-              />
-            </Field>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button variant="ghost" onClick={() => setHideTarget(null)}>
-                Hủy
-              </Button>
-              <Button type="submit" variant="danger">
-                Ẩn bình luận
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
 
       {/* MODAL 4: HỒ SƠ KIỂM DUYỆT BÁO CÁO (MANAGER) */}
-      {moderationTarget ? (
-        <Modal
-          open={Boolean(moderationTarget)}
-          onClose={() => setModerationTarget(null)}
-          title="Xử lý hồ sơ báo cáo kiểm duyệt"
-          description="Xem xét ngữ cảnh vi phạm và ban hành quyết định kỷ luật hoặc bác bỏ báo cáo."
-          size="xl"
-        >
-          <form onSubmit={resolve} className="space-y-4">
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-4 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm space-y-2">
-              <div className="flex justify-between">
-                <span className="font-bold text-rose-600">Lý do: {moderationTarget.reason}</span>
-                <StatusBadge status={moderationTarget.status} />
-              </div>
-              <p className="text-slate-600 dark:text-slate-300">
-                Chi tiết: {moderationTarget.details || "Không có mô tả chi tiết."}
-              </p>
-              {moderationContext ? (
-                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 text-xs space-y-1">
-                  <p className="font-semibold text-slate-800 dark:text-slate-200">
-                    Ngữ cảnh: Đối tượng {moderationContext.report.targetType} (Mã: {moderationContext.report.targetId})
-                  </p>
-                  <p className="text-slate-500">Người báo cáo: {moderationContext.report.reporterId}</p>
-                </div>
-              ) : null}
-            </div>
-
-            <Field label="Quyết định kiểm duyệt">
-              <select
-                className={inputClass}
-                value={moderationForm.action}
-                onChange={(e) => setModerationForm({ ...moderationForm, action: e.target.value })}
-              >
-                <option value="HIDE_CONTENT">Ẩn nội dung vi phạm</option>
-                <option value="LOCK_THREAD">Khóa luồng thảo luận</option>
-                <option value="WARNING_USER">Cảnh cáo người dùng</option>
-                <option value="ESCALATE_ADMIN">Chuyển cấp quản trị hệ thống</option>
-                <option value="DISMISS">Bác bỏ báo cáo (Nội dung hợp lệ)</option>
-              </select>
-            </Field>
-
-            <Field label="Kết luận xử lý và ghi chú">
-              <textarea
-                rows={3}
-                className={inputClass}
-                placeholder="Ghi rõ căn cứ xử lý để phản hồi cho người báo cáo và lưu vết audit log..."
-                value={moderationForm.resolution}
-                onChange={(e) => setModerationForm({ ...moderationForm, resolution: e.target.value })}
-                required
-              />
-            </Field>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button variant="ghost" onClick={() => setModerationTarget(null)}>
-                Hủy
-              </Button>
-              <Button type="submit" disabled={submitting}>
-                Ban hành quyết định
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
 
       {/* MODAL 5: KHÁNG NGHỊ KIỂM DUYỆT (LEARNER) */}
-      {appealTarget ? (
-        <Modal
-          open={Boolean(appealTarget)}
-          onClose={() => setAppealTarget(null)}
-          title="Kháng nghị quyết định xử phạt"
-          description="Đơn kháng nghị sẽ được gửi lại ban quản lý trung tâm để rà soát khách quan."
-        >
-          <form onSubmit={appeal} className="space-y-4">
-            <Field label="Lý do giải trình và bằng chứng bổ sung *">
-              <textarea
-                rows={4}
-                className={inputClass}
-                placeholder="Trình bày lý do bạn cho rằng nội dung không vi phạm nguyên tắc cộng đồng..."
-                value={appealReason}
-                onChange={(e) => setAppealReason(e.target.value)}
-                required
-              />
-            </Field>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <Button variant="ghost" onClick={() => setAppealTarget(null)}>
-                Hủy
-              </Button>
-              <Button type="submit" disabled={submitting}>
-                Gửi kháng nghị
-              </Button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+
     </div>
   );
 }

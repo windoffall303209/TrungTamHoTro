@@ -12,7 +12,7 @@ import * as export_format_ops from "../operations/storage/system-export-format.j
 import * as exports_ops from "../operations/storage/system-exports.js";
 import * as integrations_ops from "../operations/integrations/system-integrations.js";
 import * as mapping_ops from "../operations/core/system-mapping.js";
-import * as moderation_ops from "../operations/moderation/system-moderation.js";
+
 import * as monitoring_ops from "../operations/monitoring/system-monitoring.js";
 import * as notifications_ops from "../operations/notifications/system-notifications.js";
 import * as retention_execution_ops from "../operations/retention/system-retention-execution.js";
@@ -21,29 +21,7 @@ import * as settings_ops from "../operations/settings/system-settings.js";
 import * as storage_audit_ops from "../operations/storage/system-storage-audit.js";
 import * as worker_ops from "../operations/workers/system-worker.js";
 import type { SystemServiceContext } from "./system.context.js";
-import {
-  AuditEvent,
-  AuditFilter,
-  BackupRun,
-  DataExport,
-  defaultSettings,
-  IntegrationConfig,
-  LegalHoldView,
-  ModerationPolicy,
-  NotificationTemplate,
-  RestoreRun,
-  RetentionCategory,
-  RetentionJobView,
-  RetentionPolicyView,
-  RetentionPreview,
-  SnapshotAssetAudit,
-  StorageCleanupFailure,
-  StorageOverview,
-  SystemAlertView,
-  SystemSettingRevision,
-  SystemSettings,
-  TemplateTestDelivery,
-} from "./system.shared.js";
+import { AuditEvent, AuditFilter, BackupRun, DataExport, defaultSettings, IntegrationConfig, LegalHoldView, RestoreRun, RetentionCategory, RetentionJobView, RetentionPolicyView, RetentionPreview, SnapshotAssetAudit, StorageCleanupFailure, StorageOverview, SystemAlertView, SystemSettingRevision, SystemSettings } from "./system.shared.js";
 export * from "./system.shared.js";
 
 @Injectable()
@@ -70,6 +48,7 @@ export class SystemService {
   private backups: BackupRun[] = [
     {
       id: "backup-seed",
+      canRestore: false,
       type: "FULL",
       status: "COMPLETED",
       createdAt: new Date(Date.now() - 86_400_000).toISOString(),
@@ -85,27 +64,6 @@ export class SystemService {
   private exports: DataExport[] = [];
 
   private exportFiles = new Map<string, Buffer>();
-
-  private templates: NotificationTemplate[] = [
-    {
-      id: "tpl-class-reminder",
-      eventCode: "CLASS_REMINDER",
-      locale: "vi-VN",
-      subject: "Nhắc lịch học {{className}}",
-      body: "Buổi học {{sessionTitle}} bắt đầu lúc {{startsAt}}.",
-      version: 1,
-      status: "PUBLISHED",
-      updatedAt: new Date().toISOString(),
-    },
-  ];
-
-  private moderation: ModerationPolicy = {
-    version: 1,
-    prohibitedTerms: ["spam", "lừa đảo"],
-    maxPostsPerMinute: 5,
-    action: "FLAG",
-    updatedAt: new Date().toISOString(),
-  };
 
   private audit: AuditEvent[] = [
     {
@@ -154,80 +112,35 @@ export class SystemService {
       get integrations(): SystemServiceContext["integrations"] {
         return owner.integrations;
       },
-      set integrations(value: SystemServiceContext["integrations"]) {
-        owner.integrations = value;
-      },
       get backups(): SystemServiceContext["backups"] {
         return owner.backups;
-      },
-      set backups(value: SystemServiceContext["backups"]) {
-        owner.backups = value;
       },
       get restores(): SystemServiceContext["restores"] {
         return owner.restores;
       },
-      set restores(value: SystemServiceContext["restores"]) {
-        owner.restores = value;
-      },
       get exports(): SystemServiceContext["exports"] {
         return owner.exports;
-      },
-      set exports(value: SystemServiceContext["exports"]) {
-        owner.exports = value;
       },
       get exportFiles(): SystemServiceContext["exportFiles"] {
         return owner.exportFiles;
       },
-      set exportFiles(value: SystemServiceContext["exportFiles"]) {
-        owner.exportFiles = value;
-      },
-      get templates(): SystemServiceContext["templates"] {
-        return owner.templates;
-      },
-      set templates(value: SystemServiceContext["templates"]) {
-        owner.templates = value;
-      },
-      get moderation(): SystemServiceContext["moderation"] {
-        return owner.moderation;
-      },
-      set moderation(value: SystemServiceContext["moderation"]) {
-        owner.moderation = value;
-      },
       get audit(): SystemServiceContext["audit"] {
         return owner.audit;
-      },
-      set audit(value: SystemServiceContext["audit"]) {
-        owner.audit = value;
       },
       get settingRevisions(): SystemServiceContext["settingRevisions"] {
         return owner.settingRevisions;
       },
-      set settingRevisions(value: SystemServiceContext["settingRevisions"]) {
-        owner.settingRevisions = value;
-      },
       get retentionPolicies(): SystemServiceContext["retentionPolicies"] {
         return owner.retentionPolicies;
-      },
-      set retentionPolicies(value: SystemServiceContext["retentionPolicies"]) {
-        owner.retentionPolicies = value;
       },
       get retentionJobs(): SystemServiceContext["retentionJobs"] {
         return owner.retentionJobs;
       },
-      set retentionJobs(value: SystemServiceContext["retentionJobs"]) {
-        owner.retentionJobs = value;
-      },
       get legalHolds(): SystemServiceContext["legalHolds"] {
         return owner.legalHolds;
       },
-      set legalHolds(value: SystemServiceContext["legalHolds"]) {
-        owner.legalHolds = value;
-      },
       get alerts(): SystemServiceContext["alerts"] {
         return owner.alerts;
-      },
-      set alerts(value: SystemServiceContext["alerts"]) {
-        owner.alerts = value;
       },
       get prisma(): SystemServiceContext["prisma"] {
         return owner.prisma;
@@ -242,33 +155,10 @@ export class SystemService {
         return owner.objectStorage;
       },
       getSettings: (...args) => owner.getSettings(...args),
-      listSettingRevisions: (...args) => owner.listSettingRevisions(...args),
-      updateSettings: (...args) => owner.updateSettings(...args),
       listIntegrations: (...args) => owner.listIntegrations(...args),
-      updateIntegration: (...args) => owner.updateIntegration(...args),
-      configureIntegration: (...args) => owner.configureIntegration(...args),
-      testIntegration: (...args) => owner.testIntegration(...args),
-      setDefaultIntegration: (...args) => owner.setDefaultIntegration(...args),
-      createTestMeeting: (...args) => owner.createTestMeeting(...args),
-      listBackups: (...args) => owner.listBackups(...args),
-      runBackup: (...args) => owner.runBackup(...args),
       requestRestore: (...args) => owner.requestRestore(...args),
-      approveRestore: (...args) => owner.approveRestore(...args),
-      restoreBackup: (...args) => owner.restoreBackup(...args),
-      listRestores: (...args) => owner.listRestores(...args),
-      previewRetention: (...args) => owner.previewRetention(...args),
-      listRetentionPolicies: (...args) => owner.listRetentionPolicies(...args),
-      createRetentionPolicy: (...args) => owner.createRetentionPolicy(...args),
-      createLegalHold: (...args) => owner.createLegalHold(...args),
-      listLegalHolds: (...args) => owner.listLegalHolds(...args),
-      releaseLegalHold: (...args) => owner.releaseLegalHold(...args),
-      runRetention: (...args) => owner.runRetention(...args),
-      approveRetention: (...args) => owner.approveRetention(...args),
-      listRetentionJobs: (...args) => owner.listRetentionJobs(...args),
       previewRetentionPolicy: (...args) =>
         owner.previewRetentionPolicy(...args),
-      runExport: (...args) => owner.runExport(...args),
-      drainOperationalJobs: (...args) => owner.drainOperationalJobs(...args),
       processQueuedBackup: (...args) => owner.processQueuedBackup(...args),
       processQueuedExport: (...args) => owner.processQueuedExport(...args),
       processQueuedRetention: (...args) =>
@@ -279,21 +169,6 @@ export class SystemService {
       jobLeaseExpiry: (...args) => owner.jobLeaseExpiry(...args),
       jobRetryAt: (...args) => owner.jobRetryAt(...args),
       jobError: (...args) => owner.jobError(...args),
-      downloadExport: (...args) => owner.downloadExport(...args),
-      listExports: (...args) => owner.listExports(...args),
-      listTemplates: (...args) => owner.listTemplates(...args),
-      saveTemplate: (...args) => owner.saveTemplate(...args),
-      previewTemplate: (...args) => owner.previewTemplate(...args),
-      renderPublishedNotification: (...args) =>
-        owner.renderPublishedNotification(...args),
-      sendTemplateTest: (...args) => owner.sendTemplateTest(...args),
-      getModerationPolicy: (...args) => owner.getModerationPolicy(...args),
-      updateModerationPolicy: (...args) =>
-        owner.updateModerationPolicy(...args),
-      listAudit: (...args) => owner.listAudit(...args),
-      healthOverview: (...args) => owner.healthOverview(...args),
-      listAlerts: (...args) => owner.listAlerts(...args),
-      updateAlert: (...args) => owner.updateAlert(...args),
       getStorageOverview: (...args) => owner.getStorageOverview(...args),
       database: (...args) => owner.database(...args),
       mapSettings: (...args) => owner.mapSettings(...args),
@@ -301,8 +176,6 @@ export class SystemService {
       mapBackup: (...args) => owner.mapBackup(...args),
       mapRestore: (...args) => owner.mapRestore(...args),
       mapExport: (...args) => owner.mapExport(...args),
-      mapTemplate: (...args) => owner.mapTemplate(...args),
-      mapModeration: (...args) => owner.mapModeration(...args),
       mapAudit: (...args) => owner.mapAudit(...args),
       mapRetentionPolicy: (...args) => owner.mapRetentionPolicy(...args),
       mapRetentionJob: (...args) => owner.mapRetentionJob(...args),
@@ -313,27 +186,18 @@ export class SystemService {
       executeRetention: (...args) => owner.executeRetention(...args),
       aiResultSettings: (...args) => owner.aiResultSettings(...args),
       retentionCategory: (...args) => owner.retentionCategory(...args),
-      snapshotAssetAudit: (...args) => owner.snapshotAssetAudit(...args),
-      listStorageCleanupFailures: (...args) =>
-        owner.listStorageCleanupFailures(...args),
-      retryStorageCleanup: (...args) => owner.retryStorageCleanup(...args),
-      verifyRetentionArchive: (...args) =>
-        owner.verifyRetentionArchive(...args),
       validateRetentionArchive: (...args) =>
         owner.validateRetentionArchive(...args),
       collectExportRows: (...args) => owner.collectExportRows(...args),
       serializeExport: (...args) => owner.serializeExport(...args),
       recordAlert: (...args) => owner.recordAlert(...args),
       recoverAlert: (...args) => owner.recoverAlert(...args),
-      countExportRows: (...args) => owner.countExportRows(...args),
       logDatabase: (...args) => owner.logDatabase(...args),
       asRecord: asPrismaJsonRecord,
       stringValue: (...args) => owner.stringValue(...args),
       numberValue: (...args) => owner.numberValue(...args),
       booleanValue: (...args) => owner.booleanValue(...args),
       stringArray: (...args) => owner.stringArray(...args),
-      extractTemplateVariables: (...args) =>
-        owner.extractTemplateVariables(...args),
       redactSensitive: (...args) => owner.redactSensitive(...args),
       isProvider: (value: string): value is IntegrationConfig["provider"] =>
         owner.isProvider(value),
@@ -721,38 +585,6 @@ export class SystemService {
     return await export_download_ops.listExports(this.operationContext);
   }
 
-  /** Liệt kê phiên bản mẫu thông báo và trạng thái hiện hành. */
-  async listTemplates(): Promise<NotificationTemplate[]> {
-    return await notifications_ops.listTemplates(this.operationContext);
-  }
-
-  /** Validate biến mẫu, tạo version mới và ngừng dùng version trước cùng event/locale. */
-  async saveTemplate(
-    input: Omit<
-      NotificationTemplate,
-      "id" | "version" | "status" | "updatedAt"
-    >,
-    actorId = "usr-admin",
-  ): Promise<NotificationTemplate> {
-    return await notifications_ops.saveTemplate(
-      this.operationContext,
-      input,
-      actorId,
-    );
-  }
-
-  /** Thay thế placeholder bằng dữ liệu thử và báo các biến còn thiếu. */
-  async previewTemplate(
-    templateId: string,
-    variables: Record<string, string>,
-  ): Promise<object> {
-    return await notifications_ops.previewTemplate(
-      this.operationContext,
-      templateId,
-      variables,
-    );
-  }
-
   /** Render mẫu PUBLISHED mới nhất cho runtime; dùng tiêu đề fallback nếu thiếu mẫu hoặc biến. */
   async renderPublishedNotification(
     eventCode: string,
@@ -764,39 +596,6 @@ export class SystemService {
       eventCode,
       variables,
       fallbackTitle,
-    );
-  }
-
-  /** Render và gửi email thử, lưu kết quả giao hàng cùng actor nhưng không lưu nội dung nhạy cảm. */
-  async sendTemplateTest(
-    templateId: string,
-    recipient: string,
-    variables: Record<string, string>,
-    actorId = "usr-admin",
-  ): Promise<TemplateTestDelivery> {
-    return await notifications_ops.sendTemplateTest(
-      this.operationContext,
-      templateId,
-      recipient,
-      variables,
-      actorId,
-    );
-  }
-
-  /** Đọc chính sách kiểm duyệt mới nhất hoặc cấu hình mặc định. */
-  async getModerationPolicy(): Promise<ModerationPolicy> {
-    return await moderation_ops.getModerationPolicy(this.operationContext);
-  }
-
-  /** Chuẩn hóa từ cấm, kiểm tra rate limit và tạo version chính sách mới. */
-  async updateModerationPolicy(
-    input: Omit<ModerationPolicy, "version" | "updatedAt">,
-    actorId = "usr-admin",
-  ): Promise<ModerationPolicy> {
-    return await moderation_ops.updateModerationPolicy(
-      this.operationContext,
-      input,
-      actorId,
     );
   }
 
@@ -868,37 +667,23 @@ export class SystemService {
 
   /** Ánh xạ job sao lưu, bao gồm metadata và thông tin lỗi đã lưu. */
   private mapBackup(
-    row: Prisma.BackupJobGetPayload<Record<string, never>>,
+    row: Prisma.OperationalJobGetPayload<Record<string, never>>,
   ): BackupRun {
     return mapping_ops.mapBackup(row);
   }
 
   /** Ánh xạ yêu cầu phục hồi, loại thao tác và dấu vết hai người. */
   private mapRestore(
-    row: Prisma.RestoreJobGetPayload<Record<string, never>>,
+    row: Prisma.OperationalJobGetPayload<Record<string, never>>,
   ): RestoreRun {
     return mapping_ops.mapRestore(row);
   }
 
   /** Ánh xạ job xuất dữ liệu và URL/checksum khi hoàn thành. */
   private mapExport(
-    row: Prisma.DataExportJobGetPayload<Record<string, never>>,
+    row: Prisma.OperationalJobGetPayload<Record<string, never>>,
   ): DataExport {
     return mapping_ops.mapExport(row);
-  }
-
-  /** Ánh xạ mẫu thông báo Prisma sang hợp đồng quản trị. */
-  private mapTemplate(
-    row: Prisma.NotificationTemplateGetPayload<Record<string, never>>,
-  ): NotificationTemplate {
-    return mapping_ops.mapTemplate(row);
-  }
-
-  /** Ánh xạ JSON từ cấm và tham số kiểm duyệt sang policy. */
-  private mapModeration(
-    row: Prisma.ModerationPolicyGetPayload<Record<string, never>>,
-  ): ModerationPolicy {
-    return mapping_ops.mapModeration(this.operationContext, row);
   }
 
   /** Ánh xạ audit log và che chuỗi nhạy cảm trong detail. */
@@ -1090,14 +875,6 @@ export class SystemService {
     return await audit_ops.recoverAlert(this.operationContext, fingerprint);
   }
 
-  /** Đếm số bản ghi thuộc danh mục để ghi metadata export. */
-  private async countExportRows(
-    prisma: PrismaService,
-    category: string,
-  ): Promise<number> {
-    return await audit_ops.countExportRows(prisma, category);
-  }
-
   /** Ghi audit vào DB và che dữ liệu nhạy cảm trước khi lưu. */
   private async logDatabase(
     database: PrismaService | Prisma.TransactionClient,
@@ -1133,11 +910,6 @@ export class SystemService {
   /** Đọc mảng chuỗi từ JSON và sao chép fallback để tránh mutation. */
   private stringArray(value: unknown, fallback: string[]): string[] {
     return audit_ops.stringArray(value, fallback);
-  }
-
-  /** Trích danh sách placeholder {{name}} duy nhất từ subject/body mẫu. */
-  private extractTemplateVariables(value: string): string[] {
-    return audit_ops.extractTemplateVariables(value);
   }
 
   /** Che giá trị password/token/secret/credential trong chuỗi audit. */

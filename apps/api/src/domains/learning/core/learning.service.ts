@@ -19,76 +19,12 @@ import {
   type ExamApprovalMode,
 } from "../../system/core/system.service.js";
 import type { LearningServiceContext } from "./learning.context.js";
-import {
-  AttemptWithAnswers,
-  ClassWithMembers,
-  ContentReportWithActions,
-  ExamGenerationContext,
-  ExamWithQuestions,
-  ForumPostWithRelations,
-  MaterialAccessAction,
-  MaterialDownload,
-  MaterialSearchResult,
-  MemoryAttendanceInterval,
-  MemoryMaterialVersion,
-  MemoryQuestionImage,
-  now,
-  SupportTicketWithAttachments,
-  UploadedMaterialFile,
-} from "./learning.shared.js";
-import type {
-  AttendanceAppeal,
-  AttendanceRecord,
-  AttendanceSessionReview,
-  ClassCapabilities,
-  ClassClosureReadiness,
-  ClassMemberHistory,
-  ClassProgressReport,
-  ClassRoster,
-  ContentReport,
-  CourseVersionSnapshot,
-  DirectoryUser,
-  EnrollmentImportResult,
-  ExamAnalytics,
-  ExamApprovalRecord,
-  ExamAttempt,
-  ExamAttemptReview,
-  FileReviewRecord,
-  MaterialReviewDecision,
-  ForumPost,
-  ForumTopic,
-  GradeHistoryRecord,
-  InstructorRole,
-  LearnerExamSummary,
-  LearnerProgress,
-  LearnerResult,
-  LearningClass,
-  LearningCourse,
-  LearningExam,
-  LearningMaterial,
-  LearningNotification,
-  LearningQuestion,
-  LiveSession,
-  MaterialVersionSnapshot,
-  ModerationActionRecord,
-  ModerationContext,
-  OperationalReport,
-  ProgressIntervention,
-  ProviderAttendanceInput,
-  QuestionImportResult,
-  RegradeRequest,
-  ReportExport,
-  ReportRun,
-  RiskThresholds,
-  SupportAttachment,
-  SupportTicket,
-  TicketComment,
-} from "./learning.types.js";
+import { AttemptWithAnswers, ClassWithMembers, ExamGenerationContext, ExamWithQuestions, ForumPostWithRelations, MaterialAccessAction, MaterialDownload, MaterialSearchResult, MemoryMaterialVersion, MemoryQuestionImage, now, SupportTicketWithAttachments, UploadedMaterialFile } from "./learning.shared.js";
+import type { ClassCapabilities, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, MaterialVersionSnapshot, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 import * as access_ops from "../operations/access/learning-access.js";
 import * as analytics_ops from "../operations/analytics/learning-analytics.js";
 import * as attempts_ops from "../operations/exams/learning-attempts.js";
-import * as attendance_rules_ops from "../operations/attendance/learning-attendance-rules.js";
-import * as attendance_ops from "../operations/attendance/learning-attendance.js";
+
 import * as class_enrollments_ops from "../operations/classes/learning-class-enrollments.js";
 import * as class_instructors_ops from "../operations/classes/learning-class-instructors.js";
 import * as class_lifecycle_ops from "../operations/classes/learning-class-lifecycle.js";
@@ -111,7 +47,6 @@ import * as live_sessions_ops from "../operations/live/learning-live-sessions.js
 import * as lookups_ops from "../operations/support/learning-lookups.js";
 import * as mapping_ops from "../operations/mapping/learning-mapping.js";
 import * as material_downloads_ops from "../operations/materials/learning-material-downloads.js";
-import * as material_reviews_ops from "../operations/materials/learning-material-reviews.js";
 import * as material_versions_ops from "../operations/materials/learning-material-versions.js";
 import * as materials_ops from "../operations/materials/learning-materials.js";
 import * as material_editors_ops from "../operations/materials/learning-material-editors.js";
@@ -123,7 +58,7 @@ import * as questions_ops from "../operations/questions/learning-questions.js";
 import * as recordings_ops from "../operations/live/learning-recordings.js";
 import * as regrades_ops from "../operations/grading/learning-regrades.js";
 import * as report_rules_ops from "../operations/reports/learning-report-rules.js";
-import * as reports_ops from "../operations/reports/learning-reports.js";
+
 import * as result_mapping_ops from "../operations/mapping/learning-result-mapping.js";
 import * as session_mapping_ops from "../operations/mapping/learning-session-mapping.js";
 import * as storage_ops from "../operations/storage/learning-storage.js";
@@ -290,8 +225,6 @@ export class LearningService {
 
   private readonly gradeHistory: GradeHistoryRecord[] = [];
 
-  private readonly examApprovals: ExamApprovalRecord[] = [];
-
   private readonly regradeRequests: RegradeRequest[] = [];
 
   private readonly topics: ForumTopic[] = [
@@ -324,10 +257,6 @@ export class LearningService {
 
   private readonly notifications: LearningNotification[] = [];
 
-  private readonly reports: ContentReport[] = [];
-
-  private readonly moderationActions: ModerationActionRecord[] = [];
-
   private readonly sessions: LiveSession[] = [
     {
       id: "session-web-01",
@@ -347,12 +276,6 @@ export class LearningService {
     },
   ];
 
-  private readonly attendance: AttendanceRecord[] = [];
-
-  private readonly attendanceIntervals: MemoryAttendanceInterval[] = [];
-
-  private readonly attendanceAppeals: AttendanceAppeal[] = [];
-
   private readonly tickets: SupportTicket[] = [];
 
   private readonly ticketComments: TicketComment[] = [];
@@ -371,15 +294,7 @@ export class LearningService {
     createdAt: string;
   }> = [];
 
-  private readonly materialReviews: FileReviewRecord[] = [];
-
   private readonly progressInterventions: ProgressIntervention[] = [];
-
-  private readonly reportRuns: ReportRun[] = [];
-
-  private readonly reportExports: Array<
-    ReportExport & { filePath?: string; requestedById: string }
-  > = [];
 
   private readonly instructorRoles = new Map<string, InstructorRole>([
     ["class-web-01:usr-instructor", "PRIMARY"],
@@ -433,9 +348,6 @@ export class LearningService {
       get gradeHistory(): LearningServiceContext["gradeHistory"] {
         return owner.gradeHistory;
       },
-      get examApprovals(): LearningServiceContext["examApprovals"] {
-        return owner.examApprovals;
-      },
       get regradeRequests(): LearningServiceContext["regradeRequests"] {
         return owner.regradeRequests;
       },
@@ -448,23 +360,8 @@ export class LearningService {
       get notifications(): LearningServiceContext["notifications"] {
         return owner.notifications;
       },
-      get reports(): LearningServiceContext["reports"] {
-        return owner.reports;
-      },
-      get moderationActions(): LearningServiceContext["moderationActions"] {
-        return owner.moderationActions;
-      },
       get sessions(): LearningServiceContext["sessions"] {
         return owner.sessions;
-      },
-      get attendance(): LearningServiceContext["attendance"] {
-        return owner.attendance;
-      },
-      get attendanceIntervals(): LearningServiceContext["attendanceIntervals"] {
-        return owner.attendanceIntervals;
-      },
-      get attendanceAppeals(): LearningServiceContext["attendanceAppeals"] {
-        return owner.attendanceAppeals;
       },
       get tickets(): LearningServiceContext["tickets"] {
         return owner.tickets;
@@ -481,17 +378,8 @@ export class LearningService {
       get materialAccessLogs(): LearningServiceContext["materialAccessLogs"] {
         return owner.materialAccessLogs;
       },
-      get materialReviews(): LearningServiceContext["materialReviews"] {
-        return owner.materialReviews;
-      },
       get progressInterventions(): LearningServiceContext["progressInterventions"] {
         return owner.progressInterventions;
-      },
-      get reportRuns(): LearningServiceContext["reportRuns"] {
-        return owner.reportRuns;
-      },
-      get reportExports(): LearningServiceContext["reportExports"] {
-        return owner.reportExports;
       },
       get instructorRoles(): LearningServiceContext["instructorRoles"] {
         return owner.instructorRoles;
@@ -531,11 +419,8 @@ export class LearningService {
       gradeAttempt: (...args) => owner.gradeAttempt(...args),
       listNotifications: (...args) => owner.listNotifications(...args),
       markNotificationRead: (...args) => owner.markNotificationRead(...args),
-      getAttendanceReview: (...args) => owner.getAttendanceReview(...args),
       isRecordingAvailable: (...args) => owner.isRecordingAvailable(...args),
-      getOperationalReport: (...args) => owner.getOperationalReport(...args),
       database: (...args) => owner.database(...args),
-      getExamApprovalMode: (...args) => owner.getExamApprovalMode(...args),
       getQuestionApprovalMode: (...args) =>
         owner.getQuestionApprovalMode(...args),
       mapCourse: (...args) => owner.mapCourse(...args),
@@ -560,12 +445,10 @@ export class LearningService {
       mapRegradeRequest: (...args) => owner.mapRegradeRequest(...args),
       mapTopic: (...args) => owner.mapTopic(...args),
       mapPost: (...args) => owner.mapPost(...args),
-      mapReport: (...args) => owner.mapReport(...args),
       mapProgressIntervention: (...args) =>
         owner.mapProgressIntervention(...args),
       progressInterventionHistory: (...args) =>
         owner.progressInterventionHistory(...args),
-      mapReportExport: (...args) => owner.mapReportExport(...args),
       reportingPeriod: (...args) => owner.reportingPeriod(...args),
       validateRiskThresholds: (...args) =>
         owner.validateRiskThresholds(...args),
@@ -573,9 +456,6 @@ export class LearningService {
       percentage: (...args) => owner.percentage(...args),
       latestDate: (...args) => owner.latestDate(...args),
       buildLearnerProgress: (...args) => owner.buildLearnerProgress(...args),
-      operationalReportCsv: (...args) => owner.operationalReportCsv(...args),
-      recordMemoryModeration: (...args) =>
-        owner.recordMemoryModeration(...args),
       recordMemberHistory: (...args) => owner.recordMemberHistory(...args),
       buildProviderUrls: (...args) => owner.buildProviderUrls(...args),
       seededOrder: (...args) => owner.seededOrder(...args),
@@ -587,24 +467,11 @@ export class LearningService {
       userIdsForRole: (...args) => owner.userIdsForRole(...args),
       notifyClassMembers: (...args) => owner.notifyClassMembers(...args),
       mapSession: (...args) => owner.mapSession(...args),
-      mapAttendance: (...args) => owner.mapAttendance(...args),
-      mapAttendanceAppeal: (...args) => owner.mapAttendanceAppeal(...args),
       mapTicket: (...args) => owner.mapTicket(...args),
       isLiveProvider: (value: string): value is LiveSession["provider"] =>
         owner.isLiveProvider(value),
-      validateProviderAttendanceInput: (...args) =>
-        owner.validateProviderAttendanceInput(...args),
-      calculateProviderAttendanceMinutes: (...args) =>
-        owner.calculateProviderAttendanceMinutes(...args),
-      mergedAttendanceMinutes: (...args) =>
-        owner.mergedAttendanceMinutes(...args),
-      deriveProviderAttendanceStatus: (...args) =>
-        owner.deriveProviderAttendanceStatus(...args),
-      validateAttendanceMinutes: (...args) =>
-        owner.validateAttendanceMinutes(...args),
       buildClassClosureReadiness: (...args) =>
         owner.buildClassClosureReadiness(...args),
-      fileReviewAction: (...args) => owner.fileReviewAction(...args),
       getDatabaseClass: (...args) => owner.getDatabaseClass(...args),
       getDatabaseExam: (...args) => owner.getDatabaseExam(...args),
       getDatabaseAttempt: (...args) => owner.getDatabaseAttempt(...args),
@@ -636,10 +503,6 @@ export class LearningService {
       detectMaliciousUpload: (...args) => owner.detectMaliciousUpload(...args),
       validateQuestionImage: (...args) => owner.validateQuestionImage(...args),
       scanUpload: (...args) => owner.scanUpload(...args),
-      enforceForumPolicy: (...args) => owner.enforceForumPolicy(...args),
-      enforceMemoryForumPolicy: (...args) =>
-        owner.enforceMemoryForumPolicy(...args),
-      moderationTerms: (...args) => owner.moderationTerms(...args),
       assertForumClassAccess: (...args) =>
         owner.assertForumClassAccess(...args),
       assertMemoryForumClassAccess: (...args) =>
@@ -651,7 +514,6 @@ export class LearningService {
       findAttempt: (...args) => owner.findAttempt(...args),
       findTopic: (...args) => owner.findTopic(...args),
       findPost: (...args) => owner.findPost(...args),
-      findReport: (...args) => owner.findReport(...args),
       findSession: (...args) => owner.findSession(...args),
     };
   }
@@ -1015,7 +877,7 @@ export class LearningService {
     input: Pick<
       LearningMaterial,
       "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
-    > & { scope?: LearningMaterial["scope"]; courseId?: string },
+    > & { scope?: LearningMaterial["scope"]; courseId?: string; visibility?: "PUBLISHED" | "HIDDEN" },
     upload?: UploadedMaterialFile,
     actorId = "usr-instructor",
     actorRole = "INSTRUCTOR",
@@ -1250,34 +1112,6 @@ export class LearningService {
       input,
       upload,
       actorId,
-    );
-  }
-
-  /** Áp dụng quyết định kiểm duyệt học liệu, cập nhật cách ly/visibility và ghi lịch sử. */
-  async reviewClassMaterial(
-    materialId: string,
-    action: MaterialReviewDecision,
-    rawReason?: string,
-    reviewerId = "usr-manager",
-  ): Promise<LearningMaterial> {
-    return await material_reviews_ops.reviewClassMaterial(
-      this.operationContext,
-      materialId,
-      action,
-      rawReason,
-      reviewerId,
-    );
-  }
-
-  /** Liệt kê các quyết định kiểm duyệt; editorId giới hạn cho người tải lên hoặc được cấp quyền sửa. */
-  async listMaterialReviews(
-    materialId: string,
-    editorId?: string,
-  ): Promise<FileReviewRecord[]> {
-    return await material_reviews_ops.listMaterialReviews(
-      this.operationContext,
-      materialId,
-      editorId,
     );
   }
 
@@ -1527,30 +1361,6 @@ export class LearningService {
       confirmQuestions,
       expectedVersion,
       forcePublish,
-    );
-  }
-
-  /** Chốt duyệt/từ chối đề, lưu approval record và thông báo cho người tạo. */
-  async reviewExam(
-    examId: string,
-    decision: ExamApprovalRecord["decision"],
-    rawNote?: string,
-    reviewerId = "usr-manager",
-  ): Promise<LearningExam> {
-    return await exam_approval_ops.reviewExam(
-      this.operationContext,
-      examId,
-      decision,
-      rawNote,
-      reviewerId,
-    );
-  }
-
-  /** Liệt kê lịch sử phê duyệt của một đề thi. */
-  async listExamApprovals(examId: string): Promise<ExamApprovalRecord[]> {
-    return await exam_approval_ops.listExamApprovals(
-      this.operationContext,
-      examId,
     );
   }
 
@@ -1895,20 +1705,6 @@ export class LearningService {
     return await forum_ops.deletePost(this.operationContext, postId, authorId);
   }
 
-  /** Ẩn bài vi phạm, lưu lý do kiểm duyệt và thông báo tác giả. */
-  async hidePost(
-    postId: string,
-    rawReason: string,
-    actorId = "usr-instructor",
-  ): Promise<ForumPost> {
-    return await forum_ops.hidePost(
-      this.operationContext,
-      postId,
-      rawReason,
-      actorId,
-    );
-  }
-
   /** Liệt kê thông báo của đúng người nhận theo thời gian mới nhất. */
   async listNotifications(
     recipientId = "usr-learner",
@@ -1928,85 +1724,6 @@ export class LearningService {
       this.operationContext,
       notificationId,
       recipientId,
-    );
-  }
-
-  /** Kiểm tra đối tượng tồn tại và tạo báo cáo tránh trùng đang mở từ cùng người gửi. */
-  async reportContent(
-    input: Pick<
-      ContentReport,
-      "targetType" | "targetId" | "reporterId" | "reason" | "details"
-    >,
-  ): Promise<ContentReport> {
-    return await moderation_ops.reportContent(this.operationContext, input);
-  }
-
-  /** Liệt kê hàng đợi kiểm duyệt cùng lịch sử hành động. */
-  async listReports(): Promise<ContentReport[]> {
-    return await moderation_ops.listReports(this.operationContext);
-  }
-
-  /** Liệt kê báo cáo và kết quả xử lý thuộc người học. */
-  async listLearnerReports(
-    learnerId = "usr-learner",
-  ): Promise<ContentReport[]> {
-    return await moderation_ops.listLearnerReports(
-      this.operationContext,
-      learnerId,
-    );
-  }
-
-  /** Ghép báo cáo với nội dung đích và ngữ cảnh lân cận để ra quyết định. */
-  async getReportContext(reportId: string): Promise<ModerationContext> {
-    return await moderation_ops.getReportContext(
-      this.operationContext,
-      reportId,
-    );
-  }
-
-  /** Nhận quyền xử lý báo cáo bằng cập nhật có điều kiện để tránh claim đồng thời. */
-  async claimReport(
-    reportId: string,
-    moderatorId = "usr-manager",
-    moderatorRole = "CENTER_MANAGER",
-  ): Promise<ContentReport> {
-    return await moderation_ops.claimReport(
-      this.operationContext,
-      reportId,
-      moderatorId,
-      moderatorRole,
-    );
-  }
-
-  /** Áp dụng hành động kiểm duyệt, ghi action history và thông báo các bên liên quan. */
-  async resolveReport(
-    reportId: string,
-    action: "HIDE_CONTENT" | "KEEP_CONTENT" | "ESCALATE_ADMIN",
-    resolution: string,
-    moderatorId = "usr-manager",
-    moderatorRole = "CENTER_MANAGER",
-  ): Promise<ContentReport> {
-    return await moderation_ops.resolveReport(
-      this.operationContext,
-      reportId,
-      action,
-      resolution,
-      moderatorId,
-      moderatorRole,
-    );
-  }
-
-  /** Mở khiếu nại một lần cho báo cáo đã xử lý thuộc người gửi và đưa lại vào hàng đợi. */
-  async appealReport(
-    reportId: string,
-    reason: string,
-    learnerId = "usr-learner",
-  ): Promise<ContentReport> {
-    return await moderation_ops.appealReport(
-      this.operationContext,
-      reportId,
-      reason,
-      learnerId,
     );
   }
 
@@ -2094,94 +1811,6 @@ export class LearningService {
     );
   }
 
-  /** Đóng lần tham dự và tính phút có mặt trong giới hạn thời gian buổi học. */
-  async leaveSession(
-    sessionId: string,
-    learnerId = "usr-learner",
-  ): Promise<AttendanceRecord> {
-    return await live_sessions_ops.leaveSession(
-      this.operationContext,
-      sessionId,
-      learnerId,
-    );
-  }
-
-  /** Điều chỉnh điểm danh thủ công sau validation và ghi lịch sử trước/sau. */
-  async updateAttendance(
-    sessionId: string,
-    learnerId: string,
-    status: AttendanceRecord["status"],
-    attendedMinutes: number,
-    adjustmentReason: string,
-    actorId = "usr-instructor",
-  ): Promise<AttendanceRecord> {
-    return await attendance_ops.updateAttendance(
-      this.operationContext,
-      sessionId,
-      learnerId,
-      status,
-      attendedMinutes,
-      adjustmentReason,
-      actorId,
-    );
-  }
-
-  /** Tổng hợp bản ghi điểm danh, lần đồng bộ và khiếu nại của buổi học. */
-  async getAttendanceReview(
-    sessionId: string,
-  ): Promise<AttendanceSessionReview> {
-    return await attendance_ops.getAttendanceReview(
-      this.operationContext,
-      sessionId,
-    );
-  }
-
-  /** Chuẩn hóa dữ liệu provider, bỏ user ngoài lớp và upsert attendance trong transaction. */
-  async syncAttendance(
-    sessionId: string,
-    inputRecords: ProviderAttendanceInput[],
-    actorId = "usr-manager",
-  ): Promise<{ review: AttendanceSessionReview; skippedLearnerIds: string[] }> {
-    return await attendance_ops.syncAttendance(
-      this.operationContext,
-      sessionId,
-      inputRecords,
-      actorId,
-    );
-  }
-
-  /** Khóa điểm danh sau khi buổi kết thúc và không còn dữ liệu cần đối soát. */
-  async lockAttendance(
-    sessionId: string,
-    actorId = "usr-manager",
-  ): Promise<LiveSession> {
-    return await attendance_ops.lockAttendance(
-      this.operationContext,
-      sessionId,
-      actorId,
-    );
-  }
-
-  /** Giải quyết khiếu nại và nếu duyệt thì cập nhật điểm danh cùng audit nguyên tử. */
-  async resolveAttendanceAppeal(
-    appealId: string,
-    decision: "APPROVE" | "REJECT",
-    resolution: string,
-    status?: AttendanceRecord["status"],
-    attendedMinutes?: number,
-    actorId = "usr-manager",
-  ): Promise<AttendanceAppeal> {
-    return await attendance_ops.resolveAttendanceAppeal(
-      this.operationContext,
-      appealId,
-      decision,
-      resolution,
-      status,
-      attendedMinutes,
-      actorId,
-    );
-  }
-
   /** Gắn nguồn bản ghi cho buổi đã hoàn tất và chuyển sang trạng thái xử lý. */
   async attachRecording(
     sessionId: string,
@@ -2260,20 +1889,6 @@ export class LearningService {
       sessionId,
       expires,
       signature,
-      learnerId,
-    );
-  }
-
-  /** Tạo khiếu nại điểm danh duy nhất cho học viên đã tham dự buổi học. */
-  async requestAttendanceAppeal(
-    sessionId: string,
-    reason: string,
-    learnerId = "usr-learner",
-  ): Promise<AttendanceAppeal> {
-    return await recordings_ops.requestAttendanceAppeal(
-      this.operationContext,
-      sessionId,
-      reason,
       learnerId,
     );
   }
@@ -2483,81 +2098,9 @@ export class LearningService {
     );
   }
 
-  /** Tạo snapshot báo cáo vận hành có checksum để các bản xuất dùng dữ liệu bất biến. */
-  async runOperationalReport(
-    fromInput: string,
-    toInput: string,
-    requestedById = "usr-manager",
-  ): Promise<ReportRun> {
-    return await reports_ops.runOperationalReport(
-      this.operationContext,
-      fromInput,
-      toInput,
-      requestedById,
-    );
-  }
-
-  /** Kết xuất snapshot báo cáo thành CSV, lưu object và bản ghi trạng thái READY/FAILED. */
-  async createReportExport(
-    reportRunId: string,
-    format: "CSV",
-    requestedById = "usr-manager",
-  ): Promise<ReportExport> {
-    return await reports_ops.createReportExport(
-      this.operationContext,
-      reportRunId,
-      format,
-      requestedById,
-    );
-  }
-
-  /** Liệt kê bản xuất do người dùng yêu cầu theo thời gian mới nhất. */
-  async listReportExports(
-    requestedById = "usr-manager",
-  ): Promise<ReportExport[]> {
-    return await reports_ops.listReportExports(
-      this.operationContext,
-      requestedById,
-    );
-  }
-
-  /** Kiểm tra chủ sở hữu/trạng thái rồi đọc tệp báo cáo từ storage. */
-  async downloadReportExport(
-    exportId: string,
-    requestedById = "usr-manager",
-  ): Promise<MaterialDownload> {
-    return await reports_ops.downloadReportExport(
-      this.operationContext,
-      exportId,
-      requestedById,
-    );
-  }
-
-  /** Đối soát số liệu khóa/lớp/học liệu/thi/phiếu trong kỳ và gắn cảnh báo vận hành. */
-  async getOperationalReport(
-    fromInput?: string,
-    toInput?: string,
-  ): Promise<OperationalReport> {
-    return await reports_ops.getOperationalReport(
-      this.operationContext,
-      fromInput,
-      toInput,
-    );
-  }
-
-  /** Tổng hợp quy mô, lịch, học liệu và điểm trung bình cho từng lớp. */
-  async getClassReports(): Promise<object[]> {
-    return await reports_ops.getClassReports(this.operationContext);
-  }
-
   /** Chọn Prisma khi DB được bật; nếu không các public method dùng dữ liệu nhớ demo. */
   private database(): PrismaService | undefined {
     return mapping_ops.database(this.operationContext);
-  }
-
-  /** Đọc chế độ duyệt đề từ cấu hình DB và mặc định AUTO khi chưa có cấu hình. */
-  private async getExamApprovalMode(): Promise<ExamApprovalMode> {
-    return await mapping_ops.getExamApprovalMode(this.operationContext);
   }
 
   /** Đọc chế độ duyệt câu hỏi dùng chung kiểu AUTO/MANUAL với đề thi. */
@@ -2723,15 +2266,6 @@ export class LearningService {
     return engagement_mapping_ops.mapPost(row);
   }
 
-  /** Ánh xạ báo cáo nội dung và lịch sử moderation action tùy relation. */
-  private mapReport(
-    row:
-      | Prisma.ContentReportGetPayload<Record<string, never>>
-      | ContentReportWithActions,
-  ): ContentReport {
-    return engagement_mapping_ops.mapReport(row);
-  }
-
   /** Ánh xạ biện pháp can thiệp tiến độ sang kiểu ngày ISO. */
   private mapProgressIntervention(
     row: Prisma.ProgressInterventionGetPayload<Record<string, never>>,
@@ -2747,13 +2281,6 @@ export class LearningService {
     value: Prisma.JsonValue,
   ): ProgressIntervention["history"] {
     return engagement_mapping_ops.progressInterventionHistory(value);
-  }
-
-  /** Ánh xạ trạng thái bản xuất báo cáo mà không lộ object key lưu trữ. */
-  private mapReportExport(
-    row: Prisma.ReportExportGetPayload<Record<string, never>>,
-  ): ReportExport {
-    return engagement_mapping_ops.mapReportExport(row);
   }
 
   /** Parse khoảng báo cáo, áp dụng mặc định và từ chối ngày đảo ngược/không hợp lệ. */
@@ -2791,29 +2318,6 @@ export class LearningService {
     },
   ): LearnerProgress {
     return report_rules_ops.buildLearnerProgress(input);
-  }
-
-  /** Chuyển snapshot vận hành sang CSV tiếng Việt có escape trường dữ liệu. */
-  private operationalReportCsv(report: OperationalReport): string {
-    return report_rules_ops.operationalReportCsv(report);
-  }
-
-  /** Ghi action kiểm duyệt và cập nhật báo cáo trong fallback in-memory. */
-  private recordMemoryModeration(
-    report: ContentReport,
-    actorId: string,
-    action: ModerationActionRecord["action"],
-    reason: string,
-    nextStatus: ContentReport["status"],
-  ): void {
-    return history_ops.recordMemoryModeration(
-      this.operationContext,
-      report,
-      actorId,
-      action,
-      reason,
-      nextStatus,
-    );
   }
 
   /** Thêm dấu vết thay đổi thành viên lớp vào lịch sử in-memory. */
@@ -2920,20 +2424,6 @@ export class LearningService {
     return session_mapping_ops.mapSession(this.operationContext, row);
   }
 
-  /** Ánh xạ bản ghi điểm danh và các mốc tham dự/điều chỉnh. */
-  private mapAttendance(
-    row: Prisma.AttendanceRecordGetPayload<Record<string, never>>,
-  ): AttendanceRecord {
-    return session_mapping_ops.mapAttendance(row);
-  }
-
-  /** Ánh xạ khiếu nại điểm danh sang dữ liệu hiển thị. */
-  private mapAttendanceAppeal(
-    row: Prisma.AttendanceAppealGetPayload<Record<string, never>>,
-  ): AttendanceAppeal {
-    return session_mapping_ops.mapAttendanceAppeal(row);
-  }
-
   /** Ánh xạ phiếu hỗ trợ và tệp đính kèm khi relation đã được tải. */
   private mapTicket(
     row:
@@ -2945,68 +2435,7 @@ export class LearningService {
 
   /** Type guard giới hạn provider vào danh mục phòng họp được hỗ trợ. */
   private isLiveProvider(value: string): value is LiveSession["provider"] {
-    return attendance_rules_ops.isLiveProvider(value);
-  }
-
-  /** Kiểm tra số lượng, userId và mốc thời gian của dữ liệu điểm danh provider. */
-  private validateProviderAttendanceInput(
-    records: ProviderAttendanceInput[],
-  ): void {
-    return attendance_rules_ops.validateProviderAttendanceInput(records);
-  }
-
-  /** Cắt khoảng tham dự theo biên buổi học rồi tính số phút hợp lệ. */
-  private calculateProviderAttendanceMinutes(
-    joinedAt: Date,
-    leftAt: Date,
-    startsAt: Date,
-    endsAt: Date,
-  ): number {
-    return attendance_rules_ops.calculateProviderAttendanceMinutes(
-      joinedAt,
-      leftAt,
-      startsAt,
-      endsAt,
-    );
-  }
-
-  /** Hợp nhất các khoảng chồng nhau, cắt theo thời lượng buổi và trả tổng phút không đếm trùng. */
-  private mergedAttendanceMinutes(
-    intervals: Array<{ joinedAt: Date; leftAt: Date }>,
-    startsAt: Date,
-    endsAt: Date,
-  ): number {
-    return attendance_rules_ops.mergedAttendanceMinutes(
-      intervals,
-      startsAt,
-      endsAt,
-    );
-  }
-
-  /** Suy ra PRESENT/LATE/ABSENT từ giờ vào và tổng phút provider ghi nhận. */
-  private deriveProviderAttendanceStatus(
-    joinedAt: Date,
-    attendedMinutes: number,
-    startsAt: Date,
-  ): AttendanceRecord["status"] {
-    return attendance_rules_ops.deriveProviderAttendanceStatus(
-      joinedAt,
-      attendedMinutes,
-      startsAt,
-    );
-  }
-
-  /** Chặn số phút âm hoặc vượt quá độ dài buổi học. */
-  private validateAttendanceMinutes(
-    attendedMinutes: number,
-    startsAt: Date,
-    endsAt: Date,
-  ): void {
-    return attendance_rules_ops.validateAttendanceMinutes(
-      attendedMinutes,
-      startsAt,
-      endsAt,
-    );
+    return providers_ops.isLiveProvider(value);
   }
 
   /** Chuyển các bộ đếm nghiệp vụ còn mở thành danh sách blocker đóng lớp. */
@@ -3016,11 +2445,6 @@ export class LearningService {
     counts: Omit<ClassClosureReadiness, "eligible" | "blockers">,
   ): ClassClosureReadiness {
     return class_rules_ops.buildClassClosureReadiness(status, endAt, counts);
-  }
-
-  /** Thu hẹp action lưu trong DB về tập hành động kiểm duyệt tệp hỗ trợ. */
-  private fileReviewAction(value: string): FileReviewRecord["action"] {
-    return class_rules_ops.fileReviewAction(value);
   }
 
   /** Tải lớp cùng thành viên và ném 404 nhất quán nếu không tồn tại. */
@@ -3311,37 +2735,6 @@ export class LearningService {
     return await file_rules_ops.scanUpload(this.operationContext, upload);
   }
 
-  /** Áp dụng cấu hình kiểm duyệt hiệu lực và trả trạng thái ẩn chờ duyệt khi nội dung bị gắn cờ. */
-  private async enforceForumPolicy(
-    database: PrismaService,
-    authorId: string,
-    content: string,
-  ): Promise<"FLAG" | "HIDE_PENDING_REVIEW" | undefined> {
-    return await forum_rules_ops.enforceForumPolicy(
-      this.operationContext,
-      database,
-      authorId,
-      content,
-    );
-  }
-
-  /** Áp dụng chính sách kiểm duyệt tương đương trên kho nhớ demo. */
-  private async enforceMemoryForumPolicy(
-    authorId: string,
-    content: string,
-  ): Promise<"FLAG" | "HIDE_PENDING_REVIEW" | undefined> {
-    return await forum_rules_ops.enforceMemoryForumPolicy(
-      this.operationContext,
-      authorId,
-      content,
-    );
-  }
-
-  /** Trả danh sách từ khóa kiểm duyệt được chuẩn hóa từ cấu hình môi trường. */
-  private moderationTerms(): string[] {
-    return forum_rules_ops.moderationTerms();
-  }
-
   /** Xác minh vai trò quản trị hoặc thành viên lớp trước thao tác diễn đàn Prisma. */
   private assertForumClassAccess(
     classItem: ClassWithMembers,
@@ -3398,11 +2791,6 @@ export class LearningService {
   /** Tìm bài viết trong fallback và chuẩn hóa lỗi 404. */
   private findPost(postId: string): ForumPost {
     return lookups_ops.findPost(this.operationContext, postId);
-  }
-
-  /** Tìm báo cáo trong fallback và chuẩn hóa lỗi 404. */
-  private findReport(reportId: string): ContentReport {
-    return lookups_ops.findReport(this.operationContext, reportId);
   }
 
   /** Tìm buổi học trong fallback và chuẩn hóa lỗi 404. */

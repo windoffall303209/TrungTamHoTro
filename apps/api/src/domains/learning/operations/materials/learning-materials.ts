@@ -226,7 +226,7 @@ export async function createMaterial(
   input: Pick<
     LearningMaterial,
     "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
-  > & { scope?: LearningMaterial["scope"]; courseId?: string },
+  > & { scope?: LearningMaterial["scope"]; courseId?: string; visibility?: "PUBLISHED" | "HIDDEN" },
   upload?: UploadedMaterialFile,
   actorId = "usr-instructor",
   actorRole = "INSTRUCTOR",
@@ -327,7 +327,7 @@ export async function createMaterial(
             sizeBytes: BigInt(input.sizeBytes),
             folder: input.folder.trim(),
             tags: input.tags,
-            visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+            visibility: quarantineReason ? "HIDDEN" : (input.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
             scope,
             quarantinedAt: quarantineReason ? new Date() : null,
             quarantineReason,
@@ -383,7 +383,7 @@ export async function createMaterial(
     courseId: classItem?.courseId ?? input.courseId,
     ownerId: actorId,
     version: 1,
-    visibility: quarantineReason ? "HIDDEN" : "DRAFT",
+    visibility: quarantineReason ? "HIDDEN" : (input.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
     scope,
     quarantinedAt: quarantineReason ? now() : undefined,
     quarantineReason,
@@ -464,7 +464,8 @@ export async function updateMaterial(
       throw new BadRequestException(
         "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
       );
-    assertInstructorVisibility(current, input.visibility);
+    const nextVisibility = input.visibility === "DRAFT" ? "PUBLISHED" : input.visibility;
+    assertInstructorVisibility(current, nextVisibility);
     const targetClass = input.classId
       ? await prisma.learningClass.findUnique({
           where: { id: input.classId },
@@ -494,7 +495,7 @@ export async function updateMaterial(
           courseId: targetClass?.courseId,
           tags: input.tags,
           sizeBytes: updatedLectureUrl ? BigInt(Buffer.byteLength(updatedLectureUrl, "utf8")) : undefined,
-          visibility: input.visibility,
+          visibility: nextVisibility,
           scope: nextScope,
           version: { increment: 1 },
         },
@@ -541,7 +542,8 @@ export async function updateMaterial(
     throw new BadRequestException(
       "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
     );
-  assertInstructorVisibility(item, input.visibility);
+  const nextVisibility = input.visibility === "DRAFT" ? "PUBLISHED" : input.visibility;
+  assertInstructorVisibility(item, nextVisibility);
   const targetClass = input.classId
     ? serviceContext.findClass(input.classId)
     : undefined;
@@ -558,7 +560,7 @@ export async function updateMaterial(
   if (input.folder !== undefined) item.folder = input.folder.trim();
   if (input.tags) item.tags = input.tags;
   if (updatedLectureUrl) item.sizeBytes = Buffer.byteLength(updatedLectureUrl, "utf8");
-  if (input.visibility) item.visibility = input.visibility;
+  if (nextVisibility) item.visibility = nextVisibility;
   if (input.scope && input.classId === undefined) item.scope = input.scope;
   item.version += 1;
   const stored = serviceContext.materialFiles.get(materialId);
@@ -648,6 +650,5 @@ export async function deleteMaterial(
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   removeWhere(serviceContext.materials, (material) => material.id === materialId);
   removeWhere(serviceContext.materialVersions, (version) => version.materialId === materialId);
-  removeWhere(serviceContext.materialReviews, (review) => review.materialId === materialId);
   serviceContext.materialFiles.delete(materialId);
 }

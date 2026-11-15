@@ -35,10 +35,8 @@ test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page 
   await gotoWorkspace(page, "/admin/operations");
   await expect.poll(() => paths.length).toBe(2);
   expect(paths.sort()).toEqual(["/api/v1/system/alerts", "/api/v1/system/audit"]);
-  paths.length = 0;
-  await page.getByRole("button", { name: /Nội dung.*Mẫu thông báo/ }).click();
-  await expect.poll(() => paths.length).toBe(2);
-  expect(paths.sort()).toEqual(["/api/v1/system/moderation-policy", "/api/v1/system/notification-templates"]);
+  await page.getByRole("button", { name: /Dữ liệu.*Sao lưu/ }).click();
+  await expect.poll(() => paths.includes("/api/v1/system/backups")).toBe(true);
 });
 
 for (const [account, routes] of Object.entries({

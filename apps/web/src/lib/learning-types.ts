@@ -66,8 +66,6 @@ export interface ClassClosureReadiness {
   pendingAssignmentGrades: number;
   openRegrades: number;
   activeSessions: number;
-  unlockedAttendanceSessions: number;
-  openAppeals: number;
 }
 export type InstructorRole = "PRIMARY" | "CO_INSTRUCTOR";
 interface ClassInstructorAssignment {
@@ -507,7 +505,6 @@ export interface ModerationContext {
   >;
 }
 interface RiskThresholds {
-  attendanceBelow: number;
   scoreBelow: number;
   completionBelow: number;
 }
@@ -538,7 +535,6 @@ interface LearnerProgress {
   learnerId: string;
   materialCompletionRate: number;
   assessmentCompletionRate: number;
-  attendanceRate: number;
   averageScore: number;
   lastActivityAt?: string;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
