@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import {
   Camera,
+  Check,
+  Copy,
   KeyRound,
   Laptop,
   MailCheck,
@@ -18,7 +20,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { PageHeader } from "@/shared/ui/page-header";
-import { Button, Field, inputClass } from "@/shared/ui/ui";
+import { Button, Field, Modal, inputClass } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import { useApp } from "@/providers/app-provider";
@@ -101,6 +103,15 @@ function AccountContent() {
   const [mfaSetup, setMfaSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState("");
   const [mfaCode, setMfaCode] = useState("");
+  const [mfaManualMode, setMfaManualMode] = useState(false);
+  const [mfaSecretCopied, setMfaSecretCopied] = useState(false);
+  const [mfaStarting, setMfaStarting] = useState(false);
+  const [mfaConfirming, setMfaConfirming] = useState(false);
+  const [mfaError, setMfaError] = useState("");
+  const mfaCodeInputId = useId();
+  const mfaCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mfaManualToggleRef = useRef<HTMLButtonElement | null>(null);
+  const mfaQrToggleRef = useRef<HTMLButtonElement | null>(null);
   const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "code">("idle");
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
@@ -145,6 +156,10 @@ function AccountContent() {
   useEffect(() => () => {
     if (avatarPreview) URL.revokeObjectURL(avatarPreview);
   }, [avatarPreview]);
+
+  useEffect(() => () => {
+    if (mfaCopiedTimer.current !== null) clearTimeout(mfaCopiedTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!mfaSetup) return;
@@ -296,30 +311,112 @@ function AccountContent() {
     }
   }
 
-  /** Bắt đầu thiết lập TOTP */
+  /** Đóng hộp thoại kết nối ứng dụng xác thực và đặt lại dữ liệu thiết lập tạm thời. */
+  function closeMfaSetupModal() {
+    if (mfaConfirming) return;
+    if (mfaCopiedTimer.current !== null) {
+      clearTimeout(mfaCopiedTimer.current);
+      mfaCopiedTimer.current = null;
+    }
+    setMfaSetup(null);
+    setMfaQrCode("");
+    setMfaCode("");
+    setMfaManualMode(false);
+    setMfaSecretCopied(false);
+    setMfaError("");
+  }
+
+  /** Bắt đầu thiết lập TOTP và mở hộp thoại nổi kết nối ứng dụng xác thực. */
   async function startMfa() {
+    if (mfaStarting) return;
+    setMfaStarting(true);
+    setMfaError("");
+    setMfaManualMode(false);
+    setMfaSecretCopied(false);
+    setMfaQrCode("");
     try {
-      setMfaSetup(await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST", body: "{}" }));
+      const setup = await apiRequest<{ secret: string; otpauthUri: string }>("/account/mfa/setup", { method: "POST", body: "{}" });
+      setMfaSetup(setup);
       setMfaCode("");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể khởi tạo MFA.", "error");
+    } finally {
+      setMfaStarting(false);
     }
   }
 
-  /** Xác nhận mã TOTP và bật MFA */
-  async function confirmMfa() {
+  /** Chuyển đổi giữa chế độ quét mã QR và nhập khóa bí mật thủ công. */
+  function toggleMfaInputMode(manual: boolean) {
+    setMfaManualMode(manual);
+    window.requestAnimationFrame(() => {
+      if (manual) mfaQrToggleRef.current?.focus();
+      else mfaManualToggleRef.current?.focus();
+    });
+  }
+
+  /** Sao chép khóa thiết lập 2FA vào clipboard và hiển thị phản hồi xác nhận. */
+  async function copyMfaSecret() {
+    if (!mfaSetup?.secret) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(mfaSetup.secret);
+      } else {
+        const helper = document.createElement("textarea");
+        helper.value = mfaSetup.secret;
+        helper.setAttribute("readonly", "");
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.appendChild(helper);
+        helper.select();
+        const copied = document.execCommand("copy");
+        helper.remove();
+        if (!copied) throw new Error("Copy command rejected");
+      }
+      setMfaSecretCopied(true);
+      if (mfaCopiedTimer.current !== null) clearTimeout(mfaCopiedTimer.current);
+      mfaCopiedTimer.current = setTimeout(() => {
+        mfaCopiedTimer.current = null;
+        setMfaSecretCopied(false);
+      }, 2000);
+    } catch {
+      notify("Không thể sao chép mã thiết lập. Vui lòng bôi đen và sao chép thủ công.", "error");
+    }
+  }
+
+  /** Xác minh mã TOTP 6 chữ số và kích hoạt xác thực hai bước cho tài khoản. */
+  async function confirmMfa(event?: FormEvent) {
+    event?.preventDefault();
+    const normalizedCode = mfaCode.replace(/\D/g, "").trim();
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setMfaError("Mã xác thực phải gồm đúng 6 chữ số.");
+      return;
+    }
+    if (mfaConfirming) return;
+    setMfaConfirming(true);
+    setMfaError("");
     try {
       const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/confirm", {
         method: "POST",
-        body: JSON.stringify({ code: mfaCode }),
+        body: JSON.stringify({ code: normalizedCode }),
       });
+      if (mfaCopiedTimer.current !== null) {
+        clearTimeout(mfaCopiedTimer.current);
+        mfaCopiedTimer.current = null;
+      }
       setRecoveryCodes(result.recoveryCodes);
       setMfaSetup(null);
+      setMfaQrCode("");
       setMfaCode("");
+      setMfaManualMode(false);
+      setMfaSecretCopied(false);
       await load();
       notify("Đã bật xác thực hai bước.", "success");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không thể bật MFA.", "error");
+      const message = error instanceof Error ? error.message : "Không thể bật MFA.";
+      setMfaError(message);
+      notify(message, "error");
+    } finally {
+      setMfaConfirming(false);
     }
   }
 
@@ -712,70 +809,143 @@ function AccountContent() {
               )}
             </div>
 
-            {!profile.mfaEnabled && !mfaSetup && (
+            {!profile.mfaEnabled && (
               <div className="mt-5 flex flex-col items-start gap-3">
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Tăng cường an toàn tối đa cho dữ liệu học tập và thông tin cá nhân.
                 </p>
-                <Button onClick={() => void startMfa()} variant="secondary">
+                <Button loading={mfaStarting} onClick={() => void startMfa()} variant="secondary">
                   <KeyRound size={15} />
                   Kích hoạt xác thực 2 bước ngay
                 </Button>
               </div>
             )}
 
-            {/* Form cài đặt quét mã QR 2FA */}
-            {mfaSetup && (
-              <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-                  <div className="flex flex-col items-center">
-                    <p className="self-start text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                      1. Quét mã QR
-                    </p>
-                    <div className="size-48 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white grid place-items-center">
-                      {mfaQrCode ? (
-                        <Image alt="Mã QR TOTP" height={180} src={mfaQrCode} unoptimized width={180} />
-                      ) : (
-                        <RefreshCw className="animate-spin text-slate-600" size={24} />
-                      )}
-                    </div>
-                  </div>
+            {/* Hộp thoại nổi kết nối ứng dụng xác thực 2FA */}
+            <Modal
+              description="Dùng ứng dụng xác thực để quét mã QR, rồi nhập mã gồm 6 chữ số từ ứng dụng"
+              onClose={closeMfaSetupModal}
+              open={Boolean(mfaSetup)}
+              size="sm"
+              title="Kết nối ứng dụng xác thực"
+            >
+              {mfaSetup && (
+                <form className="space-y-5" onSubmit={(event) => void confirmMfa(event)}>
+                  {mfaManualMode ? (
+                    <div className="space-y-3 pt-1">
+                      <p
+                        className="py-1.5 text-center font-mono text-sm sm:text-[15px] font-bold tracking-[0.06em] text-slate-900 dark:text-slate-100 select-all break-all"
+                        data-i18n-skip
+                      >
+                        {mfaSetup.secret}
+                      </p>
 
-                  <div className="space-y-4">
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      2. Nhập mã từ ứng dụng xác thực
-                    </p>
-                    <div className="max-w-xs space-y-3">
-                      <Field label="Mã xác thực 6 số">
-                        <input
-                          autoComplete="one-time-code"
-                          className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
-                          inputMode="numeric"
-                          maxLength={6}
-                          onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
-                          placeholder="000000"
-                          value={mfaCode}
-                        />
-                      </Field>
-                      <div className="flex gap-2">
-                        <Button disabled={!/^\d{6}$/.test(mfaCode)} onClick={() => void confirmMfa()}>
-                          Xác nhận & Bật
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            setMfaSetup(null);
-                            setMfaCode("");
-                          }}
-                          variant="ghost"
+                      <div className="flex justify-center">
+                        <button
+                          className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                          onClick={() => void copyMfaSecret()}
+                          type="button"
                         >
-                          Hủy
-                        </Button>
+                          {mfaSecretCopied ? (
+                            <Check aria-hidden="true" className="text-emerald-600 dark:text-emerald-400" size={15} />
+                          ) : (
+                            <Copy aria-hidden="true" size={15} />
+                          )}
+                          <span>{mfaSecretCopied ? "Đã sao chép code" : "Sao chép code"}</span>
+                        </button>
+                      </div>
+
+                      <button
+                        className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 px-4 py-2.5 text-left text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors cursor-pointer focus:outline-none focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500/35"
+                        onClick={() => toggleMfaInputMode(false)}
+                        ref={mfaQrToggleRef}
+                        type="button"
+                      >
+                        Hiện mã QR
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex justify-center pt-1">
+                        <div className="size-48 sm:size-52 rounded-xl border border-slate-200 dark:border-slate-700/60 bg-white p-2.5 shadow-xs grid place-items-center">
+                          {mfaQrCode ? (
+                            <Image
+                              alt="Mã QR TOTP"
+                              className="size-full object-contain"
+                              height={188}
+                              src={mfaQrCode}
+                              unoptimized
+                              width={188}
+                            />
+                          ) : (
+                            <RefreshCw className="animate-spin text-slate-500" size={24} />
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <button
+                          className="inline-flex items-center rounded-md px-1 py-0.5 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                          onClick={() => toggleMfaInputMode(true)}
+                          ref={mfaManualToggleRef}
+                          type="button"
+                        >
+                          Không thể quét? Hãy nhập mã theo cách thủ công
+                        </button>
                       </div>
                     </div>
+                  )}
+
+                  <div>
+                    <label
+                      className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+                      htmlFor={mfaCodeInputId}
+                    >
+                      Mã gồm 6 chữ số
+                    </label>
+                    <input
+                      aria-invalid={Boolean(mfaError) || undefined}
+                      autoComplete="one-time-code"
+                      className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 font-mono text-base font-semibold tracking-[0.22em] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25"
+                      id={mfaCodeInputId}
+                      inputMode="numeric"
+                      maxLength={6}
+                      onChange={(event) => {
+                        setMfaCode(event.target.value.replace(/\D/g, ""));
+                        if (mfaError) setMfaError("");
+                      }}
+                      value={mfaCode}
+                    />
+                    {mfaError ? (
+                      <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400" role="alert">
+                        {mfaError}
+                      </p>
+                    ) : null}
                   </div>
-                </div>
-              </div>
-            )}
+
+                  <div className="flex items-center justify-end gap-2.5 pt-1">
+                    <Button
+                      disabled={mfaConfirming}
+                      onClick={closeMfaSetupModal}
+                      shape="pill"
+                      type="button"
+                      variant="secondary"
+                    >
+                      Huỷ
+                    </Button>
+                    <Button
+                      disabled={!/^\d{6}$/.test(mfaCode) || mfaConfirming}
+                      loading={mfaConfirming}
+                      shape="pill"
+                      type="submit"
+                      variant="primary"
+                    >
+                      Xác minh
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </Modal>
 
             {recoveryCodes.length > 0 && (
               <div className="mt-5 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30" role="status">

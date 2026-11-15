@@ -12,11 +12,13 @@ import { useI18n } from "@/providers/i18n-provider";
 export function Button({
   children,
   variant = "primary",
+  shape = "default",
   loading = false,
   className = "",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "danger" | "ghost";
+  shape?: "default" | "pill";
   loading?: boolean;
 }) {
   const styles = {
@@ -29,11 +31,12 @@ export function Button({
     ghost:
       "text-slate-600 dark:text-slate-400 hover:text-sky-700 dark:hover:text-sky-300 hover:bg-sky-50/70 dark:hover:bg-slate-800/60",
   };
+  const radiusClass = shape === "pill" ? "rounded-full px-5" : "rounded-lg px-3.5";
 
   return (
     <button
       aria-busy={loading || undefined}
-      className={`inline-flex min-h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg px-3.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:pointer-events-none focus:outline-none ${styles[variant]} ${className}`}
+      className={`inline-flex min-h-10 shrink-0 whitespace-nowrap items-center justify-center gap-2 ${radiusClass} text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:pointer-events-none focus:outline-none ${styles[variant]} ${className}`}
       disabled={loading || props.disabled}
       {...props}
     >
@@ -356,7 +359,7 @@ export function Modal({
   description?: string;
   onClose: () => void;
   children: React.ReactNode;
-  size?: "md" | "xl";
+  size?: "sm" | "md" | "xl";
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -433,8 +436,12 @@ export function Modal({
         aria-describedby={description ? descriptionId : undefined}
         aria-labelledby={titleId}
         aria-modal="true"
-        className={`relative my-auto max-h-[90dvh] w-full overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xl dark:shadow-2xl ${
-          size === "xl" ? "max-w-5xl" : "max-w-xl"
+        className={`relative my-auto max-h-[90dvh] w-full overflow-y-auto border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-xl dark:shadow-2xl ${
+          size === "xl"
+            ? "max-w-5xl rounded-xl"
+            : size === "sm"
+              ? "max-w-[460px] rounded-2xl"
+              : "max-w-xl rounded-xl"
         }`}
         ref={dialogRef}
         role="dialog"
