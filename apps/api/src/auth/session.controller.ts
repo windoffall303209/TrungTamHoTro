@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, DisableMfaDto, DisableMfaPasswordDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, RecoveryMfaLoginDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -186,6 +186,21 @@ export class AccountController {
   async updateProfile(@Headers("cookie") cookies: string | undefined, @Body() input: UpdateProfileDto): Promise<object> {
     const session = await this.session(cookies);
     return this.auth.updateProfile(session.user.id, input);
+  }
+
+  @Post("email/otp")
+  @HttpCode(200)
+  /** Gửi mã OTP 6 chữ số tới địa chỉ email mới để xác minh trước khi cập nhật tài khoản. */
+  async sendEmailChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: EmailChangeOtpDto): Promise<object> {
+    const session = await this.session(cookies);
+    return this.auth.sendEmailChangeOtp(session.user.id, input.email);
+  }
+
+  @Patch("email")
+  /** Xác minh mã OTP 6 chữ số và cập nhật địa chỉ email mới cho tài khoản. */
+  async confirmEmailChange(@Headers("cookie") cookies: string | undefined, @Body() input: ConfirmEmailChangeDto): Promise<object> {
+    const session = await this.session(cookies);
+    return this.auth.confirmEmailChange(session.user.id, input.challengeId, input.email, input.code);
   }
 
   @Post("password/otp")

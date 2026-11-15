@@ -19,7 +19,7 @@ const ACCOUNT_SETUP_MS = 30 * 60 * 1000;
 const EMAIL_OTP_MS = 5 * 60 * 1000;
 const EMAIL_OTP_RESEND_MS = 60 * 1000;
 
-type EmailOtpType = "ACCOUNT_SETUP_OTP" | "PASSWORD_CHANGE_OTP";
+type EmailOtpType = "ACCOUNT_SETUP_OTP" | "PASSWORD_CHANGE_OTP" | "EMAIL_CHANGE_OTP";
 
 type UserWithRoles = {
   id: string; username: string; email: string | null; emailVerifiedAt: Date | null; passwordHash: string | null; displayName: string; status: string; locale: string;
@@ -352,61 +352,79 @@ export class AuthService {
     };
   }
 
-  /** Cập nhật trường hồ sơ cho phép (họ tên, email, SĐT, múi giờ, ngôn ngữ; giữ cố định username). */
+  /** Cập nhật trường hồ sơ cho phép (họ tên, SĐT, múi giờ, ngôn ngữ; giữ cố định username và email). */
   async updateProfile(
     userId: string,
-    input: { displayName: string; email?: string; phone?: string; timezone: string; locale: string },
+    input: { displayName: string; phone?: string; timezone: string; locale: string },
   ): Promise<AccountProfile> {
-    const current = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, emailVerifiedAt: true },
-    });
+    const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
 
-    const normalizedEmail = input.email !== undefined ? input.email.trim().toLowerCase() : undefined;
-    const emailChanged = normalizedEmail !== undefined && normalizedEmail !== (current.email?.toLowerCase() ?? "");
-    if (emailChanged && normalizedEmail) {
-      await this.assertEmailAvailable(userId, normalizedEmail);
-    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        displayName: input.displayName.trim(),
+        phone: input.phone?.trim() || null,
+        timezone: input.timezone,
+        locale: input.locale,
+      },
+    });
 
+    return this.getProfile(userId);
+  }
+
+  /** Chuẩn hóa email mới, xác nhận tài khoản tồn tại, email khác hiện tại và chưa bị tài khoản khác dùng. */
+  private async validateTargetNewEmail(userId: string, rawEmail: string): Promise<{ previousEmail: string | null; nextEmail: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+    const nextEmail = rawEmail.trim().toLowerCase();
+    if (user.email?.toLowerCase() === nextEmail) {
+      throw new BadRequestException("Email mới phải khác email hiện tại của tài khoản.");
+    }
+    await this.assertEmailAvailable(userId, nextEmail);
+    return { previousEmail: user.email, nextEmail };
+  }
+
+  /** Gửi mã OTP 6 chữ số tới địa chỉ email mới để xác minh trước khi cập nhật tài khoản. */
+  async sendEmailChangeOtp(userId: string, rawEmail: string): Promise<EmailOtpChallenge> {
+    const { nextEmail } = await this.validateTargetNewEmail(userId, rawEmail);
+    return this.sendEmailOtp(userId, nextEmail, "EMAIL_CHANGE_OTP", "xác minh email mới");
+  }
+
+  /** Xác minh mã OTP gửi tới email mới rồi cập nhật email đã xác thực của tài khoản (giữ nguyên username). */
+  async confirmEmailChange(userId: string, challengeId: string, rawEmail: string, code: string): Promise<AccountProfile> {
+    const { previousEmail, nextEmail } = await this.validateTargetNewEmail(userId, rawEmail);
+    const otp = await this.verifyEmailOtp(challengeId, userId, nextEmail, code, "EMAIL_CHANGE_OTP");
     const now = new Date();
     try {
       await this.prisma.$transaction(async (transaction) => {
+        const claimed = await transaction.accountToken.updateMany({
+          where: { id: otp.id, consumedAt: null, expiresAt: { gt: now } },
+          data: { consumedAt: now },
+        });
+        if (claimed.count !== 1) throw new BadRequestException("Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới.");
+        await transaction.accountToken.updateMany({
+          where: {
+            userId,
+            id: { not: otp.id },
+            type: { in: ["EMAIL_VERIFICATION", "PASSWORD_RESET", "PASSWORD_CHANGE_OTP", "EMAIL_CHANGE_OTP"] },
+            consumedAt: null,
+          },
+          data: { consumedAt: now },
+        });
         await transaction.user.update({
           where: { id: userId },
+          data: { email: nextEmail, emailVerifiedAt: now },
+        });
+        await transaction.auditLog.create({
           data: {
-            displayName: input.displayName.trim(),
-            phone: input.phone?.trim() || null,
-            timezone: input.timezone,
-            locale: input.locale,
-            ...(emailChanged
-              ? {
-                  email: normalizedEmail,
-                  // Duy trì trạng thái xác thực để phiên hiện tại và chức năng OTP đổi mật khẩu không bị khóa sau khi đổi email.
-                  emailVerifiedAt: now,
-                }
-              : {}),
+            actorId: userId,
+            action: "PROFILE_EMAIL_UPDATED",
+            entityType: "user",
+            entityId: userId,
+            context: { previousEmail, newEmail: nextEmail, verificationMethod: "EMAIL_OTP" },
           },
         });
-        if (emailChanged) {
-          await transaction.accountToken.updateMany({
-            where: {
-              userId,
-              type: { in: ["EMAIL_VERIFICATION", "PASSWORD_CHANGE_OTP"] },
-              consumedAt: null,
-            },
-            data: { consumedAt: now },
-          });
-          await transaction.auditLog.create({
-            data: {
-              actorId: userId,
-              action: "PROFILE_EMAIL_UPDATED",
-              entityType: "user",
-              entityId: userId,
-              context: { previousEmail: current.email, newEmail: normalizedEmail },
-            },
-          });
-        }
       });
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {

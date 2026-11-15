@@ -71,6 +71,15 @@ function deviceName(userAgent: string): { label: string; mobile: boolean } {
   return { label: `${browser} · ${platform}`, mobile };
 }
 
+/** Chuẩn hóa và kiểm tra định dạng cơ bản của địa chỉ email trước khi gửi yêu cầu OTP. */
+function parseValidEmail(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 /** Nội dung chính của trang tài khoản, hỗ trợ tách riêng 2 tab: Thông tin cá nhân và Bảo mật */
 function AccountContent() {
   const searchParams = useSearchParams();
@@ -84,10 +93,19 @@ function AccountContent() {
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editingEmail, setEditingEmail] = useState(false);
-  const [draftEmail, setDraftEmail] = useState("");
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emailOtp, setEmailOtp] = useState<{ challengeId: string; email: string } | null>(null);
+  const [emailOtpCode, setEmailOtpCode] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailConfirming, setEmailConfirming] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [emailResendAt, setEmailResendAt] = useState(0);
   const emailInputId = useId();
-  const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const newEmailInputId = useId();
+  const emailOtpInputId = useId();
+  const emailDraftInputRef = useRef<HTMLInputElement | null>(null);
+  const emailOtpInputRef = useRef<HTMLInputElement | null>(null);
   const loadRequestId = useRef(0);
 
   // Avatar upload states
@@ -144,8 +162,11 @@ function AccountContent() {
       if (requestId !== loadRequestId.current) return;
       setProfile(profileData);
       setSessions(sessionData);
-      setEditingEmail(false);
-      setDraftEmail("");
+      setEmailModalOpen(false);
+      setEmailDraft("");
+      setEmailOtp(null);
+      setEmailOtpCode("");
+      setEmailError("");
       if (profileData.email) setPasswordEmail(profileData.email);
     } catch (error) {
       if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
@@ -189,45 +210,152 @@ function AccountContent() {
   }, [mfaSetup, notify]);
 
   useEffect(() => {
-    if (passwordResendAt <= Date.now()) return;
+    const target = Math.max(passwordResendAt, emailResendAt);
+    if (target <= Date.now()) return;
     const timer = window.setInterval(() => {
       const current = Date.now();
       setClock(current);
-      if (current >= passwordResendAt) window.clearInterval(timer);
+      if (current >= target) window.clearInterval(timer);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [passwordResendAt]);
+  }, [passwordResendAt, emailResendAt]);
 
   const passwordResendSeconds = Math.max(0, Math.ceil((passwordResendAt - clock) / 1000));
+  const emailResendSeconds = Math.max(0, Math.ceil((emailResendAt - clock) / 1000));
 
-  /** Mở chế độ nhập email mới dựa trên email hiện tại của tài khoản. */
-  function startEmailEdit() {
-    setDraftEmail(profile.email ?? "");
-    setEditingEmail(true);
+  /** Mở hộp thoại nổi để nhập địa chỉ email mới và xác minh qua mã OTP 6 chữ số. */
+  function openEmailModal() {
+    setEmailDraft("");
+    setEmailOtp(null);
+    setEmailOtpCode("");
+    setEmailError("");
+    setEmailModalOpen(true);
     window.requestAnimationFrame(() => {
-      emailInputRef.current?.focus();
+      emailDraftInputRef.current?.focus();
     });
   }
 
-  /** Hủy thao tác thay đổi email và khôi phục trạng thái khóa ban đầu. */
-  function cancelEmailEdit() {
-    setEditingEmail(false);
-    setDraftEmail("");
+  /** Đóng hộp thoại đổi email và xóa toàn bộ dữ liệu nhập tạm thời bên trong. */
+  function closeEmailModal() {
+    if (emailSending || emailConfirming) return;
+    setEmailModalOpen(false);
+    setEmailDraft("");
+    setEmailOtp(null);
+    setEmailOtpCode("");
+    setEmailError("");
   }
 
-  /** Kiểm tra và lưu thông tin hồ sơ cá nhân, đồng bộ lại email dùng cho bảo mật và phiên hiện tại. */
+  /** Cập nhật email đang nhập trong hộp thoại và xóa phiên OTP cũ nếu người dùng đổi sang địa chỉ khác. */
+  function handleEmailDraftChange(nextValue: string) {
+    setEmailDraft(nextValue);
+    if (emailError) setEmailError("");
+    if (emailOtp && nextValue.trim().toLowerCase() !== emailOtp.email.toLowerCase()) {
+      setEmailOtp(null);
+      setEmailOtpCode("");
+    }
+  }
+
+  /** Gửi hoặc gửi lại mã OTP 6 chữ số tới địa chỉ email mới người dùng vừa nhập. */
+  async function requestEmailChangeOtp() {
+    const normalized = parseValidEmail(emailDraft);
+    if (!normalized) {
+      setEmailError("Email mới không đúng định dạng.");
+      emailDraftInputRef.current?.focus();
+      return;
+    }
+    if (profile.email && normalized === profile.email.toLowerCase()) {
+      setEmailError("Email mới phải khác email hiện tại của tài khoản.");
+      emailDraftInputRef.current?.focus();
+      return;
+    }
+    if (emailSending || emailConfirming || emailResendSeconds > 0) return;
+
+    setEmailError("");
+    setEmailSending(true);
+    try {
+      const challenge = await apiRequest<{ challengeId: string; email: string; resendAfterSeconds?: number }>(
+        "/account/email/otp",
+        {
+          method: "POST",
+          body: JSON.stringify({ email: normalized }),
+        },
+      );
+      const now = Date.now();
+      setClock(now);
+      setEmailDraft(challenge.email);
+      setEmailOtp({ challengeId: challenge.challengeId, email: challenge.email });
+      setEmailOtpCode("");
+      setEmailResendAt(now + (challenge.resendAfterSeconds ?? 60) * 1000);
+      notify("Mã xác minh OTP đã được gửi đến email mới của bạn.");
+      window.requestAnimationFrame(() => {
+        emailOtpInputRef.current?.focus();
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể gửi mã xác minh.";
+      setEmailError(message);
+      notify(message, "error");
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
+  /** Gửi bước hiện tại trong hộp thoại đổi email: gửi mã OTP nếu chưa gửi hoặc xác minh mã 6 số nếu đã có. */
+  async function submitEmailModalForm(event: FormEvent) {
+    event.preventDefault();
+    const normalized = parseValidEmail(emailDraft);
+    if (!emailOtp || !normalized || normalized !== emailOtp.email.toLowerCase()) {
+      await requestEmailChangeOtp();
+      return;
+    }
+    if (!/^\d{6}$/.test(emailOtpCode)) {
+      setEmailError("Vui lòng nhập đủ 6 chữ số xác minh.");
+      emailOtpInputRef.current?.focus();
+      return;
+    }
+
+    setEmailError("");
+    setEmailConfirming(true);
+    try {
+      const updated = await apiRequest<AccountProfile>("/account/email", {
+        method: "PATCH",
+        body: JSON.stringify({
+          challengeId: emailOtp.challengeId,
+          email: emailOtp.email,
+          code: emailOtpCode,
+        }),
+      });
+      setProfile(updated);
+      if (updated.email) {
+        setPasswordEmail(updated.email);
+        if (passwordOtp && passwordOtp.email.toLowerCase() !== updated.email.toLowerCase()) {
+          setPasswordOtp(null);
+          setPasswordCode("");
+        }
+      }
+      setEmailResendAt(0);
+      setEmailModalOpen(false);
+      setEmailDraft("");
+      setEmailOtp(null);
+      setEmailOtpCode("");
+      await refreshSession();
+      notify("Đã xác minh và cập nhật địa chỉ email mới.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không thể xác minh địa chỉ email mới.";
+      setEmailError(message);
+      notify(message, "error");
+    } finally {
+      setEmailConfirming(false);
+    }
+  }
+
+  /** Kiểm tra và lưu thông tin hồ sơ cá nhân cơ bản (họ tên, SĐT, múi giờ, ngôn ngữ). */
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     const trimmedName = profile.displayName.trim();
-    const normalizedEmail = (editingEmail ? draftEmail : (profile.email ?? "")).trim().toLowerCase();
     const trimmedPhone = profile.phone.trim();
 
     if (trimmedName.length < 2 || trimmedName.length > 150) {
       notify("Họ tên phải có từ 2 đến 150 ký tự.", "error");
-      return;
-    }
-    if (editingEmail && (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
-      notify("Email không đúng định dạng.", "error");
       return;
     }
 
@@ -237,22 +365,12 @@ function AccountContent() {
         method: "PATCH",
         body: JSON.stringify({
           displayName: trimmedName,
-          ...(editingEmail ? { email: normalizedEmail } : {}),
           phone: trimmedPhone,
           timezone: profile.timezone,
           locale: profile.locale,
         }),
       });
       setProfile(updated);
-      setEditingEmail(false);
-      setDraftEmail("");
-      if (updated.email) {
-        setPasswordEmail(updated.email);
-        if (passwordOtp && passwordOtp.email.toLowerCase() !== updated.email.toLowerCase()) {
-          setPasswordOtp(null);
-          setPasswordCode("");
-        }
-      }
       await refreshSession();
       notify("Đã cập nhật thông tin cá nhân thành công.", "success");
     } catch (error) {
@@ -311,8 +429,8 @@ function AccountContent() {
 
   /** Gửi hoặc gửi lại mã OTP xác nhận đổi mật khẩu tới email đã xác thực của tài khoản. */
   async function requestPasswordOtp() {
-    const normalizedEmail = passwordEmail.trim().toLowerCase();
-    if (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    const normalizedEmail = parseValidEmail(passwordEmail);
+    if (!normalizedEmail) {
       notify("Email không đúng định dạng.", "error");
       return;
     }
@@ -325,9 +443,11 @@ function AccountContent() {
           body: JSON.stringify({ email: normalizedEmail }),
         },
       );
+      const now = Date.now();
+      setClock(now);
       setPasswordEmail(challenge.email);
       setPasswordOtp({ challengeId: challenge.challengeId, email: challenge.email });
-      setPasswordResendAt(Date.now() + (challenge.resendAfterSeconds ?? 60) * 1000);
+      setPasswordResendAt(now + (challenge.resendAfterSeconds ?? 60) * 1000);
       notify("Mã xác thực OTP đã được gửi đến email của bạn.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể gửi mã xác thực.", "error");
@@ -679,37 +799,23 @@ function AccountContent() {
                   aria-label="Email"
                   autoComplete="email"
                   className={inputClass}
-                  disabled={loading || !editingEmail}
+                  disabled
                   id={emailInputId}
                   maxLength={191}
-                  onChange={(event) => setDraftEmail(event.target.value)}
                   placeholder="name@example.com"
-                  readOnly={!editingEmail}
-                  ref={emailInputRef}
-                  required={editingEmail}
+                  readOnly
                   type="email"
-                  value={editingEmail ? draftEmail : (profile.email ?? "")}
+                  value={profile.email ?? ""}
                 />
-                {editingEmail ? (
-                  <Button
-                    disabled={loading || saving}
-                    onClick={cancelEmailEdit}
-                    type="button"
-                    variant="ghost"
-                  >
-                    Hủy
-                  </Button>
-                ) : (
-                  <Button
-                    disabled={loading || saving}
-                    onClick={startEmailEdit}
-                    type="button"
-                    variant="secondary"
-                  >
-                    <Pencil size={14} />
-                    Sửa
-                  </Button>
-                )}
+                <Button
+                  disabled={loading || saving}
+                  onClick={openEmailModal}
+                  type="button"
+                  variant="secondary"
+                >
+                  <Pencil size={14} />
+                  Sửa
+                </Button>
               </div>
               <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 {profile.emailVerifiedAt ? (
@@ -1204,6 +1310,128 @@ function AccountContent() {
           </section>
         </div>
       )}
+
+      {/* Hộp thoại nổi thay đổi và xác minh địa chỉ email mới */}
+      <Modal
+        description="Nhập địa chỉ email mới, gửi mã xác minh gồm 6 chữ số rồi xác nhận để cập nhật tài khoản"
+        onClose={closeEmailModal}
+        open={emailModalOpen}
+        size="sm"
+        title="Thay đổi địa chỉ email"
+      >
+        <form className="space-y-4" onSubmit={(event) => void submitEmailModalForm(event)}>
+          {profile.email ? (
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/70 px-3.5 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+              <span>Email hiện tại:</span>{" "}
+              <strong className="font-semibold text-slate-900 dark:text-slate-100 break-all" data-i18n-skip>
+                {profile.email}
+              </strong>
+            </div>
+          ) : null}
+
+          <div>
+            <label
+              className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+              htmlFor={newEmailInputId}
+            >
+              Email mới
+            </label>
+            <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                aria-invalid={Boolean(emailError) || undefined}
+                autoComplete="email"
+                className="min-h-11 w-full flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:opacity-60"
+                disabled={emailConfirming}
+                id={newEmailInputId}
+                maxLength={191}
+                onChange={(event) => handleEmailDraftChange(event.target.value)}
+                placeholder="name@example.com"
+                ref={emailDraftInputRef}
+                type="email"
+                value={emailDraft}
+              />
+              <Button
+                className="shrink-0 min-h-11"
+                disabled={!emailDraft.trim() || emailSending || emailConfirming || emailResendSeconds > 0}
+                loading={emailSending}
+                onClick={() => void requestEmailChangeOtp()}
+                type="button"
+                variant="secondary"
+              >
+                <span>{emailOtp ? "Gửi lại mã" : "Gửi mã xác minh"}</span>
+                {emailResendSeconds > 0 ? (
+                  <span className="tabular-nums" data-i18n-skip>
+                    ({emailResendSeconds}s)
+                  </span>
+                ) : null}
+              </Button>
+            </div>
+          </div>
+
+          {emailOtp ? (
+            <div className="flex items-start gap-2 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/90 dark:bg-emerald-950/35 px-3.5 py-2.5 text-xs text-emerald-800 dark:text-emerald-200" role="status">
+              <MailCheck aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" size={15} />
+              <div className="min-w-0 leading-5">
+                <span>Mã xác minh 6 chữ số đã được gửi tới:</span>{" "}
+                <strong className="break-all" data-i18n-skip>
+                  {emailOtp.email}
+                </strong>
+              </div>
+            </div>
+          ) : null}
+
+          <div>
+            <label
+              className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+              htmlFor={emailOtpInputId}
+            >
+              Mã gồm 6 chữ số
+            </label>
+            <input
+              aria-invalid={Boolean(emailError) || undefined}
+              autoComplete="one-time-code"
+              className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 font-mono text-base font-semibold tracking-[0.22em] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!emailOtp || emailConfirming}
+              id={emailOtpInputId}
+              inputMode="numeric"
+              maxLength={6}
+              onChange={(event) => {
+                setEmailOtpCode(event.target.value.replace(/\D/g, ""));
+                if (emailError) setEmailError("");
+              }}
+              placeholder="000000"
+              ref={emailOtpInputRef}
+              value={emailOtpCode}
+            />
+            {emailError ? (
+              <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400" role="alert">
+                {emailError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-1">
+            <Button
+              disabled={emailSending || emailConfirming}
+              onClick={closeEmailModal}
+              shape="pill"
+              type="button"
+              variant="secondary"
+            >
+              Huỷ
+            </Button>
+            <Button
+              disabled={!emailOtp || !/^\d{6}$/.test(emailOtpCode) || emailSending || emailConfirming}
+              loading={emailConfirming}
+              shape="pill"
+              type="submit"
+              variant="primary"
+            >
+              Xác minh
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

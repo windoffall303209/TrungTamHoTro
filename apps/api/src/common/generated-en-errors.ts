@@ -248,6 +248,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Email đã được liên kết với một tài khoản khác.": "Email is already associated with another account.",
   "Email Google đang liên kết với một tài khoản khác.": "Google email is associated with another account.",
   "Email mới phải khác email đang chờ xác minh.": "The new email must be different from the email awaiting verification.",
+  "Email mới phải khác email hiện tại của tài khoản.": "The new email must be different from your account's current email.",
   "Email này đã được liên kết với một tài khoản khác.": "This email is already associated with another account.",
   "Email này đang liên kết với một tài khoản chưa hoàn tất xác minh. Bạn có thể tiếp tục xác minh tài khoản hiện có hoặc dùng email khác để tạo tài khoản mới.": "This email is associated with an account that has not completed verification. You can continue to verify your existing account or use another email to create a new account.",
   "Email nhận bản thử không hợp lệ.": "The email to receive the trial version is invalid.",

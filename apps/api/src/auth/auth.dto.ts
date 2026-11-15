@@ -48,16 +48,11 @@ export class CompleteAccountSetupDto extends AccountSetupOtpDto {
   newPassword!: string;
 }
 
-/** Các trường hồ sơ người dùng được phép tự cập nhật (không bao gồm tên đăng nhập). */
+/** Các trường hồ sơ người dùng được phép tự cập nhật trực tiếp (không bao gồm tên đăng nhập và email chưa xác minh). */
 export class UpdateProfileDto {
   @IsString()
   @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
   displayName!: string;
-
-  @IsOptional()
-  @IsEmail({}, { message: "Email không đúng định dạng." })
-  @Length(3, 191, { message: "Email không được vượt quá 191 ký tự." })
-  email?: string;
 
   @IsOptional()
   @IsString()
@@ -203,4 +198,22 @@ export class RecoveryMfaLoginDto {
   @IsOptional()
   @IsBoolean()
   rememberMe?: boolean;
+}
+
+/** Yêu cầu gửi mã OTP xác minh địa chỉ email mới cho tài khoản đang đăng nhập. */
+export class EmailChangeOtpDto {
+  @IsEmail({}, { message: "Email mới không đúng định dạng." })
+  @Length(3, 191, { message: "Email mới không được vượt quá 191 ký tự." })
+  email!: string;
+}
+
+/** Xác nhận mã OTP 6 chữ số để cập nhật địa chỉ email tài khoản. */
+export class ConfirmEmailChangeDto extends EmailChangeOtpDto {
+  @IsString()
+  @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
+  challengeId!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác minh phải gồm 6 chữ số." })
+  code!: string;
 }
