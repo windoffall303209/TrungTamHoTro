@@ -229,11 +229,23 @@ describe("AccountPage request lifecycle", () => {
     }
   });
 
-  it("mặc định khóa ô email, cho phép bấm Sửa/Hủy và đồng bộ email mới sau khi lưu", async () => {
+  it("mặc định khóa ô email, mở hộp thoại khi bấm Sửa, gửi mã xác minh và cập nhật email mới", async () => {
     const originalImplementation = apiMock.getMockImplementation()!;
     const updatedProfile = { ...makeProfile("Initial"), email: "newemail@wind.edu.vn" };
     apiMock.mockImplementation((path: string, init?: RequestInit) => {
-      if (path === "/account/profile" && init?.method === "PATCH") {
+      if (path === "/account/email/otp" && init?.method === "POST") {
+        return Promise.resolve({
+          challengeId: "challenge-email-0001",
+          email: "newemail@wind.edu.vn",
+          expiresInSeconds: 300,
+          resendAfterSeconds: 60,
+        });
+      }
+      if (path === "/account/email" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body ?? "{}")) as { challengeId: string; email: string; code: string };
+        if (body.code === "000000") {
+          return Promise.reject(new Error("Mã OTP không chính xác."));
+        }
         return Promise.resolve(updatedProfile);
       }
       return originalImplementation(path);
@@ -253,43 +265,78 @@ describe("AccountPage request lifecycle", () => {
     expect(emailInput).toHaveValue("user@example.com");
 
     fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
-    expect(emailInput).not.toBeDisabled();
-    expect(emailInput).not.toHaveAttribute("readonly");
+    expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
 
-    fireEvent.change(emailInput, { target: { value: "tam-thoi@example.com" } });
-    expect(emailInput).toHaveValue("tam-thoi@example.com");
+    const newEmailInput = screen.getByLabelText("Email mới");
+    fireEvent.change(newEmailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Gửi mã xác minh" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
-    expect(emailInput).toBeDisabled();
-    expect(emailInput).toHaveAttribute("readonly");
-    expect(emailInput).toHaveValue("user@example.com");
+    await waitFor(() => {
+      expect(apiMock).toHaveBeenCalledWith(
+        "/account/email/otp",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ email: "newemail@wind.edu.vn" }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/Mã xác minh 6 chữ số đã được gửi tới:/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
-    fireEvent.change(emailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
+    const otpInput = screen.getByLabelText("Mã gồm 6 chữ số");
+    fireEvent.change(otpInput, { target: { value: "000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Xác minh" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mã OTP không chính xác.");
+    expect(screen.getByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
+
+    fireEvent.change(otpInput, { target: { value: "654321" } });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Lưu thay đổi/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Xác minh" }));
     });
 
     expect(apiMock).toHaveBeenCalledWith(
-      "/account/profile",
+      "/account/email",
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({
-          displayName: "Initial",
+          challengeId: "challenge-email-0001",
           email: "newemail@wind.edu.vn",
-          phone: "",
-          timezone: "Asia/Bangkok",
-          locale: "vi-VN",
+          code: "654321",
         }),
       }),
     );
 
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Thay đổi địa chỉ email" })).not.toBeInTheDocument();
+    });
     expect(emailInput).toBeDisabled();
     expect(emailInput).toHaveValue("newemail@wind.edu.vn");
     expect(screen.getByRole("button", { name: "Sửa" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
     expect(screen.getByLabelText("Email xác thực để nhận mã OTP")).toHaveValue("newemail@wind.edu.vn");
+  });
+
+  it("có đầy đủ bản dịch tiếng Anh cho toàn bộ chuỗi giao diện modal đổi email", () => {
+    const requiredKeys = [
+      "Thay đổi địa chỉ email",
+      "Nhập địa chỉ email mới, gửi mã xác minh gồm 6 chữ số rồi xác nhận để cập nhật tài khoản",
+      "Email hiện tại:",
+      "Gửi mã xác minh",
+      "Gửi lại mã",
+      "Mã xác minh 6 chữ số đã được gửi tới:",
+      "Email mới không đúng định dạng.",
+      "Email mới phải khác email hiện tại của tài khoản.",
+      "Mã xác minh OTP đã được gửi đến email mới của bạn.",
+      "Không thể gửi mã xác minh.",
+      "Vui lòng nhập đủ 6 chữ số xác minh.",
+      "Đã xác minh và cập nhật địa chỉ email mới.",
+      "Không thể xác minh địa chỉ email mới.",
+      "Huỷ",
+      "Xác minh",
+    ];
+    for (const key of requiredKeys) {
+      expect(translateText(key, "en-US")).not.toBe(key);
+    }
   });
 
   it("gọi đúng endpoint OTP đổi mật khẩu, PATCH mật khẩu và đăng xuất các phiên khác", async () => {

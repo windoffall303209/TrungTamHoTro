@@ -160,6 +160,7 @@ enum AccountTokenType {
   MFA_DISABLE_OTP
   ACCOUNT_SETUP
   ACCOUNT_SETUP_OTP
+  EMAIL_CHANGE_OTP
 }
 
 enum AssignmentStatus {
