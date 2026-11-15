@@ -154,6 +154,9 @@ describe("Xác minh email qua API", () => {
     expect(Buffer.from(await avatarDownload.arrayBuffer())).toEqual(avatarBytes);
     expect((await authenticatedRequest("DELETE", "/account/avatar", cookie, loginData.csrfToken)).status).toBe(200);
 
+    await prisma.user.update({ where: { username }, data: { emailVerifiedAt: null } });
+    expect((await authenticatedRequest("POST", "/account/mfa/setup", cookie, loginData.csrfToken)).status).toBe(403);
+    await prisma.user.update({ where: { username }, data: { emailVerifiedAt: new Date() } });
     const setup = await authenticatedRequest("POST", "/account/mfa/setup", cookie, loginData.csrfToken);
     expect(setup.status).toBe(201);
     const secret = (setup.body as Envelope<{ secret: string; otpauthUri: string }>).data.secret;
@@ -161,6 +164,25 @@ describe("Xác minh email qua API", () => {
 
     const totp = generateTotp(secret);
     expect((await authenticatedRequest("POST", "/account/mfa/confirm", cookie, loginData.csrfToken, { code: totp })).status).toBe(201);
+    const mfaLogin = await post("/auth/login", { username, password });
+    expect(mfaLogin.headers.get("set-cookie")).toBeNull();
+    const loginChallenge = (mfaLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
+    const delivery = await post("/auth/mfa/email/send", { challengeToken: loginChallenge });
+    expect(delivery.status).toBe(200);
+    const otpId = (delivery.body as Envelope<{ challengeId: string }>).data.challengeId;
+    expect(sentEmails.at(-1)?.to).toBe(correctedEmail);
+    const emailCode = sentEmails.at(-1)?.text.match(/là:\s*(\d{6})/)?.[1];
+    expect(emailCode).toMatch(/^\d{6}$/);
+    const credentials = { challengeToken: loginChallenge, otpId, code: emailCode };
+    expect((await post("/auth/mfa/email/send", { challengeToken: loginChallenge })).status).toBe(429);
+    expect((await post("/auth/mfa/email/verify", { ...credentials, code: emailCode === "000000" ? "000001" : "000000" })).status).toBe(401);
+    const verified = await post("/auth/mfa/email/verify", credentials);
+    expect(verified.status).toBe(200);
+    expect(verified.headers.get("set-cookie")).toContain("wind_edu_session=");
+    expect((await post("/auth/mfa/email/verify", credentials)).status).toBe(400);
+    const appLogin = await post("/auth/login", { username, password });
+    const appChallenge = (appLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
+    expect((await post("/auth/mfa/verify", { challengeToken: appChallenge, code: generateTotp(secret) })).status).toBe(200);
     expect((await authenticatedRequest("POST", "/account/mfa/disable-challenge", cookie, loginData.csrfToken, { password: "Wrong-E2E-2026!" })).status).toBe(401);
 
     const challenge = await authenticatedRequest("POST", "/account/mfa/disable-challenge", cookie, loginData.csrfToken, { password });

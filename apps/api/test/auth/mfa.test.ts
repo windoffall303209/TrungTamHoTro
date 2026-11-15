@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMfaSecret, createRecoveryCodes, decryptMfaSecret, encryptMfaSecret, verifyTotp } from "../../src/auth/mfa.js";
+import { createMfaSecret, decryptMfaSecret, encryptMfaSecret, verifyTotp } from "../../src/auth/mfa.js";
 
 describe("MFA TOTP", () => {
   it("xác minh mã TOTP theo vector chuẩn và từ chối mã sai", () => {
@@ -17,10 +17,4 @@ describe("MFA TOTP", () => {
     await expect(decryptMfaSecret(encrypted, `${key}-wrong`)).rejects.toThrow();
   });
 
-  it("tạo mã khôi phục duy nhất đúng định dạng", () => {
-    const codes = createRecoveryCodes();
-    expect(codes).toHaveLength(8);
-    expect(new Set(codes).size).toBe(8);
-    expect(codes.every((code) => /^[A-F0-9]{5}-[A-F0-9]{5}$/.test(code))).toBe(true);
-  });
 });
