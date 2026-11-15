@@ -11,6 +11,7 @@ import {
   KeyRound,
   Laptop,
   MailCheck,
+  Pencil,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -83,6 +84,10 @@ function AccountContent() {
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [draftEmail, setDraftEmail] = useState("");
+  const emailInputId = useId();
+  const emailInputRef = useRef<HTMLInputElement | null>(null);
   const loadRequestId = useRef(0);
 
   // Avatar upload states
@@ -139,6 +144,8 @@ function AccountContent() {
       if (requestId !== loadRequestId.current) return;
       setProfile(profileData);
       setSessions(sessionData);
+      setEditingEmail(false);
+      setDraftEmail("");
       if (profileData.email) setPasswordEmail(profileData.email);
     } catch (error) {
       if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
@@ -193,18 +200,33 @@ function AccountContent() {
 
   const passwordResendSeconds = Math.max(0, Math.ceil((passwordResendAt - clock) / 1000));
 
+  /** Mở chế độ nhập email mới dựa trên email hiện tại của tài khoản. */
+  function startEmailEdit() {
+    setDraftEmail(profile.email ?? "");
+    setEditingEmail(true);
+    window.requestAnimationFrame(() => {
+      emailInputRef.current?.focus();
+    });
+  }
+
+  /** Hủy thao tác thay đổi email và khôi phục trạng thái khóa ban đầu. */
+  function cancelEmailEdit() {
+    setEditingEmail(false);
+    setDraftEmail("");
+  }
+
   /** Kiểm tra và lưu thông tin hồ sơ cá nhân, đồng bộ lại email dùng cho bảo mật và phiên hiện tại. */
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     const trimmedName = profile.displayName.trim();
-    const normalizedEmail = (profile.email ?? "").trim().toLowerCase();
+    const normalizedEmail = (editingEmail ? draftEmail : (profile.email ?? "")).trim().toLowerCase();
     const trimmedPhone = profile.phone.trim();
 
     if (trimmedName.length < 2 || trimmedName.length > 150) {
       notify("Họ tên phải có từ 2 đến 150 ký tự.", "error");
       return;
     }
-    if (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    if (editingEmail && (!normalizedEmail || normalizedEmail.length > 191 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail))) {
       notify("Email không đúng định dạng.", "error");
       return;
     }
@@ -215,13 +237,15 @@ function AccountContent() {
         method: "PATCH",
         body: JSON.stringify({
           displayName: trimmedName,
-          email: normalizedEmail,
+          ...(editingEmail ? { email: normalizedEmail } : {}),
           phone: trimmedPhone,
           timezone: profile.timezone,
           locale: profile.locale,
         }),
       });
       setProfile(updated);
+      setEditingEmail(false);
+      setDraftEmail("");
       if (updated.email) {
         setPasswordEmail(updated.email);
         if (passwordOtp && passwordOtp.email.toLowerCase() !== updated.email.toLowerCase()) {
@@ -646,19 +670,47 @@ function AccountContent() {
               <span className="mt-1 block text-xs text-slate-600">Tên định danh cố định không thể sửa.</span>
             </Field>
 
-            <Field label="Email">
-              <input
-                aria-label="Email"
-                autoComplete="email"
-                className={inputClass}
-                disabled={loading}
-                maxLength={191}
-                onChange={(event) => setProfile({ ...profile, email: event.target.value })}
-                placeholder="name@example.com"
-                required
-                type="email"
-                value={profile.email ?? ""}
-              />
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300" htmlFor={emailInputId}>
+                Email
+              </label>
+              <div className="mt-1.5 flex items-center gap-2">
+                <input
+                  aria-label="Email"
+                  autoComplete="email"
+                  className={inputClass}
+                  disabled={loading || !editingEmail}
+                  id={emailInputId}
+                  maxLength={191}
+                  onChange={(event) => setDraftEmail(event.target.value)}
+                  placeholder="name@example.com"
+                  readOnly={!editingEmail}
+                  ref={emailInputRef}
+                  required={editingEmail}
+                  type="email"
+                  value={editingEmail ? draftEmail : (profile.email ?? "")}
+                />
+                {editingEmail ? (
+                  <Button
+                    disabled={loading || saving}
+                    onClick={cancelEmailEdit}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Hủy
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={loading || saving}
+                    onClick={startEmailEdit}
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Pencil size={14} />
+                    Sửa
+                  </Button>
+                )}
+              </div>
               <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 {profile.emailVerifiedAt ? (
                   <>
@@ -669,7 +721,7 @@ function AccountContent() {
                   <span>Chưa xác minh</span>
                 )}
               </span>
-            </Field>
+            </div>
 
             <Field label="Số điện thoại">
               <input
