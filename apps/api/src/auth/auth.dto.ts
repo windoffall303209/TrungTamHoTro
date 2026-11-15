@@ -48,11 +48,16 @@ export class CompleteAccountSetupDto extends AccountSetupOtpDto {
   newPassword!: string;
 }
 
-/** Các trường hồ sơ người dùng được phép tự cập nhật. */
+/** Các trường hồ sơ người dùng được phép tự cập nhật (không bao gồm tên đăng nhập). */
 export class UpdateProfileDto {
   @IsString()
   @Length(2, 150, { message: "Họ tên phải có từ 2 đến 150 ký tự." })
   displayName!: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: "Email không đúng định dạng." })
+  @Length(3, 191, { message: "Email không được vượt quá 191 ký tự." })
+  email?: string;
 
   @IsOptional()
   @IsString()

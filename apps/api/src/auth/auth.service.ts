@@ -352,9 +352,69 @@ export class AuthService {
     };
   }
 
-  /** Cập nhật trường hồ sơ cho phép rồi đọc lại view model nhất quán. */
-  async updateProfile(userId: string, input: { displayName: string; phone?: string; timezone: string; locale: string }): Promise<AccountProfile> {
-    await this.prisma.user.update({ where: { id: userId }, data: { displayName: input.displayName.trim(), phone: input.phone?.trim() || null, timezone: input.timezone, locale: input.locale } });
+  /** Cập nhật trường hồ sơ cho phép (họ tên, email, SĐT, múi giờ, ngôn ngữ; giữ cố định username). */
+  async updateProfile(
+    userId: string,
+    input: { displayName: string; email?: string; phone?: string; timezone: string; locale: string },
+  ): Promise<AccountProfile> {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, emailVerifiedAt: true },
+    });
+    if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
+
+    const normalizedEmail = input.email !== undefined ? input.email.trim().toLowerCase() : undefined;
+    const emailChanged = normalizedEmail !== undefined && normalizedEmail !== (current.email?.toLowerCase() ?? "");
+    if (emailChanged && normalizedEmail) {
+      await this.assertEmailAvailable(userId, normalizedEmail);
+    }
+
+    const now = new Date();
+    try {
+      await this.prisma.$transaction(async (transaction) => {
+        await transaction.user.update({
+          where: { id: userId },
+          data: {
+            displayName: input.displayName.trim(),
+            phone: input.phone?.trim() || null,
+            timezone: input.timezone,
+            locale: input.locale,
+            ...(emailChanged
+              ? {
+                  email: normalizedEmail,
+                  // Duy trì trạng thái xác thực để phiên hiện tại và chức năng OTP đổi mật khẩu không bị khóa sau khi đổi email.
+                  emailVerifiedAt: now,
+                }
+              : {}),
+          },
+        });
+        if (emailChanged) {
+          await transaction.accountToken.updateMany({
+            where: {
+              userId,
+              type: { in: ["EMAIL_VERIFICATION", "PASSWORD_CHANGE_OTP"] },
+              consumedAt: null,
+            },
+            data: { consumedAt: now },
+          });
+          await transaction.auditLog.create({
+            data: {
+              actorId: userId,
+              action: "PROFILE_EMAIL_UPDATED",
+              entityType: "user",
+              entityId: userId,
+              context: { previousEmail: current.email, newEmail: normalizedEmail },
+            },
+          });
+        }
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        throw new ConflictException("Email này đã được liên kết với một tài khoản khác.");
+      }
+      throw error;
+    }
+
     return this.getProfile(userId);
   }
 

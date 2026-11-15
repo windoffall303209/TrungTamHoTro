@@ -228,4 +228,145 @@ describe("AccountPage request lifecycle", () => {
       expect(translateText(key, "en-US")).not.toBe(key);
     }
   });
+
+  it("cho phép sửa email nhưng giữ cố định tên đăng nhập và đồng bộ sang mục đổi mật khẩu", async () => {
+    const originalImplementation = apiMock.getMockImplementation()!;
+    const updatedProfile = { ...makeProfile("Initial"), email: "newemail@wind.edu.vn" };
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/account/profile" && init?.method === "PATCH") {
+        return Promise.resolve(updatedProfile);
+      }
+      return originalImplementation(path);
+    });
+
+    render(<AccountPage />);
+    await waitFor(() => expect(profiles).toHaveLength(1));
+    await finishLoad(0, "Initial");
+
+    const usernameInput = screen.getByDisplayValue("user");
+    expect(usernameInput).toBeDisabled();
+    expect(usernameInput).toHaveAttribute("readonly");
+
+    const emailInput = screen.getByLabelText("Email");
+    expect(emailInput).not.toBeDisabled();
+    expect(emailInput).not.toHaveAttribute("readonly");
+
+    fireEvent.change(emailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Lưu thay đổi/ }));
+    });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      "/account/profile",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: "Initial",
+          email: "newemail@wind.edu.vn",
+          phone: "",
+          timezone: "Asia/Bangkok",
+          locale: "vi-VN",
+        }),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
+    expect(screen.getByLabelText("Email xác thực để nhận mã OTP")).toHaveValue("newemail@wind.edu.vn");
+  });
+
+  it("gọi đúng endpoint OTP đổi mật khẩu, PATCH mật khẩu và đăng xuất các phiên khác", async () => {
+    const originalImplementation = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/account/sessions" && !init?.method) {
+        const request = deferred<AccountSession[]>();
+        sessions.push(request);
+        return request.promise;
+      }
+      if (path === "/account/password/otp" && init?.method === "POST") {
+        return Promise.resolve({
+          challengeId: "chg-123",
+          email: "user@example.com",
+          expiresInSeconds: 300,
+          resendAfterSeconds: 60,
+        });
+      }
+      if (path === "/account/password" && init?.method === "PATCH") {
+        return Promise.resolve({ revokedSessions: 1 });
+      }
+      if (path === "/account/sessions/revoke-others" && init?.method === "POST") {
+        return Promise.resolve({ revokedSessions: 1 });
+      }
+      return originalImplementation(path);
+    });
+
+    render(<AccountPage />);
+    await waitFor(() => expect(profiles).toHaveLength(1));
+    await act(async () => {
+      profiles[0]!.resolve(makeProfile("Initial"));
+      sessions[0]!.resolve([
+        {
+          id: "sess-1",
+          current: true,
+          currentRoleCode: "SYSTEM_ADMIN",
+          ipAddress: "127.0.0.1",
+          userAgent: "Chrome",
+          createdAt: "2026-10-01T00:00:00Z",
+          lastSeenAt: "2026-10-01T00:00:00Z",
+          expiresAt: "2026-11-01T00:00:00Z",
+        },
+        {
+          id: "sess-2",
+          current: false,
+          currentRoleCode: "SYSTEM_ADMIN",
+          ipAddress: "10.0.0.2",
+          userAgent: "Firefox",
+          createdAt: "2026-10-01T00:00:00Z",
+          lastSeenAt: "2026-10-01T00:00:00Z",
+          expiresAt: "2026-11-01T00:00:00Z",
+        },
+      ]);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Gửi mã OTP xác nhận/ }));
+    });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      "/account/password/otp",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "user@example.com" }),
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByLabelText(/^Mật khẩu mới/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/^Mật khẩu mới/), { target: { value: "StrongPass#2026" } });
+    fireEvent.change(screen.getByLabelText("Nhập lại mật khẩu mới"), { target: { value: "StrongPass#2026" } });
+    fireEvent.change(screen.getByLabelText("Mã OTP 6 số"), { target: { value: "654321" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Xác nhận đổi mật khẩu/ }));
+    });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      "/account/password",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          challengeId: "chg-123",
+          code: "654321",
+          newPassword: "StrongPass#2026",
+        }),
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Đóng mọi phiên khác/ }));
+    });
+    expect(apiMock).toHaveBeenCalledWith(
+      "/account/sessions/revoke-others",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });
