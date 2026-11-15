@@ -138,7 +138,6 @@ function AccountContent() {
   const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "code">("idle");
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
-  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
 
   // Đồng bộ tab từ URL param khi URL thay đổi
   useEffect(() => {
@@ -245,19 +244,27 @@ function AccountContent() {
     setEmailError("");
   }
 
-  /** Cập nhật email đang nhập trong hộp thoại và xóa phiên OTP cũ nếu người dùng đổi sang địa chỉ khác. */
+  /** Cập nhật email đang nhập trong hộp thoại và xóa thông báo lỗi nếu người dùng sửa lại. */
   function handleEmailDraftChange(nextValue: string) {
     setEmailDraft(nextValue);
     if (emailError) setEmailError("");
-    if (emailOtp && nextValue.trim().toLowerCase() !== emailOtp.email.toLowerCase()) {
-      setEmailOtp(null);
-      setEmailOtpCode("");
-    }
   }
 
-  /** Gửi hoặc gửi lại mã OTP 6 chữ số tới địa chỉ email mới người dùng vừa nhập. */
+  /** Quay lại bước nhập email mới từ màn hình xác minh mã OTP để chỉnh sửa địa chỉ nhận mã. */
+  function backToEmailStep() {
+    if (emailSending || emailConfirming) return;
+    if (emailOtp?.email) setEmailDraft(emailOtp.email);
+    setEmailOtp(null);
+    setEmailOtpCode("");
+    setEmailError("");
+    window.requestAnimationFrame(() => {
+      emailDraftInputRef.current?.focus();
+    });
+  }
+
+  /** Gửi hoặc gửi lại mã OTP 6 chữ số tới địa chỉ email mới người dùng đã chọn. */
   async function requestEmailChangeOtp() {
-    const normalized = parseValidEmail(emailDraft);
+    const normalized = parseValidEmail(emailOtp?.email ?? emailDraft);
     if (!normalized) {
       setEmailError("Email mới không đúng định dạng.");
       emailDraftInputRef.current?.focus();
@@ -582,7 +589,7 @@ function AccountContent() {
     setMfaConfirming(true);
     setMfaError("");
     try {
-      const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/confirm", {
+      await apiRequest<{ enabled: true }>("/account/mfa/confirm", {
         method: "POST",
         body: JSON.stringify({ code: normalizedCode }),
       });
@@ -590,7 +597,6 @@ function AccountContent() {
         clearTimeout(mfaCopiedTimer.current);
         mfaCopiedTimer.current = null;
       }
-      setRecoveryCodes(result.recoveryCodes);
       setMfaSetup(null);
       setMfaQrCode("");
       setMfaCode("");
@@ -1033,9 +1039,9 @@ function AccountContent() {
             {!profile.mfaEnabled && (
               <div className="mt-5 flex flex-col items-start gap-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Tăng cường an toàn tối đa cho dữ liệu học tập và thông tin cá nhân.
+                  {profile.emailVerifiedAt && profile.email ? "Khi mất quyền truy cập ứng dụng xác thực, bạn có thể nhận OTP qua email." : "Hãy xác minh email trong phần tài khoản trước khi bật xác thực hai bước."}
                 </p>
-                <Button loading={mfaStarting} onClick={() => void startMfa()} variant="secondary">
+                <Button disabled={!profile.email || !profile.emailVerifiedAt} loading={mfaStarting} onClick={() => void startMfa()} variant="secondary">
                   <KeyRound size={15} />
                   Kích hoạt xác thực 2 bước ngay
                 </Button>
@@ -1168,23 +1174,6 @@ function AccountContent() {
               )}
             </Modal>
 
-            {recoveryCodes.length > 0 && (
-              <div className="mt-5 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30" role="status">
-                <p className="text-sm font-bold text-amber-900 dark:text-amber-200">Lưu mã khôi phục ngay</p>
-                <p className="text-xs leading-5 text-amber-800 dark:text-amber-300">
-                  Mỗi mã chỉ dùng một lần để đăng nhập khi không có ứng dụng xác thực. Đây là lần duy nhất các mã được hiển thị; hãy lưu chúng ở nơi an toàn trước khi đóng.
-                </p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {recoveryCodes.map((code) => (
-                    <code className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-center text-sm font-semibold tracking-wider text-slate-900 dark:border-amber-900 dark:bg-slate-900 dark:text-slate-100" key={code}>
-                      {code}
-                    </code>
-                  ))}
-                </div>
-                <Button onClick={() => setRecoveryCodes([])} variant="secondary">Tôi đã lưu mã khôi phục</Button>
-              </div>
-            )}
-
             {/* Bước tắt 2FA */}
             {profile.mfaEnabled && mfaDisableStep === "password" && (
               <form className="mt-5 max-w-md space-y-4" onSubmit={(e) => void startDisableMfa(e)}>
@@ -1311,125 +1300,191 @@ function AccountContent() {
         </div>
       )}
 
-      {/* Hộp thoại nổi thay đổi và xác minh địa chỉ email mới */}
+      {/* Hộp thoại nổi thay đổi và xác minh địa chỉ email mới theo từng bước */}
       <Modal
-        description="Nhập địa chỉ email mới, gửi mã xác minh gồm 6 chữ số rồi xác nhận để cập nhật tài khoản"
+        description={
+          emailOtp
+            ? "Nhập mã xác minh gồm 6 chữ số đã được gửi tới email mới"
+            : "Nhập địa chỉ email mới để nhận mã xác minh gồm 6 chữ số"
+        }
         onClose={closeEmailModal}
         open={emailModalOpen}
         size="sm"
-        title="Thay đổi địa chỉ email"
+        title={emailOtp ? "Xác minh địa chỉ email mới" : "Thay đổi địa chỉ email"}
       >
         <form className="space-y-4" onSubmit={(event) => void submitEmailModalForm(event)}>
-          {profile.email ? (
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/70 px-3.5 py-2.5 text-xs text-slate-600 dark:text-slate-300">
-              <span>Email hiện tại:</span>{" "}
-              <strong className="font-semibold text-slate-900 dark:text-slate-100 break-all" data-i18n-skip>
-                {profile.email}
-              </strong>
+          {/* Thanh tiến trình từng bước */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="text-sky-600 dark:text-sky-400">
+                {emailOtp ? "Bước 2 / 2" : "Bước 1 / 2"}
+              </span>
+              <span className="text-slate-600 dark:text-slate-300">
+                {emailOtp ? "Xác minh mã OTP" : "Nhập email mới"}
+              </span>
             </div>
-          ) : null}
-
-          <div>
-            <label
-              className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
-              htmlFor={newEmailInputId}
-            >
-              Email mới
-            </label>
-            <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
-              <input
-                aria-invalid={Boolean(emailError) || undefined}
-                autoComplete="email"
-                className="min-h-11 w-full flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:opacity-60"
-                disabled={emailConfirming}
-                id={newEmailInputId}
-                maxLength={191}
-                onChange={(event) => handleEmailDraftChange(event.target.value)}
-                placeholder="name@example.com"
-                ref={emailDraftInputRef}
-                type="email"
-                value={emailDraft}
+            <div aria-hidden="true" className="grid grid-cols-2 gap-1.5">
+              <div className="h-1.5 rounded-full bg-sky-600 dark:bg-sky-500" />
+              <div
+                className={`h-1.5 rounded-full transition-colors ${
+                  emailOtp ? "bg-sky-600 dark:bg-sky-500" : "bg-slate-200 dark:bg-slate-800"
+                }`}
               />
-              <Button
-                className="shrink-0 min-h-11"
-                disabled={!emailDraft.trim() || emailSending || emailConfirming || emailResendSeconds > 0}
-                loading={emailSending}
-                onClick={() => void requestEmailChangeOtp()}
-                type="button"
-                variant="secondary"
-              >
-                <span>{emailOtp ? "Gửi lại mã" : "Gửi mã xác minh"}</span>
-                {emailResendSeconds > 0 ? (
-                  <span className="tabular-nums" data-i18n-skip>
-                    ({emailResendSeconds}s)
-                  </span>
+            </div>
+          </div>
+
+          {!emailOtp ? (
+            <>
+              {profile.email ? (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/70 px-3.5 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                  <span>Email hiện tại:</span>{" "}
+                  <strong className="font-semibold text-slate-900 dark:text-slate-100 break-all" data-i18n-skip>
+                    {profile.email}
+                  </strong>
+                </div>
+              ) : null}
+
+              <div>
+                <label
+                  className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+                  htmlFor={newEmailInputId}
+                >
+                  Email mới
+                </label>
+                <input
+                  aria-invalid={Boolean(emailError) || undefined}
+                  autoComplete="email"
+                  className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:opacity-60"
+                  disabled={emailSending}
+                  id={newEmailInputId}
+                  maxLength={191}
+                  onChange={(event) => handleEmailDraftChange(event.target.value)}
+                  placeholder="name@example.com"
+                  ref={emailDraftInputRef}
+                  type="email"
+                  value={emailDraft}
+                />
+                {emailError ? (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400" role="alert">
+                    {emailError}
+                  </p>
                 ) : null}
-              </Button>
-            </div>
-          </div>
-
-          {emailOtp ? (
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/90 dark:bg-emerald-950/35 px-3.5 py-2.5 text-xs text-emerald-800 dark:text-emerald-200" role="status">
-              <MailCheck aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" size={15} />
-              <div className="min-w-0 leading-5">
-                <span>Mã xác minh 6 chữ số đã được gửi tới:</span>{" "}
-                <strong className="break-all" data-i18n-skip>
-                  {emailOtp.email}
-                </strong>
               </div>
-            </div>
-          ) : null}
 
-          <div>
-            <label
-              className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
-              htmlFor={emailOtpInputId}
-            >
-              Mã gồm 6 chữ số
-            </label>
-            <input
-              aria-invalid={Boolean(emailError) || undefined}
-              autoComplete="one-time-code"
-              className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 font-mono text-base font-semibold tracking-[0.22em] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!emailOtp || emailConfirming}
-              id={emailOtpInputId}
-              inputMode="numeric"
-              maxLength={6}
-              onChange={(event) => {
-                setEmailOtpCode(event.target.value.replace(/\D/g, ""));
-                if (emailError) setEmailError("");
-              }}
-              placeholder="000000"
-              ref={emailOtpInputRef}
-              value={emailOtpCode}
-            />
-            {emailError ? (
-              <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400" role="alert">
-                {emailError}
-              </p>
-            ) : null}
-          </div>
+              <div className="flex items-center justify-end gap-2.5 pt-1">
+                <Button
+                  disabled={emailSending}
+                  onClick={closeEmailModal}
+                  shape="pill"
+                  type="button"
+                  variant="secondary"
+                >
+                  Huỷ
+                </Button>
+                <Button
+                  disabled={!emailDraft.trim() || emailSending || emailResendSeconds > 0}
+                  loading={emailSending}
+                  shape="pill"
+                  type="submit"
+                  variant="primary"
+                >
+                  <span>Gửi mã xác minh</span>
+                  {emailResendSeconds > 0 ? (
+                    <span className="tabular-nums" data-i18n-skip>
+                      ({emailResendSeconds}s)
+                    </span>
+                  ) : null}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-start gap-2 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/90 dark:bg-emerald-950/35 px-3.5 py-2.5 text-xs text-emerald-800 dark:text-emerald-200" role="status">
+                <MailCheck aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" size={15} />
+                <div className="min-w-0 leading-5">
+                  <span>Mã xác minh 6 chữ số đã được gửi tới:</span>{" "}
+                  <strong className="break-all" data-i18n-skip>
+                    {emailOtp.email}
+                  </strong>
+                </div>
+              </div>
 
-          <div className="flex items-center justify-end gap-2.5 pt-1">
-            <Button
-              disabled={emailSending || emailConfirming}
-              onClick={closeEmailModal}
-              shape="pill"
-              type="button"
-              variant="secondary"
-            >
-              Huỷ
-            </Button>
-            <Button
-              disabled={!emailOtp || !/^\d{6}$/.test(emailOtpCode) || emailSending || emailConfirming}
-              loading={emailConfirming}
-              shape="pill"
-              type="submit"
-              variant="primary"
-            >
-              Xác minh
-            </Button>
-          </div>
+              <div>
+                <label
+                  className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+                  htmlFor={emailOtpInputId}
+                >
+                  Mã gồm 6 chữ số
+                </label>
+                <input
+                  aria-invalid={Boolean(emailError) || undefined}
+                  autoComplete="one-time-code"
+                  className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 font-mono text-base font-semibold tracking-[0.22em] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={emailConfirming}
+                  id={emailOtpInputId}
+                  inputMode="numeric"
+                  maxLength={6}
+                  onChange={(event) => {
+                    setEmailOtpCode(event.target.value.replace(/\D/g, ""));
+                    if (emailError) setEmailError("");
+                  }}
+                  placeholder="000000"
+                  ref={emailOtpInputRef}
+                  value={emailOtpCode}
+                />
+                {emailError ? (
+                  <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400" role="alert">
+                    {emailError}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <button
+                  className="font-medium text-slate-600 dark:text-slate-300 hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1 py-0.5"
+                  disabled={emailSending || emailConfirming}
+                  onClick={backToEmailStep}
+                  type="button"
+                >
+                  Quay lại đổi email
+                </button>
+                <button
+                  className="font-semibold text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 transition-colors cursor-pointer disabled:text-slate-400 dark:disabled:text-slate-600 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1 py-0.5"
+                  disabled={emailSending || emailConfirming || emailResendSeconds > 0}
+                  onClick={() => void requestEmailChangeOtp()}
+                  type="button"
+                >
+                  <span>Gửi lại mã</span>
+                  {emailResendSeconds > 0 ? (
+                    <span className="ml-1 tabular-nums" data-i18n-skip>
+                      ({emailResendSeconds}s)
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-1">
+                <Button
+                  disabled={emailSending || emailConfirming}
+                  onClick={closeEmailModal}
+                  shape="pill"
+                  type="button"
+                  variant="secondary"
+                >
+                  Huỷ
+                </Button>
+                <Button
+                  disabled={!/^\d{6}$/.test(emailOtpCode) || emailSending || emailConfirming}
+                  loading={emailConfirming}
+                  shape="pill"
+                  type="submit"
+                  variant="primary"
+                >
+                  Xác minh
+                </Button>
+              </div>
+            </>
+          )}
         </form>
       </Modal>
     </div>
