@@ -7,7 +7,7 @@ import { usePagination } from "@/shared/ui/ui";
 const mockApiRequest = vi.hoisted(() => vi.fn());
 const mockDownloadApiFile = vi.hoisted(() => vi.fn());
 const mockPreviewApiFile = vi.hoisted(() => vi.fn());
-const mockLoadAllMaterials = vi.hoisted(() => vi.fn());
+const mockLoadClassMaterials = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-client", () => ({
   apiRequest: mockApiRequest,
@@ -19,7 +19,7 @@ vi.mock("@/lib/materials", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/materials")>();
   return {
     ...actual,
-    loadAllMaterials: mockLoadAllMaterials,
+    loadClassMaterials: mockLoadClassMaterials,
   };
 });
 
@@ -180,14 +180,15 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  mockLoadAllMaterials.mockResolvedValue(sampleMaterials);
+  mockLoadClassMaterials.mockReset();
+  mockLoadClassMaterials.mockResolvedValue(sampleMaterials);
   mockApiRequest.mockResolvedValue({ url: "/materials/mat-pub/download" });
 });
 
 describe("ManagerClassWorkspace visibility controls", () => {
   it("hiển thị tài liệu đã ẩn với nhãn Đã ẩn và khóa nút Xem trước, Tải xuống với quản lý", async () => {
     render(<ManagerWorkspaceHarness />);
-    await waitFor(() => expect(mockLoadAllMaterials).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadClassMaterials).toHaveBeenCalledWith("cls-1", expect.objectContaining({ roleCode: "CENTER_MANAGER" })));
 
     fireEvent.click(screen.getByRole("button", { name: "Tài liệu" }));
 
@@ -209,7 +210,7 @@ describe("ManagerClassWorkspace visibility controls", () => {
 
   it("không còn ô Tóm tắt nội dung ở tab Bài giảng và khóa Xem bài giảng khi mục đã ẩn", async () => {
     render(<ManagerWorkspaceHarness />);
-    await waitFor(() => expect(mockLoadAllMaterials).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockLoadClassMaterials).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole("button", { name: "Bài giảng" }));
 

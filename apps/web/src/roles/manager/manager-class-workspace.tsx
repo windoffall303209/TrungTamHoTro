@@ -5,20 +5,16 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
-  Clock,
   Download,
   Eye,
   EyeOff,
   FileText,
   Folder,
   LayoutDashboard,
-  LayoutGrid,
-  List,
   Lock,
   MessageCircle,
   MessageSquare,
   Play,
-  Plus,
   Repeat2,
   Search,
   Settings,
@@ -35,13 +31,18 @@ import type { usePagination } from "@/shared/ui/ui";
 import { UserPicker } from "@/shared/ui/user-picker";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
-import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
+import { ClassSchedulePanel } from "@/features/class-detail/class-schedule-panel";
 import { activeLocale } from "@/i18n/runtime";
+import { hasPermission } from "@/lib/access-control";
+import { useI18n } from "@/providers/i18n-provider";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
+import { loadClassExams } from "@/lib/class-exams";
+import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import type {
+  Assignment,
+  Exam,
   ClassClosureReadiness,
   ClassRoster,
   Course,
@@ -169,11 +170,18 @@ export function ManagerClassWorkspace({
   activate,
 }: ManagerClassWorkspaceProps) {
   const { notify, session } = useApp();
+  const { t, locale } = useI18n();
   const notifyRef = useRef(notify);
   useEffect(() => {
     notifyRef.current = notify;
   }, [notify]);
   const [currentClass, setCurrentClass] = useState<LearningClass>(item);
+  const canManageSchedule =
+    ["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(session.roleCode) &&
+    (session.permissions.length === 0 || hasPermission(session, "class:manage")) &&
+    currentClass.status !== "CLOSED";
+  const canTransitionSession =
+    session.roleCode === "SYSTEM_ADMIN" || hasPermission(session, "session:manage");
   const [activeTab, setActiveTab] = useState<ManagerSubTab>("overview");
   const [copiedLink, setCopiedLink] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,8 +200,7 @@ export function ManagerClassWorkspace({
     allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
   });
 
-  // Trạng thái xem lịch học & xác nhận kích hoạt/đóng lớp học
-  const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
+  // Trạng thái xác nhận kích hoạt/đóng lớp học
   const [confirmActivateOpen, setConfirmActivateOpen] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [closingClass, setClosingClass] = useState(false);
@@ -205,7 +212,7 @@ export function ManagerClassWorkspace({
   // Trạng thái tab Bài tập (chuẩn giao diện học sinh)
   const [selectedAssignmentFolder, setSelectedAssignmentFolder] = useState<string>("__ALL__");
   const [assignmentSearch, setAssignmentSearch] = useState("");
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("asg-1");
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
 
   // Trạng thái học liệu & bài giảng thật tải từ máy chủ
   const [classMaterials, setClassMaterials] = useState<Material[]>([]);
@@ -232,19 +239,45 @@ export function ManagerClassWorkspace({
     });
   }, [item]);
 
+  const [classExams, setClassExams] = useState<Exam[]>([]);
+  const [classAssignments, setClassAssignments] = useState<Assignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+
+  // Load current visibility whenever the manager opens the assignments tab.
+  useEffect(() => {
+    if (activeTab !== "assignments") return;
+    const controller = new AbortController();
+    setClassAssignments([]);
+    setAssignmentsLoading(true);
+    setClassExams([]);
+    const requests = [apiRequest<Assignment[]>("/academic/assignments?classId=" + encodeURIComponent(currentClass.id), {
+      roleCode: session.roleCode, signal: controller.signal,
+    }).then(rows => {
+      if (!controller.signal.aborted) setClassAssignments(rows);
+    }), loadClassExams(currentClass.id, session.roleCode, controller.signal).then(rows => {
+      if (!controller.signal.aborted) setClassExams(rows);
+    })];
+    void Promise.allSettled(requests).then(results => {
+      if (!controller.signal.aborted && results.some(result => result.status === "rejected")) notifyRef.current("Không tải được đầy đủ bài tập của lớp.", "error");
+    }).finally(() => {
+      if (!controller.signal.aborted) setAssignmentsLoading(false);
+    });
+    return () => controller.abort();
+  }, [activeTab, currentClass.id, session.roleCode]);
+
   // Nạp toàn bộ học liệu của lớp để quản trị viên thấy cả tài liệu hiển thị và đã ẩn.
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
     setMaterialsLoading(true);
-    loadAllMaterials<Material>("/materials", {
+    loadClassMaterials<Material>(currentClass.id, {
       roleCode: session.roleCode,
       signal: controller.signal,
     })
       .then((materials) => {
         if (!active) return;
         setClassMaterials(
-          materials.filter((material) => isMaterialForClass(material, currentClass.id, currentClass.courseId)),
+          materials.filter((material) => isMaterialForClass(material, currentClass.id)),
         );
       })
       .catch((error) => {
@@ -939,204 +972,32 @@ export function ManagerClassWorkspace({
           {/* TAB 5: LỊCH HỌC (Dạng tuần & Dạng tháng chuẩn học sinh)       */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "schedule" && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                    Lịch học của {currentClass.name || item.code}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Theo dõi và quản lý các ca học, thời khóa biểu của lớp này.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Nút chuyển đổi: Dạng tuần (Lưới) & Dạng tháng (Danh sách) */}
-                  <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleView("week")}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        scheduleView === "week"
-                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                      }`}
-                    >
-                      <LayoutGrid size={14} />
-                      <span>Dạng tuần (Lưới)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScheduleView("month")}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        scheduleView === "month"
-                          ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                      }`}
-                    >
-                      <List size={14} />
-                      <span>Dạng tháng (Danh sách)</span>
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => notify("Chức năng thêm buổi học mới đã sẵn sàng.", "info")}
-                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Plus size={14} />
-                    <span>Thêm buổi học</span>
-                  </button>
-                </div>
-              </div>
-
-              {scheduleView === "week" ? (
-                /* CHẾ ĐỘ DẠNG TUẦN: HIỂN THỊ DẠNG LƯỚI 7 NGÀY CỦA LỚP */
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
-                  {[
-                    { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Quy định", isToday: false },
-                    { day: "Thứ 3", date: "27/10", hasClass: false, isToday: true },
-                    { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Giải thuật", isToday: false },
-                    { day: "Thứ 5", date: "29/10", hasClass: false, isToday: false },
-                    { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 03: Bài tập chuyên đề 1", isToday: false },
-                    { day: "Thứ 7", date: "31/10", hasClass: false, isToday: false },
-                    { day: "Chủ nhật", date: "01/11", hasClass: false, isToday: false },
-                  ].map((col, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-xl border flex flex-col justify-between min-h-40 ${
-                        col.hasClass
-                          ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60"
-                          : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800"
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-1.5 mb-2">
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.day}</span>
-                          <span className="text-[10px] text-slate-400">{col.date}</span>
-                        </div>
-
-                        {col.hasClass ? (
-                          <div className="space-y-1.5">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold block w-fit">
-                              Trực tuyến
-                            </span>
-                            <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">
-                              {col.title}
-                            </p>
-                            <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                              <Clock size={11} /> {col.time}
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 italic pt-6 text-center">Nghỉ</p>
-                        )}
-                      </div>
-
-                      {col.hasClass && (
-                        <div className="space-y-1 mt-2">
-                          <button
-                            type="button"
-                            onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                            className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
-                          >
-                            Vào phòng
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
-                <ClassScheduleMonthList
-                  rows={[
-                    { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Hướng dẫn phương pháp học", status: "Đã diễn ra" },
-                    { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Giải thuật cơ bản", status: "Hôm nay" },
-                    { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập chuyên đề và Kiểm tra 15p", status: "Sắp diễn ra" },
-                    { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Chuyên đề nâng cao và Vận dụng thực tế", status: "Sắp diễn ra" },
-                  ]}
-                  onJoin={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                />
-              )}
-            </div>
+            <ClassSchedulePanel
+              classItem={currentClass}
+              roleCode={session.roleCode}
+              canManage={canManageSchedule}
+              canTransitionStatus={canTransitionSession}
+              addButtonLabel="Thêm buổi học"
+              locale={locale}
+              notify={notify}
+              t={t}
+            />
           )}
 
           {/* ------------------------------------------------------------- */}
           {/* TAB 6: BÀI TẬP (MASTER-DETAIL 3 CỘT CHUẨN HỌC SINH - CHỈ XEM) */}
           {/* ------------------------------------------------------------- */}
           {activeTab === "assignments" && (() => {
-            const rawAssignments = [
-              {
-                id: "asg-1",
-                title: "Bài tập rèn luyện tuần 1: Đại số & Hàm số bậc hai",
-                folder: "Chương 1: Hàm số & Đồ thị",
-                type: "Trắc nghiệm & Tự luận",
-                duration: "45 phút",
-                questionsCount: 25,
-                dueDate: "23:59 - 30/10/2026",
-                submittedCount: activeEnrollments.length > 0 ? Math.floor(activeEnrollments.length * 0.8) : 18,
-                totalCount: activeEnrollments.length || 24,
-                avgScore: 8.2,
-                status: "Đang mở",
-                maxScore: 10,
-                attemptsLimit: 1,
-                method: "Lấy điểm cao nhất",
-                createdAt: "24/10/2026",
-              },
-              {
-                id: "asg-2",
-                title: "Bài kiểm tra định kỳ 15 phút - Chương 1",
-                folder: "Chương 1: Hàm số & Đồ thị",
-                type: "Trắc nghiệm tự động",
-                duration: "15 phút",
-                questionsCount: 15,
-                dueDate: "21:00 - 02/11/2026",
-                submittedCount: 0,
-                totalCount: activeEnrollments.length || 24,
-                avgScore: null,
-                status: "Sắp diễn ra",
-                maxScore: 10,
-                attemptsLimit: 1,
-                method: "Lần làm đầu tiên",
-                createdAt: "26/10/2026",
-              },
-              {
-                id: "asg-3",
-                title: "Phiếu khảo sát và đánh giá năng lực đầu khóa",
-                folder: "Khảo sát đầu năm",
-                type: "Phiếu đánh giá",
-                duration: "30 phút",
-                questionsCount: 20,
-                dueDate: "23:59 - 25/10/2026",
-                submittedCount: activeEnrollments.length || 24,
-                totalCount: activeEnrollments.length || 24,
-                avgScore: 7.5,
-                status: "Đã kết thúc",
-                maxScore: 10,
-                attemptsLimit: 1,
-                method: "Đánh giá chung",
-                createdAt: "20/10/2026",
-              },
-              {
-                id: "asg-4",
-                title: "Bài tập nâng cao: Bất phương trình chứa căn thức",
-                folder: "Chương 2: Bất phương trình",
-                type: "Tự luận rèn luyện",
-                duration: "60 phút",
-                questionsCount: 10,
-                dueDate: "23:59 - 05/11/2026",
-                submittedCount: activeEnrollments.length > 0 ? Math.floor(activeEnrollments.length * 0.25) : 6,
-                totalCount: activeEnrollments.length || 24,
-                avgScore: 8.8,
-                status: "Đang mở",
-                maxScore: 10,
-                attemptsLimit: 2,
-                method: "Lấy điểm cao nhất",
-                createdAt: "27/10/2026",
-              },
-            ];
-
+            const rawAssignments = [...classAssignments.filter(row => row.classId === currentClass.id).map(assignment => ({
+              ...assignment,
+              folder: "Bài tập chung",
+              dueDate: new Date(assignment.dueAt).toLocaleString(activeLocale()),
+              status: assignment.hidden ? "Đã ẩn" : assignment.status === "CLOSED" ? "Đã kết thúc" : "Đang mở",
+            })), ...classExams.filter(row => row.classId === currentClass.id).map(exam => ({
+              id: exam.id, title: exam.title, folder: "Đề thi", dueDate: new Date(exam.closeAt).toLocaleString(activeLocale()),
+              status: exam.hidden ? "Đã ẩn" : { DRAFT: "Bản nháp", PENDING_REVIEW: "Chờ duyệt", PUBLISHED: "Đã phát hành", CLOSED: "Đã kết thúc" }[exam.status],
+              hidden: Boolean(exam.hidden), description: "", instructions: exam.questionIds.length + " câu · " + exam.durationMinutes + " phút",
+            }))];
             const { folders, counts, filtered, active: activeAsg } = buildManagerFolderView(
               rawAssignments, selectedAssignmentFolder, assignmentSearch, selectedAssignmentId,
             );
@@ -1178,12 +1039,11 @@ export function ManagerClassWorkspace({
                       {filtered.length === 0 ? (
                         <div className="py-12 text-center space-y-2">
                           <Folder size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
-                          <p className="text-xs text-slate-400">Không có bài tập nào trong thư mục này</p>
+                          <p className="text-xs text-slate-400">{assignmentsLoading ? "Đang tải bài tập…" : "Không có bài tập nào trong thư mục này"}</p>
                         </div>
                       ) : (
                         filtered.map((assign) => {
                           const isSelected = activeAsg?.id === assign.id;
-                          const completionRate = Math.round((assign.submittedCount / assign.totalCount) * 100);
                           return (
                             <div
                               key={assign.id}
@@ -1202,14 +1062,7 @@ export function ManagerClassWorkspace({
                                   <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
                                     {assign.title}
                                   </strong>
-                                  <div className="w-full max-w-[200px] h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-blue-500 rounded-full transition-all"
-                                      style={{ width: `${completionRate}%` }}
-                                    />
-                                  </div>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                    {assign.type} · Đã nộp {assign.submittedCount}/{assign.totalCount} ({completionRate}%)
+                                  <p className="text-[11px] text-slate-500">Hạn nộp · {assign.dueDate}
                                   </p>
                                 </div>
                               </div>
@@ -1259,57 +1112,11 @@ export function ManagerClassWorkspace({
                           </span>
                         </div>
 
-                        {/* Bảng thông số chi tiết */}
-                        <div className="space-y-2 text-xs">
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Thời lượng</span>
-                            <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeAsg.duration}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Số lượng câu hỏi</span>
-                            <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeAsg.questionsCount} câu
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Hạn nộp</span>
-                            <span className="font-semibold text-rose-600 dark:text-rose-400">
-                              {activeAsg.dueDate}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Tiến độ nộp bài</span>
-                            <span className="font-semibold text-blue-600 dark:text-blue-400">
-                              {activeAsg.submittedCount}/{activeAsg.totalCount} học viên
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Điểm trung bình lớp</span>
-                            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                              {activeAsg.avgScore ? `${activeAsg.avgScore}/10` : "Chưa có"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                            <span>Ngày tạo</span>
-                            <span className="font-semibold text-slate-900 dark:text-slate-100">
-                              {activeAsg.createdAt}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Nút hành động xem đề bài dành cho quản trị */}
-                        <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
-                          <button
-                            type="button"
-                            onClick={() => notify(`Đang mở xem trước đề bài: ${activeAsg.title}`, "info")}
-                            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
-                          >
-                            <Eye size={14} />
-                            <span>Xem trước đề bài</span>
-                          </button>
-                        </div>
+                        <p className="text-xs">Hạn nộp · {activeAsg.dueDate}</p>
+                        {!activeAsg.hidden && <div className="space-y-2 text-sm whitespace-pre-wrap">
+                          <p>{activeAsg.description}</p>
+                          <p>{activeAsg.instructions}</p>
+                        </div>}
                       </div>
                     ) : (
                       <div className="py-12 text-center text-xs text-slate-400">

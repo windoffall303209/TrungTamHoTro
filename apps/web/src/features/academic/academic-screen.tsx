@@ -1,4 +1,5 @@
 "use client";
+import { SubmissionFile } from "@/features/academic/submission-file";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { RequestError } from "@/shared/ui/request-error";
@@ -12,12 +13,13 @@ import {
   StatusBadge,
 } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
-import { BookOpenCheck, CalendarDays, CheckCircle2, ClipboardPenLine, Megaphone, MessageCircle, Paperclip, Pencil, Plus, Send, UsersRound } from "lucide-react";
+import { BookOpenCheck, CalendarDays, CheckCircle2, ClipboardPenLine, Megaphone, MessageCircle, Pencil, Plus, Send, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { emptyAssignment } from "./academic.shared";
 import { AssignmentEditorDialog } from "./assignment-editor-dialog";
 import { AssignmentGradingDialog } from "./assignment-grading-dialog";
 import { AssignmentSubmissionDialog } from "./assignment-submission-dialog";
+import { ClassGradebookTable } from "./class-gradebook-table";
 import { useAcademicModel } from "./use-academic-model";
 
 /** Lắp ghép màn hình học vụ từ trạng thái, hành động và các thành phần nghiệp vụ. */
@@ -28,7 +30,6 @@ export default function AcademicScreen() {
     session,
     classes,
     announcements,
-    gradebook,
     selectedClassId,
     setAssignmentForm,
     announcementForm,
@@ -45,10 +46,7 @@ export default function AcademicScreen() {
     setLifecycleReason,
     creatingAnnouncement,
     setCreatingAnnouncement,
-    setSubmitting,
-    setSubmissionContent,
-    setSubmissionFiles,
-    setSubmissionError,
+    openSubmissionDialog,
     reviewing,
     setReviewing,
     grading,
@@ -63,7 +61,6 @@ export default function AcademicScreen() {
     openLifecycle,
     applyLifecycle,
     publish,
-    openAttachment,
     openSubmissions,
     createAnnouncement,
     filteredAssignments,
@@ -148,7 +145,7 @@ export default function AcademicScreen() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">{item.title}</h3>
-                        <StatusBadge status={item.status} />
+                        <StatusBadge status={item.hidden ? "HIDDEN" : item.status} />
                       </div>
                       <p className="mt-1 text-xs sm:text-sm leading-relaxed text-slate-500 dark:text-slate-400">
                         {item.description}
@@ -226,14 +223,7 @@ export default function AcademicScreen() {
                       ) : session.roleCode === "LEARNER" &&
                         item.status === "PUBLISHED" ? (
                         <Button
-                          onClick={() => {
-                            setSubmitting(item);
-                            setSubmissionContent(
-                              item.submission?.content ?? "",
-                            );
-                            setSubmissionFiles([]);
-                            setSubmissionError("");
-                          }}
+                          onClick={() => openSubmissionDialog(item)}
                           variant="secondary"
                           className="h-8 text-xs px-3"
                         >
@@ -360,55 +350,11 @@ export default function AcademicScreen() {
             </div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Sổ điểm tổng hợp</h2>
           </div>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[54rem] border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-400">
-                  <th className="px-3.5 py-3">Học viên</th>
-                  <th className="px-3.5 py-3">Đề thi</th>
-                  <th className="px-3.5 py-3">Bài tập</th>
-                  <th className="px-3.5 py-3">Trạng thái</th>
-                  <th className="px-3.5 py-3">Tổng kết</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {gradebookPagination.pageItems.map((row) => (
-                  <tr
-                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors"
-                    key={row.learnerId}
-                  >
-                    <td className="px-3.5 py-3.5">
-                      <strong className="text-slate-900 dark:text-slate-100">{row.learnerName}</strong>
-                      <small className="mt-0.5 block text-xs text-slate-400">
-                        {row.learnerEmail}
-                      </small>
-                    </td>
-                    <td className="px-3.5 py-3.5 tabular-nums text-slate-600 dark:text-slate-300">
-                      {row.examEarned}/{row.examPossible}
-                    </td>
-                    <td className="px-3.5 py-3.5 tabular-nums text-slate-600 dark:text-slate-300">
-                      {row.assignmentEarned}/{row.assignmentPossible}
-                    </td>
-                    <td className="px-3.5 py-3.5 text-xs">
-                      <span className="block text-amber-600 dark:text-amber-400 font-medium">
-                        {row.awaitingGrade} chờ chấm
-                      </span>
-                      <span className="block text-rose-600 dark:text-rose-400">
-                        {row.notSubmitted} chưa nộp
-                      </span>
-                    </td>
-                    <td className="px-3.5 py-3.5 font-bold tabular-nums text-sky-700 dark:text-sky-300">
-                      {row.totalPercent}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!gradebook.length ? (
-              <p className="py-10 text-center text-sm text-slate-400">
-                Chưa có học viên hoặc dữ liệu điểm.
-              </p>
-            ) : null}
+          <div className="mt-4">
+            <ClassGradebookTable
+              rows={gradebookPagination.pageItems}
+              emptyMessage="Chưa có học viên hoặc dữ liệu điểm."
+            />
           </div>
           <Pagination
             className="mt-4"
@@ -507,20 +453,8 @@ export default function AcademicScreen() {
                 {item.attachments.length ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {item.attachments.map((file) => (
-                      <button
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--rule)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--ink)] hover:border-[var(--rule-strong)]"
-                        key={file.id}
-                        onClick={() =>
-                          void openAttachment(item.id, file.id, file.canPreview)
-                        }
-                        type="button"
-                      >
-                        <Paperclip size={13} />
-                        <span className="max-w-48 truncate">
-                          {file.originalName}
-                        </span>
-                      </button>
-                    ))}
+                  <SubmissionFile key={file.id} submissionId={item.id} file={file} />
+                ))}
                   </div>
                 ) : null}
               </div>
@@ -532,6 +466,14 @@ export default function AcademicScreen() {
                   <MessageCircle size={15} className="mr-1.5" />
                   Nhắn học viên
                 </Link>
+                {reviewing?.classId ? (
+                  <Link
+                    className="inline-flex min-h-10 items-center rounded-lg border border-indigo-200 bg-indigo-50/80 px-3 text-sm font-bold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    href={`/courses/classes/${encodeURIComponent(reviewing.classId)}/assignments/${encodeURIComponent(item.assignmentId)}/submissions?submissionId=${encodeURIComponent(item.id)}`}
+                  >
+                    Trang chấm chi tiết
+                  </Link>
+                ) : null}
                 <Button
                   onClick={() => {
                     setGrading(item);
