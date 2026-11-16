@@ -9,6 +9,7 @@ import { useI18n } from "@/providers/i18n-provider";
 import { ClassSchedulePanel } from "@/features/class-detail/class-schedule-panel";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
+import { ClassMaterialRow } from "@/features/class-detail/class-material-row";
 import { ExamTakingModal, type ExamTakingData } from "@/roles/learner/class/exam-taking-modal";
 import {
   ArrowLeft,
@@ -3515,44 +3516,23 @@ export function InstructorClassWorkspace({
                     filteredMaterials.map((mat) => {
                       const isSelected = (activeMaterialItem?.id || filteredMaterials[0]?.id) === mat.id;
                       return (
-                        <div
+                        <ClassMaterialRow
                           key={mat.id}
-                          onClick={() => setSelectedMaterialId(mat.id)}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                            isSelected
-                              ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-500 shadow-2xs"
-                              : "bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-800"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
-                            <div className={`size-8 rounded-lg text-white font-bold text-xs uppercase flex items-center justify-center shrink-0 shadow-xs ${
-                              mat.fileType === "pdf"
-                                ? "bg-rose-600"
-                                : mat.fileType === "xlsx"
-                                  ? "bg-emerald-600"
-                                  : "bg-blue-600"
-                            }`}>
-                              {mat.fileType}
-                            </div>
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <div className="flex items-center gap-2">
-                                <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                  {mat.title}
-                                </strong>
-                                {mat.visibility === "HIDDEN" && (
-                                  <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                    <EyeOff size={11} />
-                                    <span>Đã ẩn</span>
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {mat.size} · Tải lên {mat.uploadedAt}
-                              </p>
-                            </div>
-                          </div>
-
-                        </div>
+                          fileType={mat.fileType}
+                          title={mat.title}
+                          size={mat.size}
+                          uploadedAt={mat.uploadedAt}
+                          selected={isSelected}
+                          onSelect={() => setSelectedMaterialId(mat.id)}
+                          titleBadge={
+                            mat.visibility === "HIDDEN" ? (
+                              <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                <EyeOff size={11} />
+                                <span>Đã ẩn</span>
+                              </span>
+                            ) : undefined
+                          }
+                        />
                       );
                     })
                   )}
