@@ -24,6 +24,7 @@ describe("Tải nhật ký độc lập", () => {
     const { result } = renderHook(() => useOperationsModel("data"));
     await waitFor(() => expect(result.current.loadError).toContain("bản sao lưu"));
     expect(result.current.outboxStats).toEqual({ PENDING: 3 });
+    expect(api.mock.calls.some(([path]) => String(path).includes("retention") || String(path).includes("legal-holds") || String(path).includes("alerts"))).toBe(false);
     api.mockResolvedValue([]);
     await act(async () => { await result.current.reload(); });
     expect(result.current.loadError).toBe("");
@@ -46,20 +47,52 @@ describe("Tải nhật ký độc lập", () => {
   });
   beforeEach(() => {
     api.mockReset();
-    api.mockResolvedValue([]);
+    api.mockImplementation(async (path: string) => {
+      if (path.startsWith("/system/audit/page?")) {
+        return { items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 };
+      }
+      return [];
+    });
   });
   afterEach(cleanup);
   it("gõ bộ lọc chỉ gọi nhật ký", async () => {
     const { result } = renderHook(useOperationsModel);
     await waitFor(() =>
       expect(
-        api.mock.calls.some(([path]) => path.startsWith("/system/audit?")),
+        api.mock.calls.some(([path]) => path.startsWith("/system/audit/page?")),
       ).toBe(true),
     );
     api.mockClear();
     act(() => result.current.setQuery("giảng viên"));
     await waitFor(() => expect(api).toHaveBeenCalledOnce());
-    expect(api.mock.calls[0]![0]).toContain("/system/audit?");
+    expect(api.mock.calls[0]![0]).toContain("/system/audit/page?");
+    expect(api.mock.calls[0]![0]).toContain("page=1");
+  });
+  it("chuyển trang nhật ký và đặt lại về trang 1 khi thay bộ lọc", async () => {
+    api.mockImplementation(async (path: string) => {
+      if (path.startsWith("/system/audit/page?")) {
+        const params = new URLSearchParams(path.split("?")[1] ?? "");
+        const page = Number(params.get("page") ?? "1");
+        return {
+          items: [{ id: `audit-${page}`, actor: "admin", action: "UPDATE", target: `t-${page}`, detail: "", createdAt: "2026-11-01T00:00:00Z" }],
+          total: 25,
+          page,
+          pageSize: 20,
+          totalPages: 2,
+        };
+      }
+      return [];
+    });
+    const { result } = renderHook(useOperationsModel);
+    await waitFor(() => expect(result.current.auditPagination.totalItems).toBe(25));
+    act(() => result.current.auditPagination.setPage(2));
+    await waitFor(() =>
+      expect(api.mock.calls.some(([path]) => String(path).includes("page=2"))).toBe(true),
+    );
+    api.mockClear();
+    act(() => result.current.setAuditFilter((prev) => ({ ...prev, action: "UPDATE" })));
+    await waitFor(() => expect(api).toHaveBeenCalledOnce());
+    expect(api.mock.calls[0]![0]).toContain("page=1");
   });
   it("giữ lỗi tải ngay trong trang và cho phép thử lại", async () => {
     api.mockRejectedValue(new Error("Mạng tạm thời không khả dụng"));
@@ -67,7 +100,7 @@ describe("Tải nhật ký độc lập", () => {
     await waitFor(() =>
       expect(result.current.auditError).toBe("Mạng tạm thời không khả dụng"),
     );
-    api.mockResolvedValue([]);
+    api.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 });
     await act(async () => {
       await result.current.reloadAudit();
     });

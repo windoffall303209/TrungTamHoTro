@@ -8,7 +8,8 @@ import { useRouter } from "next/navigation";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
-import { Button, Field, inputClass, Modal, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
+import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -32,6 +33,7 @@ export default function CoursesPage() {
   const router = useRouter();
   const { session, notify } = useApp();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [pagedCourses, setPagedCourses] = useState<Course[]>([]);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [activeTab, setActiveTab] = useState<"courses" | "classes">("classes");
   const [loading, setLoading] = useState(true);
@@ -97,73 +99,63 @@ export default function CoursesPage() {
     return Array.from(list);
   }, [courses, classes, gradeFilter]);
 
-  const displayCourses = useMemo(() => {
-    let result = courses;
-    if (gradeFilter) {
-      result = result.filter((item) => String(item.grade) === gradeFilter);
-    }
-    if (subjectFilter) {
-      result = result.filter((item) => item.subject === subjectFilter);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (item) =>
-          item.name.toLowerCase().includes(q) ||
-          item.code.toLowerCase().includes(q) ||
-          item.description.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [courses, gradeFilter, subjectFilter, searchQuery]);
+  const coursePagination = useServerPagination(10);
+  const classPagination = useServerPagination(10);
+  const { page: coursePage, pageSize: coursePageSize, syncResponse: syncCoursePage } = coursePagination;
+  const { page: classPage, pageSize: classPageSize, syncResponse: syncClassPage } = classPagination;
 
-  const displayClasses = useMemo(() => {
-    let result = classes;
-    if (gradeFilter) {
-      result = result.filter((item) => {
-        if (item.grade) return String(item.grade) === gradeFilter;
-        const course = courses.find((c) => c.id === item.courseId);
-        return course ? String(course.grade) === gradeFilter : false;
+  /** Nạp danh sách môn học làm tùy chọn cho bộ lọc và biểu mẫu mở lớp của quản lý. */
+  const loadCourseOptions = useCallback(async () => {
+    if (!allowed || !manager) return;
+    try {
+      const courseData = await apiRequest<Course[]>("/manager/courses", {
+        roleCode: session.roleCode,
       });
+      if (Array.isArray(courseData)) setCourses(courseData);
+    } catch {
+      // Giữ danh sách tùy chọn cũ nếu tải danh mục dropdown thất bại tạm thời.
     }
-    if (subjectFilter) {
-      result = result.filter((item) => {
-        if (item.subject) return item.subject === subjectFilter;
-        const course = courses.find((c) => c.id === item.courseId);
-        return course ? course.subject === subjectFilter : false;
-      });
-    }
-    if (courseFilter) {
-      result = result.filter((item) => item.courseId === courseFilter);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (item) =>
-          item.name.toLowerCase().includes(q) ||
-          item.code.toLowerCase().includes(q) ||
-          item.term.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [classes, courses, gradeFilter, subjectFilter, courseFilter, searchQuery]);
+  }, [allowed, manager, session.roleCode]);
 
-  const coursePagination = usePagination(displayCourses);
-  const classPagination = usePagination(displayClasses);
+  useEffect(() => {
+    void loadCourseOptions();
+  }, [loadCourseOptions]);
 
-  /** Nạp môn học dành cho quản lý và các lớp mà vai trò hiện tại được phép truy cập. */
+  /** Nạp trang dữ liệu đang xem (môn học hoặc lớp học) trực tiếp từ DB theo bộ lọc. */
   const load = useCallback(async () => {
     const requestId = ++loadRequestId.current;
     if (!allowed) return;
     setLoading(true);
     try {
-      const [courseData, classData] = await Promise.all([
-        manager ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
-        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
-      ]);
-      if (requestId !== loadRequestId.current) return;
-      setCourses(courseData);
-      setClasses(classData);
+      const isCourseTab = manager && activeTab === "courses";
+      const params = new URLSearchParams();
+      if (searchQuery.trim()) params.set("query", searchQuery.trim());
+      if (manager) {
+        if (gradeFilter) params.set("grade", gradeFilter);
+        if (subjectFilter) params.set("subject", subjectFilter);
+        if (!isCourseTab && courseFilter) params.set("courseId", courseFilter);
+      }
+      if (isCourseTab) {
+        params.set("page", String(coursePage));
+        params.set("pageSize", String(coursePageSize));
+        const result = await apiRequest<PaginatedResponse<Course>>(
+          `/manager/courses/page?${params.toString()}`,
+          { roleCode: session.roleCode },
+        );
+        if (requestId !== loadRequestId.current) return;
+        setPagedCourses(result.items);
+        syncCoursePage(result);
+      } else {
+        params.set("page", String(classPage));
+        params.set("pageSize", String(classPageSize));
+        const result = await apiRequest<PaginatedResponse<LearningClass>>(
+          `/classes/page?${params.toString()}`,
+          { roleCode: session.roleCode },
+        );
+        if (requestId !== loadRequestId.current) return;
+        setClasses(result.items);
+        syncClassPage(result);
+      }
     } catch (error) {
       if (requestId === loadRequestId.current) {
         notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
@@ -171,16 +163,33 @@ export default function CoursesPage() {
     } finally {
       if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, [allowed, manager, notify, session.roleCode]);
+  }, [
+    activeTab,
+    allowed,
+    classPage,
+    classPageSize,
+    courseFilter,
+    coursePage,
+    coursePageSize,
+    gradeFilter,
+    manager,
+    notify,
+    searchQuery,
+    session.roleCode,
+    subjectFilter,
+    syncClassPage,
+    syncCoursePage,
+  ]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
+    const delay = searchQuery.trim() ? 180 : 0;
+    const timer = window.setTimeout(() => void load(), delay);
     return () => {
       window.clearTimeout(timer);
       loadRequestId.current += 1;
       versionRequestId.current += 1;
     };
-  }, [load]);
+  }, [load, searchQuery]);
 
   /** Tạo môn học mới hoặc tạo bản nháp phiên bản kế tiếp từ môn học đang sửa. */
   const createCourse = async (event: React.FormEvent) => {
@@ -218,7 +227,7 @@ export default function CoursesPage() {
       setMode(null);
       setEditingCourseId(null);
       setCourseForm(blankCourse);
-      await load();
+      await Promise.all([load(), loadCourseOptions()]);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không lưu được môn học.", "error");
     } finally {
@@ -267,7 +276,7 @@ export default function CoursesPage() {
     try {
       await apiRequest(`/manager/courses/${course.id}/publish`, { method: "POST", roleCode: session.roleCode });
       notify("Đã xuất bản môn học.");
-      await load();
+      await Promise.all([load(), loadCourseOptions()]);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không xuất bản được.", "error");
     }
@@ -316,7 +325,7 @@ export default function CoursesPage() {
       notify("Đã ngừng sử dụng khóa học; các lớp cũ vẫn giữ phiên bản đã chọn.");
       setArchiveTarget(null);
       setArchiveReason("");
-      await load();
+      await Promise.all([load(), loadCourseOptions()]);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không ngừng sử dụng được khóa học.", "error");
     } finally {
@@ -368,7 +377,7 @@ export default function CoursesPage() {
                   ? "bg-sky-200/60 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
                   : "bg-slate-100 dark:bg-slate-800 text-slate-500"
               }`}>
-                {displayClasses.length}
+                {classPagination.totalItems}
               </span>
             </button>
 
@@ -391,7 +400,7 @@ export default function CoursesPage() {
                     ? "bg-sky-200/60 dark:bg-sky-900/60 text-sky-800 dark:text-sky-200"
                     : "bg-slate-100 dark:bg-slate-800 text-slate-500"
                 }`}>
-                  {displayCourses.length}
+                  {activeTab === "courses" ? coursePagination.totalItems : courses.length}
                 </span>
               </button>
             )}
@@ -402,7 +411,7 @@ export default function CoursesPage() {
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Chỉ số danh mục</div>
             <div className="flex items-center justify-between text-slate-600 dark:text-slate-600">
               <span>Tổng lớp học:</span>
-              <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">{classes.length}</span>
+              <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">{classPagination.totalItems}</span>
             </div>
             {manager && (
               <div className="flex items-center justify-between text-slate-600 dark:text-slate-600">
@@ -552,7 +561,7 @@ export default function CoursesPage() {
             )}
           </div>
 
-          <SectionState loading={loading} empty={manager ? activeTab === "courses" ? displayCourses.length === 0 : displayClasses.length === 0 : displayClasses.length === 0}>
+          <SectionState loading={loading} empty={manager && activeTab === "courses" ? pagedCourses.length === 0 : classes.length === 0}>
             <div>
               {manager && activeTab === "courses" ? (
                 <section className="min-w-0">
@@ -562,11 +571,11 @@ export default function CoursesPage() {
                       <p className="text-xs text-slate-500 dark:text-slate-600">Nội dung đào tạo và phiên bản đang được sử dụng.</p>
                     </div>
                     <span className="shrink-0 text-xs font-semibold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 px-3 py-1 rounded-full border border-sky-200/80 dark:border-sky-800/60 tabular-nums">
-                      {displayCourses.length} môn học
+                      {coursePagination.totalItems} môn học
                     </span>
                   </div>
                   <div className="space-y-3">
-                    {coursePagination.pageItems.map((course) => (
+                    {pagedCourses.map((course) => (
                       <article className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4.5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all space-y-3" key={course.id}>
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
@@ -590,28 +599,22 @@ export default function CoursesPage() {
                           </div>
                           <StatusBadge status={course.status} />
                         </div>
-                        <div className="rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3">
+                        <div className="rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 p-3 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs font-bold text-slate-600 dark:text-slate-600">
-                            {`Lớp trực thuộc (${classes.filter((item) => item.courseId === course.id).length})`}
+                            Lớp trực thuộc môn học này
                           </p>
-                          {classes.some((item) => item.courseId === course.id) ? (
-                            <ul className="mt-2 flex flex-wrap gap-2">
-                              {classes.filter((item) => item.courseId === course.id).map((item) => (
-                                <li key={item.id}>
-                                  <button
-                                    className="inline-flex items-center gap-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2.5 py-1 text-xs font-semibold hover:border-sky-400 transition-colors shadow-2xs"
-                                    onClick={() => router.push(`/courses/classes/${item.id}`)}
-                                    type="button"
-                                  >
-                                    <span>{item.code} · {item.term}</span>
-                                    <StatusBadge status={item.status} />
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-1 text-xs text-slate-600">Chưa có lớp nào mở cho môn học này.</p>
-                          )}
+                          <button
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300 hover:border-sky-400 transition-colors shadow-2xs cursor-pointer"
+                            onClick={() => {
+                              setCourseFilter(course.id);
+                              classPagination.resetPage();
+                              setActiveTab("classes");
+                            }}
+                            type="button"
+                          >
+                            <span>Mở danh sách lớp học</span>
+                            <ArrowRight size={13} />
+                          </button>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
                           {course.status === "DRAFT" ? (
@@ -640,7 +643,7 @@ export default function CoursesPage() {
                       </article>
                     ))}
                   </div>
-                  <Pagination itemLabel="môn học" onPageChange={coursePagination.setPage} onPageSizeChange={coursePagination.setPageSize} page={coursePagination.page} pageSize={coursePagination.pageSize} totalItems={coursePagination.totalItems} />
+                  <Pagination itemLabel="môn học" onPageChange={coursePagination.setPage} onPageSizeChange={coursePagination.setPageSize} page={coursePagination.displayPage} pageSize={coursePagination.pageSize} totalItems={coursePagination.totalItems} />
                 </section>
               ) : null}
 
@@ -652,17 +655,13 @@ export default function CoursesPage() {
                         {manager ? "Danh sách lớp học" : session.roleCode === "INSTRUCTOR" ? "Lớp đang dạy" : "Lớp đã ghi danh"}
                       </h2>
                       <span className="shrink-0 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 rounded-full border border-blue-200/80 dark:border-blue-800/60 tabular-nums">
-                        {displayClasses.length} lớp
+                        {classPagination.totalItems} lớp
                       </span>
                     </div>
                   </div>
 
-                  {manager && !displayClasses.length && classes.length ? (
-                    <p className="my-4 text-xs text-slate-500">Không có lớp nào phù hợp với bộ lọc hiện tại.</p>
-                  ) : null}
-
                   {/* GIAO DIỆN DẠNG DANH SÁCH THẺ HÀNG NGANG (CARD LIST ROWS) */}
-                  {displayClasses.length === 0 ? (
+                  {classes.length === 0 ? (
                     <div className="py-16 text-center space-y-3 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8">
                       <GraduationCap className="mx-auto text-slate-300 dark:text-slate-600" size={48} />
                       <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
@@ -674,7 +673,7 @@ export default function CoursesPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {classPagination.pageItems.map((item, idx) => {
+                      {classes.map((item, idx) => {
                         const course = courses.find((c) => c.id === item.courseId);
                         const gradient = GRADIENTS[idx % GRADIENTS.length];
                         const classGrade = item.grade ?? course?.grade;
@@ -763,7 +762,7 @@ export default function CoursesPage() {
                       })}
                     </div>
                   )}
-                  <Pagination className="mt-4" itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.page} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} />
+                  <Pagination className="mt-4" itemLabel="lớp học" onPageChange={classPagination.setPage} onPageSizeChange={classPagination.setPageSize} page={classPagination.displayPage} pageSize={classPagination.pageSize} totalItems={classPagination.totalItems} />
                 </section>
               ) : null}
             </div>

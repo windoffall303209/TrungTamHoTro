@@ -1,15 +1,16 @@
 "use client";
 
-import { Check, CheckCircle2, CirclePlus, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Check, CirclePlus, Eye, FileQuestion, ImagePlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
-import { QuestionImage } from "@/features/questions/question-image";
+import { QuestionRenderPreview } from "@/features/questions/question-render-preview";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { SectionState } from "@/shared/ui/section-state";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
-import { Button, Field, FormattedTextarea, inputClass, Modal, Pagination, RichText, StatusBadge, usePagination } from "@/shared/ui/ui";
+import { Button, Field, FormattedTextarea, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import type { Course, Question, QuestionImportResult } from "@/lib/learning-types";
@@ -52,17 +53,28 @@ const QUESTION_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Render bản xem trước nội dung giàu định dạng, công thức LaTeX, ảnh và các lựa chọn. */
 function QuestionPreview({ form, imageUrl }: { form: QuestionForm; imageUrl?: string }) {
-  const visibleOptions = objectiveTypes.includes(form.type) ? form.options.filter((option) => option.trim()) : [];
+  const isObjective = objectiveTypes.includes(form.type);
+  const visibleOptions = isObjective ? form.options.filter((option) => option.trim()) : [];
+  const correctOptionIndexes = visibleOptions
+    .map((option, index) => (form.correctAnswers.includes(option) ? index : -1))
+    .filter((index) => index >= 0);
+
   return (
     <aside className="lg:sticky lg:top-0 lg:self-start">
       <div className="border-y border-[var(--rule-strong)] bg-[var(--canvas)] px-5 py-5">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--rule)] pb-3"><h3 className="font-bold text-[var(--ink)]">Xem trước khi lưu</h3><span className="text-xs font-bold text-[var(--ink-soft)]">{typeMeta[form.type].label}</span></div>
         <div className="py-5">
-          {form.content.trim() ? <RichText className="font-semibold">{form.content}</RichText> : <p className="text-sm text-[var(--ink-soft)]">Nội dung câu hỏi sẽ xuất hiện tại đây.</p>}
-          <QuestionImage className="mt-4" imageUrl={imageUrl} />
-          {visibleOptions.length ? <ol className="mt-5 space-y-2">{visibleOptions.map((option, index) => <li className="flex gap-3 border-b border-[var(--rule)] py-2.5 last:border-b-0" key={`${index}-${option}`}><span className="grid size-7 shrink-0 place-items-center rounded-lg border border-[var(--rule-strong)] text-xs font-bold text-[var(--ink-soft)]">{String.fromCharCode(65 + index)}</span><RichText className="min-w-0 text-sm">{option}</RichText></li>)}</ol>
-            : form.type === "SHORT_ANSWER" ? <div className="mt-5 min-h-11 border-b border-[var(--rule-strong)] text-sm text-[var(--ink-soft)]">Câu trả lời ngắn của học viên</div>
-              : form.type === "ESSAY" ? <div className="mt-5 min-h-28 rounded-xl border border-[var(--rule)] bg-[var(--surface)] p-3 text-sm text-[var(--ink-soft)]">Bài làm tự luận của học viên</div> : null}
+          <QuestionRenderPreview
+            content={form.content}
+            emptyContentText="Nội dung câu hỏi sẽ xuất hiện tại đây."
+            imageUrl={imageUrl}
+            options={visibleOptions}
+            correctOptionIndexes={correctOptionIndexes}
+            referenceAnswers={!isObjective ? form.correctAnswers.filter((ans) => ans.trim()) : []}
+            referenceLabel={form.type === "ESSAY" ? "Hướng dẫn chấm:" : "Ý trả lời tham khảo:"}
+          />
+          {!visibleOptions.length && form.type === "SHORT_ANSWER" ? <div className="mt-4 min-h-11 border-b border-[var(--rule-strong)] text-sm text-[var(--ink-soft)]">Câu trả lời ngắn của học viên</div>
+            : !visibleOptions.length && form.type === "ESSAY" ? <div className="mt-4 min-h-28 rounded-xl border border-[var(--rule)] bg-[var(--surface)] p-3 text-sm text-[var(--ink-soft)]">Bài làm tự luận của học viên</div> : null}
         </div>
         <p className="border-t border-[var(--rule)] pt-3 text-xs leading-5 text-[var(--ink-soft)]">Hỗ trợ Markdown cho chữ đậm/nghiêng và LaTeX cho công thức trong nội dung lẫn lựa chọn.</p>
       </div>
@@ -83,8 +95,10 @@ export default function QuestionsPage() {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState({ courseId: selectedCourseId, type: "", difficulty: "", tag: "" });
   const [loading, setLoading] = useState(true);
-  const pagination = usePagination(items);
+  const pagination = useServerPagination(10);
+  const { page: questionPage, pageSize: questionPageSize, syncResponse: syncQuestionPage } = pagination;
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPreviewOpen, setEditorPreviewOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<QuestionForm>(createBlankForm);
@@ -105,7 +119,19 @@ export default function QuestionsPage() {
   // Giải phóng URL ảnh tạm khi thay ảnh hoặc rời khỏi màn hình câu hỏi.
   useEffect(() => () => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); }, [imagePreviewUrl]);
 
-  /** Nạp khóa học và câu hỏi theo phạm vi truy cập cùng các bộ lọc hiện tại. */
+  // Nạp danh sách khóa học một lần để hiển thị bộ chọn và hạn chế gọi lại khi gõ tìm kiếm.
+  useEffect(() => {
+    if (!canView || !canViewCourses) return;
+    let active = true;
+    apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode })
+      .then((courseData) => {
+        if (active && Array.isArray(courseData)) setCourses(courseData);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [canView, canViewCourses, session.roleCode]);
+
+  /** Nạp câu hỏi theo trang từ máy chủ dựa trên bộ lọc hiện tại. */
   const load = useCallback(async () => {
     if (!canView) return;
     const requestId = ++loadRequestId.current;
@@ -113,20 +139,22 @@ export default function QuestionsPage() {
     const params = new URLSearchParams();
     if (query.trim()) params.set("query", query.trim());
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
+    params.set("page", String(questionPage));
+    params.set("pageSize", String(questionPageSize));
     try {
-      const [questions, courseData] = await Promise.all([
-        apiRequest<Question[]>(`/instructor/question-bank/questions?${params.toString()}`, { roleCode: session.roleCode }),
-        canViewCourses ? apiRequest<Course[]>("/manager/courses", { roleCode: session.roleCode }) : Promise.resolve([]),
-      ]);
+      const pageResult = await apiRequest<PaginatedResponse<Question>>(
+        `/instructor/question-bank/questions/page?${params.toString()}`,
+        { roleCode: session.roleCode },
+      );
       if (requestId !== loadRequestId.current) return;
-      setItems(questions);
-      setCourses(courseData);
+      setItems(pageResult.items);
+      syncQuestionPage(pageResult);
     } catch (error) {
       if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không tải được câu hỏi.", "error");
     } finally {
       if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, [canView, canViewCourses, filters, notify, query, session.roleCode]);
+  }, [canView, filters, notify, questionPage, questionPageSize, query, session.roleCode, syncQuestionPage]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -138,12 +166,12 @@ export default function QuestionsPage() {
     setImageFile(null); setImagePreviewUrl(null);
   };
   /** Đóng editor và xóa mọi state ảnh/bản ghi đang chỉnh sửa. */
-  const closeEditor = () => { clearLocalImage(); setExistingImage(null); setRemoveExistingImage(false); setEditorOpen(false); };
+  const closeEditor = () => { clearLocalImage(); setExistingImage(null); setRemoveExistingImage(false); setEditorPreviewOpen(false); setEditorOpen(false); };
   /** Khởi tạo một biểu mẫu sạch cho luồng tạo câu hỏi. */
-  const openCreate = () => { clearLocalImage(); setEditingId(null); setExistingImage(null); setRemoveExistingImage(false); setForm(createBlankForm()); setErrors({}); setEditorOpen(true); };
+  const openCreate = () => { clearLocalImage(); setEditingId(null); setExistingImage(null); setRemoveExistingImage(false); setForm(createBlankForm()); setErrors({}); setEditorPreviewOpen(false); setEditorOpen(true); };
   /** Đưa câu hỏi hiện có vào editor và giữ metadata ảnh đã lưu trên máy chủ. */
   const openEdit = (item: Question) => {
-    clearLocalImage(); setEditingId(item.id); setErrors({}); setExistingImage(item.imageUrl ? item : null); setRemoveExistingImage(false);
+    clearLocalImage(); setEditingId(item.id); setErrors({}); setExistingImage(item.imageUrl ? item : null); setRemoveExistingImage(false); setEditorPreviewOpen(false);
     setForm({ courseId: item.courseId, type: item.type, content: item.content, options: item.options.length ? [...item.options] : ["", ""], correctAnswers: [...item.correctAnswers], difficulty: item.difficulty, tags: item.tags.join(", ") });
     setEditorOpen(true);
   };
@@ -170,18 +198,10 @@ export default function QuestionsPage() {
       } else if (removeExistingImage && saved.imageUrl) {
         saved = await apiRequest<Question>(`/instructor/question-bank/questions/${saved.id}/image`, { method: "DELETE", roleCode: session.roleCode });
       }
-      if (saved.status !== "PUBLISHED") {
-        saved = await apiRequest<Question>(`/instructor/question-bank/questions/${saved.id}/publish`, { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ immediate: true }) });
-      }
       notify(editingId ? "Đã tạo và công bố phiên bản câu hỏi mới." : "Đã thêm và công bố câu hỏi vào ngân hàng.");
       closeEditor(); setEditingId(null); setForm(createBlankForm()); await load();
     } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error"); }
     finally { setSaving(false); }
-  };
-  /** Công bố câu hỏi ngay để có thể dùng trong đề thi. */
-  const publish = async (item: Question) => {
-    try { await apiRequest<Question>(`/instructor/question-bank/questions/${item.id}/publish`, { method: "POST", roleCode: session.roleCode }); notify(`Câu hỏi phiên bản ${item.version} đã được công bố.`); await load(); }
-    catch (error) { notify(error instanceof Error ? error.message : "Không xuất bản được câu hỏi.", "error"); }
   };
   /** Phân tích dữ liệu nhập hàng loạt và tạo các câu hỏi hợp lệ trong khóa học. */
   const importQuestions = async (event: React.FormEvent) => {
@@ -231,14 +251,19 @@ export default function QuestionsPage() {
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-            <span>{items.length} câu hỏi phù hợp</span>
-            <span>Trang {pagination.page}/{pagination.totalPages}</span>
+            <span>{pagination.totalItems} câu hỏi phù hợp</span>
+            <span>Trang {pagination.displayPage}/{pagination.totalPages}</span>
           </div>
           <div className="space-y-2.5">
-            {pagination.pageItems.map((item, index) => (
+            {items.map((item, index) => {
+              const isObjective = objectiveTypes.includes(item.type);
+              const correctOptionIndexes = isObjective
+                ? item.correctAnswers.map((answer) => item.options.indexOf(answer)).filter((optionIndex) => optionIndex >= 0)
+                : [];
+              return (
               <article className="grid gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 md:grid-cols-[auto_minmax(0,1fr)_auto]" key={item.id}>
                 <div className="grid size-10 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 font-extrabold text-sm border border-sky-100 dark:border-sky-800">
-                  {index + 1}
+                  {(pagination.displayPage - 1) * pagination.pageSize + index + 1}
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -247,34 +272,93 @@ export default function QuestionsPage() {
                       {typeMeta[item.type].label} · {item.difficulty === 1 ? "Dễ" : item.difficulty === 2 ? "Trung bình" : "Khó"} · Phiên bản {item.version}
                     </span>
                   </div>
-                  <RichText className="mt-2 font-semibold text-slate-900 dark:text-slate-100">{item.content}</RichText>
-                  <QuestionImage className="mt-4 max-h-64" imageUrl={item.imageUrl} />
-                  {item.correctAnswers.length ? (
-                    <div className="mt-3 flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
-                      <Check aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600" size={14} />
-                      <div>
-                        <span className="font-bold">{item.type === "ESSAY" ? "Hướng dẫn chấm:" : item.type === "SHORT_ANSWER" ? "Ý trả lời tham khảo:" : "Đáp án:"}</span>
-                        {item.correctAnswers.map((answer, answerIndex) => <RichText className="ml-1 inline-block" key={`${answerIndex}-${answer}`}>{answer}</RichText>)}
-                      </div>
-                    </div>
-                  ) : <p className="mt-3 text-xs text-slate-400">Chấm thủ công</p>}
+                  <QuestionRenderPreview
+                    className="mt-2"
+                    content={item.content}
+                    imageUrl={item.imageUrl}
+                    options={isObjective ? item.options : []}
+                    correctOptionIndexes={correctOptionIndexes}
+                    referenceAnswers={!isObjective ? item.correctAnswers : []}
+                    referenceLabel={item.type === "ESSAY" ? "Hướng dẫn chấm:" : "Ý trả lời tham khảo:"}
+                  />
+                  {!item.correctAnswers.length ? <p className="mt-2 text-xs text-slate-400">Chấm thủ công</p> : null}
                   <p className="mt-2 text-xs text-slate-400">{item.tags.length ? item.tags.map((tag) => `#${tag}`).join(" · ") : "Chưa gắn thẻ"}</p>
                 </div>
                 {canManage ? (
                   <div className="flex flex-wrap items-start justify-end gap-2">
                     <Button aria-label="Sửa thành phiên bản mới" onClick={() => openEdit(item)} variant="secondary" className="h-8 text-xs"><Pencil size={13} />Sửa</Button>
-                    {item.status === "DRAFT" ? <Button aria-label="Công bố câu hỏi" onClick={() => void publish(item)} className="h-8 text-xs"><CheckCircle2 size={13} />Công bố</Button> : <FileQuestion aria-label="Đã công bố" className="ml-2 mt-1 text-emerald-600" size={22} />}
+                    <FileQuestion aria-label="Đã công bố" className="ml-2 mt-1 text-emerald-600" size={22} />
                   </div>
                 ) : null}
               </article>
-            ))}
+              );
+            })}
           </div>
-          <Pagination itemLabel="câu hỏi" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
+          <Pagination itemLabel="câu hỏi" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.displayPage} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
         </div>
       </SectionState>
 
       <Modal description={editingId ? "Bản hiện tại không thay đổi; lần lưu này tạo một phiên bản mới." : "Chọn dạng câu hỏi, nhập nội dung rồi kiểm tra bản xem trước trước khi lưu."} onClose={closeEditor} open={editorOpen} size="xl" title={editingId ? "Tạo phiên bản câu hỏi" : "Soạn câu hỏi"}>
-        <form className="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]" onSubmit={(event) => void saveQuestion(event)}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--rule)] pb-3">
+          <p className="text-xs font-semibold text-[var(--ink-soft)]">
+            {editorPreviewOpen ? "Bản xem trước giao diện sau khi render LaTeX" : "Dùng thanh công cụ cho chữ đậm, chữ nghiêng và công thức LaTeX."}
+          </p>
+          <Button
+            aria-pressed={editorPreviewOpen}
+            className="h-8 text-xs"
+            onClick={() => setEditorPreviewOpen((prev) => !prev)}
+            type="button"
+            variant="secondary"
+          >
+            {editorPreviewOpen ? <Pencil size={13} /> : <Eye size={14} />}
+            {editorPreviewOpen ? "Quay lại chỉnh sửa" : "Xem giao diện"}
+          </Button>
+        </div>
+        <form className={editorPreviewOpen ? "space-y-6" : "grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]"} onSubmit={(event) => void saveQuestion(event)}>
+          {editorPreviewOpen ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60">
+                    {typeMeta[form.type].label}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                    {form.difficulty === 1 ? "Dễ" : form.difficulty === 2 ? "Trung bình" : "Khó"}
+                  </span>
+                </div>
+                <QuestionRenderPreview
+                  content={form.content}
+                  imageUrl={imagePreviewUrl ?? (!removeExistingImage ? existingImage?.imageUrl : undefined)}
+                  options={objectiveTypes.includes(form.type) ? form.options.filter((option) => option.trim()) : []}
+                  correctOptionIndexes={
+                    objectiveTypes.includes(form.type)
+                      ? form.options
+                          .filter((option) => option.trim())
+                          .map((option, optionIndex) => (form.correctAnswers.includes(option) ? optionIndex : -1))
+                          .filter((optionIndex) => optionIndex >= 0)
+                      : []
+                  }
+                  referenceAnswers={!objectiveTypes.includes(form.type) ? form.correctAnswers.filter((ans) => ans.trim()) : []}
+                  referenceLabel={form.type === "ESSAY" ? "Hướng dẫn chấm:" : "Ý trả lời tham khảo:"}
+                />
+                {form.tags.trim() ? (
+                  <p className="text-xs text-slate-400">
+                    {form.tags
+                      .split(",")
+                      .map((tag) => tag.trim())
+                      .filter(Boolean)
+                      .map((tag) => `#${tag}`)
+                      .join(" · ")}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 border-t border-[var(--rule)] pt-4">
+                <Button loading={saving} type="submit">{editingId ? "Lưu phiên bản" : "Lưu câu hỏi"}</Button>
+                <p className="text-xs text-[var(--ink-soft)]">Câu hỏi được công bố ngay sau khi lưu thành công.</p>
+              </div>
+            </div>
+          ) : (
+            <>
           <div className="min-w-0 space-y-6">
             <section className="space-y-4"><div><h3 className="font-bold">Phân loại câu hỏi</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">Thông tin này quyết định cách học viên trả lời và cách hệ thống chấm.</p></div>
               <div className="grid gap-3 sm:grid-cols-2"><div><Field label="Khóa học"><SearchableSelect aria-label="Tìm và chọn khóa học" onChange={(value) => { setForm({ ...form, courseId: value }); setErrors({ ...errors, courseId: undefined }); }} options={courses.map((course) => ({ value: course.id, label: `${course.code} — ${course.name}`, description: `Phiên bản ${course.version}`, keywords: course.id }))} placeholder="Gõ mã hoặc tên khóa học…" value={form.courseId} /></Field>{errors.courseId ? <p className="mt-1 text-xs font-semibold text-[var(--danger)]">{errors.courseId}</p> : null}</div><Field label="Độ khó"><select className={inputClass} value={form.difficulty} onChange={(event) => setForm({ ...form, difficulty: Number(event.target.value) as Question["difficulty"] })}><option value={1}>Dễ</option><option value={2}>Trung bình</option><option value={3}>Khó</option></select></Field></div>
@@ -291,6 +375,8 @@ export default function QuestionsPage() {
             {form.type === "ESSAY" ? <section className="space-y-4 border-t border-[var(--rule)] pt-6"><div><h3 className="font-bold">Hướng dẫn chấm</h3><p className="mt-1 text-sm text-[var(--ink-soft)]">Không hiển thị cho học viên trong lúc làm bài. Có thể dùng định dạng và công thức.</p></div><FormattedTextarea label="Đáp án tham khảo hoặc tiêu chí chấm" onChange={(value) => setForm({ ...form, correctAnswers: value.trim() ? [value] : [] })} placeholder="Nêu các ý chính, tiêu chí hoặc công thức cần có trong bài làm…" rows={4} value={form.correctAnswers[0] ?? ""} /></section> : null}
             <section className="space-y-4 border-t border-[var(--rule)] pt-6"><Field label="Thẻ phân loại — phân tách bằng dấu phẩy"><input className={inputClass} placeholder="ngữ pháp, chương-2, ôn-tập" value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></Field><div className="flex flex-wrap items-center gap-3"><Button loading={saving} type="submit">{editingId ? "Lưu phiên bản" : "Lưu câu hỏi"}</Button><p className="text-xs text-[var(--ink-soft)]">Câu hỏi được công bố ngay sau khi lưu thành công.</p></div></section>
           </div><QuestionPreview form={form} imageUrl={imagePreviewUrl ?? (!removeExistingImage ? existingImage?.imageUrl : undefined)} />
+            </>
+          )}
         </form>
       </Modal>
       <Modal open={importOpen} onClose={() => { setImportOpen(false); setImportResults([]); }} title="Nhập câu hỏi JSONL" description="Mỗi dòng là một đối tượng JSON. Trường content, options và correctAnswers chấp nhận Markdown + LaTeX."><form className="space-y-4" onSubmit={(event) => void importQuestions(event)}><Field label="Dữ liệu JSONL"><textarea className={`${inputClass} font-mono text-xs`} minLength={2} placeholder={'{"courseId":"course-web","type":"TRUE_FALSE","content":"**Mệnh đề:** $2 + 2 = 4$","options":["Đúng","Sai"],"correctAnswers":["Đúng"],"difficulty":1,"tags":["toán"]}'} required rows={8} value={importText} onChange={(event) => setImportText(event.target.value)} /></Field><Button loading={saving} type="submit"><Upload size={15} />Kiểm tra và nhập</Button></form>{importResults.length ? <div className="mt-5 space-y-2 border-t border-[var(--rule)] pt-4">{importResults.map((result) => <div className={`rounded-lg px-3 py-2 text-sm ${result.status === "IMPORTED" ? "bg-[var(--success-soft)] text-[var(--success-deep)]" : "bg-[var(--danger-soft)] text-[var(--danger-dark)]"}`} key={result.row}>Dòng {result.row}: {result.message}</div>)}</div> : null}</Modal>

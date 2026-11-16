@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LiveSession } from "@/lib/learning-types";
 import LiveClassesPage from "../../../../../src/app/(workspace)/live-classes/page";
@@ -43,7 +43,7 @@ describe("LiveClassesPage request lifecycle", () => {
     const second = deferred<LiveSession[]>();
     let sessionRequests = 0;
     apiMock.mockImplementation((path: string) => {
-      if (path === "/sessions") return ++sessionRequests === 1 ? first.promise : second.promise;
+      if (path.startsWith("/sessions/page?")) return ++sessionRequests === 1 ? first.promise : second.promise;
       if (path === "/classes") return Promise.resolve([]);
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -53,7 +53,15 @@ describe("LiveClassesPage request lifecycle", () => {
     currentRole.code = "SYSTEM_ADMIN";
     view.rerender(<LiveClassesPage />);
     await waitFor(() => expect(sessionRequests).toBe(2));
-    await act(async () => second.resolve([{ ...session, id: "live-b", title: "New session" }]));
+    await act(async () =>
+      second.resolve({
+        items: [{ ...session, id: "live-b", title: "New session" }],
+        total: 1,
+        page: 1,
+        pageSize: 10,
+        totalPages: 1,
+      } as unknown as LiveSession[]),
+    );
     expect(screen.getByText("New session")).toBeInTheDocument();
     await act(async () => first.resolve([session]));
     expect(screen.getByText("New session")).toBeInTheDocument();
@@ -64,14 +72,38 @@ describe("LiveClassesPage request lifecycle", () => {
   it("ignores a pending schedule failure after unmount", async () => {
     const pending = deferred<LiveSession[]>();
     apiMock.mockImplementation((path: string) => {
-      if (path === "/sessions") return pending.promise;
+      if (path.startsWith("/sessions/page?")) return pending.promise;
       if (path === "/classes") return Promise.resolve([]);
       throw new Error(`Unexpected request: ${path}`);
     });
     const view = render(<LiveClassesPage />);
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/sessions", expect.anything()));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(expect.stringMatching(/^\/sessions\/page\?/), expect.anything()),
+    );
     view.unmount();
     await act(async () => pending.reject(new Error("Outdated schedule failure")));
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+
+  it("chuyển trang danh sách buổi học trực tuyến ở chế độ quản trị", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/classes") return Promise.resolve([]);
+      if (path.startsWith("/sessions/page?")) {
+        const page = Number(new URLSearchParams(path.split("?")[1] ?? "").get("page") ?? "1");
+        return Promise.resolve({
+          items: [{ ...session, id: `live-${page}`, title: `Schedule Page ${page}` }],
+          total: 14,
+          page,
+          pageSize: 10,
+          totalPages: 2,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<LiveClassesPage />);
+    await screen.findByText("Schedule Page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Schedule Page 2");
   });
 });

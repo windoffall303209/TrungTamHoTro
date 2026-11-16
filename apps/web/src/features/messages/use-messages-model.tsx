@@ -53,8 +53,6 @@ export function useMessagesModel() {
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [messageQuery, setMessageQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ChatMessage[]>([]);
-  const [blockOpen, setBlockOpen] = useState(false);
-  const [blockReason, setBlockReason] = useState("");
 
   const [pendingContext, setPendingContext] = useState<{
     type: "ASSIGNMENT" | "EXAM" | "MATERIAL";
@@ -611,31 +609,6 @@ export function useMessagesModel() {
     }
   };
 
-  /** Chặn liên hệ riêng với người đang chat 1-1 */
-  const blockDirectUser = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const target = selected?.members.find(
-      (item) => item.userId !== session.user.id,
-    );
-    if (!target) return;
-    try {
-      await apiRequest("/chat/blocks", {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ userId: target.userId, reason: blockReason }),
-      });
-      setBlockOpen(false);
-      setBlockReason("");
-      await loadConversations();
-      notify("Đã chặn liên hệ riêng.");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không chặn được người dùng.",
-        "error",
-      );
-    }
-  };
-
   /** Xem trước hoặc tải tệp chat */
   const openAttachment = async (
     message: ChatMessage,
@@ -675,10 +648,6 @@ export function useMessagesModel() {
     setMessageQuery,
     searchResults,
     setSearchResults,
-    blockOpen,
-    setBlockOpen,
-    blockReason,
-    setBlockReason,
     bottomRef,
     messagePaneRef,
     selected,
@@ -691,7 +660,6 @@ export function useMessagesModel() {
     sendMessage,
     searchConversation,
     toggleMute,
-    blockDirectUser,
     openAttachment,
   };
 }

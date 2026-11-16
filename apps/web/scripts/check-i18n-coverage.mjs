@@ -25,6 +25,7 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
       .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
       .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
 
+  // Duyệt cây cú pháp AST để thu thập toàn bộ chuỗi tiếng Việt hiển thị trên UI.
   const visit = (node) => {
     if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const rawText = ts.isJsxText(node) || (ts.isStringLiteral(node) && ts.isJsxAttribute(node.parent)) ? decodeJsxEntities(node.text) : node.text;

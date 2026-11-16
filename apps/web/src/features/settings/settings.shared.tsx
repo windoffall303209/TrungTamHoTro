@@ -5,8 +5,6 @@ import {
   CloudCog,
   DatabaseBackup,
   HardDrive,
-  History,
-  Settings2,
   ShieldCheck,
 } from "lucide-react";
 
@@ -14,16 +12,13 @@ export interface Settings {
   centerName: string;
   timezone: string;
   locale: string;
-  retentionDays: number;
   maxFileSizeMb: number;
   storageQuotaMb: number;
   allowedMimeTypes: string[];
-  questionApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;
   learnerEmailNotificationsEnabled: boolean;
   version: number;
-  effectiveAt: string;
   updatedBy: string;
   updatedAt: string;
 }
@@ -104,20 +99,19 @@ export type SettingsSection =
   | "integrations"
   | "backups"
   | "storage"
-  | "health"
-  | "history";
+  | "health";
 
 export const settingsSections: Array<{
   id: SettingsSection;
   title: string;
   description: string;
-  icon: typeof Settings2;
+  icon: typeof Activity;
 }> = [
   {
     id: "general",
     title: "Quy định vận hành",
     description:
-      "Tên trung tâm, vùng thời gian, dữ liệu và bảo trì.",
+      "Tên trung tâm, vùng thời gian, giới hạn tải tệp và bảo trì.",
     icon: ShieldCheck,
   },
   {
@@ -158,11 +152,5 @@ export const settingsSections: Array<{
     title: "Tình trạng dịch vụ",
     description: "Kiểm tra cơ sở dữ liệu, độ trễ API, lưu trữ và hàng đợi.",
     icon: Activity,
-  },
-  {
-    id: "history",
-    title: "Lịch sử cấu hình",
-    description: "Tra cứu phiên bản, thời điểm hiệu lực và người cập nhật.",
-    icon: History,
   },
 ];

@@ -14,6 +14,7 @@ describe("document security policy", () => {
     const policy = first.headers.get("Content-Security-Policy")!;
     expect(policy).toContain("'strict-dynamic'");
     expect(policy).toContain("connect-src 'self' https://api.example.com");
+    expect(policy).toContain("frame-src 'self' blob: https://www.youtube.com https://www.facebook.com https://drive.google.com;");
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).not.toContain("unsafe-eval");
     expect(policy).not.toContain("attacker");

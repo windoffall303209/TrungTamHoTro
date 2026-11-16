@@ -201,5 +201,12 @@
   "Xóa hẳn học liệu \"{{0}}\" cùng mọi phiên bản? Không thể hoàn tác.": "Permanently delete material \"{{0}}\" and all versions? This cannot be undone.",
   "Xóa lựa chọn {{0}}": "Clear selection {{0}}",
   "Xóa ý trả lời {{0}}": "Delete answer item {{0}}",
-  "Ý trả lời tham khảo {{0}}": "Reference answer {{0}}"
+  "Ý trả lời tham khảo {{0}}": "Reference answer {{0}}",
+  "({{0}} học viên chưa nộp)": "({{0}} unsubmitted learners)",
+  "{{0}} (Tối đa {{1}} điểm)": "{{0}} (Max {{1}} pts)",
+  "Câu {{0}}": "Question {{0}}",
+  "Đã chấm ({{0}}/{{1}})": "Graded ({{0}}/{{1}})",
+  "Đã lưu {{0}}/{{1}} câu và phát hành.": "Saved {{0}}/{{1}} questions and published.",
+  "Điểm {{0}}": "Score for {{0}}",
+  "Điểm cao nhất trong {{0}} lần làm bài": "Highest score across {{0}} attempts"
 }

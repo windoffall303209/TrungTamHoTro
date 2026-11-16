@@ -83,6 +83,7 @@ describe("WorkspaceShell", () => {
     fireEvent.mouseEnter(trigger.parentElement!);
 
     expect(screen.getByRole("menuitem", { name: "Thông tin" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("menuitem", { name: "Hướng dẫn sử dụng" })).toHaveAttribute("href", "/guide");
     expect(screen.getByRole("menuitem", { name: "Đăng xuất" })).toBeInTheDocument();
     fireEvent.mouseLeave(trigger.parentElement!);
     fireEvent.click(trigger);

@@ -418,4 +418,58 @@ describe("Bản nháp trình tạo đề", () => {
     expect(result.current.autosaveStatus).toBe("ERROR");
     expect(notify).toHaveBeenCalledWith("Không kết nối được", "error");
   });
+
+  it("hỗ trợ ẩn/hiện và xóa đề thi trực tiếp trên kho đề", async () => {
+    const initialExam = {
+      id: "exam-1",
+      title: "Đề kiểm tra chương 1",
+      classId: "class-1",
+      questionIds: ["q1"],
+      durationMinutes: 30,
+      totalScore: 10,
+      openAt: "2026-01-01T00:00:00.000Z",
+      closeAt: "2026-12-31T00:00:00.000Z",
+      attemptLimit: 1,
+      status: "PUBLISHED",
+      hidden: false,
+      version: 1,
+    };
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    api.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path.startsWith("/exams/page?")) return { items: [initialExam], total: 1, page: 1 };
+      if (path === "/instructor/exams/exam-1/visibility" && options?.method === "PATCH") {
+        return { hidden: true, version: 2 };
+      }
+      if (path === "/instructor/exams/exam-1" && options?.method === "DELETE") {
+        return { ok: true };
+      }
+      return [];
+    });
+    try {
+      const { result } = renderHook(useExamsModel);
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.items).toHaveLength(1);
+
+      await act(async () => {
+        await result.current.toggleExamVisibility(result.current.items[0]!);
+      });
+      expect(result.current.items[0]).toMatchObject({ hidden: true, version: 2 });
+      expect(notify).toHaveBeenCalledWith("Đã ẩn đề thi.");
+
+      await act(async () => {
+        await result.current.deleteExam(result.current.items[0]!);
+      });
+      expect(confirmSpy).toHaveBeenCalledOnce();
+      expect(api).toHaveBeenCalledWith(
+        "/instructor/exams/exam-1",
+        expect.objectContaining({
+          method: "DELETE",
+          body: JSON.stringify({ expectedVersion: 2 }),
+        }),
+      );
+      expect(notify).toHaveBeenCalledWith("Đã xóa đề thi.");
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
 });

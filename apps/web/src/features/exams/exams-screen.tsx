@@ -19,10 +19,12 @@ import {
   CheckCircle2,
   Clock3,
   Eye,
+  EyeOff,
   Pencil,
   Play,
   RotateCcw,
   Send,
+  Trash2,
 } from "lucide-react";
 import { ExamEditorDialog } from "./exam-editor-dialog";
 import { ExamPreviewDialog } from "./exam-preview-dialog";
@@ -57,6 +59,8 @@ export default function ExamsScreen() {
     saving,
     openEdit,
     preview,
+    toggleExamVisibility,
+    deleteExam,
     start,
     answer,
     saveTextAnswer,
@@ -303,19 +307,39 @@ export default function ExamsScreen() {
                             <p className="text-[10px] text-slate-400">đến {new Date(item.closeAt).toLocaleDateString(activeLocale())} {new Date(item.closeAt).toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}</p>
                           </td>
                           <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
-                            <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.status} />
+                            <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.hidden ? "HIDDEN" : item.status} />
                           </td>
-                          <td className="w-[150px] px-3 py-2.5 align-middle">
+                          <td className="w-[185px] px-3 py-2.5 align-middle">
                             <div className="flex flex-wrap items-center justify-center gap-1">
                               {instructor || canReview ? (
-                                <Button aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                <Button disabled={!instructor && item.hidden} aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
                                   <Eye size={14} />
                                 </Button>
                               ) : null}
                               {instructor ? (
-                                <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
-                                  <Pencil size={14} />
-                                </Button>
+                                <>
+                                  <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                    <Pencil size={14} />
+                                  </Button>
+                                  <Button
+                                    aria-label={item.hidden ? "Hiện đề" : "Ẩn đề"}
+                                    title={item.hidden ? "Hiện đề" : "Ẩn đề"}
+                                    onClick={() => void toggleExamVisibility(item)}
+                                    variant="ghost"
+                                    className="h-8 px-2 text-xs"
+                                  >
+                                    {item.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                                  </Button>
+                                  <Button
+                                    aria-label="Xóa đề"
+                                    title="Xóa đề"
+                                    onClick={() => void deleteExam(item)}
+                                    variant="ghost"
+                                    className="h-8 px-2 text-xs text-rose-600 hover:text-rose-700"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </>
                               ) : null}
                               {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
                                 <Button aria-label={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} title={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} onClick={() => void start(item)} className="h-8 px-2 text-xs font-semibold">

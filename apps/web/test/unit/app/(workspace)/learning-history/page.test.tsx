@@ -44,7 +44,9 @@ describe("LearningHistoryPage request lifecycle", () => {
     const second = deferred<ReturnType<typeof makeSummary>>();
     let requestCount = 0;
     apiMock.mockImplementation((path: string) => {
-      if (path === "/sessions") return Promise.resolve([session]);
+      if (path.startsWith("/sessions/page?")) {
+        return Promise.resolve({ items: [session], total: 1, page: 1, pageSize: 10, totalPages: 1 });
+      }
       if (path === "/learner/sessions/lesson-a/summary") return ++requestCount === 1 ? first.promise : second.promise;
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -64,13 +66,35 @@ describe("LearningHistoryPage request lifecycle", () => {
   it("does not show a loading error after the page unmounts", async () => {
     const pending = deferred<LiveSession[]>();
     apiMock.mockImplementation((path: string) => {
-      if (path === "/sessions") return pending.promise;
+      if (path.startsWith("/sessions/page?")) return pending.promise;
       throw new Error(`Unexpected request: ${path}`);
     });
     const page = render(<LearningHistoryPage />);
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/sessions", expect.anything()));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(expect.stringMatching(/^\/sessions\/page\?/), expect.anything()),
+    );
     page.unmount();
     await act(async () => pending.reject(new Error("Obsolete session load")));
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+
+  it("chuyển trang lịch sử buổi học bằng API phân trang", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path.startsWith("/sessions/page?")) {
+        const page = Number(new URLSearchParams(path.split("?")[1] ?? "").get("page") ?? "1");
+        return Promise.resolve({
+          items: [{ ...session, id: `lesson-${page}`, title: `Session Page ${page}` }],
+          total: 12,
+          page,
+          pageSize: 10,
+          totalPages: 2,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<LearningHistoryPage />);
+    await screen.findByText("Session Page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Session Page 2");
   });
 });

@@ -44,7 +44,7 @@ describe("SupportPage request lifecycle", () => {
     notifyMock.mockReset();
     apiMock.mockReset();
     apiMock.mockImplementation((path: string) => {
-      if (path === "/support/tickets") return ticketsRequest.promise;
+      if (path.startsWith("/support/tickets/page?")) return ticketsRequest.promise;
       if (path === "/notifications") return Promise.resolve([]);
       const match = path.match(/^\/support\/tickets\/(a|b)\/comments$/);
       if (match?.[1]) {
@@ -101,9 +101,35 @@ describe("SupportPage request lifecycle", () => {
 
   it("does not notify about a pending ticket request after unmount", async () => {
     const page = render(<SupportPage />);
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/support/tickets", expect.anything()));
+    await waitFor(() =>
+      expect(apiMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/support\/tickets\/page\?/),
+        expect.anything(),
+      ),
+    );
     page.unmount();
     await act(async () => ticketsRequest.reject(new Error("Unmounted tickets request failed")));
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+
+  it("chuyển trang danh sách phiếu hỗ trợ từ API phân trang", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/notifications") return Promise.resolve([]);
+      if (path.startsWith("/support/tickets/page?")) {
+        const page = Number(new URLSearchParams(path.split("?")[1] ?? "").get("page") ?? "1");
+        return Promise.resolve({
+          items: [{ ...tickets[0]!, id: `t-${page}`, description: `Ticket Page ${page}` }],
+          total: 15,
+          page,
+          pageSize: 10,
+          totalPages: 2,
+        });
+      }
+      return Promise.resolve([]);
+    });
+    render(<SupportPage />);
+    await screen.findByText("Ticket Page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Ticket Page 2");
   });
 });

@@ -468,12 +468,26 @@ export function Modal({
   );
 }
 
+/** Chuyển delimiter LaTeX chuẩn \(...\) và \[...\] sang cú pháp $...$ / $$...$$ cho remark-math. */
+function normalizeLatexDelimiters(content: string): string {
+  return content
+    .split(/(```[\s\S]*?```|`[^`\n]+`)/g)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return segment
+        .replace(/\\\[([\s\S]+?)\\\]/g, (_match, expr: string) => `\n$$\n${expr.trim()}\n$$\n`)
+        .replace(/\\\(([\s\S]+?)\\\)/g, (_match, expr: string) => `$${expr.trim()}$`);
+    })
+    .join("");
+}
+
 /** Render Markdown/GFM và công thức LaTeX qua KaTeX cho nội dung học tập. */
 export function RichText({ children, className = "" }: { children: string; className?: string }) {
+  const normalized = normalizeLatexDelimiters(children);
   return (
     <div className={`rich-content min-w-0 text-slate-800 dark:text-slate-200 ${className}`}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {children}
+        {normalized}
       </ReactMarkdown>
     </div>
   );

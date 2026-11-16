@@ -147,6 +147,11 @@ const allNavItems: NavigationItem[] = [
     permissions: ["support:create", "support:manage"],
   },
   {
+    href: "/guide",
+    label: "Hướng dẫn sử dụng",
+    icon: BookOpenCheck,
+  },
+  {
     href: "/admin/users",
     label: "Người dùng",
     icon: Users,
@@ -239,7 +244,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         title: "Cộng đồng & Hỗ trợ",
         icon: MessageSquareText,
         items: availableItems.filter((i) =>
-          ["/forum", "/messages", "/support", "/learning-history"].includes(i.href),
+          ["/forum", "/messages", "/support", "/guide", "/learning-history"].includes(i.href),
         ),
       },
       {
@@ -801,18 +806,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                 <div className="space-y-0.5">
-                  <button
+                  <Link
                     className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    onClick={() => {
-                      notify("Đang mở tài liệu hướng dẫn sử dụng...", "info");
-                      setProfileOpen(false);
-                    }}
+                    href="/guide"
+                    onClick={() => setProfileOpen(false)}
                     role="menuitem"
-                    type="button"
                   >
                     <BookOpenCheck size={15} className="text-slate-500" />
-                    <span>Hướng dẫn sử dụng</span>
-                  </button>
+                    <span>{t("Hướng dẫn sử dụng")}</span>
+                  </Link>
 
                   <Link
                     className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -821,7 +823,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     role="menuitem"
                   >
                     <Headphones size={15} className="text-slate-500" />
-                    <span>Hỗ trợ</span>
+                    <span>{t("Hỗ trợ")}</span>
                   </Link>
                 </div>
 
@@ -868,6 +870,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 >
                   <ShieldCheck size={14} className="text-slate-500" />
                   <span>{t("Bảo mật")}</span>
+                </Link>
+                <Link
+                  className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  href="/guide"
+                  onClick={() => setProfileOpen(false)}
+                  role="menuitem"
+                >
+                  <BookOpenCheck size={14} className="text-slate-500" />
+                  <span>{t("Hướng dẫn sử dụng")}</span>
                 </Link>
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                 <button
@@ -1048,6 +1059,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     );
                   })}
+                  <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                    <Link
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                        pathname === "/guide"
+                          ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-extrabold border border-sky-200/80 dark:border-sky-800/60"
+                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                      href="/guide"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      <BookOpenCheck size={16} />
+                      <span>{t("Hướng dẫn sử dụng")}</span>
+                    </Link>
+                  </div>
                 </div>
               ) : (
                 sections.map((section) => (

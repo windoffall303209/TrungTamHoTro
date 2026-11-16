@@ -57,14 +57,11 @@ describe("loadAllMaterials", () => {
 describe("isMaterialForClass", () => {
   const material = { classId: "cls-1", courseId: "crs-1", scope: "CLASS" } as Material;
 
-  it("nhận tài liệu của lớp và tài liệu chia sẻ đúng môn", () => {
-    expect(isMaterialForClass(material, "cls-1", "crs-1")).toBe(true);
-    expect(isMaterialForClass({ ...material, classId: null, scope: "SHARED" }, "cls-1", "crs-1")).toBe(true);
+  it("chỉ nhận tài liệu thuộc đúng lớp hiện tại", () => {
+    expect(isMaterialForClass(material, "cls-1")).toBe(true);
   });
 
-  it("loại tài liệu thuộc lớp khác, môn khác và tài liệu không được chia sẻ", () => {
-    expect(isMaterialForClass({ ...material, classId: "cls-2" }, "cls-1", "crs-1")).toBe(false);
-    expect(isMaterialForClass({ ...material, classId: null, courseId: "crs-2", scope: "SHARED" }, "cls-1", "crs-1")).toBe(false);
-    expect(isMaterialForClass({ ...material, classId: null, scope: "CLASS" }, "cls-1", "crs-1")).toBe(false);
+  it("loại tài liệu thuộc lớp khác", () => {
+    expect(isMaterialForClass({ ...material, classId: "cls-2" }, "cls-1")).toBe(false);
   });
 });

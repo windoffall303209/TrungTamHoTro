@@ -18,12 +18,11 @@ vi.mock("@/providers/app-provider", () => ({
 // Tạo cấu hình đầy đủ để xác nhận thứ tự phản hồi không thay đổi bản được hiển thị.
 function makeSettings(centerName: string): Settings {
   return {
-    centerName, timezone: "Asia/Bangkok", locale: "vi", retentionDays: 30,
+    centerName, timezone: "Asia/Bangkok", locale: "vi",
     maxFileSizeMb: 10, storageQuotaMb: 100, allowedMimeTypes: [],
-    questionApprovalMode: "MANUAL",
     notificationSender: "support@example.com", maintenanceMode: false,
     learnerEmailNotificationsEnabled: false, version: 1,
-    effectiveAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z", updatedBy: "admin",
+    updatedAt: "2026-10-31T00:00:00Z", updatedBy: "admin",
   };
 }
 
@@ -72,7 +71,7 @@ describe("useSettingsModel request lifecycle", () => {
       if (path === "/system/ai-providers/catalog") {
         return Promise.resolve({ GEMINI: [], NVIDIA_NIM: [], OPENAI: [] });
       }
-      if (["/system/integrations", "/system/backups", "/system/settings/history", "/system/ai-providers"].includes(path)) {
+      if (["/system/integrations", "/system/backups", "/system/ai-providers"].includes(path)) {
         return Promise.resolve([]);
       }
       if (["/system/health-overview", "/system/storage-overview"].includes(path)) return Promise.resolve({});

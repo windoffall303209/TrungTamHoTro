@@ -433,7 +433,7 @@ export function useExamsModel() {
     manualSubmitting.current = true;
     setSaving(true);
     try {
-      const savedExam = await apiRequest<Exam>(
+      await apiRequest<Exam>(
         editingExam
           ? `/instructor/exams/${editingExam.id}`
           : "/instructor/exams",
@@ -452,13 +452,6 @@ export function useExamsModel() {
           }),
         },
       );
-      if (!editingExam) {
-        await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(savedExam.id)}/publish`, {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: savedExam.version }),
-        });
-      }
       notify(editingExam ? "Đã cập nhật đề thi." : "Đã tạo và phát hành đề thi.");
       editorDrafts.current.delete(editorKey);
       removeSessionDraft(editorKey);
@@ -529,11 +522,7 @@ export function useExamsModel() {
           body: JSON.stringify({ ...payload, clientRequestId: requestId }),
         },
       );
-      const publishedExam = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(result.exam.id)}/publish`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: result.exam.version }),
-      });
+      const publishedExam = result.exam;
       const sourceLabel =
         result.context.mode === "COURSE_MATERIALS"
           ? `${result.context.materialNames.length} tệp trong môn học`
@@ -599,7 +588,7 @@ export function useExamsModel() {
   }, [instructor, openCreate, searchParams]);
 
   /** Nạp toàn bộ cấu hình đề nháp vào biểu mẫu chỉnh sửa. */
-  const openEdit = (item: LearnerExam) => {
+  const openEdit = useCallback((item: LearnerExam) => {
     const key = `${session.user.id}:${session.roleCode}:${item.id}:${item.version}`;
     const draft =
       restoreEditorDraft(key);
@@ -624,34 +613,7 @@ export function useExamsModel() {
       },
     );
     setOpen(true);
-  };
-
-  /** Đưa một câu AI nháp vào vòng phê duyệt và cập nhật trạng thái ngay trong bản xem đề. */
-  const submitGeneratedQuestion = async (questionId: string) => {
-    try {
-      const updated = await apiRequest<Question>(
-        `/instructor/question-bank/questions/${questionId}/publish`,
-        { method: "POST", roleCode: session.roleCode },
-      );
-      setPreviewQuestions((current) =>
-        current.map((question) =>
-          question.id === questionId ? updated : question,
-        ),
-      );
-      notify(
-        updated.status === "PUBLISHED"
-          ? "Câu hỏi đã được duyệt tự động."
-          : "Câu hỏi đã được gửi vào hàng chờ duyệt.",
-      );
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không gửi duyệt được câu hỏi.",
-        "error",
-      );
-    }
-  };
+  }, [restoreEditorDraft, session.user.id, session.roleCode]);
 
   /** Giữ thao tác phát hành cũ cho dữ liệu tồn tại trước khi chuyển sang phát hành tự động. */
   const publish = async (item: Exam) => {
@@ -725,7 +687,7 @@ export function useExamsModel() {
   };
 
   /** Nạp bản xem đề theo thứ tự tác giả để giảng viên không bị ảnh hưởng bởi xáo trộn. */
-  const preview = async (item: LearnerExam) => {
+  const preview = useCallback(async (item: LearnerExam) => {
     const sequence = ++previewSequence.current;
     setPreviewExam(item);
     setPreviewQuestions([]);
@@ -748,7 +710,23 @@ export function useExamsModel() {
     } finally {
       if (sequence === previewSequence.current) setPreviewLoading(false);
     }
-  };
+  }, [instructor, session.roleCode, notify]);
+
+  // Open the selected class exercise after the page containing that exam arrives.
+  const handledAction = useRef("");
+  useEffect(() => {
+    const action = searchParams.get("action");
+    if (!instructor || !requestedExamId || (action !== "edit" && action !== "preview")) {
+      handledAction.current = "";
+      return;
+    }
+    const target = items.find(item => item.id === requestedExamId && item.classId === requestedClassId);
+    const key = listKey + ":" + action;
+    if (!target || loading || handledAction.current === key) return;
+    handledAction.current = key;
+    if (action === "edit") openEdit(target);
+    else void preview(target);
+  }, [searchParams, instructor, requestedExamId, requestedClassId, items, loading, listKey, openEdit, preview]);
 
   /** Đóng bản xem trước và vô hiệu hóa phản hồi từ các lượt tải cũ. */
   const closePreview = () => {
@@ -945,6 +923,43 @@ export function useExamsModel() {
     }
   };
 
+  /** Ẩn hoặc hiện đề thi đối với học viên theo expectedVersion. */
+  const toggleExamVisibility = async (item: LearnerExam) => {
+    try {
+      const updated = await apiRequest<{ hidden: boolean; version: number }>(
+        `/instructor/exams/${encodeURIComponent(item.id)}/visibility`,
+        {
+          method: "PATCH",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ hidden: !item.hidden, expectedVersion: item.version }),
+        },
+      );
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, ...updated } : entry)),
+      );
+      notify(updated.hidden ? "Đã ẩn đề thi." : "Đã hiện đề thi.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không cập nhật được trạng thái hiển thị.", "error");
+    }
+  };
+
+  /** Xóa đề thi khỏi hệ thống sau khi giảng viên xác nhận. */
+  const deleteExam = async (item: LearnerExam) => {
+    if (!window.confirm(t(`Xóa "${item.title}" cùng các bài làm và điểm liên quan?`))) return;
+    try {
+      await apiRequest(`/instructor/exams/${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+        roleCode: session.roleCode,
+        body: JSON.stringify({ expectedVersion: item.version }),
+      });
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      notify("Đã xóa đề thi.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể xóa đề thi.", "error");
+    }
+  };
+
   useEffect(() => {
     if (!attempt || attempt.status !== "IN_PROGRESS" || !activeExam) return;
     const timer = window.setInterval(() => {
@@ -1024,10 +1039,11 @@ export function useExamsModel() {
     generateAiExam,
     openCreate,
     openEdit,
-    submitGeneratedQuestion,
     publish,
     savePreviewQuestion,
     preview,
+    toggleExamVisibility,
+    deleteExam,
     start,
     answer,
     saveTextAnswer,
