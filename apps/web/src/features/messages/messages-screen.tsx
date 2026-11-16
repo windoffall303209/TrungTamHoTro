@@ -1,11 +1,10 @@
 "use client";
 
-import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import {
   shouldSendChatMessage,
   shouldStartChatTimeGroup,
 } from "@/lib/chat-message";
-import { ArrowLeft, ArrowUp, Bell, BellOff, Download, LoaderCircle, MessageCircle, Mic, Paperclip, Reply, Search, Smile, Square, SquarePen, UserX, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bell, BellOff, Download, LoaderCircle, MessageCircle, Mic, Paperclip, Reply, Search, Smile, Square, SquarePen, X } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { InlineChatImage, roleLabels } from "./messages.shared";
@@ -68,10 +67,6 @@ export default function MessagesScreen() {
     setMessageQuery,
     searchResults,
     setSearchResults,
-    blockOpen,
-    setBlockOpen,
-    blockReason,
-    setBlockReason,
     bottomRef,
     messagePaneRef,
     selected,
@@ -84,7 +79,6 @@ export default function MessagesScreen() {
     sendMessage,
     searchConversation,
     toggleMute,
-    blockDirectUser,
     openAttachment,
   } = model;
 
@@ -290,7 +284,7 @@ export default function MessagesScreen() {
                   </div>
                 </div>
 
-                {/* Các công cụ thực tế: Tìm kiếm tin nhắn, Mute, Chặn */}
+                {/* Các công cụ thực tế: Tìm kiếm tin nhắn, Mute */}
                 <div className="flex items-center gap-1">
                   <form
                     className="hidden sm:flex items-center relative"
@@ -326,16 +320,6 @@ export default function MessagesScreen() {
                     ) : (
                       <Bell size={16} />
                     )}
-                  </button>
-
-                  <button
-                    aria-label="Chặn liên hệ"
-                    className="grid size-8 place-items-center rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-500 dark:text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                    onClick={() => setBlockOpen(true)}
-                    title="Chặn liên hệ riêng"
-                    type="button"
-                  >
-                    <UserX size={16} />
                   </button>
                 </div>
               </header>
@@ -753,35 +737,6 @@ export default function MessagesScreen() {
         </section>
       </div>
 
-      {/* Modal báo cáo tin nhắn */}
-
-      {/* Modal chặn người dùng */}
-      <Modal
-        open={blockOpen}
-        onClose={() => setBlockOpen(false)}
-        title="Chặn liên hệ riêng"
-        description="Sau khi chặn, hai bên sẽ không thể nhắn tin riêng 1-1 với nhau."
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void blockDirectUser(event)}
-        >
-          <Field label="Lý do (không bắt buộc)">
-            <textarea
-              className={inputClass}
-              maxLength={500}
-              onChange={(event) => setBlockReason(event.target.value)}
-              rows={3}
-              value={blockReason}
-              placeholder="Lý do chặn…"
-            />
-          </Field>
-          <Button type="submit" variant="danger">
-            <UserX size={15} />
-            Xác nhận chặn
-          </Button>
-        </form>
-      </Modal>
     </div>
   );
 }

@@ -73,17 +73,6 @@ interface ClassInstructorAssignment {
   role: InstructorRole;
   assignedAt: string;
 }
-interface ClassMemberHistory {
-  id: string;
-  memberId: string;
-  memberType: "INSTRUCTOR" | "LEARNER";
-  action: string;
-  role?: InstructorRole;
-  source?: string;
-  reason?: string;
-  actorId: string;
-  createdAt: string;
-}
 export interface ClassRoster {
   classId: string;
   instructors: Array<
@@ -99,7 +88,6 @@ export interface ClassRoster {
     removalReason?: string;
     removedAt?: string;
   }>;
-  history: ClassMemberHistory[];
 }
 export interface EnrollmentImportResult {
   userId: string;
@@ -126,16 +114,6 @@ interface AssignmentAttachment {
   createdAt: string;
   canPreview: boolean;
 }
-interface AssignmentGradeChange {
-  id: string;
-  action: "GRADED" | "CORRECTED";
-  submissionRevision: number;
-  actorId: string;
-  previousScore?: number;
-  nextScore: number;
-  reason?: string;
-  createdAt: string;
-}
 export interface AssignmentSubmission {
   id: string;
   assignmentId: string;
@@ -151,18 +129,9 @@ export interface AssignmentSubmission {
   rubricScores: Array<{ criterionId: string; score: number }>;
   feedback?: string;
   gradedAt?: string;
-  gradeHistory?: AssignmentGradeChange[];
-}
-export interface AssignmentChange {
-  id: string;
-  action: "DRAFT_UPDATED" | "PUBLISHED" | "DUE_DATE_EXTENDED" | "CLOSED";
-  actorId: string;
-  reason?: string;
-  fromVersion: number;
-  toVersion: number;
-  createdAt: string;
 }
 export interface Assignment {
+  hidden?: boolean;
   id: string;
   classId: string;
   classCode: string;
@@ -179,7 +148,6 @@ export interface Assignment {
   closeReason?: string;
   createdById: string;
   submission?: AssignmentSubmission;
-  changes?: AssignmentChange[];
   createdAt: string;
 }
 export interface AcademicCalendarEvent {
@@ -201,6 +169,29 @@ export interface ClassAnnouncement {
   authorName: string;
   publishedAt: string;
 }
+export interface GradebookAssessmentColumn {
+  id: string;
+  kind: "EXAM" | "ASSIGNMENT";
+  title: string;
+  maxScore: number;
+  dueAt?: string;
+}
+export interface GradebookAssessmentCell {
+  assessmentId: string;
+  kind: "EXAM" | "ASSIGNMENT";
+  score: number | null;
+  maxScore: number;
+  status: "GRADED" | "AWAITING_GRADE" | "IN_PROGRESS" | "NOT_SUBMITTED";
+  attemptCount?: number;
+}
+export interface AttachmentDocumentPreview {
+  kind: "html" | "text" | "unsupported";
+  fileName: string;
+  mimeType: string;
+  html?: string;
+  text?: string;
+  warnings: string[];
+}
 export interface GradebookRow {
   learnerId: string;
   learnerName: string;
@@ -210,8 +201,11 @@ export interface GradebookRow {
   assignmentEarned: number;
   assignmentPossible: number;
   totalPercent: number;
+  averageScore?: number | null;
   awaitingGrade: number;
   notSubmitted: number;
+  assessments?: GradebookAssessmentColumn[];
+  cells?: GradebookAssessmentCell[];
 }
 export interface GradingQueueGroup {
   id: string;
@@ -237,11 +231,9 @@ export interface GradingQueueGroup {
 
 export interface Material {
   id: string;
-  /** Rỗng khi là học liệu dùng chung theo môn, không thuộc lớp nào. */
-  classId: string | null;
+  classId: string;
   courseId?: string;
   ownerId: string;
-  editorIds?: string[];
   name: string;
   mimeType: string;
   sizeBytes: number;
@@ -249,7 +241,7 @@ export interface Material {
   tags: string[];
   version: number;
   visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
-  scope: "SHARED" | "CLASS";
+  scope: "CLASS";
   quarantinedAt?: string;
   quarantineReason?: string;
   createdAt: string;
@@ -288,6 +280,7 @@ export interface QuestionImportResult {
 }
 
 export interface Exam {
+  hidden?: boolean;
   id: string;
   classId: string;
   title: string;
@@ -461,49 +454,6 @@ export interface LearningNotification {
   readAt?: string;
   createdAt: string;
 }
-interface ModerationActionRecord {
-  id: string;
-  reportId: string;
-  actorId: string;
-  action:
-    | "CLAIM"
-    | "HIDE_CONTENT"
-    | "KEEP_CONTENT"
-    | "ESCALATE_ADMIN"
-    | "APPEAL";
-  reason: string;
-  previousStatus: ContentReport["status"];
-  nextStatus: ContentReport["status"];
-  createdAt: string;
-}
-export interface ContentReport {
-  id: string;
-  targetType: "TOPIC" | "POST";
-  targetId: string;
-  reporterId: string;
-  reason: string;
-  details: string;
-  status: "OPEN" | "IN_REVIEW" | "ESCALATED" | "RESOLVED" | "REJECTED";
-  resolution?: string;
-  assignedToId?: string;
-  escalationLevel: number;
-  resolvedAt?: string;
-  appealReason?: string;
-  appealedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  actions: ModerationActionRecord[];
-}
-export interface ModerationContext {
-  report: ContentReport;
-  classId: string;
-  topicTitle: string;
-  targetAuthorId: string;
-  targetBody: string;
-  surroundingPosts: Array<
-    Pick<ForumPost, "id" | "authorId" | "body" | "createdAt">
-  >;
-}
 interface RiskThresholds {
   scoreBelow: number;
   completionBelow: number;
@@ -567,27 +517,6 @@ export interface OperationalReport {
   timezone: string;
   metricDefinitions: Record<string, string>;
 }
-export interface ReportRun {
-  id: string;
-  reportType: "OPERATIONS";
-  definitionVersion: string;
-  timezone: string;
-  filters: { from: string; to: string };
-  result: OperationalReport;
-  requestedById: string;
-  createdAt: string;
-}
-export interface ReportExport {
-  id: string;
-  reportRunId: string;
-  format: "CSV";
-  status: "QUEUED" | "COMPLETED" | "FAILED" | "EXPIRED";
-  fileName: string;
-  sizeBytes?: number;
-  errorMessage?: string;
-  expiresAt: string;
-  createdAt: string;
-}
 export interface LiveSession {
   id: string;
   classId: string;
@@ -602,8 +531,6 @@ export interface LiveSession {
   timezone: string;
   changeReason?: string;
   cancellationReason?: string;
-  attendanceLockedAt?: string;
-  attendanceLockedById?: string;
   requestedProvider?: "GOOGLE_MEET" | "ZOOM" | "JITSI";
   fallbackUsed?: boolean;
   provisioningAttempts?: number;
@@ -611,31 +538,6 @@ export interface LiveSession {
   recordingReadyAt?: string;
   recordingExpiresAt?: string;
   recordingError?: string;
-}
-interface AttendanceRecord {
-  sessionId: string;
-  learnerId: string;
-  joinedAt?: string;
-  leftAt?: string;
-  attendedMinutes: number;
-  status: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
-  adjustmentReason?: string;
-  providerParticipantId?: string;
-}
-export interface AttendanceAppeal {
-  id: string;
-  sessionId: string;
-  learnerId: string;
-  reason: string;
-  status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED";
-  resolution?: string;
-  createdAt: string;
-}
-export interface AttendanceSessionReview {
-  session: LiveSession;
-  enrolledLearnerIds: string[];
-  records: AttendanceRecord[];
-  appeals: AttendanceAppeal[];
 }
 interface SupportAttachment {
   id: string;
@@ -754,4 +656,3 @@ export const K12_SUBJECTS = [
   "Khoa học tự nhiên",
   "Lịch sử và Địa lí",
 ];
-

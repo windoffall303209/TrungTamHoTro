@@ -73,7 +73,7 @@ describe("useClassDetailModel request lifecycle", () => {
       }
       if (path.endsWith("/capabilities")) return Promise.resolve(capabilities);
       if (path.endsWith("/roster")) {
-        return Promise.resolve({ instructors: [], enrollments: [], history: [] });
+        return Promise.resolve({ instructors: [], enrollments: [] });
       }
       if (path.endsWith("/closure-readiness")) return Promise.resolve({});
       if (path === "/manager/courses") return Promise.resolve([]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Trash2, UserPlus, UsersRound } from "lucide-react";
+import { Trash2, UserPlus, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
@@ -369,22 +369,6 @@ export default function ClassOperationsPage() {
                 </div>
               </div>
             </div>
-
-            {roster?.history.length ? (
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
-                  <History size={16} /> Lịch sử thay đổi gần đây
-                </h3>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {roster.history.slice(0, 6).map((item) => (
-                    <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-4 py-2.5 text-xs" key={item.id}>
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{item.memberId}</span> · {item.action}
-                      {item.reason ? ` — ${item.reason}` : ""}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </section>
         </main>
       </div>

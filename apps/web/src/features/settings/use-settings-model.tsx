@@ -30,10 +30,6 @@ export function useSettingsModel() {
 
   const [settings, setSettings] = useState<Settings | null>(null);
 
-  const [history, setHistory] = useState<Settings[]>([]);
-
-  const [effectiveAt, setEffectiveAt] = useState("");
-
   const [integrations, setIntegrations] = useState<Integration[]>([]);
 
   const [backups, setBackups] = useState<Backup[]>([]);
@@ -90,7 +86,7 @@ export function useSettingsModel() {
     const requestId = ++loadRequestId.current;
     if (!canConfigure) return;
     try {
-      const [a, b, c, d, e, f, g, h] = await Promise.all([
+      const [a, b, c, d, e, g, h] = await Promise.all([
         apiRequest<Settings>("/system/settings", {
           roleCode: session.roleCode,
         }),
@@ -102,9 +98,6 @@ export function useSettingsModel() {
           roleCode: session.roleCode,
         }),
         apiRequest<StorageOverview>("/system/storage-overview", {
-          roleCode: session.roleCode,
-        }),
-        apiRequest<Settings[]>("/system/settings/history", {
           roleCode: session.roleCode,
         }),
         apiRequest<AiProvider[]>("/system/ai-providers", {
@@ -120,7 +113,6 @@ export function useSettingsModel() {
       setBackups(c);
       setHealth(d);
       setStorage(e);
-      setHistory(f);
       setAiProviders(g);
       setModelCatalog(h);
     } catch (error) {
@@ -155,7 +147,6 @@ export function useSettingsModel() {
             centerName: settings.centerName,
             timezone: settings.timezone,
             locale: settings.locale,
-            retentionDays: settings.retentionDays,
             maxFileSizeMb: settings.maxFileSizeMb,
             storageQuotaMb: settings.storageQuotaMb,
             allowedMimeTypes: settings.allowedMimeTypes,
@@ -163,18 +154,10 @@ export function useSettingsModel() {
             maintenanceMode: settings.maintenanceMode,
             learnerEmailNotificationsEnabled:
               settings.learnerEmailNotificationsEnabled,
-            effectiveAt: effectiveAt
-              ? new Date(effectiveAt).toISOString()
-              : undefined,
           }),
         }),
       );
-      notify(
-        effectiveAt
-          ? "Đã lên lịch phiên bản cấu hình mới."
-          : "Đã phát hành phiên bản cấu hình mới.",
-      );
-      setEffectiveAt("");
+      notify("Đã lưu cấu hình hệ thống.");
       await load();
     } catch (error) {
       notify(
@@ -490,9 +473,6 @@ export function useSettingsModel() {
     canConfigure,
     settings,
     setSettings,
-    history,
-    effectiveAt,
-    setEffectiveAt,
     integrations,
     backups,
     health,

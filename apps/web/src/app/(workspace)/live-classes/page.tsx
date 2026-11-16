@@ -15,12 +15,18 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-  usePagination,
 } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
+import {
+  GOOGLE_MEET_URL_ERROR,
+  normalizeGoogleMeetUrlInput,
+  toLocalDateInputValue,
+  toLocalTimeInputValue,
+} from "@/features/class-detail/live-session-utils";
 import { hasPermission } from "@/lib/access-control";
 
 // Lấy mốc thời gian ngày thứ Hai đầu tuần từ một ngày bất kỳ
@@ -66,7 +72,16 @@ export default function LiveClassesPage() {
     ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
     hasPermission(session, "class:manage");
   const [items, setItems] = useState<LiveSession[]>([]);
-  const pagination = usePagination(items);
+  const pagination = useServerPagination(10);
+  const {
+    page: sessionPage,
+    displayPage: sessionDisplayPage,
+    pageSize: sessionPageSize,
+    totalItems: sessionTotalItems,
+    setPage: setSessionPage,
+    setPageSize: setSessionPageSize,
+    syncResponse: syncSessionPage,
+  } = pagination;
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(false);
@@ -81,6 +96,7 @@ export default function LiveClassesPage() {
     startsAt: "",
     endsAt: "",
     provider: "GOOGLE_MEET",
+    meetingUrl: "",
     reason: "",
   });
 
@@ -145,18 +161,48 @@ export default function LiveClassesPage() {
   const handleToday = () => {
     setCurrentDate(new Date());
   };
-  /** Nạp lớp và buổi trực tuyến theo phạm vi vai trò, đồng thời giữ bộ lọc hiện tại. */
+  /** Nạp lớp và buổi trực tuyến theo trang (hoặc cửa sổ lịch tuần/tháng với học viên và giảng viên). */
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!allowed || !mountedRef.current) return;
     const requestVersion = ++loadRequestVersion.current;
     setLoading(true);
     try {
-      const [sessions, classData] = await Promise.all([
-        apiRequest<LiveSession[]>("/sessions", { roleCode: session.roleCode, signal }),
+      const params = new URLSearchParams();
+      if (learner || instructor) {
+        let rangeStart: Date;
+        let rangeEnd: Date;
+        if (scheduleView === "week") {
+          rangeStart = new Date(currentMonday);
+          rangeStart.setHours(0, 0, 0, 0);
+          rangeEnd = new Date(weekDays[6] ?? currentMonday);
+          rangeEnd.setHours(23, 59, 59, 999);
+        } else {
+          rangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1, 0, 0, 0, 0);
+          rangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
+        }
+        params.set("page", "1");
+        params.set("pageSize", "100");
+        params.set("from", rangeStart.toISOString());
+        params.set("to", rangeEnd.toISOString());
+      } else {
+        params.set("page", String(sessionPage));
+        params.set("pageSize", String(sessionPageSize));
+      }
+      const [sessionsResult, classData] = await Promise.all([
+        apiRequest<PaginatedResponse<LiveSession> | LiveSession[]>(
+          `/sessions/page?${params.toString()}`,
+          { roleCode: session.roleCode, signal },
+        ),
         apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal }),
       ]);
       if (signal?.aborted || !mountedRef.current || requestVersion !== loadRequestVersion.current) return;
-      setItems(sessions);
+      if (Array.isArray(sessionsResult)) {
+        setItems(sessionsResult);
+        syncSessionPage({ total: sessionsResult.length, page: 1, totalPages: 1 });
+      } else {
+        setItems(Array.isArray(sessionsResult.items) ? sessionsResult.items : []);
+        syncSessionPage(sessionsResult);
+      }
       setClasses(classData);
     } catch (error) {
       if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) {
@@ -165,7 +211,20 @@ export default function LiveClassesPage() {
     } finally {
       if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) setLoading(false);
     }
-  }, [allowed, notify, session.roleCode]);
+  }, [
+    allowed,
+    currentDate,
+    currentMonday,
+    instructor,
+    learner,
+    notify,
+    scheduleView,
+    session.roleCode,
+    sessionPage,
+    sessionPageSize,
+    syncSessionPage,
+    weekDays,
+  ]);
   useEffect(() => {
     mountedRef.current = true;
     const controller = new AbortController();
@@ -199,9 +258,14 @@ export default function LiveClassesPage() {
     const timer = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  /** Tạo buổi học trực tuyến mới sau khi chuẩn hóa mốc thời gian sang ISO. */
+  /** Tạo buổi học trực tuyến mới sau khi kiểm tra link Google Meet và chuẩn hóa mốc thời gian sang ISO. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
+    const normalizedMeetUrl = normalizeGoogleMeetUrlInput(form.meetingUrl);
+    if (form.provider === "GOOGLE_MEET" && !normalizedMeetUrl) {
+      notify(GOOGLE_MEET_URL_ERROR, "error");
+      return;
+    }
     try {
       await apiRequest(
         manager
@@ -215,6 +279,7 @@ export default function LiveClassesPage() {
             startsAt: new Date(form.startsAt).toISOString(),
             endsAt: new Date(form.endsAt).toISOString(),
             provider: form.provider,
+            ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
           }),
         },
       );
@@ -228,15 +293,18 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Chuẩn hóa dữ liệu buổi học vào input datetime-local và mở editor đổi lịch. */
+  /** Chuẩn hóa dữ liệu buổi học vào input datetime-local theo giờ địa phương và mở editor đổi lịch. */
   const openEdit = (item: LiveSession) => {
+    const startDate = new Date(item.startsAt);
+    const endDate = new Date(item.endsAt);
     setEditing(item);
     setForm({
       classId: item.classId,
       title: item.title,
-      startsAt: new Date(item.startsAt).toISOString().slice(0, 16),
-      endsAt: new Date(item.endsAt).toISOString().slice(0, 16),
+      startsAt: `${toLocalDateInputValue(startDate)}T${toLocalTimeInputValue(startDate)}`,
+      endsAt: `${toLocalDateInputValue(endDate)}T${toLocalTimeInputValue(endDate)}`,
       provider: item.provider,
+      meetingUrl: item.hostUrl || item.attendeeUrl || "",
       reason: "",
     });
     setOpen(true);
@@ -245,18 +313,29 @@ export default function LiveClassesPage() {
   const update = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing) return;
+    const normalizedMeetUrl = normalizeGoogleMeetUrlInput(form.meetingUrl);
+    if (form.provider === "GOOGLE_MEET" && !normalizedMeetUrl) {
+      notify(GOOGLE_MEET_URL_ERROR, "error");
+      return;
+    }
     try {
-      await apiRequest(`/manager/sessions/${editing.id}`, {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          title: form.title,
-          startsAt: new Date(form.startsAt).toISOString(),
-          endsAt: new Date(form.endsAt).toISOString(),
-          provider: form.provider,
-          reason: form.reason,
-        }),
-      });
+      await apiRequest(
+        manager
+          ? `/manager/sessions/${editing.id}`
+          : `/instructor/sessions/${editing.id}`,
+        {
+          method: "PATCH",
+          roleCode: session.roleCode,
+          body: JSON.stringify({
+            title: form.title,
+            startsAt: new Date(form.startsAt).toISOString(),
+            endsAt: new Date(form.endsAt).toISOString(),
+            provider: form.provider,
+            ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
+            reason: form.reason,
+          }),
+        },
+      );
       notify("Đã đổi lịch và gửi thông báo cho lớp.");
       setOpen(false);
       setEditing(null);
@@ -273,11 +352,16 @@ export default function LiveClassesPage() {
     const reason = window.prompt("Lý do hủy buổi học");
     if (!reason) return;
     try {
-      await apiRequest(`/manager/sessions/${item.id}/cancel`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ reason }),
-      });
+      await apiRequest(
+        manager
+          ? `/manager/sessions/${item.id}/cancel`
+          : `/instructor/sessions/${item.id}/cancel`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ reason }),
+        },
+      );
       notify("Đã hủy buổi học và gửi thông báo.");
       await load();
     } catch (error) {
@@ -307,21 +391,31 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Ghi nhận tham gia và mở liên kết phòng học được máy chủ cấp. */
+  /** Ghi nhận tham gia theo vai trò và mở liên kết phòng học được máy chủ cấp. */
   const join = async (item: LiveSession) => {
+    const meetingWindow = window.open("", "_blank");
+    if (!meetingWindow) {
+      notify("Trình duyệt đã chặn cửa sổ phòng học.", "error");
+      return;
+    }
+    meetingWindow.opener = null;
     try {
+      const endpoint = learner
+        ? `/learner/sessions/${item.id}/join`
+        : `/sessions/${item.id}/join`;
       const result = await apiRequest<{
         attendeeUrl: string;
         joinedAt: string;
-      }>(`/learner/sessions/${item.id}/join`, {
+      }>(endpoint, {
         method: "POST",
         roleCode: session.roleCode,
       });
-      window.open(result.attendeeUrl, "_blank", "noopener,noreferrer");
+      meetingWindow.location.replace(result.attendeeUrl);
       notify(
         `Đã mở liên kết phòng học lúc ${new Date(result.joinedAt).toLocaleTimeString(activeLocale())}.`,
       );
     } catch (error) {
+      meetingWindow.close();
       notify(
         error instanceof Error ? error.message : "Chưa thể vào lớp.",
         "error",
@@ -352,6 +446,7 @@ export default function LiveClassesPage() {
                     startsAt: "",
                     endsAt: "",
                     provider: "GOOGLE_MEET",
+                    meetingUrl: "",
                     reason: "",
                   });
                   setOpen(true);
@@ -647,6 +742,20 @@ export default function LiveClassesPage() {
                         Kết thúc
                       </Button>
                     ) : null}
+                    {instructor &&
+                    item.status === "SCHEDULED" &&
+                    new Date(item.startsAt) > new Date() ? (
+                      <>
+                        <Button onClick={() => openEdit(item)} variant="secondary">
+                          <Pencil size={15} />
+                          Đổi lịch
+                        </Button>
+                        <Button onClick={() => void cancel(item)} variant="ghost">
+                          <Trash2 size={15} />
+                          Hủy
+                        </Button>
+                      </>
+                    ) : null}
                     {instructor ? (
                       <Button onClick={() => void join(item)} variant="secondary">
                         Vào phòng <ExternalLink size={15} />
@@ -675,7 +784,7 @@ export default function LiveClassesPage() {
         ) : (
           /* CHẾ ĐỘ DẠNG THÁNG (DANH SÁCH CHI TIẾT) HOẶC VIEW CHO QUẢN TRỊ / GIẢNG VIÊN */
           <div className="space-y-4">
-            {pagination.pageItems.map((item) => (
+            {items.map((item) => (
               <article
                 className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
                 id={`session-${item.id}`}
@@ -737,7 +846,7 @@ export default function LiveClassesPage() {
                       Kết thúc
                     </Button>
                   ) : null}
-                  {manager &&
+                  {(manager || instructor) &&
                   item.status === "SCHEDULED" &&
                   new Date(item.startsAt) > new Date() ? (
                     <>
@@ -750,6 +859,12 @@ export default function LiveClassesPage() {
                         Hủy
                       </Button>
                     </>
+                  ) : null}
+                  {(manager || instructor) &&
+                  (item.status === "SCHEDULED" || item.status === "LIVE") ? (
+                    <Button onClick={() => void join(item)} variant="secondary">
+                      Vào phòng <ExternalLink size={15} />
+                    </Button>
                   ) : null}
                   { learner &&
                     (item.status === "SCHEDULED" || item.status === "LIVE") ? (
@@ -774,14 +889,16 @@ export default function LiveClassesPage() {
           </div>
         )}
       </SectionState>
-      <Pagination
-        itemLabel="buổi học trực tuyến"
-        onPageChange={pagination.setPage}
-        onPageSizeChange={pagination.setPageSize}
-        page={pagination.page}
-        pageSize={pagination.pageSize}
-        totalItems={pagination.totalItems}
-      />
+      {!(learner || instructor) ? (
+        <Pagination
+          itemLabel="buổi học trực tuyến"
+          onPageChange={setSessionPage}
+          onPageSizeChange={setSessionPageSize}
+          page={sessionDisplayPage}
+          pageSize={sessionPageSize}
+          totalItems={sessionTotalItems}
+        />
+      ) : null}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -834,16 +951,15 @@ export default function LiveClassesPage() {
               />
             </Field>
           </div>
-          <Field label="Nền tảng">
-            <select
+          <Field label="Link Google Meet">
+            <input
               className={inputClass}
-              value={form.provider}
-              onChange={(e) => setForm({ ...form, provider: e.target.value })}
-            >
-              <option value="GOOGLE_MEET">Google Meet</option>
-              <option value="ZOOM">Zoom</option>
-              <option value="JITSI">Jitsi</option>
-            </select>
+              placeholder="https://meet.google.com/abc-defg-hij"
+              required={form.provider === "GOOGLE_MEET"}
+              type="url"
+              value={form.meetingUrl}
+              onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })}
+            />
           </Field>
           {editing ? (
             <Field label="Lý do đổi lịch">

@@ -15,6 +15,7 @@ export function proxy(request: NextRequest) {
     `img-src 'self' ${apiOrigin} https: data: blob:`,
     "font-src 'self' data:",
     `media-src 'self' ${apiOrigin} https: blob:`,
+    "frame-src 'self' blob: https://www.youtube.com https://www.facebook.com https://drive.google.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

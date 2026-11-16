@@ -6,7 +6,8 @@ import { Clock3, ExternalLink, History, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
-import { Button, Pagination, StatusBadge, usePagination } from "@/shared/ui/ui";
+import { Button, Pagination, StatusBadge } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
 import type { LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -22,7 +23,16 @@ export default function LearningHistoryPage() {
   const [summaries, setSummaries] = useState<Record<string, Summary>>({});
   const mounted = useRef(true);
   const summaryRequestVersions = useRef(new Map<string, number>());
-  const pagination = usePagination(items);
+  const pagination = useServerPagination(10);
+  const {
+    page: sessionPage,
+    displayPage: sessionDisplayPage,
+    pageSize: sessionPageSize,
+    totalItems: sessionTotalItems,
+    setPage: setSessionPage,
+    setPageSize: setSessionPageSize,
+    syncResponse: syncSessionPage,
+  } = pagination;
 
   // Ngăn yêu cầu tải chi tiết cập nhật giao diện sau khi người dùng rời trang.
   useEffect(() => {
@@ -30,21 +40,32 @@ export default function LearningHistoryPage() {
     return () => { mounted.current = false; };
   }, []);
 
-  /** Nạp lịch sử các buổi học thuộc phạm vi học viên hiện tại. */
+  /** Nạp lịch sử các buổi học phân trang trực tiếp từ DB thuộc phạm vi học viên hiện tại. */
   const load = useCallback(async (signal?: AbortSignal) => {
     if (session.roleCode !== "LEARNER") return;
     try {
-      const data = await apiRequest<LiveSession[]>("/sessions", {
-        roleCode: session.roleCode,
-        signal,
-      });
-      if (!signal?.aborted && mounted.current) setItems(data);
+      const result = await apiRequest<PaginatedResponse<LiveSession> | LiveSession[]>(
+        `/sessions/page?page=${sessionPage}&pageSize=${sessionPageSize}`,
+        {
+          roleCode: session.roleCode,
+          signal,
+        },
+      );
+      if (!signal?.aborted && mounted.current) {
+        if (Array.isArray(result)) {
+          setItems(result);
+          syncSessionPage({ total: result.length, page: 1, totalPages: 1 });
+        } else {
+          setItems(Array.isArray(result.items) ? result.items : []);
+          syncSessionPage(result);
+        }
+      }
     } catch (error) {
       if (!signal?.aborted && mounted.current) {
         notify(error instanceof Error ? error.message : "Không tải được lịch sử học tập.", "error");
       }
     }
-  }, [notify, session.roleCode]);
+  }, [notify, session.roleCode, sessionPage, sessionPageSize, syncSessionPage]);
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => void load(controller.signal), 0);
@@ -94,7 +115,7 @@ export default function LearningHistoryPage() {
         description="Xem lại các buổi học và bản ghi được cấp quyền."
       />
       <div className="space-y-3 mt-3.5">
-        {items.length ? pagination.pageItems.map((item) => {
+        {items.length ? items.map((item) => {
           const summary = summaries[item.id];
           return (
             <article
@@ -149,7 +170,7 @@ export default function LearningHistoryPage() {
           );
         }) : <p className="empty-copy">Chưa có buổi học nào trong lịch sử.</p>}
       </div>
-      <Pagination itemLabel="buổi học" onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} page={pagination.page} pageSize={pagination.pageSize} totalItems={pagination.totalItems} />
+      <Pagination itemLabel="buổi học" onPageChange={setSessionPage} onPageSizeChange={setSessionPageSize} page={sessionDisplayPage} pageSize={sessionPageSize} totalItems={sessionTotalItems} />
 
     </div>
   );

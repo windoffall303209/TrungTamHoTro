@@ -33,8 +33,8 @@ test("vận hành chỉ tải dữ liệu của nhóm đang xem", async ({ page 
     if (url.pathname.startsWith("/api/v1/system/") && url.pathname !== "/api/v1/system/health-overview") paths.push(url.pathname);
   });
   await gotoWorkspace(page, "/admin/operations");
-  await expect.poll(() => paths.length).toBe(2);
-  expect(paths.sort()).toEqual(["/api/v1/system/alerts", "/api/v1/system/audit"]);
+  await expect.poll(() => paths.length).toBe(1);
+  expect(paths).toEqual(["/api/v1/system/audit/page"]);
   await page.getByRole("button", { name: /Dữ liệu.*Sao lưu/ }).click();
   await expect.poll(() => paths.includes("/api/v1/system/backups")).toBe(true);
 });

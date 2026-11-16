@@ -6,7 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
-import { Button, Field, inputClass, Modal, Pagination, usePagination } from "@/shared/ui/ui";
+import { Button, Field, inputClass, Modal, Pagination } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { useMaterialSearch } from "@/features/materials/material-search";
@@ -14,7 +15,7 @@ import type { ForumPost, ForumTopic, LearningClass } from "@/lib/learning-types"
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { hasPermission } from "@/lib/access-control";
-import { filterForumTopics, formatAuthorName, formatRelativeTime, getAvatarPalette, getInitials } from "./forum-helpers";
+import { formatAuthorName, formatRelativeTime, getAvatarPalette, getInitials } from "./forum-helpers";
 
 // Diễn đàn trao đổi dạng Feed mạng xã hội: danh sách tổng quan, bấm vào để xem chi tiết các bình luận.
 export default function ForumPage() {
@@ -32,10 +33,36 @@ export default function ForumPage() {
 
   const [topics, setTopics] = useState<ForumTopic[]>([]);
   const [posts, setPosts] = useState<ForumPost[]>([]);
+  const [totalPostsCount, setTotalPostsCount] = useState(0);
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selected, setSelected] = useState<ForumTopic | null>(null);
   const postsRequestId = useRef(0);
   const forumRequestId = useRef(0);
+  const classesRequestId = useRef(0);
+  const autoOpenedTopicIdRef = useRef<string | null>(null);
+
+  const topicPagination = useServerPagination(10);
+  const {
+    page: topicPage,
+    displayPage: topicDisplayPage,
+    pageSize: topicPageSize,
+    totalItems: topicTotalItems,
+    setPage: setTopicPage,
+    setPageSize: setTopicPageSize,
+    resetPage: resetTopicPage,
+    syncResponse: syncTopicPage,
+  } = topicPagination;
+
+  const postPagination = useServerPagination(15);
+  const {
+    displayPage: postDisplayPage,
+    pageSize: postPageSize,
+    totalItems: postRootTotal,
+    setPage: setPostPage,
+    setPageSize: setPostPageSize,
+    resetPage: resetPostPage,
+    syncResponse: syncPostPage,
+  } = postPagination;
 
   // Bộ lọc và tìm kiếm Feed
   const [classFilter, setClassFilter] = useState<string>("");
@@ -136,63 +163,125 @@ export default function ForumPage() {
     }
   };
 
-  // Lọc bài viết theo lớp, từ khóa tìm kiếm và tab chuyên mục.
-  const filteredTopics = useMemo(
-    () => filterForumTopics(topics, classFilter, topicTab, topicSearch, session.user.id),
-    [topics, classFilter, topicTab, topicSearch, session.user.id],
-  );
-
-  const topicPagination = usePagination(filteredTopics, 10);
-
-  // Mở chi tiết một bài viết để đọc và bình luận.
-  const choose = useCallback(
-    async (topic: ForumTopic) => {
+  /** Nạp bình luận gốc phân trang cùng các phản hồi trực tiếp của chủ đề đang mở. */
+  const loadPostsPage = useCallback(
+    async (topicId: string, targetPage: number, targetPageSize: number) => {
       const requestId = ++postsRequestId.current;
-      setSelected(topic);
-      setPosts([]);
-      setAttachmentIds([]);
-      setMentionedUserIds([]);
-      setReplyTo(null);
-      setShowAttachDrawer(false);
-      setShowMentionDrawer(false);
       try {
-        const topicPosts = await apiRequest<ForumPost[]>(`/forum/topics/${topic.id}/posts`, {
+        const result = await apiRequest<
+          (PaginatedResponse<ForumPost> & { totalPosts?: number }) | ForumPost[]
+        >(`/forum/topics/${topicId}/posts/page?page=${targetPage}&pageSize=${targetPageSize}`, {
           roleCode: session.roleCode,
         });
-        if (requestId === postsRequestId.current) setPosts(topicPosts);
+        if (requestId !== postsRequestId.current) return;
+        if (Array.isArray(result)) {
+          setPosts(result);
+          setTotalPostsCount(result.length);
+          syncPostPage({ total: result.length, page: 1, totalPages: 1 });
+        } else {
+          const items = Array.isArray(result.items) ? result.items : [];
+          setPosts(items);
+          setTotalPostsCount(
+            typeof result.totalPosts === "number" ? result.totalPosts : items.length,
+          );
+          syncPostPage(result);
+        }
       } catch (error) {
         if (requestId === postsRequestId.current) {
           notify(error instanceof Error ? error.message : "Không tải được thảo luận.", "error");
         }
       }
     },
-    [notify, session.roleCode],
+    [notify, session.roleCode, syncPostPage],
   );
 
-  // Nạp toàn bộ dữ liệu diễn đàn từ máy chủ.
-  const load = useCallback(async () => {
-    if (!allowed) return;
-    const requestId = ++forumRequestId.current;
-    setLoading(true);
-    try {
-      const [topicData, classData] = await Promise.all([
-        apiRequest<ForumTopic[]>("/forum/topics", { roleCode: session.roleCode }),
-        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
-      ]);
-      if (requestId !== forumRequestId.current) return;
-      setTopics(topicData);
-      setClasses(classData);
+  // Mở chi tiết một bài viết để đọc và bình luận.
+  const choose = useCallback(
+    async (topic: ForumTopic) => {
+      setSelected(topic);
+      setPosts([]);
+      setTotalPostsCount(0);
+      resetPostPage();
+      setAttachmentIds([]);
+      setMentionedUserIds([]);
+      setReplyTo(null);
+      setShowAttachDrawer(false);
+      setShowMentionDrawer(false);
+      await loadPostsPage(topic.id, 1, postPageSize);
+    },
+    [loadPostsPage, postPageSize, resetPostPage],
+  );
 
+  /** Chuyển trang danh sách bình luận gốc của chủ đề đang xem. */
+  const handlePostPageChange = (nextPage: number) => {
+    setPostPage(nextPage);
+    if (selected) void loadPostsPage(selected.id, nextPage, postPageSize);
+  };
+
+  /** Đổi số bình luận gốc trên mỗi trang và quay về trang đầu. */
+  const handlePostPageSizeChange = (nextSize: number) => {
+    setPostPageSize(nextSize);
+    if (selected) void loadPostsPage(selected.id, 1, nextSize);
+  };
+
+  /** Nạp danh sách lớp học để dựng bộ lọc và form đăng bài. */
+  const loadClasses = useCallback(async () => {
+    if (!allowed) return;
+    const requestId = ++classesRequestId.current;
+    try {
+      const classData = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
+      if (requestId !== classesRequestId.current) return;
+      setClasses(classData);
       const requestedClassId = searchParams.get("classId");
       if (requestedClassId && classData.some((item) => item.id === requestedClassId)) {
         setForm((current) => ({ ...current, classId: requestedClassId }));
         setClassFilter(requestedClassId);
       }
+    } catch {
+      // Danh sách lớp học phụ trợ bộ lọc; giữ im lặng nếu tải chủ đề vẫn chạy độc lập.
+    }
+  }, [allowed, searchParams, session.roleCode]);
+
+  // Nạp chủ đề thảo luận phân trang trực tiếp từ DB theo bộ lọc hiện tại.
+  const load = useCallback(async () => {
+    if (!allowed) return;
+    const requestId = ++forumRequestId.current;
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(topicPage),
+        pageSize: String(topicPageSize),
+      });
+      if (classFilter) params.set("classId", classFilter);
+      if (topicTab === "pinned") params.set("pinnedOnly", "true");
+      if (topicTab === "mine") params.set("mineOnly", "true");
+      const trimmedSearch = topicSearch.trim();
+      if (trimmedSearch) params.set("query", trimmedSearch);
+
+      const topicResult = await apiRequest<PaginatedResponse<ForumTopic> | ForumTopic[]>(
+        `/forum/topics/page?${params.toString()}`,
+        { roleCode: session.roleCode },
+      );
+      if (requestId !== forumRequestId.current) return;
+      const topicItems = Array.isArray(topicResult)
+        ? topicResult
+        : Array.isArray(topicResult.items)
+          ? topicResult.items
+          : [];
+      setTopics(topicItems);
+      syncTopicPage(
+        Array.isArray(topicResult)
+          ? { total: topicItems.length, page: 1, totalPages: 1 }
+          : topicResult,
+      );
 
       const requestedTopicId = searchParams.get("topicId");
-      if (requestedTopicId) {
-        const found = topicData.find((t) => t.id === requestedTopicId);
-        if (found) void choose(found);
+      if (requestedTopicId && autoOpenedTopicIdRef.current !== requestedTopicId) {
+        const found = topicItems.find((t) => t.id === requestedTopicId);
+        if (found) {
+          autoOpenedTopicIdRef.current = requestedTopicId;
+          void choose(found);
+        }
       }
     } catch (error) {
       if (requestId === forumRequestId.current) {
@@ -201,7 +290,24 @@ export default function ForumPage() {
     } finally {
       if (requestId === forumRequestId.current) setLoading(false);
     }
-  }, [allowed, choose, notify, searchParams, session.roleCode]);
+  }, [
+    allowed,
+    choose,
+    classFilter,
+    notify,
+    searchParams,
+    session.roleCode,
+    syncTopicPage,
+    topicPage,
+    topicPageSize,
+    topicSearch,
+    topicTab,
+  ]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadClasses(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadClasses]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -211,6 +317,7 @@ export default function ForumPage() {
   useEffect(() => () => {
     postsRequestId.current += 1;
     forumRequestId.current += 1;
+    classesRequestId.current += 1;
   }, []);
 
   // Quay lại màn hình Feed tổng quan.
@@ -278,7 +385,7 @@ export default function ForumPage() {
       setShowAttachDrawer(false);
       setShowMentionDrawer(false);
       notify(replyTo ? "Đã gửi phản hồi." : "Đã gửi bình luận.");
-      await choose(selected);
+      await loadPostsPage(selected.id, postDisplayPage, postPageSize);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không gửi được bình luận.", "error");
     }
@@ -297,7 +404,7 @@ export default function ForumPage() {
       setEditingPost(null);
       setEditBody("");
       notify("Đã cập nhật bình luận.");
-      await choose(selected);
+      await loadPostsPage(selected.id, postDisplayPage, postPageSize);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không sửa được bình luận.", "error");
     }
@@ -312,7 +419,7 @@ export default function ForumPage() {
         roleCode: session.roleCode,
       });
       notify("Đã xóa bình luận.");
-      await choose(selected);
+      await loadPostsPage(selected.id, postDisplayPage, postPageSize);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không xóa được bình luận.", "error");
     }
@@ -360,8 +467,6 @@ export default function ForumPage() {
     const members = [...(selectedClass.learnerIds ?? []), ...(selectedClass.instructorIds ?? [])];
     return Array.from(new Set(members)).filter((id) => id !== session.user.id);
   }, [selectedClass, session.user.id]);
-  const pinnedTopicsCount = topics.filter((t) => t.isPinned).length;
-  const myTopicsCount = topics.filter((t) => t.authorId === session.user.id).length;
 
   if (!allowed) return <AccessDenied />;
 
@@ -656,7 +761,7 @@ export default function ForumPage() {
           <section aria-label="Bình luận thảo luận" className="space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                {t("Bình luận")} ({posts.length})
+                {t("Bình luận")} ({totalPostsCount})
               </h2>
             </div>
 
@@ -827,6 +932,16 @@ export default function ForumPage() {
                 })}
               </div>
             )}
+
+            <Pagination
+              className="mt-4"
+              itemLabel="bình luận gốc"
+              onPageChange={handlePostPageChange}
+              onPageSizeChange={handlePostPageSizeChange}
+              page={postDisplayPage}
+              pageSize={postPageSize}
+              totalItems={postRootTotal}
+            />
           </section>
         </div>
       ) : (
@@ -977,13 +1092,13 @@ export default function ForumPage() {
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                {t("Tất cả bài viết")} ({topics.length})
+                {t("Tất cả bài viết")}{topicTab === "all" ? ` (${topicTotalItems})` : ""}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setTopicTab("pinned");
-                  topicPagination.resetPage();
+                  resetTopicPage();
                 }}
                 className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   topicTab === "pinned"
@@ -992,13 +1107,13 @@ export default function ForumPage() {
                 }`}
               >
                 <Pin size={12} />
-                {t("Bài ghim")} ({pinnedTopicsCount})
+                {t("Bài ghim")}{topicTab === "pinned" ? ` (${topicTotalItems})` : ""}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setTopicTab("mine");
-                  topicPagination.resetPage();
+                  resetTopicPage();
                 }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   topicTab === "mine"
@@ -1006,7 +1121,7 @@ export default function ForumPage() {
                     : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
                 }`}
               >
-                {t("Bài của tôi")} ({myTopicsCount})
+                {t("Bài của tôi")}{topicTab === "mine" ? ` (${topicTotalItems})` : ""}
               </button>
             </div>
 
@@ -1017,7 +1132,7 @@ export default function ForumPage() {
                 value={classFilter}
                 onChange={(e) => {
                   setClassFilter(e.target.value);
-                  topicPagination.resetPage();
+                  resetTopicPage();
                 }}
               >
                 <option value="">{t("Tất cả các lớp")}</option>
@@ -1036,12 +1151,15 @@ export default function ForumPage() {
                   value={topicSearch}
                   onChange={(e) => {
                     setTopicSearch(e.target.value);
-                    topicPagination.resetPage();
+                    resetTopicPage();
                   }}
                 />
                 {topicSearch ? (
                   <button
-                    onClick={() => setTopicSearch("")}
+                    onClick={() => {
+                      setTopicSearch("");
+                      resetTopicPage();
+                    }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                     type="button"
                   >
@@ -1055,12 +1173,12 @@ export default function ForumPage() {
           {/* DANH SÁCH BÀI VIẾT (TIMELINE FEED) */}
           <SectionState
             loading={loading}
-            empty={filteredTopics.length === 0}
+            empty={topics.length === 0}
             emptyTitle="Chưa có bài viết nào phù hợp"
             emptyDescription="Hãy đăng bài viết đầu tiên hoặc thay đổi bộ lọc tìm kiếm."
           >
             <div className="space-y-4">
-              {topicPagination.pageItems.map((topic) => {
+              {topics.map((topic) => {
                 const topicClass = classes.find((c) => c.id === topic.classId);
                 const isExpanded = expandedPostIds.has(topic.id);
                 const isLong = topic.body.length > 220 || topic.body.split("\n").length > 3;
@@ -1212,11 +1330,11 @@ export default function ForumPage() {
             <Pagination
               className="mt-6"
               itemLabel="bài viết"
-              onPageChange={topicPagination.setPage}
-              onPageSizeChange={topicPagination.setPageSize}
-              page={topicPagination.page}
-              pageSize={topicPagination.pageSize}
-              totalItems={topicPagination.totalItems}
+              onPageChange={setTopicPage}
+              onPageSizeChange={setTopicPageSize}
+              page={topicDisplayPage}
+              pageSize={topicPageSize}
+              totalItems={topicTotalItems}
             />
           </SectionState>
         </div>

@@ -40,7 +40,7 @@ function deferred<T>() {
 function makeRoster(id: string): ClassRoster {
   return {
     classId: id, instructors: [{ instructorId: `instructor-${id}`, role: "PRIMARY", assignedAt: "2026-10-31T00:00:00Z", displayName: `Instructor ${id}` }],
-    enrollments: [], history: [],
+    enrollments: [],
   };
 }
 

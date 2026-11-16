@@ -46,13 +46,15 @@ describe("ForumPage topic request lifecycle", () => {
     apiMock.mockReset();
     notifyMock.mockReset();
     apiMock.mockImplementation((path: string) => {
-      if (path === "/forum/topics") return Promise.resolve(topics);
+      if (path.startsWith("/forum/topics/page?")) {
+        return Promise.resolve({ items: topics, total: topics.length, page: 1, pageSize: 10, totalPages: 1 });
+      }
       if (path === "/classes") return Promise.resolve([]);
-      if (path === "/forum/topics/a/posts") return new Promise<ForumPost[]>((resolve, reject) => {
+      if (path.startsWith("/forum/topics/a/posts/page?")) return new Promise<ForumPost[]>((resolve, reject) => {
         resolveA = resolve;
         rejectA = reject;
       });
-      if (path === "/forum/topics/b/posts") return new Promise<ForumPost[]>((resolve) => { resolveB = resolve; });
+      if (path.startsWith("/forum/topics/b/posts/page?")) return new Promise<ForumPost[]>((resolve) => { resolveB = resolve; });
       throw new Error(`Unexpected request: ${path}`);
     });
   });
@@ -119,5 +121,38 @@ describe("ForumPage topic request lifecycle", () => {
     fireEvent.click(await screen.findByText("Topic A"));
     await act(async () => { resolveA([makePost("a")]); });
     expect(screen.getByText(/Đã thích/)).toBeInTheDocument();
+  });
+
+  it("chuyển trang danh sách chủ đề và phân trang bình luận gốc từ API", async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/classes") return Promise.resolve([]);
+      if (path.startsWith("/forum/topics/page?")) {
+        const page = Number(new URLSearchParams(path.split("?")[1] ?? "").get("page") ?? "1");
+        const slice = page === 2 ? [{ ...topics[1]!, title: "Topic Page 2" }] : [{ ...topics[0]!, title: "Topic Page 1" }];
+        return Promise.resolve({ items: slice, total: 12, page, pageSize: 10, totalPages: 2 });
+      }
+      if (path.startsWith("/forum/topics/a/posts/page?")) {
+        const page = Number(new URLSearchParams(path.split("?")[1] ?? "").get("page") ?? "1");
+        return Promise.resolve({
+          items: [{ ...makePost("a"), id: `post-page-${page}`, body: `Comment Page ${page}` }],
+          total: 20,
+          totalPosts: 20,
+          page,
+          pageSize: 15,
+          totalPages: 2,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<ForumPage />);
+    await screen.findByText("Topic Page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Topic Page 2");
+    fireEvent.click(screen.getByRole("button", { name: "Trang trước" }));
+    fireEvent.click(await screen.findByText("Topic Page 1"));
+    await screen.findByText("Comment Page 1");
+    fireEvent.click(screen.getByRole("button", { name: "Trang sau" }));
+    await screen.findByText("Comment Page 2");
   });
 });

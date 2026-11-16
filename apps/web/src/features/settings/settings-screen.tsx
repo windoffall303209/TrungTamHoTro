@@ -31,9 +31,6 @@ export default function SettingsScreen() {
     canConfigure,
     settings,
     setSettings,
-    history,
-    effectiveAt,
-    setEffectiveAt,
     integrations,
     backups,
     health,
@@ -124,11 +121,9 @@ export default function SettingsScreen() {
                         ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật`
                         : item.id === "backups"
                           ? `${backups.length} bản sao`
-                          : item.id === "history"
-                            ? `${history.length} phiên bản`
-                            : settings
-                              ? `Phiên bản ${settings.version}`
-                              : "Đang tải";
+                          : settings
+                            ? `Phiên bản ${settings.version}`
+                            : "Đang tải";
 
             return (
               <button
@@ -356,7 +351,7 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       <div
-        className={`${["general", "history", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}
+        className={`${["general", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}
       >
         <section
           className={`${activeSection === "general" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
@@ -398,22 +393,7 @@ export default function SettingsScreen() {
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Lưu dữ liệu (ngày)">
-                  <input
-                    className={inputClass}
-                    min={30}
-                    max={3650}
-                    type="number"
-                    value={settings.retentionDays}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        retentionDays: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tệp tối đa (MB)">
                   <input
                     className={inputClass}
@@ -487,22 +467,13 @@ export default function SettingsScreen() {
                   type="checkbox"
                 />
               </label>
-              <Field label="Thời điểm hiệu lực — để trống nếu áp dụng ngay">
-                <input
-                  className={inputClass}
-                  min={new Date().toISOString().slice(0, 16)}
-                  type="datetime-local"
-                  value={effectiveAt}
-                  onChange={(event) => setEffectiveAt(event.target.value)}
-                />
-              </Field>
               <div className="rounded-xl border border-sky-100 bg-sky-50 p-4 text-xs text-sky-900">
                 <p className="font-extrabold">
-                  Phiên bản đang xem: v{settings.version}
+                  Phiên bản hiện tại: v{settings.version}
                 </p>
                 <p className="mt-1">
-                  Hiệu lực{" "}
-                  {new Date(settings.effectiveAt).toLocaleString(
+                  Cập nhật lần cuối{" "}
+                  {new Date(settings.updatedAt).toLocaleString(
                     activeLocale(),
                   )}{" "}
                   · cập nhật bởi {settings.updatedBy}
@@ -510,48 +481,12 @@ export default function SettingsScreen() {
               </div>
               <Button loading={saving} type="submit">
                 <Save size={16} />
-                Phát hành cấu hình
+                Lưu cấu hình
               </Button>
             </form>
           ) : (
             <div className="mt-6 h-80 animate-pulse rounded-xl bg-slate-100" />
           )}
-        </section>
-        <section
-          className={`${activeSection === "history" ? "block" : "hidden"} order-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs xl:col-span-2`}
-        >
-          <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
-            Lịch sử cấu hình
-          </h2>
-          <div className="mt-4 space-y-3">
-            {history.length ? (
-              history.slice(0, 6).map((item) => (
-                <article
-                  className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4"
-                  key={`${item.version}-${item.effectiveAt}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <strong className="text-slate-900 dark:text-slate-100">Phiên bản {item.version}</strong>
-                    <span className="text-xs font-semibold text-sky-600 dark:text-sky-400">
-                      {new Date(item.effectiveAt) > new Date()
-                        ? "Đã lên lịch"
-                        : "Đang/đã hiệu lực"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {new Date(item.effectiveAt).toLocaleString(activeLocale())}{" "}
-                    · {item.updatedBy}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                    {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
-                    {item.storageQuotaMb} MB
-                  </p>
-                </article>
-              ))
-            ) : (
-              <p className="text-xs text-slate-400 py-4 text-center">Chưa có phiên bản cấu hình trước đó.</p>
-            )}
-          </div>
         </section>
         <div
           className={`${["integrations", "backups"].includes(activeSection ?? "") ? "block" : "hidden"} order-2 space-y-7`}

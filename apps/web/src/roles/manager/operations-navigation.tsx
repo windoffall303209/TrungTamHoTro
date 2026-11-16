@@ -10,12 +10,12 @@ const sections: Array<{
   {
     value: "monitoring",
     label: "Giám sát",
-    description: "Cảnh báo và nhật ký hoạt động",
+    description: "Nhật ký hoạt động hệ thống",
   },
   {
     value: "data",
     label: "Dữ liệu",
-    description: "Sao lưu, khôi phục và lưu giữ",
+    description: "Sao lưu, khôi phục và xuất dữ liệu",
   },
 ];
 

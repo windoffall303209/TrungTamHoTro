@@ -19,8 +19,8 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-  usePagination,
 } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type {
   LearningNotification,
@@ -34,7 +34,16 @@ export default function SupportPage() {
   const { session, notify } = useApp();
   const admin = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode);
   const [items, setItems] = useState<Ticket[]>([]);
-  const pagination = usePagination(items);
+  const pagination = useServerPagination(10);
+  const {
+    page: ticketPage,
+    displayPage: ticketDisplayPage,
+    pageSize: ticketPageSize,
+    totalItems: ticketTotalItems,
+    setPage: setTicketPage,
+    setPageSize: setTicketPageSize,
+    syncResponse: syncTicketPage,
+  } = pagination;
   const [alerts, setAlerts] = useState<LearningNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -64,15 +73,16 @@ export default function SupportPage() {
     setClientRequestId(crypto.randomUUID());
     setOpen(true);
   };
-  /** Nạp danh sách phiếu theo vai trò và cập nhật hội thoại đang mở nếu cần. */
+  /** Nạp danh sách phiếu phân trang từ DB theo vai trò và cập nhật hội thoại đang mở nếu cần. */
   const load = useCallback(async () => {
     const requestId = ++loadRequestId.current;
     setLoading(true);
     try {
-      const [tickets, notifications] = await Promise.all([
-        apiRequest<Ticket[]>("/support/tickets", {
-          roleCode: session.roleCode,
-        }),
+      const [ticketsResult, notifications] = await Promise.all([
+        apiRequest<PaginatedResponse<Ticket> | Ticket[]>(
+          `/support/tickets/page?page=${ticketPage}&pageSize=${ticketPageSize}`,
+          { roleCode: session.roleCode },
+        ),
         admin
           ? apiRequest<LearningNotification[]>("/notifications", {
               roleCode: session.roleCode,
@@ -80,7 +90,13 @@ export default function SupportPage() {
           : Promise.resolve([]),
       ]);
       if (requestId !== loadRequestId.current) return;
-      setItems(tickets);
+      if (Array.isArray(ticketsResult)) {
+        setItems(ticketsResult);
+        syncTicketPage({ total: ticketsResult.length, page: 1, totalPages: 1 });
+      } else {
+        setItems(Array.isArray(ticketsResult.items) ? ticketsResult.items : []);
+        syncTicketPage(ticketsResult);
+      }
       setAlerts(notifications.filter((item) => item.type === "SUPPORT_P0"));
     } catch (error) {
       if (requestId === loadRequestId.current) notify(
@@ -89,7 +105,7 @@ export default function SupportPage() {
     } finally {
       if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, [admin, notify, session.roleCode]);
+  }, [admin, notify, session.roleCode, syncTicketPage, ticketPage, ticketPageSize]);
   useEffect(() => {
     const loadSequence = loadRequestId;
     const conversationSequence = conversationRequestId;
@@ -356,7 +372,7 @@ export default function SupportPage() {
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-3">
-          {pagination.pageItems.map((item) => (
+          {items.map((item) => (
             <article
               className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-4 md:grid-cols-[auto_1fr_auto] md:items-center"
               id={`ticket-${item.id}`}
@@ -471,11 +487,11 @@ export default function SupportPage() {
       </SectionState>
       <Pagination
         itemLabel="yêu cầu hỗ trợ"
-        onPageChange={pagination.setPage}
-        onPageSizeChange={pagination.setPageSize}
-        page={pagination.page}
-        pageSize={pagination.pageSize}
-        totalItems={pagination.totalItems}
+        onPageChange={setTicketPage}
+        onPageSizeChange={setTicketPageSize}
+        page={ticketDisplayPage}
+        pageSize={ticketPageSize}
+        totalItems={ticketTotalItems}
       />
       <Modal
         open={open}

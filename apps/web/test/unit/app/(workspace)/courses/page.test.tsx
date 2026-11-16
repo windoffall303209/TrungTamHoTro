@@ -57,18 +57,29 @@ function makeVersion(courseId: string, name: string): CourseVersionSnapshot {
   };
 }
 
+// Tạo payload phân trang chuẩn để kiểm thử các endpoint /page.
+function toPage<T>(items: T[], page = 1, pageSize = 10, total = items.length) {
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
+}
+
 describe("CoursesPage request lifecycle", () => {
-  let instructorRequest: ReturnType<typeof deferred<LearningClass[]>>;
-  let learnerRequest: ReturnType<typeof deferred<LearningClass[]>>;
+  let instructorRequest: ReturnType<typeof deferred<ReturnType<typeof toPage<LearningClass>>>>;
+  let learnerRequest: ReturnType<typeof deferred<ReturnType<typeof toPage<LearningClass>>>>;
 
   beforeEach(() => {
     mocks.session.roleCode = "INSTRUCTOR";
     mocks.request.mockReset();
     mocks.notify.mockReset();
-    instructorRequest = deferred<LearningClass[]>();
-    learnerRequest = deferred<LearningClass[]>();
+    instructorRequest = deferred<ReturnType<typeof toPage<LearningClass>>>();
+    learnerRequest = deferred<ReturnType<typeof toPage<LearningClass>>>();
     mocks.request.mockImplementation((path: string, options?: { roleCode?: string }) => {
-      if (path === "/classes") {
+      if (path.startsWith("/classes/page?")) {
         return options?.roleCode === "INSTRUCTOR" ? instructorRequest.promise : learnerRequest.promise;
       }
       throw new Error(`Unexpected request: ${path}`);
@@ -79,36 +90,36 @@ describe("CoursesPage request lifecycle", () => {
 
   it("không ghi đè danh sách lớp mới bằng phản hồi của vai trò cũ", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
 
     mocks.session.roleCode = "LEARNER";
     page.rerender(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes", { roleCode: "LEARNER" }));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "LEARNER" }));
 
-    await act(async () => learnerRequest.resolve([makeClass("Latest class")]));
+    await act(async () => learnerRequest.resolve(toPage([makeClass("Latest class")])));
     expect(screen.getByText("Latest class")).toBeInTheDocument();
 
-    await act(async () => instructorRequest.resolve([makeClass("Old class")]));
+    await act(async () => instructorRequest.resolve(toPage([makeClass("Old class")])));
     expect(screen.getByText("Latest class")).toBeInTheDocument();
     expect(screen.queryByText("Old class")).not.toBeInTheDocument();
   });
 
   it("bỏ qua lỗi của request lớp học đã lỗi thời", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
     mocks.session.roleCode = "LEARNER";
     page.rerender(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes", { roleCode: "LEARNER" }));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "LEARNER" }));
 
     await act(async () => instructorRequest.reject(new Error("Old request failed")));
-    await act(async () => learnerRequest.resolve([makeClass("Latest class")]));
+    await act(async () => learnerRequest.resolve(toPage([makeClass("Latest class")])));
     expect(screen.getByText("Latest class")).toBeInTheDocument();
     expect(mocks.notify).not.toHaveBeenCalled();
   });
 
   it("không thông báo lỗi khi request hoàn thành sau khi unmount", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
     page.unmount();
     await act(async () => instructorRequest.reject(new Error("Unmounted request failed")));
     expect(mocks.notify).not.toHaveBeenCalled();
@@ -127,7 +138,8 @@ describe("CoursesPage version history lifecycle", () => {
     second = deferred<CourseVersionSnapshot[]>();
     mocks.request.mockImplementation((path: string) => {
       if (path === "/manager/courses") return Promise.resolve([makeCourse("a"), makeCourse("b")]);
-      if (path === "/classes") return Promise.resolve([]);
+      if (path.startsWith("/manager/courses/page?")) return Promise.resolve(toPage([makeCourse("a"), makeCourse("b")]));
+      if (path.startsWith("/classes/page?")) return Promise.resolve(toPage([]));
       if (path === "/manager/courses/a/versions") return first.promise;
       if (path === "/manager/courses/b/versions") return second.promise;
       throw new Error(`Unexpected request: ${path}`);
@@ -170,5 +182,30 @@ describe("CoursesPage version history lifecycle", () => {
     page.unmount();
     await act(async () => first.reject(new Error("Unmounted history failed")));
     expect(mocks.notify).not.toHaveBeenCalled();
+  });
+
+  it("gọi /classes/page và /manager/courses/page theo đúng trang khi người dùng chuyển trang", async () => {
+    mocks.request.mockImplementation((path: string) => {
+      if (path === "/manager/courses") return Promise.resolve([makeCourse("c1")]);
+      if (path.startsWith("/classes/page?")) {
+        const page = Number(new URL(path, "http://localhost").searchParams.get("page") ?? "1");
+        return Promise.resolve(toPage([makeClass(page === 1 ? "Class page 1" : "Class page 2")], page, 10, 15));
+      }
+      if (path.startsWith("/manager/courses/page?")) {
+        const page = Number(new URL(path, "http://localhost").searchParams.get("page") ?? "1");
+        return Promise.resolve(toPage([makeCourse(page === 1 ? "p1" : "p2")], page, 10, 12));
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<CoursesPage />);
+    expect(await screen.findByText("Class page 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Trang sau/i }));
+    expect(await screen.findByText("Class page 2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Môn học/ }));
+    expect(await screen.findByText("Course p1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Trang sau/i }));
+    expect(await screen.findByText("Course p2")).toBeInTheDocument();
   });
 });
