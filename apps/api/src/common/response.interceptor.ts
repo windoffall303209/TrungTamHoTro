@@ -6,12 +6,8 @@ import {
   type NestInterceptor,
 } from "@nestjs/common";
 import { map, type Observable } from "rxjs";
+import type { ApiEnvelope } from "@wind-of-fall/contracts";
 import type { RequestWithId } from "./request-context.js";
-
-interface ApiEnvelope<T> {
-  data: T;
-  meta: { requestId: string; timestamp: string };
-}
 
 const SSE_METADATA_KEY = "__sse__";
 

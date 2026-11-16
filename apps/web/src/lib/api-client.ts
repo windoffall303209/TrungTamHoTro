@@ -1,11 +1,7 @@
+import type { ApiEnvelope } from "@wind-of-fall/contracts";
 import type { RoleCode } from "./app-types";
 import { translateText, type SupportedLocale } from "@/i18n/catalog";
 import { activeLocale } from "@/i18n/runtime";
-
-interface ApiEnvelope<T> {
-  data: T;
-  meta: { requestId: string; timestamp: string };
-}
 
 type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
 
