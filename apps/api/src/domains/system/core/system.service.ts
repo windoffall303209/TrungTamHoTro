@@ -1,4 +1,5 @@
 import { Injectable, Optional } from "@nestjs/common";
+import type { PaginatedResult } from "../../../common/pagination.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { DatabaseBackupService } from "../../../infrastructure/database-backup.service.js";
@@ -6,22 +7,32 @@ import { EmailDeliveryService } from "../../../infrastructure/email-delivery.ser
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import { asPrismaJsonRecord } from "../../../infrastructure/prisma-json.js";
 import * as audit_ops from "../operations/monitoring/system-audit.js";
+import * as monitoring_ops from "../operations/monitoring/system-monitoring.js";
+import * as notifications_ops from "../operations/notifications/system-notifications.js";
 import * as backups_ops from "../operations/retention/system-backups.js";
+import * as settings_ops from "../operations/settings/system-settings.js";
 import * as export_download_ops from "../operations/storage/system-export-download.js";
 import * as export_format_ops from "../operations/storage/system-export-format.js";
 import * as exports_ops from "../operations/storage/system-exports.js";
 import * as integrations_ops from "../operations/integrations/system-integrations.js";
 import * as mapping_ops from "../operations/core/system-mapping.js";
-
-import * as monitoring_ops from "../operations/monitoring/system-monitoring.js";
-import * as notifications_ops from "../operations/notifications/system-notifications.js";
-import * as retention_execution_ops from "../operations/retention/system-retention-execution.js";
-import * as retention_ops from "../operations/retention/system-retention.js";
-import * as settings_ops from "../operations/settings/system-settings.js";
 import * as storage_audit_ops from "../operations/storage/system-storage-audit.js";
 import * as worker_ops from "../operations/workers/system-worker.js";
 import type { SystemServiceContext } from "./system.context.js";
-import { AuditEvent, AuditFilter, BackupRun, DataExport, defaultSettings, IntegrationConfig, LegalHoldView, RestoreRun, RetentionCategory, RetentionJobView, RetentionPolicyView, RetentionPreview, SnapshotAssetAudit, StorageCleanupFailure, StorageOverview, SystemAlertView, SystemSettingRevision, SystemSettings } from "./system.shared.js";
+import {
+  AuditEvent,
+  AuditFilter,
+  AuditPageFilter,
+  BackupRun,
+  DataExport,
+  defaultSettings,
+  IntegrationConfig,
+  RestoreRun,
+  SnapshotAssetAudit,
+  StorageCleanupFailure,
+  StorageOverview,
+  SystemSettings,
+} from "./system.shared.js";
 export * from "./system.shared.js";
 
 @Injectable()
@@ -76,18 +87,6 @@ export class SystemService {
     },
   ];
 
-  private settingRevisions: SystemSettingRevision[] = [
-    { id: "setting-revision-1", key: "platform", ...defaultSettings() },
-  ];
-
-  private retentionPolicies: RetentionPolicyView[] = [];
-
-  private retentionJobs: RetentionJobView[] = [];
-
-  private legalHolds: LegalHoldView[] = [];
-
-  private alerts: SystemAlertView[] = [];
-
   constructor(
     @Optional() private readonly prisma?: PrismaService,
     @Optional() private readonly emailDelivery?: EmailDeliveryService,
@@ -127,21 +126,6 @@ export class SystemService {
       get audit(): SystemServiceContext["audit"] {
         return owner.audit;
       },
-      get settingRevisions(): SystemServiceContext["settingRevisions"] {
-        return owner.settingRevisions;
-      },
-      get retentionPolicies(): SystemServiceContext["retentionPolicies"] {
-        return owner.retentionPolicies;
-      },
-      get retentionJobs(): SystemServiceContext["retentionJobs"] {
-        return owner.retentionJobs;
-      },
-      get legalHolds(): SystemServiceContext["legalHolds"] {
-        return owner.legalHolds;
-      },
-      get alerts(): SystemServiceContext["alerts"] {
-        return owner.alerts;
-      },
       get prisma(): SystemServiceContext["prisma"] {
         return owner.prisma;
       },
@@ -157,15 +141,10 @@ export class SystemService {
       getSettings: (...args) => owner.getSettings(...args),
       listIntegrations: (...args) => owner.listIntegrations(...args),
       requestRestore: (...args) => owner.requestRestore(...args),
-      previewRetentionPolicy: (...args) =>
-        owner.previewRetentionPolicy(...args),
       processQueuedBackup: (...args) => owner.processQueuedBackup(...args),
       processQueuedExport: (...args) => owner.processQueuedExport(...args),
-      processQueuedRetention: (...args) =>
-        owner.processQueuedRetention(...args),
       retryBackupJob: (...args) => owner.retryBackupJob(...args),
       retryExportJob: (...args) => owner.retryExportJob(...args),
-      retryRetentionJob: (...args) => owner.retryRetentionJob(...args),
       jobLeaseExpiry: (...args) => owner.jobLeaseExpiry(...args),
       jobRetryAt: (...args) => owner.jobRetryAt(...args),
       jobError: (...args) => owner.jobError(...args),
@@ -177,21 +156,8 @@ export class SystemService {
       mapRestore: (...args) => owner.mapRestore(...args),
       mapExport: (...args) => owner.mapExport(...args),
       mapAudit: (...args) => owner.mapAudit(...args),
-      mapRetentionPolicy: (...args) => owner.mapRetentionPolicy(...args),
-      mapRetentionJob: (...args) => owner.mapRetentionJob(...args),
-      mapAlert: (...args) => owner.mapAlert(...args),
-      getLatestRetentionPolicy: (...args) =>
-        owner.getLatestRetentionPolicy(...args),
-      countRetentionRows: (...args) => owner.countRetentionRows(...args),
-      executeRetention: (...args) => owner.executeRetention(...args),
-      aiResultSettings: (...args) => owner.aiResultSettings(...args),
-      retentionCategory: (...args) => owner.retentionCategory(...args),
-      validateRetentionArchive: (...args) =>
-        owner.validateRetentionArchive(...args),
       collectExportRows: (...args) => owner.collectExportRows(...args),
       serializeExport: (...args) => owner.serializeExport(...args),
-      recordAlert: (...args) => owner.recordAlert(...args),
-      recoverAlert: (...args) => owner.recoverAlert(...args),
       logDatabase: (...args) => owner.logDatabase(...args),
       asRecord: asPrismaJsonRecord,
       stringValue: (...args) => owner.stringValue(...args),
@@ -205,17 +171,12 @@ export class SystemService {
     };
   }
 
-  /** Đọc cấu hình mới nhất và áp dụng schema/mặc định qua mapSettings. */
+  /** Đọc cấu hình hiện hành từ system_settings và áp dụng giá trị mặc định an toàn. */
   async getSettings(): Promise<SystemSettings> {
     return await settings_ops.getSettings(this.operationContext);
   }
 
-  /** Liệt kê lịch sử revision cấu hình theo version mới nhất trước. */
-  async listSettingRevisions(): Promise<SystemSettingRevision[]> {
-    return await settings_ops.listSettingRevisions(this.operationContext);
-  }
-
-  /** Hợp nhất cấu hình, kiểm tra quota/MIME/thời điểm hiệu lực, tăng version và ghi audit. */
+  /** Hợp nhất cấu hình, kiểm tra quota/múi giờ, lưu trực tiếp vào system_settings và ghi audit. */
   async updateSettings(
     input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>,
     actorId = "usr-admin",
@@ -359,109 +320,6 @@ export class SystemService {
     return await backups_ops.listRestores(this.operationContext);
   }
 
-  /** Tính cutoff và số bản ghi sẽ tác động, đồng thời phản ánh legal hold hiện tại. */
-  async previewRetention(categoryInput: string): Promise<RetentionPreview> {
-    return await retention_ops.previewRetention(
-      this.operationContext,
-      categoryInput,
-    );
-  }
-
-  /** Liệt kê mọi phiên bản chính sách lưu giữ. */
-  async listRetentionPolicies(): Promise<RetentionPolicyView[]> {
-    return await retention_ops.listRetentionPolicies(this.operationContext);
-  }
-
-  /** Validate phê duyệt/ngày hiệu lực, tạo version kế tiếp và ghi audit chính sách. */
-  async createRetentionPolicy(
-    input: {
-      category: string;
-      retentionDays: number;
-      action: "ARCHIVE" | "DELETE";
-      approvedBy?: string;
-      effectiveAt?: string;
-    },
-    actorId = "usr-admin",
-  ): Promise<RetentionPolicyView> {
-    return await retention_ops.createRetentionPolicy(
-      this.operationContext,
-      input,
-      actorId,
-    );
-  }
-
-  /** Đặt legal hold đang hoạt động cho danh mục để chặn retention job. */
-  async createLegalHold(
-    categoryInput: string,
-    reasonInput: string,
-    actorId = "usr-admin",
-  ): Promise<object> {
-    return await retention_ops.createLegalHold(
-      this.operationContext,
-      categoryInput,
-      reasonInput,
-      actorId,
-    );
-  }
-
-  /** Liệt kê legal hold cùng trạng thái giải tỏa và người thực hiện. */
-  async listLegalHolds(): Promise<LegalHoldView[]> {
-    return await retention_ops.listLegalHolds(this.operationContext);
-  }
-
-  /** Giải tỏa đúng một hold, giữ các hold khác và lưu lý do vào audit. */
-  async releaseLegalHold(
-    holdId: string,
-    reasonInput: string,
-    actorId = "usr-admin",
-  ): Promise<LegalHoldView> {
-    return await retention_ops.releaseLegalHold(
-      this.operationContext,
-      holdId,
-      reasonInput,
-      actorId,
-    );
-  }
-
-  /** Tạo yêu cầu chờ duyệt; danh tính người yêu cầu luôn lấy từ phiên đã xác thực. */
-  async runRetention(
-    policyId: string,
-    requestedBy: string,
-  ): Promise<RetentionJobView> {
-    return await retention_ops.runRetention(
-      this.operationContext,
-      policyId,
-      requestedBy,
-    );
-  }
-
-  /** Phê duyệt nguyên tử bằng danh tính phiên độc lập, không nhận tên người duyệt từ body. */
-  async approveRetention(
-    jobId: string,
-    approverId: string,
-  ): Promise<RetentionJobView> {
-    return await retention_ops.approveRetention(
-      this.operationContext,
-      jobId,
-      approverId,
-    );
-  }
-
-  /** Liệt kê các lần chạy retention cùng số bản ghi đã xử lý. */
-  async listRetentionJobs(): Promise<RetentionJobView[]> {
-    return await retention_ops.listRetentionJobs(this.operationContext);
-  }
-
-  /** Tạo snapshot preview từ đúng một policy thay vì trộn với phiên bản mới nhất. */
-  private async previewRetentionPolicy(
-    policy: Pick<RetentionPolicyView, "category" | "retentionDays" | "action">,
-  ): Promise<RetentionPreview> {
-    return await retention_ops.previewRetentionPolicy(
-      this.operationContext,
-      policy,
-    );
-  }
-
   /** Xếp export vào hàng đợi bền vững; worker mới tạo tệp và xác minh checksum. */
   async runExport(
     category: string,
@@ -476,11 +334,10 @@ export class SystemService {
     );
   }
 
-  /** Thu hồi lease hết hạn rồi xử lý một batch backup, export và retention theo hàng đợi DB. */
+  /** Thu hồi lease hết hạn rồi xử lý một batch backup và export trên operational_jobs. */
   async drainOperationalJobs(limit = 6): Promise<{
     backup: number;
     export: number;
-    retention: number;
   }> {
     return await worker_ops.drainOperationalJobs(this.operationContext, limit);
   }
@@ -493,16 +350,6 @@ export class SystemService {
   /** Claim và tạo một export thật; chỉ COMPLETED sau khi đọc lại object và khớp checksum. */
   private async processQueuedExport(prisma: PrismaService): Promise<boolean> {
     return await worker_ops.processQueuedExport(this.operationContext, prisma);
-  }
-
-  /** Claim retention theo policy đã ghim, kiểm tra lại legal hold rồi mới archive/delete. */
-  private async processQueuedRetention(
-    prisma: PrismaService,
-  ): Promise<boolean> {
-    return await worker_ops.processQueuedRetention(
-      this.operationContext,
-      prisma,
-    );
   }
 
   /** Đặt lại backup để retry hoặc chuyển FAILED sau lần thử cuối. */
@@ -533,24 +380,6 @@ export class SystemService {
       prisma,
       idValue,
       attempts,
-      error,
-    );
-  }
-
-  /** Đặt lại retention để retry hoặc chuyển FAILED, giữ snapshot và lỗi gần nhất trong evidence. */
-  private async retryRetentionJob(
-    prisma: PrismaService,
-    idValue: string,
-    attempts: number,
-    evidence: Record<string, unknown>,
-    error: unknown,
-  ): Promise<void> {
-    return await worker_ops.retryRetentionJob(
-      this.operationContext,
-      prisma,
-      idValue,
-      attempts,
-      evidence,
       error,
     );
   }
@@ -604,33 +433,19 @@ export class SystemService {
     return await monitoring_ops.listAudit(this.operationContext, filter);
   }
 
-  /** Tổng hợp health DB/integration/storage và tạo hoặc phục hồi cảnh báo theo ngưỡng. */
+  /** Phân trang nhật ký audit trực tiếp ở DB kèm lọc từ khóa và khoảng thời gian. */
+  async listAuditPage(
+    filter: AuditPageFilter = {},
+  ): Promise<PaginatedResult<AuditEvent>> {
+    return await monitoring_ops.listAuditPage(this.operationContext, filter);
+  }
+
+  /** Tổng hợp sức khỏe DB, độ trễ API, dung lượng lưu trữ và hàng đợi operational_jobs. */
   async healthOverview(): Promise<object> {
     return await monitoring_ops.healthOverview(this.operationContext);
   }
 
-  /** Liệt kê cảnh báo hệ thống mới nhất trước. */
-  async listAlerts(): Promise<SystemAlertView[]> {
-    return await monitoring_ops.listAlerts(this.operationContext);
-  }
-
-  /** Áp dụng thao tác vận hành lên cảnh báo và ghi nhận actor/thời hạn mute. */
-  async updateAlert(
-    alertId: string,
-    action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE",
-    actorId = "usr-admin",
-    muteMinutes = 60,
-  ): Promise<SystemAlertView> {
-    return await monitoring_ops.updateAlert(
-      this.operationContext,
-      alertId,
-      action,
-      actorId,
-      muteMinutes,
-    );
-  }
-
-  /** Tổng hợp byte lưu trữ theo MIME, so sánh quota và phát cảnh báo khi gần đầy. */
+  /** Tổng hợp byte lưu trữ theo lớp và so sánh với quota hệ thống. */
   async getStorageOverview(): Promise<StorageOverview> {
     return await monitoring_ops.getStorageOverview(this.operationContext);
   }
@@ -645,7 +460,6 @@ export class SystemService {
     value: Prisma.JsonValue,
     updatedAt: Date,
     version = 1,
-    effectiveAt = updatedAt,
     updatedBy = "system",
   ): SystemSettings {
     return mapping_ops.mapSettings(
@@ -653,7 +467,6 @@ export class SystemService {
       value,
       updatedAt,
       version,
-      effectiveAt,
       updatedBy,
     );
   }
@@ -693,93 +506,6 @@ export class SystemService {
     return mapping_ops.mapAudit(this.operationContext, row);
   }
 
-  /** Ánh xạ chính sách lưu giữ và mốc hiệu lực sang view model. */
-  private mapRetentionPolicy(
-    row: Prisma.RetentionPolicyGetPayload<Record<string, never>>,
-  ): RetentionPolicyView {
-    return mapping_ops.mapRetentionPolicy(row);
-  }
-
-  /** Ánh xạ job retention cùng số bản ghi xử lý và lỗi. */
-  private mapRetentionJob(
-    row: Prisma.RetentionJobGetPayload<Record<string, never>>,
-  ): RetentionJobView {
-    return mapping_ops.mapRetentionJob(this.operationContext, row);
-  }
-
-  /** Ánh xạ cảnh báo và các mốc acknowledge/mute/resolve. */
-  private mapAlert(
-    row: Prisma.SystemAlertGetPayload<Record<string, never>>,
-  ): SystemAlertView {
-    return mapping_ops.mapAlert(row);
-  }
-
-  /** Lấy policy đã có hiệu lực mới nhất cho danh mục. */
-  private async getLatestRetentionPolicy(
-    category: string,
-  ): Promise<RetentionPolicyView | undefined> {
-    return await retention_execution_ops.getLatestRetentionPolicy(
-      this.operationContext,
-      category,
-    );
-  }
-
-  /** Đếm bản ghi cũ hơn cutoff theo danh mục trước khi chạy retention. */
-  private async countRetentionRows(
-    prisma: PrismaService,
-    category: string,
-    cutoffAt: Date,
-  ): Promise<number> {
-    return await retention_execution_ops.countRetentionRows(
-      this.operationContext,
-      prisma,
-      category,
-      cutoffAt,
-    );
-  }
-
-  /** Thực thi archive/delete theo category trong transaction và trả số dòng ảnh hưởng. */
-  private async executeRetention(
-    prisma: PrismaService,
-    category: string,
-    action: "ARCHIVE" | "DELETE",
-    cutoffAt: Date,
-    jobId: string,
-    assertOwned?: () => Promise<void>,
-    claim?: { id: string; attempts: number },
-  ): Promise<{
-    affectedRows: number;
-    skippedRows: number;
-    archiveObjectKey?: string;
-    archiveChecksum?: string;
-    removedObjects: number;
-    objectCleanupFailures: number;
-  }> {
-    return await retention_execution_ops.executeRetention(
-      this.operationContext,
-      prisma,
-      category,
-      action,
-      cutoffAt,
-      jobId,
-      assertOwned,
-      claim,
-    );
-  }
-
-  /** Lấy riêng cache OCR/hỏi đáp READY quá hạn; claim đang chạy hoặc chưa rõ kết quả luôn được giữ lại để đối soát. */
-  private async aiResultSettings(
-    prisma: PrismaService,
-    cutoffAt: Date,
-  ): Promise<Array<Prisma.SystemSettingGetPayload<Record<string, never>>>> {
-    return await retention_execution_ops.aiResultSettings(prisma, cutoffAt);
-  }
-
-  /** Chuẩn hóa danh mục retention và chặn policy không có executor tương ứng. */
-  private retentionCategory(value: string): RetentionCategory {
-    return retention_execution_ops.retentionCategory(value);
-  }
-
   /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
   async snapshotAssetAudit(): Promise<SnapshotAssetAudit> {
     return await storage_audit_ops.snapshotAssetAudit(this.operationContext);
@@ -804,36 +530,6 @@ export class SystemService {
     );
   }
 
-  /** Đọc archive của retention job và xác minh checksum gói cùng từng asset phục hồi được. */
-  async verifyRetentionArchive(
-    jobId: string,
-  ): Promise<{
-    valid: true;
-    category: string;
-    recordCount: number;
-    assetCount: number;
-    checksum: string;
-  }> {
-    return await storage_audit_ops.verifyRetentionArchive(
-      this.operationContext,
-      jobId,
-    );
-  }
-
-  /** Parse archive version 2 và kiểm tra checksum/size của toàn bộ asset nhúng. */
-  private validateRetentionArchive(content: Buffer): {
-    category: string;
-    records: unknown[];
-    assets: Array<{
-      objectKey: string;
-      checksum: string;
-      sizeBytes: number;
-      contentBase64: string;
-    }>;
-  } {
-    return storage_audit_ops.validateRetentionArchive(content);
-  }
-
   /** Thu thập từng dòng export với nhãn thực thể để CSV và JSON cùng một phạm vi. */
   private async collectExportRows(
     prisma: PrismaService,
@@ -848,31 +544,6 @@ export class SystemService {
     format: DataExport["format"],
   ): Buffer {
     return export_format_ops.serializeExport(rows, format);
-  }
-
-  /** Upsert cảnh báo theo fingerprint để cùng sự cố không sinh bản ghi trùng. */
-  private async recordAlert(
-    fingerprint: string,
-    serviceName: string,
-    severity: SystemAlertView["severity"],
-    summary: string,
-    metricValue?: number,
-    threshold?: number,
-  ): Promise<void> {
-    return await audit_ops.recordAlert(
-      this.operationContext,
-      fingerprint,
-      serviceName,
-      severity,
-      summary,
-      metricValue,
-      threshold,
-    );
-  }
-
-  /** Tự động giải quyết cảnh báo đang mở khi metric trở lại bình thường. */
-  private async recoverAlert(fingerprint: string): Promise<void> {
-    return await audit_ops.recoverAlert(this.operationContext, fingerprint);
   }
 
   /** Ghi audit vào DB và che dữ liệu nhạy cảm trước khi lưu. */

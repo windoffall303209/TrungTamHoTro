@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsIn,
@@ -25,6 +26,7 @@ export class RubricCriterionDto {
 
 /** Hợp đồng tạo bài tập gồm lịch hạn, thang điểm và rubric. */
 export class CreateAssignmentDto {
+  @IsOptional() @IsBoolean() hidden?: boolean;
   @IsString() @MinLength(3) @MaxLength(255) title!: string;
   @IsString() @MinLength(10) @MaxLength(5000) description!: string;
   @IsString() @MinLength(5) @MaxLength(10_000) instructions!: string;
@@ -45,6 +47,27 @@ export class SubmitAssignmentDto {
   @IsInt()
   @Min(0)
   expectedRevision!: number;
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.startsWith("[")) {
+        try {
+          return JSON.parse(trimmed) as unknown;
+        } catch {
+          return trimmed;
+        }
+      }
+      return [trimmed];
+    }
+    return value;
+  })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  @MaxLength(191, { each: true })
+  keepAttachmentIds?: string[];
 }
 
 /** Hợp đồng sửa bài nháp giữ khóa phiên bản lạc quan. */
@@ -53,6 +76,14 @@ export class UpdateAssignmentDto extends CreateAssignmentDto {
 }
 
 /** Hợp đồng gia hạn bài đã công bố và lý do bắt buộc. */
+export class WorkVersionDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+export class AssignmentVisibilityDto extends WorkVersionDto {
+  @IsBoolean() hidden!: boolean;
+}
+
 export class ExtendAssignmentDto {
   @IsDateString() dueAt!: string;
   @IsString() @MinLength(3) @MaxLength(1000) reason!: string;

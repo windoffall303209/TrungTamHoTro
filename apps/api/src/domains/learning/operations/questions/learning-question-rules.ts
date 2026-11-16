@@ -1,37 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { Prisma } from "../../../../generated/prisma/client.js";
-import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
-import type {
-  LearningQuestion,
-  MaterialVersionSnapshot,
-} from "../../core/learning.types.js";
-import type { LearningServiceContext } from "../../core/learning.context.js";
-
-/** Ánh xạ snapshot tệp học liệu sang thông tin version hiển thị. */
-export function mapMaterialVersion(
-  serviceContext: LearningServiceContext,
-  row: Prisma.MaterialVersionGetPayload<Record<string, never>>,
-): MaterialVersionSnapshot {
-  const sizeBytes = Number(row.sizeBytes);
-  if (!Number.isSafeInteger(sizeBytes))
-    throw new BadRequestException(
-      "Kích thước phiên bản học liệu vượt giới hạn số an toàn.",
-    );
-  return {
-    id: row.id,
-    materialId: row.materialId,
-    version: row.version,
-    name: normalizeMultipartFileName(row.name),
-    mimeType: row.mimeType,
-    sizeBytes,
-    folder: row.folder,
-    tags: serviceContext.toStringArray(row.tags),
-    visibility: row.visibility,
-    createdBy: row.createdBy,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
+import type { LearningQuestion } from "../../core/learning.types.js";
 
 /** Sao chép sâu các mảng câu hỏi in-memory để caller không sửa state nội bộ. */
 export function cloneQuestion(item: LearningQuestion): LearningQuestion {

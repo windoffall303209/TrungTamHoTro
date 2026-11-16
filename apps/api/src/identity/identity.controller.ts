@@ -22,7 +22,6 @@ import {
 } from "./identity.dto.js";
 import { IdentityService } from "./identity.service.js";
 import type {
-  IdentityAuditEvent,
   IdentityChangeImpact,
   IdentityRole,
   IdentityUser,
@@ -89,18 +88,11 @@ export class IdentityController {
   updateRolePermissions(
     @Param("roleCode") roleCode: UpdateRolePermissionsDto["roleCode"],
     @Body() input: UpdatePermissionsBodyDto,
-    @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityRole> {
-    return this.identityService.updateRolePermissions(
-      { roleCode, permissions: input.permissions },
-      session.user.id,
-    );
+    return this.identityService.updateRolePermissions({
+      roleCode,
+      permissions: input.permissions,
+    });
   }
 
-  @Get("identity-audit")
-  @RequirePermissions("user:view")
-  /** Trả tối đa các sự kiện danh tính gần nhất để quản trị truy vết thay đổi. */
-  listAuditEvents(): Promise<IdentityAuditEvent[]> {
-    return this.identityService.listAuditEvents();
-  }
 }

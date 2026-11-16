@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Header,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -14,17 +15,20 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
+import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import {
   RequireAuthentication,
   RequirePermissions,
 } from "../../../auth/require-permissions.decorator.js";
-import { AcademicService, type AcademicCalendarEvent, type AssignmentSubmissionView, type AssignmentView, type ClassAnnouncementView, type GradebookRow, type GradingQueueGroup, type UploadedAssignmentFile } from "./academic.service.js";
+import { AcademicService, type AcademicCalendarEvent, type AssignmentSubmissionView, type AssignmentView, type AttachmentDocumentPreview, type ClassAnnouncementView, type GradebookRow, type GradingQueueGroup, type UploadedAssignmentFile } from "./academic.service.js";
 import {
   AcademicQueryDto,
   CloseAssignmentDto,
   CreateAnnouncementDto,
+  AssignmentVisibilityDto,
+  WorkVersionDto,
   CreateAssignmentDto,
   ExtendAssignmentDto,
   GradeAssignmentDto,
@@ -51,6 +55,27 @@ export class AcademicController {
     return this.academic.listAssignments(session, query.classId);
   }
 
+  @Get("academic/assignments/page")
+  @RequireAuthentication()
+  /** Trả danh sách bài tập phân trang từ DB theo lớp, trạng thái và từ khóa. */
+  assignmentsPage(
+    @Query() raw: Record<string, unknown>,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<PaginatedResult<AssignmentView>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    const rawStatus = parseOptionalQueryString(raw.status, "status", 64)?.toUpperCase();
+    if (rawStatus && !["DRAFT", "PUBLISHED", "CLOSED"].includes(rawStatus)) {
+      throw new BadRequestException("Tham số status không hợp lệ.");
+    }
+    return this.academic.listAssignmentsPage(session, {
+      classId: parseOptionalQueryString(raw.classId, "classId", 191),
+      status: rawStatus as "DRAFT" | "PUBLISHED" | "CLOSED" | undefined,
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      page,
+      pageSize,
+    });
+  }
+
   @Post("instructor/classes/:classId/assignments")
   @RequirePermissions("exam:manage")
   /** Tạo bản nháp bài tập sau khi service kiểm tra quyền giảng dạy lớp. */
@@ -71,6 +96,40 @@ export class AcademicController {
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<AssignmentView> {
     return this.academic.updateAssignment(assignmentId, input, session);
+  }
+
+  /** Thay đổi trạng thái ẩn/hiện bài tập độc lập với hạn nộp và tiến độ nộp bài. */
+  @Patch("instructor/assignments/:assignmentId/visibility")
+  @RequirePermissions("exam:manage")
+  changeVisibility(
+    @Param("assignmentId") id: string,
+    @Body() input: AssignmentVisibilityDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<{ hidden: boolean; version: number }> {
+    return this.academic.changeVisibility(id, input.hidden, input.expectedVersion, session);
+  }
+
+  /** Bật/tắt hiển thị đề thi của lớp mà không làm thay đổi trạng thái phát hành. */
+  @Patch("instructor/exams/:id/visibility")
+  @RequirePermissions("exam:manage")
+  examVisibility(
+    @Param("id") id: string,
+    @Body() input: AssignmentVisibilityDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<{ hidden: boolean; version: number }> {
+    return this.academic.changeVisibility(id, input.hidden, input.expectedVersion, session, "EXAM");
+  }
+
+  /** Xóa đề thi đã chọn theo đúng phiên bản kỳ vọng của giảng viên. */
+  @Delete("instructor/exams/:id") @HttpCode(204) @RequirePermissions("exam:manage")
+  deleteExam(@Param("id") id: string, @Body() input: WorkVersionDto, @CurrentSession() session: AuthenticatedSession): Promise<void> {
+    return this.academic.deleteClassWork("EXAM", id, input.expectedVersion, session);
+  }
+
+  /** Xóa bài tập tự luận đã chọn cùng các bài nộp liên quan. */
+  @Delete("instructor/assignments/:id") @HttpCode(204) @RequirePermissions("exam:manage")
+  deleteAssignment(@Param("id") id: string, @Body() input: WorkVersionDto, @CurrentSession() session: AuthenticatedSession): Promise<void> {
+    return this.academic.deleteClassWork("ASSIGNMENT", id, input.expectedVersion, session);
   }
 
   @Patch("instructor/assignments/:assignmentId/extend")
@@ -142,6 +201,7 @@ export class AcademicController {
       session,
       this.uploads(files),
       input.expectedRevision,
+      input.keepAttachmentIds,
     );
   }
 
@@ -213,6 +273,21 @@ export class AcademicController {
       disposition: `${preview ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
       length: file.buffer.length,
     });
+  }
+
+  @Get("assignment-submissions/:submissionId/attachments/:attachmentId/preview-content")
+  @RequireAuthentication()
+  /** Trích xuất nội dung xem trước an toàn (HTML/text) cho tệp DOCX/DOC/TXT của bài nộp. */
+  previewAttachmentContent(
+    @Param("submissionId") submissionId: string,
+    @Param("attachmentId") attachmentId: string,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<AttachmentDocumentPreview> {
+    return this.academic.previewSubmissionAttachment(
+      submissionId,
+      attachmentId,
+      session,
+    );
   }
 
   @Get("instructor/assignments/:assignmentId/submissions")

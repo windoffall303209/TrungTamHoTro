@@ -1,15 +1,18 @@
+import { checkFolder, isLectureContent } from "./class-folders.js";
+import { visibleMaterialTags } from "./material-visible-tags.js";
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../../infrastructure/file-transfer.js";
 import {
   id,
   MaterialSearchResult,
+  MaterialSummaryBucket,
   now,
   UploadedMaterialFile,
 } from "../../core/learning.shared.js";
@@ -50,6 +53,30 @@ function validateLectureLinkTags(tags: readonly string[], requireLink = false): 
   return source;
 }
 
+/** Xây dựng biểu thức SQL kiểm tra quyền xem học liệu theo vai trò trong bảng materials. */
+function buildMaterialRoleCondition(role: string, actorId: string): Prisma.Sql {
+  if (role === "LEARNER") {
+    return Prisma.sql`m.visibility = 'PUBLISHED' AND m.quarantined_at IS NULL AND EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = m.class_id AND e.learner_id = ${actorId} AND e.status = 'ACTIVE')`;
+  }
+  if (role === "INSTRUCTOR") {
+    return Prisma.sql`EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = m.class_id AND i.instructor_id = ${actorId} AND i.role IN ('PRIMARY', 'CO_INSTRUCTOR'))`;
+  }
+  if (["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(role)) {
+    return Prisma.sql`TRUE`;
+  }
+  return Prisma.sql`FALSE`;
+}
+
+/** Tạo subquery tách từng phần tử chuỗi trong cột JSONB tags của bảng materials. */
+function buildMaterialTagsSql(): Prisma.Sql {
+  return Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(m.tags) = 'array' THEN m.tags ELSE '[]'::jsonb END)`;
+}
+
+/** Tạo biểu thức SQL phân biệt bài giảng (video/audio/tag bài giảng) với tài liệu thường. */
+function buildMaterialLectureSql(tags = buildMaterialTagsSql()): Prisma.Sql {
+  return Prisma.sql`(m.mime_type LIKE 'video/%' OR m.mime_type LIKE 'audio/%' OR EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE t.value ~* '(lecture|video|bài giảng)'))`;
+}
+
 /** Trả một trang có giới hạn cho client dùng mảng cũ; API tìm kiếm cung cấp thêm tổng số kết quả. */
 export async function listMaterials(
   serviceContext: LearningServiceContext,
@@ -68,6 +95,60 @@ export async function listMaterials(
   ).items;
 }
 
+/** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung trực tiếp bằng GROUP BY SQL. */
+export async function getMaterialSummary(
+  serviceContext: LearningServiceContext,
+  actorId = "usr-learner",
+  role = "LEARNER",
+  classId?: string,
+): Promise<MaterialSummaryBucket[]> {
+  if (classId && classId.length > 255) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const tags = buildMaterialTagsSql();
+    const lecturePredicate = buildMaterialLectureSql(tags);
+    const conditions: Prisma.Sql[] = [buildMaterialRoleCondition(role, actorId)];
+    if (classId) conditions.push(Prisma.sql`m.class_id = ${classId}`);
+    const where = Prisma.join(conditions, " AND ");
+    const rows = await prisma.$queryRaw<
+      Array<{ classId: string; folder: string; kind: "materials" | "lectures"; count: bigint | number }>
+    >(Prisma.sql`
+      SELECT
+        m.class_id AS "classId",
+        m.folder AS "folder",
+        CASE WHEN ${lecturePredicate} THEN 'lectures' ELSE 'materials' END AS "kind",
+        COUNT(*) AS "count"
+      FROM materials m
+      WHERE ${where}
+      GROUP BY m.class_id, m.folder, CASE WHEN ${lecturePredicate} THEN 'lectures' ELSE 'materials' END
+    `);
+    return rows.map((row) => ({
+      classId: row.classId,
+      folder: row.folder,
+      kind: row.kind === "lectures" ? "lectures" : "materials",
+      count: Number(row.count ?? 0),
+    }));
+  }
+
+  const buckets = new Map<string, MaterialSummaryBucket>();
+  for (const item of serviceContext.materials) {
+    if (!serviceContext.canAccessMemoryMaterial(item, role, actorId)) continue;
+    if (classId && item.classId !== classId) continue;
+    if (!item.classId) continue;
+    const kind: "materials" | "lectures" = isLectureContent(item.tags, item.mimeType) ? "lectures" : "materials";
+    const key = `${item.classId}\u0000${kind}\u0000${item.folder}`;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      buckets.set(key, { classId: item.classId, folder: item.folder, kind, count: 1 });
+    }
+  }
+  return [...buckets.values()];
+}
+
 /** Tìm học liệu đã công bố của học viên bằng bộ lọc và phân trang có giới hạn. */
 export async function searchAccessibleMaterials(
   serviceContext: LearningServiceContext,
@@ -80,6 +161,8 @@ export async function searchAccessibleMaterials(
     visibility?: string;
     aiOnly?: boolean;
     folder?: string;
+    folderExact?: boolean;
+    kind?: "materials" | "lectures";
     mimeType?: string;
     tag?: string;
     page?: number;
@@ -115,19 +198,9 @@ export async function searchAccessibleMaterials(
     );
   const prisma = serviceContext.database();
   if (prisma) {
-    const conditions: Prisma.Sql[] = [];
-    // Học viên xem học liệu chung của mọi lớp và học liệu riêng của lớp mình đang học.
-    if (role === "LEARNER")
-      conditions.push(
-        Prisma.sql`m.visibility = 'PUBLISHED' AND m.quarantined_at IS NULL AND ((m.scope = 'SHARED' AND m.class_id IS NULL) OR EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = m.class_id AND e.learner_id = ${learnerId} AND e.status = 'ACTIVE'))`,
-      );
-    // Giảng viên xem học liệu của lớp mình dạy, học liệu mình tải lên và học liệu được cấp quyền sửa.
-    else if (role === "INSTRUCTOR")
-      conditions.push(
-        Prisma.sql`(EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = m.class_id AND i.instructor_id = ${learnerId}) OR m.owner_id = ${learnerId} OR EXISTS (SELECT 1 FROM material_editors me WHERE me.material_id = m.id AND me.user_id = ${learnerId}))`,
-      );
-    else if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(role))
-      conditions.push(Prisma.sql`FALSE`);
+    const tags = buildMaterialTagsSql();
+    const lecturePredicate = buildMaterialLectureSql(tags);
+    const conditions: Prisma.Sql[] = [buildMaterialRoleCondition(role, learnerId)];
     if (input.materialId)
       conditions.push(Prisma.sql`m.id = ${input.materialId}`);
     if (input.classId)
@@ -144,12 +217,19 @@ export async function searchAccessibleMaterials(
       conditions.push(
         Prisma.sql`m.mime_type IN ('application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg')`,
       );
+    if (input.kind === "lectures")
+      conditions.push(lecturePredicate);
+    else if (input.kind === "materials")
+      conditions.push(Prisma.sql`NOT ${lecturePredicate}`);
     // Thoát ký tự đặc biệt của LIKE: tìm kiếm người dùng là chuỗi con nguyên nghĩa, không phải mẫu SQL.
     const contains = (value: string): string =>
       `%${value.replace(/[\\%_]/g, "\\$&")}%`;
     if (input.folder)
-      conditions.push(Prisma.sql`m.folder ILIKE ${contains(input.folder)}`);
-    const tags = Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(m.tags) = 'array' THEN m.tags ELSE '[]'::jsonb END)`;
+      conditions.push(
+        input.folderExact
+          ? Prisma.sql`m.folder = ${input.folder}`
+          : Prisma.sql`m.folder ILIKE ${contains(input.folder)}`,
+      );
     if (input.tag?.trim())
       conditions.push(
         Prisma.sql`EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE lower(t.value) = lower(${input.tag.trim()}))`,
@@ -171,7 +251,6 @@ export async function searchAccessibleMaterials(
         );
         const rows = await transaction.material.findMany({
           where: { id: { in: ids.map((item) => item.id) } },
-          include: { editors: { select: { userId: true } } },
           orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         });
         return { rows, total: Number(counts[0]?.count ?? 0n) };
@@ -180,7 +259,7 @@ export async function searchAccessibleMaterials(
     );
     const items = rows.map((row) => ({
       ...serviceContext.mapMaterial(row),
-      editorIds: row.editors.map((item) => item.userId),
+      tags: visibleMaterialTags(serviceContext.toStringArray(row.tags), role, row.visibility),
     }));
     return {
       items,
@@ -201,7 +280,11 @@ export async function searchAccessibleMaterials(
     (!input.scope || item.scope === input.scope) &&
     (!input.visibility || item.visibility === input.visibility) &&
     (!input.aiOnly || AI_SEARCH_MIME_TYPES.has(item.mimeType)) &&
-    (!folder || item.folder.toLowerCase().includes(folder)) &&
+    (!input.kind || (input.kind === "lectures") === isLectureContent(item.tags, item.mimeType)) &&
+    (!input.folder ||
+      (input.folderExact
+        ? item.folder === input.folder
+        : item.folder.toLowerCase().includes(folder ?? ""))) &&
     (!input.mimeType || item.mimeType === input.mimeType) &&
     (!tag || item.tags.some((value) => value.toLowerCase() === tag)) &&
     (!normalized || `${item.name} ${item.folder} ${item.tags.join(" ")}`
@@ -209,7 +292,7 @@ export async function searchAccessibleMaterials(
   );
   const items = filtered
     .slice((page - 1) * pageSize, page * pageSize)
-    .map((item) => ({ ...item, tags: [...item.tags] }));
+    .map((item) => ({ ...item, tags: visibleMaterialTags(item.tags, role, item.visibility) }));
   return {
     items,
     total: filtered.length,
@@ -219,7 +302,7 @@ export async function searchAccessibleMaterials(
   };
 }
 
-/** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên; classId rỗng là học liệu dùng chung theo môn. */
+/** Kiểm tra quyền lớp, thư mục hợp lệ, chính sách tệp, quét virus và lưu học liệu mới gắn chặt với lớp. */
 export async function createMaterial(
   serviceContext: LearningServiceContext,
   classId: string | null,
@@ -231,12 +314,20 @@ export async function createMaterial(
   actorId = "usr-instructor",
   actorRole = "INSTRUCTOR",
 ): Promise<LearningMaterial> {
+  void actorRole;
+  const normalizedClassId = classId?.trim() ?? "";
+  if (!normalizedClassId)
+    throw new BadRequestException("Học liệu bắt buộc phải thuộc một lớp học.");
+  if ((input.scope as string | undefined) === "SHARED")
+    throw new BadRequestException("Không hỗ trợ học liệu dùng chung ngoài lớp.");
   const lectureUrl = validateLectureLinkTags(input.tags, input.mimeType === LECTURE_LINK_MIME);
   if (lectureUrl && input.mimeType !== LECTURE_LINK_MIME)
     throw new BadRequestException("Liên kết bài giảng phải có MIME text/uri-list.");
-  const isLectureLink = !upload && Boolean(classId) && input.mimeType === LECTURE_LINK_MIME && Boolean(lectureUrl);
-  if (input.mimeType === LECTURE_LINK_MIME && !isLectureLink) throw new BadRequestException("Chỉ được tạo bài giảng bằng liên kết trong lớp.");
-  if (isLectureLink && input.sizeBytes !== Buffer.byteLength(lectureUrl!, "utf8")) throw new BadRequestException("Dung lượng metadata liên kết không khớp URL.");
+  const isLectureLink = !upload && input.mimeType === LECTURE_LINK_MIME && Boolean(lectureUrl);
+  if (input.mimeType === LECTURE_LINK_MIME && !isLectureLink)
+    throw new BadRequestException("Chỉ được tạo bài giảng bằng liên kết trong lớp.");
+  if (isLectureLink && input.sizeBytes !== Buffer.byteLength(lectureUrl!, "utf8"))
+    throw new BadRequestException("Dung lượng metadata liên kết không khớp URL.");
   const prisma = serviceContext.database();
   const policy = prisma
     ? await serviceContext.getStoragePolicy(prisma)
@@ -253,44 +344,29 @@ export async function createMaterial(
     throw new BadRequestException(
       "Loại MIME không được chính sách lưu trữ cho phép.",
     );
-  const quarantineReason = upload
-    ? await serviceContext.scanUpload(upload)
-    : undefined;
-  // Học liệu theo môn luôn dùng chung; học liệu trong lớp do giảng viên của lớp chọn phạm vi.
-  const scope = classId ? input.scope ?? "SHARED" : "SHARED";
-  if (!classId && !input.courseId && prisma) {
-    const firstCourse = await prisma.course.findFirst({ select: { id: true } });
-    if (firstCourse) input.courseId = firstCourse.id;
-  }
-  if (!classId && !input.courseId)
-    throw new BadRequestException("Cần chọn môn học cho học liệu dùng chung.");
   if (prisma) {
-    let courseId: string;
-    if (classId) {
-      const classItem = await prisma.learningClass.findUnique({
-        where: { id: classId },
-        include: { instructors: true },
-      });
-      if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
-      if (actorRole === "INSTRUCTOR" && !classItem.instructors.some((item) => item.instructorId === actorId))
-        throw new NotFoundException(
-          "Giảng viên không được phân công vào lớp học này.",
-        );
-      if (classItem.status === "CLOSED")
-        throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-      courseId = classItem.courseId;
-    } else {
-      const course = await prisma.course.findUnique({
-        where: { id: input.courseId },
-        select: { id: true, status: true },
-      });
-      if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
-      if (course.status === "ARCHIVED")
-        throw new ConflictException(
-          "Khóa học đã ngừng sử dụng nên không nhận học liệu mới.",
-        );
-      courseId = course.id;
-    }
+    const classItem = await prisma.learningClass.findUnique({
+      where: { id: normalizedClassId },
+      include: { instructors: true },
+    });
+    if (
+      !classItem ||
+      !classItem.instructors.some(
+        (item) =>
+          item.instructorId === actorId &&
+          (item.role === "PRIMARY" || item.role === "CO_INSTRUCTOR"),
+      )
+    )
+      throw new NotFoundException(
+        "Giảng viên không được phân công vào lớp học này.",
+      );
+    if (classItem.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    await checkFolder(serviceContext, normalizedClassId, input.folder, input.tags, input.mimeType);
+    const quarantineReason = upload
+      ? await serviceContext.scanUpload(upload)
+      : undefined;
+    const courseId = classItem.courseId;
     const usage = await prisma.material.aggregate({
       _sum: { sizeBytes: true },
     });
@@ -300,16 +376,15 @@ export async function createMaterial(
     )
       throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
     const materialId = id("material");
-    const storageFolder = classId ?? `course-${courseId}`;
     const stored = upload
       ? await serviceContext.storeUpload(
-          storageFolder,
+          normalizedClassId,
           materialId,
           upload,
           Boolean(quarantineReason),
         )
       : {
-          objectKey: `metadata/${storageFolder}/${materialId}`,
+          objectKey: `metadata/${normalizedClassId}/${materialId}`,
           checksum: undefined,
         };
     try {
@@ -317,7 +392,7 @@ export async function createMaterial(
         const material = await transaction.material.create({
           data: {
             id: materialId,
-            classId,
+            classId: normalizedClassId,
             courseId,
             ownerId: actorId,
             name: input.name.trim(),
@@ -328,25 +403,9 @@ export async function createMaterial(
             folder: input.folder.trim(),
             tags: input.tags,
             visibility: quarantineReason ? "HIDDEN" : (input.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
-            scope,
+            scope: "CLASS",
             quarantinedAt: quarantineReason ? new Date() : null,
             quarantineReason,
-          },
-        });
-        await transaction.materialVersion.create({
-          data: {
-            id: id("material-version"),
-            materialId,
-            version: 1,
-            name: material.name,
-            objectKey: material.objectKey,
-            mimeType: material.mimeType,
-            sizeBytes: material.sizeBytes,
-            checksum: material.checksum,
-            folder: material.folder,
-            tags: serviceContext.toStringArray(material.tags),
-            visibility: material.visibility,
-            createdBy: actorId,
           },
         });
         if (quarantineReason) {
@@ -369,29 +428,33 @@ export async function createMaterial(
       throw error;
     }
   }
-  const classItem = classId ? serviceContext.findClass(classId) : undefined;
-  if (classItem && !classItem.instructorIds.includes(actorId))
+  const classItem = serviceContext.findClass(normalizedClassId);
+  if (!classItem.instructorIds.includes(actorId))
     throw new NotFoundException(
       "Giảng viên không được phân công vào lớp học này.",
     );
-  if (classItem?.status === "CLOSED")
+  if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  await checkFolder(serviceContext, normalizedClassId, input.folder, input.tags, input.mimeType);
+  const quarantineReason = upload
+    ? await serviceContext.scanUpload(upload)
+    : undefined;
   const item: LearningMaterial = {
     ...input,
     id: id("material"),
-    classId,
-    courseId: classItem?.courseId ?? input.courseId,
+    classId: normalizedClassId,
+    courseId: classItem.courseId,
     ownerId: actorId,
     version: 1,
     visibility: quarantineReason ? "HIDDEN" : (input.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
-    scope,
+    scope: "CLASS",
     quarantinedAt: quarantineReason ? now() : undefined,
     quarantineReason,
     createdAt: now(),
   };
   if (upload) {
     const stored = await serviceContext.storeUpload(
-      classId ?? `course-${item.courseId}`,
+      normalizedClassId,
       item.id,
       upload,
       Boolean(quarantineReason),
@@ -402,15 +465,6 @@ export async function createMaterial(
     });
   }
   serviceContext.materials.unshift(item);
-  const storedFile = serviceContext.materialFiles.get(item.id);
-  serviceContext.materialVersions.unshift({
-    ...item,
-    id: id("material-version"),
-    materialId: item.id,
-    createdBy: actorId,
-    objectKey: storedFile?.objectKey,
-    checksum: storedFile?.checksum,
-  });
   if (quarantineReason)
     serviceContext.notifications.unshift({
       id: id("notification"),
@@ -435,7 +489,7 @@ function assertInstructorVisibility(
     );
 }
 
-/** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
+/** Cập nhật metadata/visibility/vị trí lớp-thư mục của học liệu theo quyền class_instructors. */
 export async function updateMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
@@ -446,74 +500,69 @@ export async function updateMaterial(
   actorId = "usr-instructor",
   actorRole = "INSTRUCTOR",
 ): Promise<LearningMaterial> {
+  void actorRole;
+  if ((input.scope as string | undefined) === "SHARED")
+    throw new BadRequestException("Không hỗ trợ học liệu dùng chung ngoài lớp.");
+  if (input.classId !== undefined && (!input.classId || !input.classId.trim()))
+    throw new BadRequestException("Học liệu bắt buộc phải thuộc một lớp học.");
+  const targetClassIdInput = input.classId?.trim();
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.material.findUnique({
       where: { id: materialId },
-      include: { class: true, editors: { select: { userId: true } } },
+      include: { class: { include: { instructors: true } } },
     });
-    if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (!current || !canEditMaterial(current, actorId))
+      throw new NotFoundException("Không tìm thấy học liệu.");
     const updatedLectureUrl = input.tags === undefined ? undefined : validateLectureLinkTags(input.tags, current.mimeType === LECTURE_LINK_MIME);
     if (updatedLectureUrl && current.mimeType !== LECTURE_LINK_MIME)
       throw new BadRequestException("Không thể gắn liên kết bài giảng vào học liệu dạng tệp.");
-    if (!canEditMaterial(current, actorId, actorRole))
-      throw new NotFoundException("Không tìm thấy học liệu.");
     if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    if (input.scope === "CLASS" && !current.classId && !input.classId)
-      throw new BadRequestException(
-        "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
-      );
     const nextVisibility = input.visibility === "DRAFT" ? "PUBLISHED" : input.visibility;
     assertInstructorVisibility(current, nextVisibility);
-    const targetClass = input.classId
-      ? await prisma.learningClass.findUnique({
-          where: { id: input.classId },
-          include: { instructors: { select: { instructorId: true } } },
-        })
-      : null;
+    const targetClass =
+      targetClassIdInput && targetClassIdInput !== current.classId
+        ? await prisma.learningClass.findUnique({
+            where: { id: targetClassIdInput },
+            include: { instructors: true },
+          })
+        : null;
     if (
-      input.classId &&
+      targetClassIdInput &&
+      targetClassIdInput !== current.classId &&
       (!targetClass ||
-        !targetClass.instructors.some((item) => item.instructorId === actorId))
+        !targetClass.instructors.some(
+          (item) =>
+            item.instructorId === actorId &&
+            (item.role === "PRIMARY" || item.role === "CO_INSTRUCTOR"),
+        ))
     )
       throw new NotFoundException("Giảng viên không được phân công vào lớp học này.");
     if (targetClass?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    const destinationClassId = targetClassIdInput ?? current.classId;
+    if (input.folder !== undefined || input.classId !== undefined || input.tags !== undefined)
+      await checkFolder(
+        serviceContext,
+        destinationClassId,
+        input.folder ?? current.folder,
+        input.tags ?? serviceContext.toStringArray(current.tags),
+        current.mimeType,
+      );
     return prisma.$transaction(async (transaction) => {
-      const nextScope = input.classId
-        ? "CLASS"
-        : input.classId === null
-          ? "SHARED"
-          : input.scope;
       const updated = await transaction.material.update({
         where: { id: materialId },
         data: {
           name: input.name ? input.name.trim() : undefined,
-          folder: input.folder !== undefined ? input.folder?.trim() : undefined,
-          classId: input.classId !== undefined ? (input.classId || null) : undefined,
+          folder: input.folder !== undefined ? input.folder.trim() : undefined,
+          classId: targetClassIdInput,
           courseId: targetClass?.courseId,
           tags: input.tags,
           sizeBytes: updatedLectureUrl ? BigInt(Buffer.byteLength(updatedLectureUrl, "utf8")) : undefined,
           visibility: nextVisibility,
-          scope: nextScope,
+          scope: "CLASS",
           version: { increment: 1 },
-        },
-      });
-      await transaction.materialVersion.create({
-        data: {
-          id: id("material-version"),
-          materialId,
-          version: updated.version,
-          name: updated.name,
-          objectKey: updated.objectKey,
-          mimeType: updated.mimeType,
-          sizeBytes: updated.sizeBytes,
-          checksum: updated.checksum,
-          folder: updated.folder,
-          tags: serviceContext.toStringArray(updated.tags),
-          visibility: updated.visibility,
-          createdBy: actorId,
         },
       });
       return serviceContext.mapMaterial(updated);
@@ -523,57 +572,203 @@ export async function updateMaterial(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
+  const sourceClass = serviceContext.classes.find((cls) => cls.id === item.classId);
+  if (!sourceClass || !sourceClass.instructorIds.includes(actorId))
+    throw new NotFoundException("Không tìm thấy học liệu.");
   const updatedLectureUrl = input.tags === undefined ? undefined : validateLectureLinkTags(input.tags, item.mimeType === LECTURE_LINK_MIME);
   if (updatedLectureUrl && item.mimeType !== LECTURE_LINK_MIME)
     throw new BadRequestException("Không thể gắn liên kết bài giảng vào học liệu dạng tệp.");
-  if (
-    item.classId &&
-    !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
-        !canEditMaterial(item, actorId, actorRole)
-  )
-    throw new NotFoundException("Không tìm thấy học liệu.");
-  if (!canEditMaterial(item, actorId, actorRole))
-    throw new ForbiddenException(
-      "Chỉ người tải lên hoặc người được cấp quyền mới sửa được học liệu này.",
-    );
-  if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
+  if (sourceClass.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (input.scope === "CLASS" && !item.classId && !input.classId)
-    throw new BadRequestException(
-      "Học liệu dùng chung theo môn không thuộc lớp nào nên không thể chuyển sang riêng lớp.",
-    );
   const nextVisibility = input.visibility === "DRAFT" ? "PUBLISHED" : input.visibility;
   assertInstructorVisibility(item, nextVisibility);
-  const targetClass = input.classId
-    ? serviceContext.findClass(input.classId)
-    : undefined;
+  const targetClass =
+    targetClassIdInput && targetClassIdInput !== item.classId
+      ? serviceContext.findClass(targetClassIdInput)
+      : undefined;
   if (targetClass && !targetClass.instructorIds.includes(actorId))
     throw new NotFoundException("Giảng viên không được phân công vào lớp học này.");
   if (targetClass?.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (input.classId !== undefined) {
-    item.classId = input.classId || null;
-    item.scope = input.classId ? "CLASS" : "SHARED";
-    if (targetClass) item.courseId = targetClass.courseId;
+  const destinationClassId = targetClassIdInput ?? item.classId;
+  if (input.folder !== undefined || input.classId !== undefined || input.tags !== undefined)
+    await checkFolder(
+      serviceContext,
+      destinationClassId,
+      input.folder ?? item.folder,
+      input.tags ?? serviceContext.toStringArray(item.tags),
+      item.mimeType,
+    );
+  if (targetClass) {
+    item.classId = targetClass.id;
+    item.courseId = targetClass.courseId;
   }
+  item.scope = "CLASS";
   if (input.name) item.name = input.name.trim();
   if (input.folder !== undefined) item.folder = input.folder.trim();
   if (input.tags) item.tags = input.tags;
   if (updatedLectureUrl) item.sizeBytes = Buffer.byteLength(updatedLectureUrl, "utf8");
   if (nextVisibility) item.visibility = nextVisibility;
-  if (input.scope && input.classId === undefined) item.scope = input.scope;
   item.version += 1;
-  const stored = serviceContext.materialFiles.get(materialId);
-  serviceContext.materialVersions.unshift({
-    ...item,
-    id: id("material-version"),
-    materialId,
-    createdBy: actorId,
-    objectKey: stored?.objectKey,
-    checksum: stored?.checksum,
-    tags: [...item.tags],
-  });
   return { ...item, tags: [...item.tags] };
+}
+
+/** Quét và thay trực tiếp tệp hiện tại của học liệu, xóa ngay tệp cũ sau khi lưu xong. */
+export async function replaceMaterialFile(
+  serviceContext: LearningServiceContext,
+  materialId: string,
+  input: Pick<LearningMaterial, "folder" | "tags">,
+  upload: UploadedMaterialFile,
+  actorId = "usr-instructor",
+): Promise<LearningMaterial> {
+  const prisma = serviceContext.database();
+  const policy = prisma
+    ? await serviceContext.getStoragePolicy(prisma)
+    : {
+        maxFileSizeMb: 50,
+        storageQuotaMb: 10_240,
+        allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
+      };
+  if (upload.size > policy.maxFileSizeMb * 1_000_000)
+    throw new BadRequestException(
+      `Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`,
+    );
+  if (!policy.allowedMimeTypes.includes(upload.mimeType))
+    throw new BadRequestException(
+      "Loại MIME không được chính sách lưu trữ cho phép.",
+    );
+  const quarantineReason = await serviceContext.scanUpload(upload);
+  if (prisma) {
+    const current = await prisma.material.findUnique({
+      where: { id: materialId },
+      include: { class: { include: { instructors: true } } },
+    });
+    if (!current || !canEditMaterial(current, actorId))
+      throw new NotFoundException("Không tìm thấy học liệu.");
+    if (current.class?.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    const usage = await prisma.material.aggregate({
+      _sum: { sizeBytes: true },
+    });
+    const replacedStoredSize = serviceContext.isMaterialObjectKey(current.objectKey)
+      ? current.sizeBytes
+      : 0n;
+    if (
+      (usage._sum.sizeBytes ?? 0n) - replacedStoredSize + BigInt(upload.size) >
+      BigInt(policy.storageQuotaMb) * 1_000_000n
+    )
+      throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
+    await checkFolder(serviceContext, current.classId, input.folder, input.tags, upload.mimeType);
+    const nextVersion = current.version + 1;
+    const previousObjectKey = current.objectKey;
+    const stored = await serviceContext.storeUpload(
+      current.classId,
+      `${materialId}-v${nextVersion}-${randomUUID()}`,
+      upload,
+      Boolean(quarantineReason),
+    );
+    let material: LearningMaterial;
+    try {
+      const updated = await prisma.material.update({
+        where: { id: materialId },
+        data: {
+          name: upload.originalName.trim(),
+          objectKey: stored.objectKey,
+          checksum: stored.checksum,
+          mimeType: upload.mimeType,
+          sizeBytes: BigInt(upload.size),
+          folder: input.folder.trim(),
+          tags: input.tags,
+          version: nextVersion,
+          visibility: quarantineReason
+            ? "HIDDEN"
+            : current.visibility === "HIDDEN"
+              ? "HIDDEN"
+              : "PUBLISHED",
+          quarantinedAt: quarantineReason ? new Date() : null,
+          quarantineReason,
+        },
+      });
+      material = serviceContext.mapMaterial(updated);
+    } catch (error) {
+      await serviceContext.removeStoredFile(stored.objectKey);
+      throw error;
+    }
+    if (
+      previousObjectKey &&
+      previousObjectKey !== stored.objectKey &&
+      (previousObjectKey.startsWith("quarantine/") ||
+        serviceContext.isMaterialObjectKey(previousObjectKey))
+    ) {
+      await serviceContext
+        .removeStoredFile(previousObjectKey)
+        .catch((error: unknown) => {
+          Logger.warn(
+            `Không thể dọn tệp học liệu cũ ${previousObjectKey}: ${error instanceof Error ? error.message : String(error)}`,
+            "LearningMaterials",
+          );
+        });
+    }
+    return material;
+  }
+  const current = serviceContext.materials.find(
+    (item) => item.id === materialId,
+  );
+  if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
+  const currentClass = serviceContext.classes.find((cls) => cls.id === current.classId);
+  if (!currentClass || !currentClass.instructorIds.includes(actorId))
+    throw new NotFoundException("Không tìm thấy học liệu.");
+  if (currentClass.status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  await checkFolder(serviceContext, current.classId, input.folder, input.tags, upload.mimeType);
+  const usedBytes = serviceContext.materials
+    .filter((item) => serviceContext.materialFiles.has(item.id))
+    .reduce((sum, item) => sum + item.sizeBytes, 0);
+  const replacedBytes = serviceContext.materialFiles.has(materialId)
+    ? current.sizeBytes
+    : 0;
+  if (usedBytes - replacedBytes + upload.size > policy.storageQuotaMb * 1_000_000)
+    throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
+  const nextVersion = current.version + 1;
+  const previousFile = serviceContext.materialFiles.get(materialId);
+  const stored = await serviceContext.storeUpload(
+    current.classId,
+    `${materialId}-v${nextVersion}-${randomUUID()}`,
+    upload,
+    Boolean(quarantineReason),
+  );
+  Object.assign(current, {
+    name: upload.originalName.trim(),
+    mimeType: upload.mimeType,
+    sizeBytes: upload.size,
+    folder: input.folder.trim(),
+    tags: [...input.tags],
+    version: nextVersion,
+    visibility: quarantineReason
+      ? "HIDDEN"
+      : current.visibility === "HIDDEN"
+        ? "HIDDEN"
+        : "PUBLISHED",
+    quarantinedAt: quarantineReason ? now() : undefined,
+    quarantineReason,
+  });
+  serviceContext.materialFiles.set(materialId, stored);
+  if (
+    previousFile?.objectKey &&
+    previousFile.objectKey !== stored.objectKey &&
+    (previousFile.objectKey.startsWith("quarantine/") ||
+      serviceContext.isMaterialObjectKey(previousFile.objectKey))
+  ) {
+    await serviceContext
+      .removeStoredFile(previousFile.objectKey)
+      .catch((error: unknown) => {
+        Logger.warn(
+          `Không thể dọn tệp học liệu cũ ${previousFile.objectKey}: ${error instanceof Error ? error.message : String(error)}`,
+          "LearningMaterials",
+        );
+      });
+  }
+  return { ...current, tags: [...current.tags] };
 }
 
 /** Xóa tại chỗ các phần tử khớp vì mảng bộ nhớ của service chỉ có getter. */
@@ -581,22 +776,22 @@ function removeWhere<T>(list: T[], match: (item: T) => boolean): void {
   list.splice(0, list.length, ...list.filter((item) => !match(item)));
 }
 
-/** Người tải lên xóa hẳn học liệu cùng mọi phiên bản; nhật ký hệ thống vẫn giữ dấu vết. */
+/** Giảng viên được phân công trong lớp xóa hẳn học liệu cùng tệp lưu trữ; nhật ký hệ thống vẫn giữ dấu vết. */
 export async function deleteMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
   actorId: string,
   actorRole = "INSTRUCTOR",
 ): Promise<void> {
+  void actorRole;
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.material.findUnique({
       where: { id: materialId },
-      include: { class: true, versions: { select: { objectKey: true } } },
+      include: { class: { include: { instructors: true } } },
     });
-    if (!current) throw new NotFoundException("Không tìm thấy học liệu.");
-    if (!canEditMaterial(current, actorId, actorRole))
-      throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
+    if (!current || !canEditMaterial(current, actorId))
+      throw new NotFoundException("Không tìm thấy học liệu.");
     if (current.class?.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     await prisma.$transaction(async (transaction) => {
@@ -615,40 +810,36 @@ export async function deleteMaterial(
             name: current.name,
             courseId: current.courseId,
             classId: current.classId,
-            versions: current.versions.length,
           },
         },
       });
     });
     // Xóa tệp sau khi giao dịch thành công; lỗi kho không làm hỏng thao tác xóa.
-    const keys = new Set([
-      current.objectKey,
-      ...current.versions.map((item) => item.objectKey),
-    ]);
-    await Promise.all(
-      [...keys]
-        .filter((key) => key.startsWith("quarantine/") || serviceContext.isMaterialObjectKey(key))
-        .map((key) => serviceContext.removeStoredFile(key).catch((error: unknown) => {
-          Logger.warn(`Không thể dọn tệp học liệu ${key}: ${error instanceof Error ? error.message : String(error)}`, "LearningMaterials");
-        })),
-    );
+    if (
+      current.objectKey &&
+      (current.objectKey.startsWith("quarantine/") ||
+        serviceContext.isMaterialObjectKey(current.objectKey))
+    ) {
+      await serviceContext
+        .removeStoredFile(current.objectKey)
+        .catch((error: unknown) => {
+          Logger.warn(
+            `Không thể dọn tệp học liệu ${current.objectKey}: ${error instanceof Error ? error.message : String(error)}`,
+            "LearningMaterials",
+          );
+        });
+    }
     return;
   }
   const item = serviceContext.materials.find(
     (material) => material.id === materialId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy học liệu.");
-  if (
-    item.classId &&
-    !serviceContext.findClass(item.classId).instructorIds.includes(actorId) &&
-    !canEditMaterial(item, actorId, actorRole)
-  )
+  const itemClass = serviceContext.classes.find((cls) => cls.id === item.classId);
+  if (!itemClass || !itemClass.instructorIds.includes(actorId))
     throw new NotFoundException("Không tìm thấy học liệu.");
-  if (!canEditMaterial(item, actorId, actorRole))
-    throw new ForbiddenException("Chỉ người tải lên mới xóa được học liệu này.");
-  if (item.classId && serviceContext.findClass(item.classId).status === "CLOSED")
+  if (itemClass.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   removeWhere(serviceContext.materials, (material) => material.id === materialId);
-  removeWhere(serviceContext.materialVersions, (version) => version.materialId === materialId);
   serviceContext.materialFiles.delete(materialId);
 }

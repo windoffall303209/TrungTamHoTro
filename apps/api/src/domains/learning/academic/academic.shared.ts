@@ -23,17 +23,18 @@ interface AssignmentAttachmentView {
   canPreview: boolean;
 }
 
-export interface AssignmentChangeView {
-  id: string;
-  action: string;
-  actorId: string;
-  reason?: string;
-  fromVersion: number;
-  toVersion: number;
-  createdAt: string;
+export interface AttachmentDocumentPreview {
+  kind: "html" | "text" | "unsupported";
+  fileName: string;
+  mimeType: string;
+  html?: string;
+  text?: string;
+  warnings: string[];
 }
 
+
 export interface AssignmentView {
+  hidden?: boolean;
   id: string;
   classId: string;
   classCode: string;
@@ -50,7 +51,6 @@ export interface AssignmentView {
   closeReason?: string;
   createdById: string;
   submission?: AssignmentSubmissionView;
-  changes?: AssignmentChangeView[];
   createdAt: string;
 }
 
@@ -69,16 +69,6 @@ export interface AssignmentSubmissionView {
   rubricScores: Array<{ criterionId: string; score: number }>;
   feedback?: string;
   gradedAt?: string;
-  gradeHistory?: Array<{
-    id: string;
-    action: string;
-    submissionRevision: number;
-    actorId: string;
-    previousScore?: number;
-    nextScore: number;
-    reason?: string;
-    createdAt: string;
-  }>;
 }
 
 export interface AcademicCalendarEvent {
@@ -102,6 +92,23 @@ export interface ClassAnnouncementView {
   publishedAt: string;
 }
 
+export interface GradebookAssessmentColumn {
+  id: string;
+  kind: "EXAM" | "ASSIGNMENT";
+  title: string;
+  maxScore: number;
+  dueAt?: string;
+}
+
+export interface GradebookAssessmentCell {
+  assessmentId: string;
+  kind: "EXAM" | "ASSIGNMENT";
+  score: number | null;
+  maxScore: number;
+  status: "GRADED" | "AWAITING_GRADE" | "IN_PROGRESS" | "NOT_SUBMITTED";
+  attemptCount?: number;
+}
+
 export interface GradebookRow {
   learnerId: string;
   learnerName: string;
@@ -111,8 +118,11 @@ export interface GradebookRow {
   assignmentEarned: number;
   assignmentPossible: number;
   totalPercent: number;
+  averageScore?: number | null;
   awaitingGrade: number;
   notSubmitted: number;
+  assessments?: GradebookAssessmentColumn[];
+  cells?: GradebookAssessmentCell[];
 }
 
 export interface GradingQueueGroup {
@@ -137,21 +147,9 @@ export interface GradingQueueGroup {
   }>;
 }
 
-type AssignmentSubmissionRow = Prisma.AssignmentSubmissionGetPayload<{
+export type MappableSubmissionRow = Prisma.AssignmentSubmissionGetPayload<{
   include: {
     learner: { select: { displayName: true; email: true } };
     attachments: true;
   };
 }>;
-
-type AssignmentSubmissionWithHistoryRow =
-  Prisma.AssignmentSubmissionGetPayload<{
-    include: {
-      learner: { select: { displayName: true; email: true } };
-      attachments: true;
-      gradeChanges: true;
-    };
-  }>;
-
-export type MappableSubmissionRow = AssignmentSubmissionRow &
-  Partial<Pick<AssignmentSubmissionWithHistoryRow, "gradeChanges">>;

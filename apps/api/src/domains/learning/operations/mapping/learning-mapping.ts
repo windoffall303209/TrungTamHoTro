@@ -2,7 +2,6 @@ import { BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../../../database/prisma.service.js";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
-import { type ExamApprovalMode } from "../../../system/core/system.service.js";
 import { ClassWithMembers } from "../../core/learning.shared.js";
 import type {
   LearningClass,
@@ -21,13 +20,6 @@ export function database(
     : undefined;
 }
 
-/** Đọc chế độ duyệt câu hỏi còn lưu để xử lý dữ liệu cũ; luồng mới truyền công bố ngay riêng. */
-export async function getQuestionApprovalMode(
-  serviceContext: LearningServiceContext,
-): Promise<ExamApprovalMode> {
-  if (!serviceContext.system) return "AUTO";
-  return await serviceContext.system.getSettings().then((settings) => settings.questionApprovalMode);
-}
 
 /** Ánh xạ Course Prisma, bao gồm JSON outcomes, sang hợp đồng API. */
 export function mapCourse(
@@ -98,7 +90,7 @@ export function mapMaterial(
     tags: serviceContext.toStringArray(row.tags),
     version: row.version,
     visibility: row.visibility,
-    scope: row.scope,
+    scope: "CLASS",
     quarantinedAt: row.quarantinedAt?.toISOString(),
     quarantineReason: row.quarantineReason ?? undefined,
     createdAt: row.createdAt.toISOString(),

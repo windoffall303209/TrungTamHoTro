@@ -5,10 +5,15 @@ import {
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
 import {
   id,
   MaterialDownload,
+  QuestionSummary,
   UploadedMaterialFile,
 } from "../../core/learning.shared.js";
 import type {
@@ -17,55 +22,294 @@ import type {
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
-/** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
-export async function listQuestions(
-  serviceContext: LearningServiceContext,
-  filters:
-    | string
-    | {
-        query?: string;
-        courseId?: string;
-        type?: string;
-        difficulty?: number;
-        tag?: string;
-        status?: LearningQuestion["status"];
-      } = {},
-): Promise<LearningQuestion[]> {
-  const input = typeof filters === "string" ? { query: filters } : filters;
-  const normalized = input.query?.trim().toLowerCase() ?? "";
-  /** Lọc câu hỏi theo nội dung, khóa học, loại, độ khó, nhãn và trạng thái. */
-  const matches = (item: LearningQuestion): boolean =>
-    (!normalized ||
-      `${item.content} ${item.tags.join(" ")}`
-        .toLowerCase()
-        .includes(normalized)) &&
-    (!input.courseId || item.courseId === input.courseId) &&
-    (!input.type || item.type === input.type) &&
-    (!input.difficulty || item.difficulty === input.difficulty) &&
-    (!input.tag ||
-      item.tags.some(
-        (tag) => tag.toLowerCase() === input.tag!.trim().toLowerCase(),
-      )) &&
-    (!input.status || item.status === input.status);
-  const prisma = serviceContext.database();
-  if (prisma) {
-    const rows = await prisma.question.findMany({
-      where: input.status ? { status: input.status } : undefined,
-      orderBy: { createdAt: "desc" },
-    });
-    return serviceContext
-      .latestQuestionVersions(
-        rows.map((row) => serviceContext.mapQuestion(row)),
-      )
-      .filter(matches);
+export interface QuestionListFilters {
+  query?: string;
+  courseId?: string;
+  type?: string;
+  typeGroup?: "OBJECTIVE" | "ESSAY";
+  difficulty?: number;
+  tag?: string;
+  status?: LearningQuestion["status"];
+}
+
+export interface QuestionPageFilters extends QuestionListFilters {
+  page?: number;
+  pageSize?: number;
+}
+
+/** Kiểm tra độ dài bộ lọc câu hỏi trước khi tạo truy vấn SQL. */
+function validateQuestionFilterLengths(input: QuestionListFilters): void {
+  if (
+    [input.query, input.courseId, input.type, input.tag].some(
+      (value) => value && value.length > 255,
+    )
+  ) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
   }
+}
+
+/** Tạo điều kiện CTE chọn phiên bản mới nhất mỗi family và bộ lọc ngoài cho SQL. */
+function buildQuestionLatestSqlParts(input: QuestionListFilters): {
+  innerWhere: Prisma.Sql;
+  outerWhere: Prisma.Sql;
+} {
+  const innerConditions: Prisma.Sql[] = [];
+  if (input.status) {
+    innerConditions.push(Prisma.sql`q.status::text = ${input.status}`);
+  }
+  if (input.courseId) {
+    innerConditions.push(Prisma.sql`q.course_id = ${input.courseId}`);
+  }
+  const innerWhere = innerConditions.length
+    ? Prisma.join(innerConditions, " AND ")
+    : Prisma.sql`TRUE`;
+
+  const tags = Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(l.tags) = 'array' THEN l.tags ELSE '[]'::jsonb END)`;
+  // Chuẩn hóa chuỗi tìm kiếm LIKE an toàn cho truy vấn SQL.
+  const contains = (value: string): string =>
+    `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+  const outerConditions: Prisma.Sql[] = [];
+  if (input.type) {
+    outerConditions.push(Prisma.sql`l.type::text = ${input.type}`);
+  } else if (input.typeGroup === "OBJECTIVE") {
+    outerConditions.push(Prisma.sql`l.type::text <> 'ESSAY'`);
+  } else if (input.typeGroup === "ESSAY") {
+    outerConditions.push(Prisma.sql`l.type::text = 'ESSAY'`);
+  }
+  if (input.difficulty) {
+    outerConditions.push(Prisma.sql`l.difficulty = ${input.difficulty}`);
+  }
+  if (input.tag?.trim()) {
+    const tag = input.tag.trim();
+    outerConditions.push(
+      Prisma.sql`EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE lower(t.value) = lower(${tag}))`,
+    );
+  }
+  const normalizedQuery = input.query?.trim();
+  if (normalizedQuery) {
+    const pattern = contains(normalizedQuery);
+    outerConditions.push(
+      Prisma.sql`(l.content ILIKE ${pattern} OR EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE t.value ILIKE ${pattern}))`,
+    );
+  }
+  const outerWhere = outerConditions.length
+    ? Prisma.join(outerConditions, " AND ")
+    : Prisma.sql`TRUE`;
+
+  return { innerWhere, outerWhere };
+}
+
+/** Lọc phiên bản câu hỏi mới nhất trong bộ nhớ fallback theo bộ lọc đầu vào. */
+function filterMemoryQuestions(
+  serviceContext: LearningServiceContext,
+  input: QuestionListFilters,
+): LearningQuestion[] {
+  const normalized = input.query?.trim().toLowerCase() ?? "";
+  const normalizedTag = input.tag?.trim().toLowerCase() ?? "";
   const candidates = input.status
     ? serviceContext.questions.filter((item) => item.status === input.status)
     : serviceContext.questions;
   return serviceContext
     .latestQuestionVersions(candidates)
-    .filter(matches)
+    .filter(
+      (item) =>
+        (!normalized ||
+          `${item.content} ${item.tags.join(" ")}`
+            .toLowerCase()
+            .includes(normalized)) &&
+        (!input.courseId || item.courseId === input.courseId) &&
+        (!input.type || item.type === input.type) &&
+        (!input.typeGroup ||
+          (input.typeGroup === "ESSAY"
+            ? item.type === "ESSAY"
+            : item.type !== "ESSAY")) &&
+        (!input.difficulty || item.difficulty === input.difficulty) &&
+        (!normalizedTag ||
+          item.tags.some((tag) => tag.toLowerCase() === normalizedTag)),
+    )
     .map((item) => serviceContext.cloneQuestion(item));
+}
+
+/** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
+export async function listQuestions(
+  serviceContext: LearningServiceContext,
+  filters: string | QuestionListFilters = {},
+): Promise<LearningQuestion[]> {
+  const input: QuestionListFilters =
+    typeof filters === "string" ? { query: filters } : filters;
+  validateQuestionFilterLengths(input);
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(input);
+    const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (q.family_id)
+          q.id,
+          q.course_id,
+          q.type,
+          q.content,
+          q.tags,
+          q.difficulty,
+          q.status,
+          q.version,
+          q.created_at
+        FROM questions q
+        WHERE ${innerWhere}
+        ORDER BY q.family_id, q.version DESC, q.created_at DESC, q.id ASC
+      )
+      SELECT l.id
+      FROM latest l
+      WHERE ${outerWhere}
+      ORDER BY l.version DESC, l.created_at DESC, l.id ASC
+    `);
+    if (ids.length === 0) return [];
+    const rows = await prisma.question.findMany({
+      where: { id: { in: ids.map((item) => item.id) } },
+      orderBy: [{ version: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+    });
+    return rows.map((row) => serviceContext.mapQuestion(row));
+  }
+  return filterMemoryQuestions(serviceContext, input);
+}
+
+/** Trả về một trang câu hỏi (phiên bản mới nhất mỗi family) bằng truy vấn SQL COUNT + LIMIT/OFFSET. */
+export async function listQuestionsPage(
+  serviceContext: LearningServiceContext,
+  filters: QuestionPageFilters = {},
+): Promise<PaginatedResult<LearningQuestion>> {
+  validateQuestionFilterLengths(filters);
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 20;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(filters);
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const counts = await transaction.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+          WITH latest AS (
+            SELECT DISTINCT ON (q.family_id)
+              q.id,
+              q.course_id,
+              q.type,
+              q.content,
+              q.tags,
+              q.difficulty,
+              q.status,
+              q.version,
+              q.created_at
+            FROM questions q
+            WHERE ${innerWhere}
+            ORDER BY q.family_id, q.version DESC, q.created_at DESC, q.id ASC
+          )
+          SELECT COUNT(*) AS count
+          FROM latest l
+          WHERE ${outerWhere}
+        `);
+        const total = Number(counts[0]?.count ?? 0n);
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        if (total === 0) {
+          return { rows: [], total: 0, safePage, totalPages };
+        }
+        const offset = (safePage - 1) * pageSize;
+        const ids = await transaction.$queryRaw<{ id: string }[]>(Prisma.sql`
+          WITH latest AS (
+            SELECT DISTINCT ON (q.family_id)
+              q.id,
+              q.course_id,
+              q.type,
+              q.content,
+              q.tags,
+              q.difficulty,
+              q.status,
+              q.version,
+              q.created_at
+            FROM questions q
+            WHERE ${innerWhere}
+            ORDER BY q.family_id, q.version DESC, q.created_at DESC, q.id ASC
+          )
+          SELECT l.id
+          FROM latest l
+          WHERE ${outerWhere}
+          ORDER BY l.version DESC, l.created_at DESC, l.id ASC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `);
+        const rows =
+          ids.length === 0
+            ? []
+            : await transaction.question.findMany({
+                where: { id: { in: ids.map((item) => item.id) } },
+                orderBy: [{ version: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) => serviceContext.mapQuestion(row)),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const matched = filterMemoryQuestions(serviceContext, filters);
+  return paginateArray(matched, page, pageSize);
+}
+
+/** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận mới nhất theo từng khóa học bằng SQL. */
+export async function getQuestionSummary(
+  serviceContext: LearningServiceContext,
+  courseId?: string,
+): Promise<QuestionSummary> {
+  if (courseId && courseId.length > 255) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const innerWhere = courseId
+      ? Prisma.sql`q.course_id = ${courseId}`
+      : Prisma.sql`TRUE`;
+    const rows = await prisma.$queryRaw<
+      Array<{ total: bigint | number; multipleChoice: bigint | number; essay: bigint | number }>
+    >(Prisma.sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (q.family_id) q.id, q.type
+        FROM questions q
+        WHERE ${innerWhere}
+        ORDER BY q.family_id, q.version DESC, q.created_at DESC, q.id ASC
+      )
+      SELECT
+        COUNT(*) AS "total",
+        COUNT(*) FILTER (WHERE l.type::text <> 'ESSAY') AS "multipleChoice",
+        COUNT(*) FILTER (WHERE l.type::text = 'ESSAY') AS "essay"
+      FROM latest l
+    `);
+    const row = rows[0];
+    return {
+      total: Number(row?.total ?? 0),
+      multipleChoice: Number(row?.multipleChoice ?? 0),
+      essay: Number(row?.essay ?? 0),
+    };
+  }
+  const candidates = courseId
+    ? serviceContext.questions.filter((item) => item.courseId === courseId)
+    : serviceContext.questions;
+  const latest = serviceContext.latestQuestionVersions(candidates);
+  const essay = latest.filter((item) => item.type === "ESSAY").length;
+  return {
+    total: latest.length,
+    multipleChoice: latest.length - essay,
+    essay,
+  };
 }
 
 /** Validate nội dung/đáp án, tạo family câu hỏi và chọn trạng thái theo chế độ duyệt cấu hình. */
@@ -95,6 +339,7 @@ export async function createQuestion(
         data: {
           id: questionId,
           familyId: questionId,
+          status: "PUBLISHED",
           contentHash,
           courseId: normalized.courseId,
           authorId,
@@ -121,7 +366,7 @@ export async function createQuestion(
     ...normalized,
     id: questionId,
     familyId: questionId,
-    status: "DRAFT",
+    status: "PUBLISHED",
     version: 1,
   };
   serviceContext.questions.unshift(item);
@@ -183,7 +428,7 @@ export async function updateQuestion(
           imageMimeType: current.imageMimeType,
           imageSizeBytes: current.imageSizeBytes,
           imageChecksum: current.imageChecksum,
-          status: "DRAFT",
+          status: "PUBLISHED",
           version: current.version + 1,
         },
       }),
@@ -215,7 +460,7 @@ export async function updateQuestion(
     id: id("question"),
     familyId,
     supersedesId: current.id,
-    status: "DRAFT",
+    status: "PUBLISHED",
     version: current.version + 1,
     imageUrl: current.imageUrl,
     imageName: current.imageName,
@@ -290,7 +535,7 @@ export async function uploadQuestionImage(
                 correctAnswers: current.correctAnswers as Prisma.InputJsonValue,
                 difficulty: current.difficulty,
                 tags: current.tags as Prisma.InputJsonValue,
-                status: "DRAFT",
+                status: "PUBLISHED",
                 version: current.version + 1,
                 familyId: current.familyId,
                 supersedesId: current.id,
@@ -336,7 +581,7 @@ export async function uploadQuestionImage(
           id: id("question"),
           familyId,
           supersedesId: current.id,
-          status: "DRAFT" as const,
+          status: "PUBLISHED" as const,
           version: current.version + 1,
         };
   if (target !== current) serviceContext.questions.unshift(target);
@@ -398,7 +643,7 @@ export async function removeQuestionImage(
               correctAnswers: current.correctAnswers as Prisma.InputJsonValue,
               difficulty: current.difficulty,
               tags: current.tags as Prisma.InputJsonValue,
-              status: "DRAFT",
+              status: "PUBLISHED",
               version: current.version + 1,
               familyId: current.familyId,
               supersedesId: current.id,
@@ -431,7 +676,7 @@ export async function removeQuestionImage(
           id: id("question"),
           familyId,
           supersedesId: current.id,
-          status: "DRAFT" as const,
+          status: "PUBLISHED" as const,
           version: current.version + 1,
         };
   if (target !== current) serviceContext.questions.unshift(target);
@@ -455,7 +700,7 @@ export async function readQuestionImage(
     if (role === "LEARNER") {
       const exam = await prisma.exam.findFirst({
         where: {
-          status: "PUBLISHED",
+          hidden: false, status: "PUBLISHED",
           questions: { some: { questionId } },
           class: {
             enrollments: { some: { learnerId: actorId, status: "ACTIVE" } },
@@ -503,7 +748,7 @@ export async function readQuestionImage(
     role !== "LEARNER" ||
     serviceContext.exams.some(
       (exam) =>
-        exam.status === "PUBLISHED" &&
+        !exam.hidden && exam.status === "PUBLISHED" &&
         exam.questionIds.includes(questionId) &&
         serviceContext.findClass(exam.classId).learnerIds.includes(actorId) &&
         serviceContext.attempts.some(
@@ -526,144 +771,6 @@ export async function readQuestionImage(
     mimeType: image.mimeType,
     buffer: Buffer.from(image.buffer),
   };
-}
-
-/** Công bố câu hỏi theo cấu hình, hoặc công bố ngay khi thuộc luồng tạo bài đã xác nhận. */
-export async function publishQuestion(
-  serviceContext: LearningServiceContext,
-  questionId: string,
-  actorId = "usr-instructor",
-  immediate = false,
-): Promise<LearningQuestion> {
-  const approvalMode = await serviceContext.getQuestionApprovalMode();
-  const nextStatus: LearningQuestion["status"] =
-    immediate || approvalMode === "AUTO" ? "PUBLISHED" : "PENDING_REVIEW";
-  const prisma = serviceContext.database();
-  if (prisma) {
-    const current = await prisma.question.findUnique({
-      where: { id: questionId },
-    });
-    if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
-    if (current.status === "PUBLISHED")
-      return serviceContext.mapQuestion(current);
-    if (current.status === "PENDING_REVIEW" && !immediate)
-      return serviceContext.mapQuestion(current);
-    const latest = await prisma.question.findFirst({
-      where: { familyId: current.familyId },
-      orderBy: { version: "desc" },
-    });
-    if (latest?.id !== current.id)
-      throw new ConflictException(
-        "Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.",
-      );
-    return prisma.$transaction(async (transaction) => {
-      const updated = await transaction.question.update({
-        where: { id: questionId },
-        data: { status: nextStatus },
-      });
-      await transaction.auditLog.create({
-        data: {
-          actorId,
-          action:
-            immediate || approvalMode === "AUTO"
-              ? "QUESTION_AUTO_APPROVED"
-              : "QUESTION_SUBMITTED_FOR_REVIEW",
-          entityType: "question",
-          entityId: questionId,
-          context: { version: current.version, approvalMode, immediate },
-        },
-      });
-      return serviceContext.mapQuestion(updated);
-    });
-  }
-  const current = serviceContext.questions.find(
-    (item) => item.id === questionId,
-  );
-  if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
-  if (current.status === "PUBLISHED")
-    return serviceContext.cloneQuestion(current);
-  if (current.status === "PENDING_REVIEW" && !immediate)
-    return serviceContext.cloneQuestion(current);
-  const familyId = current.familyId ?? current.id;
-  const latest = serviceContext.questions
-    .filter((item) => (item.familyId ?? item.id) === familyId)
-    .sort((a, b) => b.version - a.version)[0];
-  if (latest?.id !== current.id)
-    throw new ConflictException(
-      "Chỉ có thể xuất bản phiên bản mới nhất của câu hỏi.",
-    );
-  current.status = nextStatus;
-  return serviceContext.cloneQuestion(current);
-}
-
-/** Áp dụng quyết định duyệt tay, bắt buộc ghi chú khi trả lại và lưu audit. */
-export async function reviewQuestion(
-  serviceContext: LearningServiceContext,
-  questionId: string,
-  decision: "APPROVE" | "RETURN",
-  rawNote?: string,
-  reviewerId = "usr-admin",
-): Promise<LearningQuestion> {
-  const reviewNote = rawNote?.trim();
-  if (decision === "RETURN" && (!reviewNote || reviewNote.length < 5))
-    throw new BadRequestException(
-      "Cần lý do ít nhất 5 ký tự khi trả lại câu hỏi.",
-    );
-  const nextStatus: LearningQuestion["status"] =
-    decision === "APPROVE" ? "PUBLISHED" : "DRAFT";
-  const prisma = serviceContext.database();
-  if (prisma) {
-    return prisma.$transaction(async (transaction) => {
-      const current = await transaction.question.findUnique({
-        where: { id: questionId },
-      });
-      if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
-      if (current.status !== "PENDING_REVIEW")
-        throw new ConflictException(
-          "Câu hỏi không ở trạng thái chờ phê duyệt.",
-        );
-      const reviewId = id("question-review");
-      const updated = await transaction.question.update({
-        where: { id: questionId },
-        data: { status: nextStatus },
-      });
-      await transaction.auditLog.create({
-        data: {
-          actorId: reviewerId,
-          action: `QUESTION_${decision}`,
-          entityType: "question",
-          entityId: questionId,
-          context: {
-            version: current.version,
-            reviewNote: reviewNote ?? "Đạt yêu cầu",
-          },
-        },
-      });
-      await transaction.notification.create({
-        data: {
-          id: id("notification"),
-          recipientId: current.authorId,
-          type: "QUESTION_REVIEWED",
-          title:
-            decision === "APPROVE"
-              ? "Câu hỏi đã được phê duyệt"
-              : `Câu hỏi đã được trả lại: ${reviewNote}`,
-          entityType: "QUESTION",
-          entityId: questionId,
-          dedupKey: `${reviewId}:${current.authorId}`,
-        },
-      });
-      return serviceContext.mapQuestion(updated);
-    });
-  }
-  const current = serviceContext.questions.find(
-    (item) => item.id === questionId,
-  );
-  if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
-  if (current.status !== "PENDING_REVIEW")
-    throw new ConflictException("Câu hỏi không ở trạng thái chờ phê duyệt.");
-  current.status = nextStatus;
-  return serviceContext.cloneQuestion(current);
 }
 
 /** Nhập từng câu độc lập để lỗi một mục không hủy toàn bộ lô. */

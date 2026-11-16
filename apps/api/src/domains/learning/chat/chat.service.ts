@@ -223,10 +223,6 @@ export class ChatService {
       throw new BadRequestException(
         "Không thể tự mở hội thoại với chính mình.",
       );
-    if (await this.isBlockedPair(session.user.id, targetUserId))
-      throw new ConflictException(
-        "Không thể mở hội thoại vì một trong hai tài khoản đã chặn liên hệ riêng.",
-      );
     const allowed = await this.directory(session, "", Number.MAX_SAFE_INTEGER);
     if (!allowed.some((entry) => entry.id === targetUserId))
       throw new NotFoundException(
@@ -472,16 +468,6 @@ export class ChatService {
       throw new ConflictException(
         "Lớp đã đóng; hội thoại lớp chỉ cho phép đọc.",
       );
-    if (membership.conversation.type === "DIRECT") {
-      const other = await this.prisma.chatConversationMember.findFirst({
-        where: { conversationId, userId: { not: session.user.id } },
-        select: { userId: true },
-      });
-      if (other && (await this.isBlockedPair(session.user.id, other.userId)))
-        throw new ConflictException(
-          "Không thể gửi tin vì một trong hai tài khoản đã chặn liên hệ riêng.",
-        );
-    }
     this.validateFiles(files);
     const content = input.content?.trim() ?? "";
     if (!content && !files.length)
@@ -767,44 +753,6 @@ export class ChatService {
       data: { mutedUntil },
     });
     return { mutedUntil: mutedUntil?.toISOString() };
-  }
-
-  /** Chặn liên hệ riêng với một người dùng nhưng không thay đổi quyền xem nhóm lớp. */
-  async blockUser(
-    userId: string,
-    rawReason: string | undefined,
-    session: AuthenticatedSession,
-  ): Promise<{ blockedUserId: string }> {
-    if (userId === session.user.id)
-      throw new BadRequestException("Không thể tự chặn chính mình.");
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
-    });
-    if (!user) throw new NotFoundException("Không tìm thấy người dùng.");
-    await this.prisma.userBlock.upsert({
-      where: {
-        blockerId_blockedId: { blockerId: session.user.id, blockedId: userId },
-      },
-      update: { reason: rawReason?.trim() },
-      create: {
-        blockerId: session.user.id,
-        blockedId: userId,
-        reason: rawReason?.trim(),
-      },
-    });
-    return { blockedUserId: userId };
-  }
-
-  /** Bỏ chặn liên hệ riêng do chính người dùng đã tạo. */
-  async unblockUser(
-    userId: string,
-    session: AuthenticatedSession,
-  ): Promise<{ unblockedUserId: string }> {
-    await this.prisma.userBlock.deleteMany({
-      where: { blockerId: session.user.id, blockedId: userId },
-    });
-    return { unblockedUserId: userId };
   }
 
   /** Đọc tệp chat sau khi đối chiếu membership, thời điểm rời nhóm và metadata tin. */
@@ -1122,51 +1070,19 @@ export class ChatService {
     };
   }
 
-  /** Kiểm tra một cặp bị chặn theo bất kỳ chiều nào. */
-  private async isBlockedPair(
-    leftUserId: string,
-    rightUserId: string,
-  ): Promise<boolean> {
-    return Boolean(
-      await this.prisma.userBlock.findFirst({
-        where: {
-          OR: [
-            { blockerId: leftUserId, blockedId: rightUserId },
-            { blockerId: rightUserId, blockedId: leftUserId },
-          ],
-        },
-        select: { blockerId: true },
-      }),
-    );
-  }
-
   /** Kiểm tra quyền hiện tại của người dùng đối với đối tượng gắn trong thẻ chat. */
   private async canAccessContext(
     type: "ASSIGNMENT" | "EXAM" | "MATERIAL",
     contextId: string,
     userId: string,
   ): Promise<boolean> {
-    const classId =
-      type === "ASSIGNMENT"
-        ? (
-            await this.prisma.assignment.findUnique({
-              where: { id: contextId },
-              select: { classId: true },
-            })
-          )?.classId
-        : type === "EXAM"
-          ? (
-              await this.prisma.exam.findUnique({
-                where: { id: contextId },
-                select: { classId: true },
-              })
-            )?.classId
-          : (
-              await this.prisma.material.findUnique({
-                where: { id: contextId },
-                select: { classId: true },
-              })
-            )?.classId;
+    const resource = type === "ASSIGNMENT"
+      ? await this.prisma.assignment.findUnique({ where: { id: contextId }, select: { classId: true, hidden: true } })
+      : type === "MATERIAL"
+        ? await this.prisma.material.findUnique({ where: { id: contextId }, select: { classId: true, visibility: true } })
+        : await this.prisma.exam.findUnique({ where: { id: contextId }, select: { classId: true, hidden: true } });
+    const classId = resource?.classId;
+    const hidden = resource && (("hidden" in resource && resource.hidden) || ("visibility" in resource && resource.visibility !== "PUBLISHED"));
     if (!classId) return false;
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -1184,7 +1100,7 @@ export class ChatService {
           id: classId,
           OR: [
             { instructors: { some: { instructorId: userId } } },
-            { enrollments: { some: { learnerId: userId, status: "ACTIVE" } } },
+            ...(hidden ? [] : [{ enrollments: { some: { learnerId: userId, status: "ACTIVE" as const } } }]),
           ],
         },
         select: { id: true },

@@ -42,7 +42,6 @@ describe("ChatService", () => {
       await prisma.notification.deleteMany({ where: { entityType: "CHAT_CONVERSATION", entityId: conversationId } });
       await prisma.chatConversation.deleteMany({ where: { id: conversationId } });
     }
-    await prisma.userBlock.deleteMany({ where: { blockerId: learner.user.id, blockedId: instructor.user.id } });
     await prisma.classEnrollment.deleteMany({ where: { learnerId: testLearnerId } });
     await prisma.user.deleteMany({ where: { id: testLearnerId } });
     await module.close();
@@ -69,7 +68,7 @@ describe("ChatService", () => {
     expect(reply.replyTo?.id).toBe(sent.id);
   });
 
-  it("tìm tin, tắt thông báo, nhắc tên, gắn context, báo cáo và chặn liên hệ", async () => {
+  it("tìm tin, tắt thông báo, nhắc tên và gắn context", async () => {
     const conversation = await service.openDirect(instructor, learner.user.id);
     conversationId = conversation.id;
     const sent = await service.sendMessage(conversation.id, { clientMessageId: `chat-features-${Date.now()}`, content: "Xem lại đề giữa kỳ trong ngữ cảnh này.", mentionedUserIds: [learner.user.id], contextType: "EXAM", contextId: "exam-mid-web" }, instructor);
@@ -77,9 +76,6 @@ describe("ChatService", () => {
     expect(sent.context).toMatchObject({ type: "EXAM", id: "exam-mid-web" });
     expect((await service.searchMessages(conversation.id, "giữa kỳ", learner))[0]?.id).toBe(sent.id);
     expect((await service.muteConversation(conversation.id, new Date(Date.now() + 3_600_000).toISOString(), learner)).mutedUntil).toBeTruthy();
-    await service.blockUser(instructor.user.id, "Tạm dừng liên hệ", learner);
-    await expect(service.sendMessage(conversation.id, { clientMessageId: `chat-blocked-${Date.now()}`, content: "Tin không được gửi" }, instructor)).rejects.toThrow("đã chặn");
-    await service.unblockUser(instructor.user.id, learner);
   });
 
   it("đọc đủ tin trùng timestamp qua nhiều trang bằng truy vấn database thật", async () => {

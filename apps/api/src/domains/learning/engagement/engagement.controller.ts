@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { timer, type Observable } from "rxjs";
 import { concatMap, distinctUntilChanged, map } from "rxjs/operators";
@@ -8,7 +9,7 @@ import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
 import { AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreatePostDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto, CreateProgressInterventionDto, CreateTopicDto, ModerateTopicDto, ProgressQueryDto, TransferProgressInterventionDto, TransitionSessionDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto } from "../core/learning.dto.js";
-import { LearningService } from "../core/learning.service.js";
+import { LearningService, type ForumPostPageResult } from "../core/learning.service.js";
 import type { ClassProgressReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ProgressIntervention, SupportAttachment, SupportTicket, TicketComment } from "../core/learning.types.js";
 
 @ApiTags("Forum, Live Class & Support")
@@ -20,6 +21,23 @@ export class EngagementController {
   @Get("forum/topics") @RequirePermissions("forum:view")
   /** Liệt kê chủ đề diễn đàn trong các lớp phiên hiện tại truy cập được. */
   listTopics(@CurrentSession() session: AuthenticatedSession): Promise<ForumTopic[]> { return this.learning.listTopics(session.roleCode, session.user.id); }
+
+  @Get("forum/topics/page") @RequirePermissions("forum:view")
+  /** Trả danh sách chủ đề diễn đàn phân trang từ DB kèm lọc lớp, ghim, bài của tôi và tìm kiếm. */
+  listTopicsPage(
+    @Query() raw: Record<string, unknown>,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<PaginatedResult<ForumTopic>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    return this.learning.listTopicsPage(session.roleCode, session.user.id, {
+      classId: parseOptionalQueryString(raw.classId, "classId", 191),
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      pinnedOnly: raw.pinnedOnly === "true",
+      mineOnly: raw.mineOnly === "true",
+      page,
+      pageSize,
+    });
+  }
 
   @Post("instructor/classes/:classId/forum/topics") @RequirePermissions("forum:moderate")
   /** Tạo chủ đề với quyền ghim/khóa dành cho người điều phối. */
@@ -37,6 +55,17 @@ export class EngagementController {
   /** Liệt kê bài viết trong chủ đề sau khi kiểm tra quyền lớp. */
   listPosts(@Param("topicId") topicId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost[]> { return this.learning.listPosts(topicId, session.roleCode, session.user.id); }
 
+  @Get("forum/topics/:topicId/posts/page") @RequirePermissions("forum:view")
+  /** Phân trang bình luận gốc của chủ đề kèm đầy đủ phản hồi thuộc các gốc đó. */
+  listPostsPage(
+    @Param("topicId") topicId: string,
+    @Query() raw: Record<string, unknown>,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<ForumPostPageResult> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 15, maxPageSize: 100 });
+    return this.learning.listPostsPage(topicId, session.roleCode, session.user.id, { page, pageSize });
+  }
+
   @Post("learner/forum/topics/:topicId/posts") @RequirePermissions("forum:post")
   /** Tạo bài viết/trả lời và chuyển danh sách tệp, người được nhắc tới cho service. */
   createPost(@Param("topicId") topicId: string, @Body() input: CreatePostDto, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> {
@@ -50,16 +79,6 @@ export class EngagementController {
   @Post("learner/forum/posts/:postId/delete") @RequirePermissions("forum:post")
   /** Xóa mềm bài viết do chính tác giả yêu cầu. */
   deletePost(@Param("postId") postId: string, @CurrentSession() session: AuthenticatedSession): Promise<ForumPost> { return this.learning.deletePost(postId, session.user.id); }
-
-  @Get("learner/notifications") @RequirePermissions("forum:view")
-  /** Liệt kê thông báo của học viên hiện tại. */
-  listNotifications(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> { return this.learning.listNotifications(session.user.id); }
-
-  @Patch("learner/notifications/:notificationId/read") @RequirePermissions("forum:view")
-  /** Đánh dấu thông báo thuộc người dùng là đã đọc. */
-  markNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {
-    return this.learning.markNotificationRead(notificationId, session.user.id);
-  }
 
   @Get("notifications") @RequireAuthentication()
   /** Dùng cùng kho thông báo cho mọi vai trò đã xác thực. */
@@ -87,9 +106,39 @@ export class EngagementController {
   /** Liệt kê buổi học trực tuyến theo vai trò và quan hệ lớp. */
   listSessions(@CurrentSession() session: AuthenticatedSession): Promise<LiveSession[]> { return this.learning.listSessions(session.roleCode, session.user.id); }
 
+  @Get("sessions/page") @RequirePermissions("session:view")
+  /** Phân trang danh sách buổi học trực tuyến theo lớp, trạng thái và khoảng thời gian. */
+  listSessionsPage(
+    @Query() raw: Record<string, unknown>,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<PaginatedResult<LiveSession>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    const rawStatus = parseOptionalQueryString(raw.status, "status", 64)?.toUpperCase();
+    if (rawStatus && !["SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"].includes(rawStatus)) {
+      throw new BadRequestException("Tham số status không hợp lệ.");
+    }
+    return this.learning.listSessionsPage(session.roleCode, session.user.id, {
+      classId: parseOptionalQueryString(raw.classId, "classId", 191),
+      status: rawStatus as LiveSession["status"] | undefined,
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      from: parseOptionalQueryString(raw.from, "from", 64),
+      to: parseOptionalQueryString(raw.to, "to", 64),
+      page,
+      pageSize,
+    });
+  }
+
   @Post("instructor/classes/:classId/sessions") @RequirePermissions("session:manage")
   /** Lên lịch buổi học cho lớp giảng viên phụ trách. */
   createSession(@Param("classId") classId: string, @Body() input: CreateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.createSession(classId, input, session.user.id, session.roleCode); }
+
+  @Patch("instructor/sessions/:sessionId") @RequirePermissions("session:manage")
+  /** Cập nhật lịch và liên kết phòng họp cho buổi học của lớp giảng viên phụ trách. */
+  updateInstructorSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.updateSession(sessionId, input, session.user.id, session.roleCode); }
+
+  @Post("instructor/sessions/:sessionId/cancel") @RequirePermissions("session:manage")
+  /** Hủy buổi học chưa diễn ra của lớp giảng viên phụ trách. */
+  cancelInstructorSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason, session.user.id, session.roleCode); }
 
   @Post("manager/classes/:classId/sessions") @RequirePermissions("class:manage")
   /** Lên lịch buổi học từ khu vực quản lý trung tâm. */
@@ -97,19 +146,23 @@ export class EngagementController {
 
   @Patch("manager/sessions/:sessionId") @RequirePermissions("class:manage")
   /** Cập nhật lịch/phòng họp của buổi học từ khu vực quản lý. */
-  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.updateSession(sessionId, input, session.user.id); }
+  updateManagerSession(@Param("sessionId") sessionId: string, @Body() input: UpdateSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.updateSession(sessionId, input, session.user.id, session.roleCode); }
 
   @Post("manager/sessions/:sessionId/cancel") @RequirePermissions("class:manage")
   /** Hủy buổi học với lý do được lưu cho vận hành/audit. */
-  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason, session.user.id); }
+  cancelManagerSession(@Param("sessionId") sessionId: string, @Body() input: CancelSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.cancelSession(sessionId, input.reason, session.user.id, session.roleCode); }
 
   @Patch("instructor/sessions/:sessionId/status") @RequirePermissions("session:manage")
   /** Chuyển trạng thái buổi học theo vòng đời LIVE/COMPLETED/CANCELLED. */
   transitionSession(@Param("sessionId") sessionId: string, @Body() input: TransitionSessionDto, @CurrentSession() session: AuthenticatedSession): Promise<LiveSession> { return this.learning.transitionSession(sessionId, input.status, session.user.id); }
 
+  @Post("sessions/:sessionId/join") @RequirePermissions("session:view")
+  /** Xác minh quyền tham dự theo vai trò (giảng viên, quản lý, học viên) và trả URL phòng họp. */
+  joinRoleSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id, session.roleCode); }
+
   @Post("learner/sessions/:sessionId/join") @RequirePermissions("session:view")
   /** Ghi nhận học viên vào phòng và bắt đầu dữ liệu điểm danh. */
-  joinSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id); }
+  joinSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id, session.roleCode); }
 
   @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
   /** Gắn URL bản ghi vào buổi học và bắt đầu trạng thái xử lý. */
@@ -138,6 +191,26 @@ export class EngagementController {
   @Get("support/tickets") @RequireAuthentication()
   /** Liệt kê phiếu hỗ trợ theo vai trò: người gửi xem của mình, quản trị xem hàng đợi. */
   listTickets(@CurrentSession() session: AuthenticatedSession): Promise<SupportTicket[]> { return this.learning.listTickets(session.roleCode, session.user.id); }
+
+  @Get("support/tickets/page") @RequireAuthentication()
+  /** Phân trang phiếu hỗ trợ theo vai trò, trạng thái và từ khóa từ DB. */
+  listTicketsPage(
+    @Query() raw: Record<string, unknown>,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<PaginatedResult<SupportTicket>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    const rawStatus = parseOptionalQueryString(raw.status, "status", 64)?.toUpperCase();
+    if (rawStatus && !["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"].includes(rawStatus)) {
+      throw new BadRequestException("Tham số status không hợp lệ.");
+    }
+    return this.learning.listTicketsPage(session.roleCode, session.user.id, {
+      status: rawStatus as SupportTicket["status"] | undefined,
+      category: parseOptionalQueryString(raw.category, "category", 100),
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      page,
+      pageSize,
+    });
+  }
 
   @Post("support/tickets") @RequirePermissions("support:create")
   /** Tạo phiếu hỗ trợ mới gắn với người dùng hiện tại. */

@@ -30,15 +30,6 @@ export interface IdentityRole {
   version: number;
 }
 
-/** Dòng nhật ký rút gọn mô tả ai đã thay đổi đối tượng danh tính nào. */
-export interface IdentityAuditEvent {
-  id: string;
-  actorId: string;
-  action: string;
-  targetId: string;
-  summary: string;
-  createdAt: string;
-}
 
 /** Ảnh hưởng phải được xử lý trước khi đổi vai trò hoặc trạng thái tài khoản. */
 export interface IdentityChangeImpact {

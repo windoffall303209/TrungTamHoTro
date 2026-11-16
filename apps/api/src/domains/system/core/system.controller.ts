@@ -1,10 +1,22 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, StreamableFile } from "@nestjs/common";
-import { ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { ApiTags } from "@nestjs/swagger";
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
-import { SystemService, type AuditEvent, type BackupRun, type DataExport, type IntegrationConfig, type LegalHoldView, type RestoreRun, type RetentionJobView, type RetentionPolicyView, type SnapshotAssetAudit, type StorageCleanupFailure, type StorageOverview, type SystemAlertView, type SystemSettingRevision, type SystemSettings } from "./system.service.js";
+import {
+  SystemService,
+  type AuditEvent,
+  type BackupRun,
+  type DataExport,
+  type IntegrationConfig,
+  type RestoreRun,
+  type SnapshotAssetAudit,
+  type StorageCleanupFailure,
+  type StorageOverview,
+  type SystemSettings,
+} from "./system.service.js";
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "../ai/ai-provider.service.js";
 import { OutboxDeliveryService } from "../../../infrastructure/outbox-delivery.service.js";
 
@@ -15,37 +27,27 @@ class ConfigureAiTaskDto {
   @IsString() @MinLength(1) @MaxLength(200) model!: string;
 }
 
-const modules = [{ key: "storage", name: "Kho dữ liệu", readiness: "operational" }, { key: "question-bank", name: "Ngân hàng câu hỏi", readiness: "operational" }, { key: "forum", name: "Diễn đàn trao đổi", readiness: "operational" }, { key: "live-class", name: "Lớp học online", readiness: "operational" }] as const;
-class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(30) @Max(3650) retentionDays?: number; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsIn(["AUTO", "MANUAL"]) questionApprovalMode?: "AUTO" | "MANUAL"; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean; @IsOptional() @IsDateString() effectiveAt?: string }
+class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean }
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
 class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() credentialReference?: string; @IsOptional() @IsString() webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
 class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsString() @MinLength(10) @MaxLength(500) reason!: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
-class CreateRetentionPolicyDto { @IsString() category!: string; @IsInt() @Min(30) @Max(3650) retentionDays!: number; @IsIn(["ARCHIVE", "DELETE"]) action!: "ARCHIVE" | "DELETE"; @IsOptional() @IsDateString() effectiveAt?: string }
-class RunRetentionDto { @IsString() @MinLength(1) @MaxLength(191) policyId!: string }
-class CreateLegalHoldDto { @IsString() category!: string; @IsString() @MinLength(5) @MaxLength(500) reason!: string }
-class ReleaseLegalHoldDto { @IsString() @MinLength(5) @MaxLength(500) reason!: string }
-class UpdateAlertDto { @IsIn(["ACKNOWLEDGE", "MUTE", "RESOLVE"]) action!: "ACKNOWLEDGE" | "MUTE" | "RESOLVE"; @IsOptional() @IsInt() @Min(5) @Max(1440) muteMinutes?: number }
 class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType; @IsOptional() @IsString() @MaxLength(100) name?: string; @IsString() @MinLength(1) @MaxLength(200) model!: string; @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string; @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string; @IsOptional() @IsBoolean() enabled?: boolean; @IsOptional() @IsBoolean() isDefault?: boolean }
 
 @ApiTags("System") @Controller("system")
-/** API quản trị tập trung cho cấu hình, AI, tích hợp, sao lưu, lưu giữ, mẫu tin và giám sát. */
+/** API quản trị tập trung cho cấu hình, AI, tích hợp, sao lưu, xuất dữ liệu và giám sát. */
 export class SystemController {
   constructor(private readonly system: SystemService, private readonly aiProviders: AiProviderService, private readonly outbox: OutboxDeliveryService) {}
-  /** Trả danh mục phân hệ tĩnh để giao diện hiển thị mức sẵn sàng. */
-  @Get("modules") @ApiOperation({ summary: "Liệt kê các phân hệ sản phẩm" }) @ApiOkResponse({ description: "Danh sách phân hệ và trạng thái nền tảng" }) getModules(): typeof modules { return modules; }
   /** Đọc cấu hình hệ thống hiện hành. */
   @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
-  /** Cập nhật cấu hình và ghi người thực hiện từ phiên. */
+  /** Cập nhật trực tiếp cấu hình hiện hành và ghi audit log. */
   @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto, @CurrentSession() session: AuthenticatedSession): Promise<SystemSettings> { return this.system.updateSettings(input, session.user.id); }
-  /** Liệt kê lịch sử phiên bản cấu hình. */
-  @Get("settings/history") @RequirePermissions("system:configure") listSettingHistory(): Promise<SystemSettingRevision[]> { return this.system.listSettingRevisions(); }
   /** Liệt kê cấu hình các nhà cung cấp phòng học. */
   @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
   /** Trả catalog model/endpoint mặc định của các nhà cung cấp AI. */
   @Get("ai-providers/catalog") @RequirePermissions("system:configure") getAiProviderCatalog(): ReturnType<AiProviderService["getCatalog"]> { return this.aiProviders.getCatalog(); }
-  /** Trả phân công provider/model cho hai tác vụ AI. */
+  /** Trả phân công provider/model cho các tác vụ AI. */
   @Get("ai-tasks") @RequirePermissions("system:configure") getAiTasks(): ReturnType<AiProviderService["getTaskConfigs"]> { return this.aiProviders.getTaskConfigs(); }
   /** Chỉ quản trị viên được đổi model thực thi tác vụ. */
   @Post("ai-tasks") @RequirePermissions("system:configure") saveAiTask(@Body() input: ConfigureAiTaskDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiProviderService["configureTask"]> { return this.aiProviders.configureTask(input.task, input, session.user.id); }
@@ -79,26 +81,6 @@ export class SystemController {
   @Post("restores") @RequirePermissions("system:configure") requestRestore(@Body() input: RestoreBackupDto, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.requestRestore(input, session.user.id); }
   /** Phê duyệt và thực thi yêu cầu phục hồi bằng danh tính phiên hiện tại. */
   @Post("restores/:restoreId/approve") @RequirePermissions("system:configure") approveRestore(@Param("restoreId") restoreId: string, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.approveRestore(restoreId, session.user.id); }
-  /** Xem trước số bản ghi bị tác động bởi chính sách lưu giữ. */
-  @Get("retention-preview") @RequirePermissions("system:configure") previewRetention(@Query("category") category = "LEARNING"): Promise<object> { return this.system.previewRetention(category); }
-  /** Liệt kê các phiên bản chính sách lưu giữ. */
-  @Get("retention-policies") @RequirePermissions("system:configure") listRetentionPolicies(): Promise<RetentionPolicyView[]> { return this.system.listRetentionPolicies(); }
-  /** Tạo chính sách lưu giữ mới với phê duyệt và ngày hiệu lực. */
-  @Post("retention-policies") @RequirePermissions("system:configure") createRetentionPolicy(@Body() input: CreateRetentionPolicyDto, @CurrentSession() session: AuthenticatedSession): Promise<RetentionPolicyView> { return this.system.createRetentionPolicy(input, session.user.id); }
-  /** Đặt legal hold để loại một danh mục khỏi xóa/lưu trữ tự động. */
-  @Post("legal-holds") @RequirePermissions("system:configure") createLegalHold(@Body() input: CreateLegalHoldDto, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.system.createLegalHold(input.category, input.reason, session.user.id); }
-  /** Liệt kê legal hold đang hoạt động và đã giải tỏa. */
-  @Get("legal-holds") @RequirePermissions("system:configure") listLegalHolds(): Promise<LegalHoldView[]> { return this.system.listLegalHolds(); }
-  /** Giải tỏa một legal hold với lý do và dấu vết người thực hiện. */
-  @Patch("legal-holds/:holdId/release") @RequirePermissions("system:configure") releaseLegalHold(@Param("holdId") holdId: string, @Body() input: ReleaseLegalHoldDto, @CurrentSession() session: AuthenticatedSession): Promise<LegalHoldView> { return this.system.releaseLegalHold(holdId, input.reason, session.user.id); }
-  /** Liệt kê lịch sử job lưu giữ. */
-  @Get("retention-jobs") @RequirePermissions("system:configure") listRetentionJobs(): Promise<RetentionJobView[]> { return this.system.listRetentionJobs(); }
-  /** Chạy chính sách lưu giữ với người yêu cầu và phê duyệt tách biệt. */
-  @Post("retention-jobs") @RequirePermissions("system:configure") runRetention(@Body() input: RunRetentionDto, @CurrentSession() session: AuthenticatedSession): Promise<RetentionJobView> { return this.system.runRetention(input.policyId, session.user.id); }
-  /** Chỉ phiên của người có quyền khác người yêu cầu mới được phê duyệt tác vụ. */
-  @Post("retention-jobs/:jobId/approve") @RequirePermissions("system:configure") approveRetention(@Param("jobId") jobId: string, @CurrentSession() session: AuthenticatedSession): Promise<RetentionJobView> { return this.system.approveRetention(jobId, session.user.id); }
-  /** Kiểm tra gói archive và toàn bộ asset nhúng của một retention job. */
-  @Post("retention-jobs/:jobId/verify") @RequirePermissions("system:configure") verifyRetentionArchive(@Param("jobId") jobId: string): Promise<object> { return this.system.verifyRetentionArchive(jobId); }
   /** Liệt kê các job xuất dữ liệu hệ thống. */
   @Get("exports") @RequirePermissions("system:configure") listExports(): Promise<DataExport[]> { return this.system.listExports(); }
   /** Chạy xuất dữ liệu theo danh mục và định dạng. */
@@ -107,16 +89,28 @@ export class SystemController {
   @Get("exports/:exportId/download") @RequirePermissions("system:configure") async downloadExport(@Param("exportId") exportId: string): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: `attachment; filename="${file.filename}"` }); }
   /** Tìm audit theo từ khóa, actor, action, target và khoảng thời gian. */
   @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string, @Query("actor") actor?: string, @Query("action") action?: string, @Query("target") target?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<AuditEvent[]> { return this.system.listAudit({ query, actor, action, target, from, to }); }
-  /** Tổng hợp sức khỏe DB, storage và các dịch vụ ngoài. */
+
+  /** Trả danh sách nhật ký audit phân trang từ DB kèm bộ lọc thời gian và từ khóa. */
+  @Get("audit/page") @RequirePermissions("system:configure")
+  listAuditPage(@Query() raw: Record<string, unknown>): Promise<PaginatedResult<AuditEvent>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 20, maxPageSize: 100 });
+    return this.system.listAuditPage({
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      actor: parseOptionalQueryString(raw.actor, "actor", 191),
+      action: parseOptionalQueryString(raw.action, "action", 191),
+      target: parseOptionalQueryString(raw.target, "target", 191),
+      from: parseOptionalQueryString(raw.from, "from", 64),
+      to: parseOptionalQueryString(raw.to, "to", 64),
+      page,
+      pageSize,
+    });
+  }
+  /** Tổng hợp sức khỏe DB, storage và hàng đợi operational_jobs. */
   @Get("health-overview") @RequirePermissions("system:configure") healthOverview(): Promise<object> { return this.system.healthOverview(); }
   /** Trả số email outbox theo trạng thái để giám sát backlog và lỗi retry. */
   @Get("outbox/stats") @RequirePermissions("system:configure") outboxStats(): Promise<Record<string, number>> { return this.outbox.stats(); }
   /** Cho phép vận hành kích hoạt một batch retry ngay thay vì đợi worker định kỳ. */
   @Post("outbox/drain") @RequirePermissions("system:configure") drainOutbox(): Promise<{ processed: number; delivered: number; failed: number }> { return this.outbox.drain(); }
-  /** Liệt kê cảnh báo hệ thống đang hoạt động và lịch sử. */
-  @Get("alerts") @RequirePermissions("system:configure") listAlerts(): Promise<SystemAlertView[]> { return this.system.listAlerts(); }
-  /** Xác nhận, tạm ẩn hoặc giải quyết một cảnh báo. */
-  @Patch("alerts/:alertId") @RequirePermissions("system:configure") updateAlert(@Param("alertId") alertId: string, @Body() input: UpdateAlertDto, @CurrentSession() session: AuthenticatedSession): Promise<SystemAlertView> { return this.system.updateAlert(alertId, input.action, session.user.id, input.muteMinutes); }
   /** Tính dung lượng đã dùng, quota và phân bố theo loại tệp. */
   @Get("storage-overview") @RequirePermissions("system:configure") storageOverview(): Promise<StorageOverview> { return this.system.getStorageOverview(); }
   /** Đối soát snapshot bị thiếu, object dùng chung và metadata trỏ tới object mất. */

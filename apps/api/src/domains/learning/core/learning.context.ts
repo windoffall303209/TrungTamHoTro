@@ -9,23 +9,21 @@ import {
 } from "../../../infrastructure/object-storage.service.js";
 import {
   SystemService,
-  type ExamApprovalMode,
 } from "../../system/core/system.service.js";
-import { AttemptWithAnswers, ClassWithMembers, ExamWithQuestions, ForumPostWithRelations, MaterialAccessAction, MaterialSearchResult, MemoryMaterialVersion, MemoryQuestionImage, SupportTicketWithAttachments, UploadedMaterialFile } from "./learning.shared.js";
-import type { ClassClosureReadiness, ClassMemberHistory, CourseVersionSnapshot, ExamAnalytics, ExamAttempt, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, MaterialVersionSnapshot, ProgressIntervention, RegradeRequest, RiskThresholds, SupportTicket, TicketComment } from "./learning.types.js";
+import { AttemptWithAnswers, ClassWithMembers, ExamWithQuestions, ForumPostWithRelations, MaterialAccessAction, MaterialSearchResult, MaterialSummaryBucket, MemoryQuestionImage, SupportTicketWithAttachments, UploadedMaterialFile } from "./learning.shared.js";
+import type { ClassClosureReadiness, CourseVersionSnapshot, ExamAnalytics, ExamAttempt, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, RegradeRequest, RiskThresholds, SupportTicket, TicketComment } from "./learning.types.js";
 
 /** Hợp đồng nội bộ của các nhóm nghiệp vụ; trạng thái vẫn thuộc một phiên bản service duy nhất. */
 export interface LearningServiceContext {
   courses: LearningCourse[];
   courseVersions: CourseVersionSnapshot[];
   classes: LearningClass[];
+  folderRegistry: Map<string, Set<string>>;
   materials: LearningMaterial[];
-  materialVersions: MemoryMaterialVersion[];
   questions: LearningQuestion[];
   questionImages: Map<string, MemoryQuestionImage>;
   exams: LearningExam[];
   attempts: ExamAttempt[];
-  gradeHistory: GradeHistoryRecord[];
   regradeRequests: RegradeRequest[];
   topics: ForumTopic[];
   posts: ForumPost[];
@@ -35,15 +33,8 @@ export interface LearningServiceContext {
   ticketComments: TicketComment[];
   supportAttachmentFiles: Map<string, string>;
   materialFiles: Map<string, { objectKey: string; checksum: string }>;
-  materialAccessLogs: Array<{
-    materialId: string;
-    userId: string;
-    action: MaterialAccessAction;
-    createdAt: string;
-  }>;
   progressInterventions: ProgressIntervention[];
   instructorRoles: Map<string, InstructorRole>;
-  classMemberHistory: ClassMemberHistory[];
   prisma: PrismaService | undefined;
   config: ConfigService<Environment, true> | undefined;
   objectStorage: ObjectStorageService | undefined;
@@ -69,6 +60,8 @@ export interface LearningServiceContext {
       visibility?: string;
       aiOnly?: boolean;
       folder?: string;
+      folderExact?: boolean;
+      kind?: "materials" | "lectures";
       mimeType?: string;
       tag?: string;
       page?: number;
@@ -77,23 +70,13 @@ export interface LearningServiceContext {
     learnerId?: string,
     role?: string,
   ): Promise<MaterialSearchResult>;
+  getMaterialSummary(
+    actorId?: string,
+    role?: string,
+    classId?: string,
+  ): Promise<MaterialSummaryBucket[]>;
   resolveMaterialDownload(
     materialId: string,
-    expires: number,
-    signature: string,
-    role: string,
-    action?: MaterialAccessAction,
-    context?: { ipAddress?: string; userAgent?: string },
-    actorId?: string,
-  ): Promise<{
-    fileName: string;
-    mimeType: string;
-    objectKey: string;
-    checksum?: string;
-  }>;
-  resolveMaterialVersionDownload(
-    materialId: string,
-    version: number,
     expires: number,
     signature: string,
     role: string,
@@ -131,7 +114,6 @@ export interface LearningServiceContext {
     >,
   ): boolean;
   database(): PrismaService | undefined;
-  getQuestionApprovalMode(): Promise<ExamApprovalMode>;
   mapCourse(
     row: Prisma.CourseGetPayload<Record<string, never>>,
   ): LearningCourse;
@@ -146,9 +128,6 @@ export interface LearningServiceContext {
     input: { classId?: string; examId?: string; from?: string; to?: string },
     actorId?: string,
   ): Promise<ExamAnalytics>;
-  mapMaterialVersion(
-    row: Prisma.MaterialVersionGetPayload<Record<string, never>>,
-  ): MaterialVersionSnapshot;
   cloneQuestion(item: LearningQuestion): LearningQuestion;
   latestQuestionVersions(items: LearningQuestion[]): LearningQuestion[];
   sameGeneratedQuestion(
@@ -213,14 +192,6 @@ export interface LearningServiceContext {
       thresholds: RiskThresholds;
     },
   ): LearnerProgress;
-  recordMemberHistory(
-    classId: string,
-    memberId: string,
-    memberType: ClassMemberHistory["memberType"],
-    action: string,
-    actorId: string,
-    detail: { role?: InstructorRole; source?: string; reason?: string },
-  ): void;
   buildProviderUrls(
     provider: LiveSession["provider"],
     token: string,

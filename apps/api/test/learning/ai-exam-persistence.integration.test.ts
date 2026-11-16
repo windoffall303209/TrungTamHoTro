@@ -1,9 +1,6 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
-import { ContentController } from "../../src/domains/learning/content/content.controller.js";
-import { SystemService } from "../../src/domains/system/core/system.service.js";
 import { AppModule } from "../../src/app.module.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import { LearningService } from "../../src/domains/learning/core/learning.service.js";
@@ -34,7 +31,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     if (prisma) {
       await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
       const notices = await prisma.notification.findMany({ where: { recipientId: fixture }, select: { id: true } });
-      await prisma.outboxEvent.deleteMany({ where: { id: { in: notices.map(({ id }) => "notification:" + id) } } });
+      await prisma.outboxDelivery.deleteMany({ where: { id: { in: notices.map(({ id }) => "delivery:email:" + id) } } });
       await prisma.auditLog.deleteMany({ where: { actorId: fixture } });
       await prisma.exam.deleteMany({ where: { classId: fixture } });
       await prisma.question.deleteMany({ where: { courseId: fixture } });
@@ -47,7 +44,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
 
   it("keeps one exam and one question when concurrent saves race on the same request", async () => {
     const requestId = randomUUID();
-    const input = { classId: fixture, title: "Concurrent save", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const input = { classId: fixture, title: "Concurrent save", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3600000).toISOString() };
     const generated = { type: "SHORT_ANSWER" as const, content: `Concurrent question ${requestId}`, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
     const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture)));
@@ -61,7 +58,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
 
   it("recovers an interrupted SAVING claim through concurrent retries without calling AI again", async () => {
     const requestId = randomUUID();
-    const input = { classId: fixture, title: "Resume save", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const input = { classId: fixture, title: "Resume save", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3600000).toISOString() };
     const question = { type: "SHORT_ANSWER" as const, content: `Resume question ${requestId}`, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
     const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
     const prepared = { courseId: fixture, generated: { questions: [question], model: "fixture", context: { ...context, materialNames: [] }, providerId: "fixture", provider: "CUSTOM", warnings: [] } satisfies GeneratedExamDraft };
@@ -97,7 +94,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
       ...(variant === "difficulty" ? { difficulty: 2 as const } : {}),
       ...(variant === "case" ? { content: content.toUpperCase() } : {}),
     };
-    const input = { classId: fixture, title: `AI ${variant}`, durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const input = { classId: fixture, title: `AI ${variant}`, durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3600000).toISOString() };
     const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
     const requestId = randomUUID();
     const exam = await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture);
@@ -105,7 +102,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     else {
       expect(exam.questionIds[0]).not.toBe(originalId);
       const stored = await prisma.question.findUniqueOrThrow({ where: { id: exam.questionIds[0] } });
-      expect(stored).toMatchObject({ content: generated.content, type: generated.type, difficulty: generated.difficulty, options: generated.options, correctAnswers: generated.correctAnswers, status: "DRAFT", imageObjectKey: null });
+      expect(stored).toMatchObject({ content: generated.content, type: generated.type, difficulty: generated.difficulty, options: generated.options, correctAnswers: generated.correctAnswers, status: "PUBLISHED", imageObjectKey: null });
     }
     const before = await prisma.question.count({ where: { courseId: fixture } });
     const replay = await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture);
@@ -115,44 +112,18 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: exam.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
   });
 
-  it.each(["AUTO", "MANUAL"] as const)("records each approval and notification once in %s mode", async (mode) => {
-    const system = moduleRef.get(SystemService);
-    const controller = moduleRef.get(ContentController);
-    const settings = await system.getSettings();
-    const configured = vi.spyOn(system, "getSettings").mockResolvedValue({ ...settings, questionApprovalMode: mode });
-    const actor: AuthenticatedSession = {
-      sessionId: fixture, roleCode: "INSTRUCTOR", availableRoles: [], permissions: [],
-      user: { id: fixture, username: fixture, email: fixture + "@example.test", name: fixture, roleName: "Giảng viên" },
-    };
-    try {
-      const input = { classId: fixture, title: "Review " + mode, durationMinutes: 10, totalScore: 10, attemptLimit: 1,
-        openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3_600_000).toISOString() };
-      const question = { type: "SHORT_ANSWER" as const, content: "Review question " + mode, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
-      const exam = await learning.createGeneratedExam(input, [question], fixture, { mode: "WEB_SEARCH", materialIds: [], sources: [] }, randomUUID(), fixture);
-      const questionId = exam.questionIds[0]!;
-      const manager = { ...actor, roleCode: "CENTER_MANAGER" as const };
-      const admin = { ...actor, roleCode: "SYSTEM_ADMIN" as const };
-      await Promise.all([learning.publishQuestion(questionId, fixture), learning.publishQuestion(questionId, fixture)]);
-      if (mode === "MANUAL") {
-        expect(() => controller.reviewQuestion(questionId, { decision: "APPROVE" }, manager)).toThrow();
-        await controller.reviewQuestion(questionId, { decision: "APPROVE" }, admin);
-      }
-      await learning.submitExamForReview(exam.id, fixture);
-      expect((await prisma.exam.findUniqueOrThrow({ where: { id: exam.id } })).status).toBe("PUBLISHED");
-      for (const entityId of [questionId, exam.id]) {
-        expect(await prisma.notification.count({ where: { entityId, recipientId: fixture } })).toBe(1);
-        expect(await prisma.auditLog.count({ where: { entityId, action: entityId === questionId
-          ? (mode === "AUTO" ? "QUESTION_AUTO_APPROVED" : "QUESTION_APPROVE")
-          : "EXAM_PUBLISHED" } })).toBe(1);
-      }
-    } finally {
-      configured.mockRestore();
-    }
+  it("publishes a generated exam and its questions when saved", async () => {
+    const input = { classId: fixture, title: "Published exam", durationMinutes: 10, totalScore: 10, attemptLimit: 1,
+      openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3_600_000).toISOString() };
+    const question = { type: "SHORT_ANSWER" as const, content: "HTTP stands for?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
+    const exam = await learning.createGeneratedExam(input, [question], fixture, { mode: "WEB_SEARCH", materialIds: [], sources: [] }, randomUUID(), fixture);
+    expect(exam.status).toBe("PUBLISHED");
+    expect((await prisma.question.findUniqueOrThrow({ where: { id: exam.questionIds[0]! } })).status).toBe("PUBLISHED");
   });
 
   it("rechecks class access before replaying a persisted exam", async () => {
     const requestId = randomUUID();
-    const input = { classId: fixture, title: "Authorized replay", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: "2026-09-10T00:00:00Z", closeAt: "2026-10-10T00:00:00Z" };
+    const input = { classId: fixture, title: "Authorized replay", durationMinutes: 30, totalScore: 10, attemptLimit: 1, openAt: new Date().toISOString(), closeAt: new Date(Date.now() + 3600000).toISOString() };
     const generated = { type: "SHORT_ANSWER" as const, content: `Access question ${requestId}`, options: [], correctAnswers: ["HTTP"], difficulty: 1 as const, tags: [], warnings: [], confidence: 1 };
     const context = { mode: "WEB_SEARCH" as const, materialIds: [], sources: [] };
     const exam = await learning.createGeneratedExam(input, [generated], fixture, context, requestId, fixture);

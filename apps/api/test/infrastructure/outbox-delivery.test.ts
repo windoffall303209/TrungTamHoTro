@@ -5,7 +5,20 @@ import type { EmailDeliveryService } from "../../src/infrastructure/email-delive
 
 type Mutation = { where: { id: string; status: string; attempts: number; availableAt: Date }; data: { status: string; availableAt?: Date } };
 type UpdateMock = Mock<(input: Mutation) => Promise<{ count: number }>>;
-type Candidate = { id: string; recipientId: string; dedupKey: string; status: string; attempts: number; availableAt: Date; event: { createdAt: Date; payload: { title: string } } };
+type Candidate = {
+  id: string;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: { title: string };
+  recipientId: string;
+  channel: string;
+  dedupKey: string;
+  status: string;
+  attempts: number;
+  availableAt: Date;
+  createdAt: Date;
+};
 type Fixture = {
   service: OutboxDeliveryService;
   candidate: Candidate;
@@ -17,12 +30,31 @@ type Fixture = {
   email: { isConfigured: () => boolean; send: Mock<() => Promise<{ providerMessageId: string }>> };
 };
 
-/** Tạo dữ liệu kiểm thử worker ổn định mà không gửi email thật. */
+/** Tạo dữ liệu kiểm thử worker ổn định sau khi gộp outbox_events vào outbox_deliveries. */
 function fixture(status = "PROCESSING", attempts = 1, ageMs = 0): Fixture {
-  const candidate = { id: "job", recipientId: "recipient", dedupKey: "same-key", status, attempts, availableAt: new Date(0), event: { createdAt: new Date(Date.now() - ageMs), payload: { title: "Notice" } } };
+  const candidate: Candidate = {
+    id: "job",
+    eventType: "SYSTEM_ALERT_EMAIL",
+    aggregateType: "CLASS",
+    aggregateId: "class-1",
+    payload: { title: "Notice" },
+    recipientId: "recipient",
+    channel: "EMAIL",
+    dedupKey: "same-key",
+    status,
+    attempts,
+    availableAt: new Date(0),
+    createdAt: new Date(Date.now() - ageMs),
+  };
   const updateMany = vi.fn<(input: Mutation) => Promise<{ count: number }>>().mockResolvedValue({ count: 1 });
-  const prisma = { outboxDelivery: { findMany: vi.fn<() => Promise<Candidate[]>>().mockResolvedValue([candidate]), updateMany }, user: { findUnique: vi.fn().mockResolvedValue({ email: "test@example.com", status: "ACTIVE" }) } };
-  const email = { isConfigured: (): boolean => true, send: vi.fn<() => Promise<{ providerMessageId: string }>>().mockResolvedValue({ providerMessageId: "sent" }) };
+  const prisma = {
+    outboxDelivery: { findMany: vi.fn<() => Promise<Candidate[]>>().mockResolvedValue([candidate]), updateMany },
+    user: { findUnique: vi.fn().mockResolvedValue({ email: "test@example.com", status: "ACTIVE" }) },
+  };
+  const email = {
+    isConfigured: (): boolean => true,
+    send: vi.fn<() => Promise<{ providerMessageId: string }>>().mockResolvedValue({ providerMessageId: "sent" }),
+  };
   const service = new OutboxDeliveryService(prisma as unknown as PrismaService, email as unknown as EmailDeliveryService);
   return { service, prisma, email, candidate, updateMany };
 }
@@ -58,6 +90,15 @@ describe("outbox lease recovery", () => {
     expect(f.email.send).not.toHaveBeenCalled();
   });
 
+  it("schedules exponential backoff retry on provider error", async () => {
+    const f = fixture("PENDING", 0);
+    f.email.send.mockRejectedValueOnce(new Error("SMTP busy"));
+    expect(await f.service.drain()).toEqual({ processed: 1, delivered: 0, failed: 1 });
+    const retryUpdate = f.updateMany.mock.calls[1]![0];
+    expect(retryUpdate.data.status).toBe("FAILED");
+    expect(retryUpdate.data.availableAt!.getTime()).toBeGreaterThan(Date.now() + 60_000);
+  });
+
   it("releases the local drain lock after a database outage", async () => {
     const f = fixture("PENDING", 0);
     f.prisma.outboxDelivery.findMany.mockRejectedValueOnce(new Error("offline"));
@@ -67,7 +108,7 @@ describe("outbox lease recovery", () => {
 
   it("skips in-app notification emails for learners when learner email notifications are disabled", async () => {
     const f = fixture("PENDING", 0);
-    (f.candidate.event as unknown as { type: string }).type = "NOTIFICATION_CREATED";
+    f.candidate.eventType = "NOTIFICATION_CREATED";
     f.prisma.user.findUnique.mockResolvedValueOnce({
       email: "learner@wind.edu.vn",
       status: "ACTIVE",
@@ -77,7 +118,7 @@ describe("outbox lease recovery", () => {
     expect(result.delivered).toBe(0);
     expect(result.failed).toBe(1);
     expect(f.email.send).not.toHaveBeenCalled();
-    const updateCall = f.updateMany.mock.calls.find(c => c[0].data?.status === "SKIPPED");
+    const updateCall = f.updateMany.mock.calls.find((c) => c[0].data?.status === "SKIPPED");
     expect(updateCall).toBeDefined();
     expect(updateCall![0].data.status).toBe("SKIPPED");
   });

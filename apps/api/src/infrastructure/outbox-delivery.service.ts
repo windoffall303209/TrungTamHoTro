@@ -44,12 +44,12 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
       });
       const platformSettings = (platformRow?.value as Record<string, unknown>) ?? {};
       const learnerEmailEnabled = Boolean(platformSettings.learnerEmailNotificationsEnabled ?? false);
-      const candidates = await this.prisma.outboxDelivery.findMany({ where: { status: { in: ["PENDING", "FAILED", "PROCESSING"] }, availableAt: { lte: new Date() } }, orderBy: { availableAt: "asc" }, take: Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 25, include: { event: true } });
+      const candidates = await this.prisma.outboxDelivery.findMany({ where: { status: { in: ["PENDING", "FAILED", "PROCESSING"] }, availableAt: { lte: new Date() } }, orderBy: { availableAt: "asc" }, take: Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 25 });
       for (const candidate of candidates) {
         const claimWhere = { id: candidate.id, status: candidate.status, attempts: candidate.attempts, availableAt: candidate.availableAt };
         // Resend chống gửi trùng trong 24 giờ; tính thận trọng từ lúc tạo sự kiện, không tính từ lần thử lại.
         // Lượt gửi cũ chưa rõ kết quả phải được đối soát thủ công để tránh gửi thư trùng.
-        if (candidate.attempts >= 8 || (candidate.attempts > 0 && Date.now() - candidate.event.createdAt.getTime() >= 23 * 60 * 60_000)) {
+        if (candidate.attempts >= 8 || (candidate.attempts > 0 && Date.now() - candidate.createdAt.getTime() >= 23 * 60 * 60_000)) {
           const terminal = await this.prisma.outboxDelivery.updateMany({ where: claimWhere, data: { status: "DEAD_LETTER", lastError: "Retry exhausted or idempotency window expired; reconcile with provider before retrying." } });
           failed += terminal.count;
           continue;
@@ -70,7 +70,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
           });
           if (!recipient || !["ACTIVE", "PENDING"].includes(recipient.status)) throw new Error("Người nhận không còn hoạt động.");
           const isLearner = Array.isArray(recipient.roles) && recipient.roles.some((r) => r.role?.code === "LEARNER");
-          if (isLearner && !learnerEmailEnabled && (candidate.event as { type?: string }).type === "NOTIFICATION_CREATED") {
+          if (isLearner && !learnerEmailEnabled && candidate.eventType === "NOTIFICATION_CREATED") {
             const skipped = await this.prisma.outboxDelivery.updateMany({
               where: owned,
               data: {
@@ -87,7 +87,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
             failed += skipped.count;
             continue;
           }
-          const payload = candidate.event.payload as Record<string, unknown>;
+          const payload = candidate.payload as Record<string, unknown>;
           const title = typeof payload.title === "string" ? payload.title : "Thông báo mới từ Wind EDU";
           const result = await this.email.send({ to: recipient.email, subject: title, text: `${title}\n\nMở Wind EDU để xem chi tiết.`, idempotencyKey: candidate.dedupKey });
           const completed = await this.prisma.outboxDelivery.updateMany({ where: owned, data: { status: "DELIVERED", providerMessageId: result.providerMessageId, deliveredAt: new Date(), lastError: null } });

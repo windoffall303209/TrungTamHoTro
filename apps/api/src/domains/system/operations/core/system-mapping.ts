@@ -2,7 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../../../database/prisma.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { includeSupportedDocumentMimeTypes } from "../../../../infrastructure/file-transfer.js";
-import { AuditEvent, BackupRun, DataExport, defaultSettings, IntegrationConfig, RestoreRun, RetentionJobView, RetentionPolicyView, SystemAlertView, SystemSettings } from "../../core/system.shared.js";
+import { AuditEvent, BackupRun, DataExport, defaultSettings, IntegrationConfig, RestoreRun, SystemSettings } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
 /** Chọn Prisma khi DB được bật, nếu không dùng state in-memory của service. */
@@ -20,7 +20,6 @@ export function mapSettings(
   value: Prisma.JsonValue,
   updatedAt: Date,
   version = 1,
-  effectiveAt = updatedAt,
   updatedBy = "system",
 ): SystemSettings {
   const fallback = defaultSettings();
@@ -32,10 +31,6 @@ export function mapSettings(
     ),
     timezone: serviceContext.stringValue(record.timezone, fallback.timezone),
     locale: serviceContext.stringValue(record.locale, fallback.locale),
-    retentionDays: serviceContext.numberValue(
-      record.retentionDays,
-      fallback.retentionDays,
-    ),
     maxFileSizeMb: serviceContext.numberValue(
       record.maxFileSizeMb,
       fallback.maxFileSizeMb,
@@ -50,8 +45,6 @@ export function mapSettings(
         fallback.allowedMimeTypes,
       ),
     ),
-    questionApprovalMode:
-      record.questionApprovalMode === "MANUAL" ? "MANUAL" : "AUTO",
     notificationSender: serviceContext.stringValue(
       record.notificationSender,
       fallback.notificationSender,
@@ -65,7 +58,6 @@ export function mapSettings(
       fallback.learnerEmailNotificationsEnabled,
     ),
     version,
-    effectiveAt: effectiveAt.toISOString(),
     updatedBy,
     updatedAt: updatedAt.toISOString(),
   };
@@ -178,72 +170,5 @@ export function mapAudit(
       serviceContext.stringValue(context.detail ?? context.summary, row.action),
     ),
     createdAt: row.createdAt.toISOString(),
-  };
-}
-
-/** Ánh xạ chính sách lưu giữ và mốc hiệu lực sang view model. */
-export function mapRetentionPolicy(
-  row: Prisma.RetentionPolicyGetPayload<Record<string, never>>,
-): RetentionPolicyView {
-  if (row.action !== "ARCHIVE" && row.action !== "DELETE")
-    throw new BadRequestException("Hành động retention không hợp lệ.");
-  return {
-    id: row.id,
-    category: row.category,
-    version: row.version,
-    retentionDays: row.retentionDays,
-    action: row.action,
-    approvedBy: row.approvedBy,
-    effectiveAt: row.effectiveAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-  };
-}
-
-/** Ánh xạ job retention cùng số bản ghi xử lý và lỗi. */
-export function mapRetentionJob(
-  serviceContext: SystemServiceContext,
-  row: Prisma.RetentionJobGetPayload<Record<string, never>>,
-): RetentionJobView {
-  return {
-    id: row.id,
-    policyId: row.policyId,
-    status: row.status,
-    affectedRows: row.affectedRows,
-    skippedRows: row.skippedRows,
-    requestedBy: row.requestedBy,
-    approvedBy: row.approvedBy,
-    approvedAt: row.approvedAt?.toISOString(),
-    evidence: serviceContext.asRecord(row.evidence),
-    createdAt: row.createdAt.toISOString(),
-    completedAt: row.completedAt?.toISOString(),
-    attempts: row.attempts,
-    progress: row.progress,
-  };
-}
-
-/** Ánh xạ cảnh báo và các mốc acknowledge/mute/resolve. */
-export function mapAlert(
-  row: Prisma.SystemAlertGetPayload<Record<string, never>>,
-): SystemAlertView {
-  const severity = row.severity === "CRITICAL" ? "CRITICAL" : "WARNING";
-  const status = ["OPEN", "ACKNOWLEDGED", "MUTED", "RESOLVED"].includes(
-    row.status,
-  )
-    ? (row.status as SystemAlertView["status"])
-    : "OPEN";
-  return {
-    id: row.id,
-    fingerprint: row.fingerprint,
-    serviceName: row.serviceName,
-    severity,
-    status,
-    summary: row.summary,
-    metricValue: row.metricValue ?? undefined,
-    threshold: row.threshold ?? undefined,
-    detectedAt: row.detectedAt.toISOString(),
-    acknowledgedBy: row.acknowledgedBy ?? undefined,
-    mutedUntil: row.mutedUntil?.toISOString(),
-    recoveredAt: row.recoveredAt?.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
   };
 }

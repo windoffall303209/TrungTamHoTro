@@ -44,7 +44,6 @@ async function seedPhysicalLectures() {
           "lecture",
           "bài giảng",
           "youtube:jfKfPfyJRdk",
-          "Mô tả: Giới thiệu định nghĩa hàm số, tập xác định, khảo sát sự biến thiên và các dạng bài tập vẽ đồ thị cơ bản.",
           attachedExam ? `attachedExamId:${attachedExam.id}` : "",
           attachedExam ? `attachedExamTitle:${attachedExam.title}` : "",
         ].filter(Boolean),
@@ -67,7 +66,6 @@ async function seedPhysicalLectures() {
           "lecture",
           "bài giảng",
           "youtube:kJQP7kiw5Fk",
-          "Mô tả: Phương pháp tương giao đồ thị, biện luận số nghiệm của phương trình và cực trị hàm bậc hai.",
           attachedExam ? `attachedExamId:${attachedExam.id}` : "",
           attachedExam ? `attachedExamTitle:${attachedExam.title}` : "",
         ].filter(Boolean),
@@ -90,7 +88,6 @@ async function seedPhysicalLectures() {
           "lecture",
           "bài giảng",
           "tài liệu đính kèm",
-          "Mô tả: Phiếu bài tập trắc nghiệm phân loại chi tiết và tổng hợp công thức toán học trọng tâm.",
           attachedExam ? `attachedExamId:${attachedExam.id}` : "",
           attachedExam ? `attachedExamTitle:${attachedExam.title}` : "",
         ].filter(Boolean),
@@ -131,32 +128,6 @@ async function seedPhysicalLectures() {
           visibility: record.visibility,
         },
         create: record,
-      });
-
-      await prisma.materialVersion.upsert({
-        where: { materialId_version: { materialId: saved.id, version: 1 } },
-        update: {
-          name: saved.name,
-          folder: saved.folder,
-          tags: saved.tags,
-          mimeType: saved.mimeType,
-          sizeBytes: saved.sizeBytes,
-          visibility: saved.visibility,
-        },
-        create: {
-          id: `${saved.id}-v1`,
-          materialId: saved.id,
-          version: 1,
-          name: saved.name,
-          objectKey: saved.objectKey,
-          mimeType: saved.mimeType,
-          sizeBytes: saved.sizeBytes,
-          checksum: saved.checksum,
-          folder: saved.folder,
-          tags: saved.tags,
-          visibility: saved.visibility,
-          createdBy: saved.ownerId,
-        },
       });
     }
 

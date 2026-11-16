@@ -22,6 +22,7 @@ export interface AcademicServiceContext {
     session: AuthenticatedSession,
     files?: UploadedAssignmentFile[],
     expectedRevision?: number,
+    keepAttachmentIds?: string[],
   ): Promise<AssignmentSubmissionView>;
   readSubmissionAttachment(
     submissionId: string,
@@ -61,18 +62,8 @@ export interface AcademicServiceContext {
     }>,
   ): AssignmentView;
   mapSubmission(row: MappableSubmissionRow): AssignmentSubmissionView;
-  assignmentSnapshot(row: {
-    title: string;
-    description: string;
-    instructions: string;
-    dueAt: Date;
-    maxScore: Prisma.Decimal;
-    rubric: Prisma.JsonValue;
-    status: string;
-    version: number;
-  }): Prisma.InputJsonValue;
   validateAssignmentFiles(files: UploadedAssignmentFile[]): void;
-  rubric(value: Prisma.JsonValue): RubricCriterion[];
+  rubric(value: Prisma.JsonValue, maxScore?: number): RubricCriterion[];
   rubricScores(
     value: Prisma.JsonValue | null,
   ): Array<{ criterionId: string; score: number }>;

@@ -35,8 +35,3 @@ export class MuteConversationDto {
 export class ReportChatMessageDto {
   @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
 }
-
-export class BlockUserDto {
-  @IsString() @MinLength(1) @MaxLength(191) userId!: string;
-  @IsOptional() @IsString() @MaxLength(500) reason?: string;
-}

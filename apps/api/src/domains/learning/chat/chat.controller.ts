@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Delete,
   Get,
   Headers,
   Param,
@@ -19,7 +18,7 @@ import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication } from "../../../auth/require-permissions.decorator.js";
-import { BlockUserDto, MuteConversationDto, OpenClassConversationDto, OpenDirectConversationDto, SendChatMessageDto } from "./chat.dto.js";
+import { MuteConversationDto, OpenClassConversationDto, OpenDirectConversationDto, SendChatMessageDto } from "./chat.dto.js";
 import { ChatService } from "./chat.service.js";
 import type {
   ChatConversationView,
@@ -154,22 +153,6 @@ export class ChatController {
       input.mutedUntil,
       session,
     );
-  }
-
-  /** Chặn một người dùng để dừng gửi tin riêng hai chiều. */
-  @Post("blocks") block(
-    @Body() input: BlockUserDto,
-    @CurrentSession() session: AuthenticatedSession,
-  ): Promise<{ blockedUserId: string }> {
-    return this.chat.blockUser(input.userId, input.reason, session);
-  }
-
-  /** Bỏ chặn một người dùng. */
-  @Delete("blocks/:userId") unblock(
-    @Param("userId") userId: string,
-    @CurrentSession() session: AuthenticatedSession,
-  ): Promise<{ unblockedUserId: string }> {
-    return this.chat.unblockUser(userId, session);
   }
 
   /** Mở hoặc tải một tệp chat sau khi kiểm tra membership và thời điểm rời nhóm. */

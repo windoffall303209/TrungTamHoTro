@@ -76,7 +76,7 @@ export function validateAssignmentFiles(files: UploadedAssignmentFile[]): void {
 }
 
 /** Thu hẹp JSON rubric đã lưu về cấu trúc tiêu chí ứng dụng sử dụng. */
-export function rubric(value: Prisma.JsonValue): RubricCriterion[] {
+export function rubric(value: Prisma.JsonValue, maxScore?: number): RubricCriterion[] {
   if (!Array.isArray(value))
     throw new BadRequestException("Rubric lưu trữ không hợp lệ.");
   const usedIds = new Set<string>();
@@ -89,6 +89,9 @@ export function rubric(value: Prisma.JsonValue): RubricCriterion[] {
         : `criterion-legacy-${index}`;
     while (usedIds.has(id)) id = `${id}-${index}`;
     usedIds.add(id);
+    if (typeof row.criterion === "string" && typeof row.weight === "number" && maxScore !== undefined) {
+      return { id, title: row.criterion, description: row.criterion, maxPoints: Math.round(row.weight * maxScore) / 100 };
+    }
     return {
       id,
       title: String(row.title),

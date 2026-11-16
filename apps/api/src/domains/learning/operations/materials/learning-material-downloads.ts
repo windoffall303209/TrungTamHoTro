@@ -2,11 +2,11 @@ import { BadRequestException, ForbiddenException, NotFoundException } from "@nes
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { prepareVerifiedDownload } from "../../../../infrastructure/verified-download.js";
+import type { AttachmentDocumentPreview } from "../../academic/academic.shared.js";
+import { buildDocumentPreview } from "../academic/academic-document-preview.js";
 import {
-  id,
   MaterialAccessAction,
   MaterialDownload,
-  now,
 } from "../../core/learning.shared.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { assertMaterialReadAccess, assertMemoryMaterialReadAccess, MATERIAL_READ_RELATIONS } from "../access/learning-access.js";
@@ -74,14 +74,6 @@ export async function readMaterialDownload(
   ...args: Parameters<LearningServiceContext["resolveMaterialDownload"]>
 ): Promise<MaterialDownload> {
   const file = await serviceContext.resolveMaterialDownload(...args);
-  return readResolvedMaterialDownload(serviceContext, file);
-}
-
-/** Đọc bytes học liệu đã được phân quyền và kiểm tra checksum trước khi trả về. */
-export async function readResolvedMaterialDownload(
-  serviceContext: LearningServiceContext,
-  file: Awaited<ReturnType<LearningServiceContext["resolveMaterialDownload"]>>,
-): Promise<MaterialDownload> {
   const buffer = await serviceContext.readStoredFile(file.objectKey);
   if (
     file.checksum &&
@@ -103,19 +95,6 @@ export async function readMaterialDownloadStream(
   mimeType: string;
 }> {
   const file = await serviceContext.resolveMaterialDownload(...args);
-  return streamResolvedMaterialDownload(serviceContext, file);
-}
-
-/** Tạo luồng tải tạm đã xác minh từ metadata của học liệu được phân quyền. */
-export async function streamResolvedMaterialDownload(
-  serviceContext: LearningServiceContext,
-  file: Awaited<ReturnType<LearningServiceContext["resolveMaterialDownload"]>>,
-): Promise<{
-  stream: ReturnType<typeof createReadStream>;
-  size: number;
-  fileName: string;
-  mimeType: string;
-}> {
   const content = await prepareVerifiedDownload(
     async () =>
       serviceContext.objectStorage
@@ -134,7 +113,6 @@ export async function resolveMaterialDownload(
   signature: string,
   role: string,
   action: MaterialAccessAction = "DOWNLOAD",
-  context: { ipAddress?: string; userAgent?: string } = {},
   actorId = serviceContext.userIdForRole(role),
 ): Promise<{
   fileName: string;
@@ -194,25 +172,35 @@ export async function resolveMaterialDownload(
   }
   if (!objectKey || !serviceContext.isMaterialObjectKey(objectKey))
     throw new NotFoundException("Tệp học liệu không tồn tại trong kho bytes.");
-  const userId = actorId;
-  if (prisma) {
-    await prisma.materialAccessLog.create({
-      data: {
-        id: id("material-access"),
-        materialId,
-        userId,
-        action,
-        ipAddress: context.ipAddress?.slice(0, 45),
-        userAgent: context.userAgent?.slice(0, 500),
-      },
-    });
-  } else {
-    serviceContext.materialAccessLogs.unshift({
-      materialId,
-      userId,
-      action,
-      createdAt: now(),
-    });
-  }
   return { fileName, mimeType, objectKey, checksum: expectedChecksum };
+}
+
+/** Đọc tài liệu học liệu sau khi xác thực quyền PREVIEW và trích xuất nội dung xem trước (DOCX/DOC/TXT). */
+export async function readMaterialPreviewContent(
+  serviceContext: LearningServiceContext,
+  materialId: string,
+  role: string,
+  actorId = serviceContext.userIdForRole(role),
+): Promise<AttachmentDocumentPreview> {
+  const access = await createMaterialAccess(
+    serviceContext,
+    materialId,
+    role,
+    "PREVIEW",
+    actorId,
+  );
+  const queryText = access.url.split("?")[1] ?? "";
+  const params = new URLSearchParams(queryText);
+  const expires = Number(params.get("expires") ?? "0");
+  const signature = params.get("signature") ?? "";
+  const file = await readMaterialDownload(
+    serviceContext,
+    materialId,
+    expires,
+    signature,
+    role,
+    "PREVIEW",
+    actorId,
+  );
+  return await buildDocumentPreview(file);
 }

@@ -13,15 +13,22 @@ afterEach(() => vi.useRealTimers());
 
 describe("Quyền xử lý tác vụ", () => {
   it("kết thúc cả tác vụ RUNNING và PENDING đã dùng hết lần thử", async () => {
-    const models = Array.from({ length: 2 }, () => ({ updateMany: vi.fn().mockResolvedValue({ count: 0 }), findFirst: vi.fn().mockResolvedValue(null) }));
-    const service = new SystemService({ isStartupConnectionEnabled: () => true, operationalJob: models[0], retentionJob: models[1] } as unknown as PrismaService);
-    expect(await service.drainOperationalJobs()).toEqual({ backup: 0, export: 0, retention: 0 });
-    for (const model of models) {
-      const first = model.updateMany.mock.calls[0]?.[0] as { where: { status: unknown; attempts: unknown }; data: { status: string } };
-      expect(first.where.status).toEqual({ in: ["RUNNING", "PENDING"] });
-      expect(first.where.attempts).toEqual({ gte: 5 });
-      expect(first.data.status).toBe("FAILED");
-    }
+    const operationalJob = {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findFirst: vi.fn().mockResolvedValue(null),
+    };
+    const service = new SystemService({
+      isStartupConnectionEnabled: () => true,
+      operationalJob,
+    } as unknown as PrismaService);
+    expect(await service.drainOperationalJobs()).toEqual({ backup: 0, export: 0 });
+    const first = operationalJob.updateMany.mock.calls[0]?.[0] as {
+      where: { status: unknown; attempts: unknown };
+      data: { status: string };
+    };
+    expect(first.where.status).toEqual({ in: ["RUNNING", "PENDING"] });
+    expect(first.where.attempts).toEqual({ gte: 5 });
+    expect(first.data.status).toBe("FAILED");
   });
   it("tiến trình cũ không được đặt lại tác vụ của lần thử mới", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 0 });

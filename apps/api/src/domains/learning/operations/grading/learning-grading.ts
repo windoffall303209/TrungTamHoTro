@@ -1,9 +1,8 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
-import { id, now } from "../../core/learning.shared.js";
+import { now } from "../../core/learning.shared.js";
 import type {
   ExamAttempt,
   ExamAttemptReview,
-  GradeHistoryRecord,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
@@ -101,7 +100,7 @@ export async function getAttemptReview(
   };
 }
 
-/** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và lưu grade history. */
+/** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và cập nhật điểm hiện hành. */
 export async function gradeAttempt(
   serviceContext: LearningServiceContext,
   attemptId: string,
@@ -193,16 +192,6 @@ export async function gradeAttempt(
           },
         });
       }
-      await transaction.gradeHistory.create({
-        data: {
-          id: id("grade-history"),
-          attemptId,
-          graderId,
-          previousScore: attempt.score,
-          nextScore,
-          reason: reason!,
-        },
-      });
       return serviceContext.mapAttempt(
         await transaction.examAttempt.update({
           where: { id: attemptId },
@@ -273,15 +262,6 @@ export async function gradeAttempt(
     : correctionReason?.trim();
   if (!isFirstPublishedGrade && (!reason || reason.length < 5))
     throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
-  serviceContext.gradeHistory.unshift({
-    id: id("grade-history"),
-    attemptId,
-    graderId,
-    previousScore: item.score,
-    nextScore: score,
-    reason: reason!,
-    createdAt: now(),
-  });
   item.score = score;
   item.feedback = feedback.trim();
   item.status = "GRADED";
@@ -289,46 +269,3 @@ export async function gradeAttempt(
   return { ...item, answers: { ...item.answers } };
 }
 
-/** Kiểm tra phạm vi giảng dạy rồi trả lịch sử các lần thay đổi điểm. */
-export async function listGradeHistory(
-  serviceContext: LearningServiceContext,
-  attemptId: string,
-  actorId = "usr-instructor",
-): Promise<GradeHistoryRecord[]> {
-  const prisma = serviceContext.database();
-  if (prisma) {
-    const allowed = await prisma.examAttempt.findFirst({
-      where: {
-        id: attemptId,
-        exam: { class: { instructors: { some: { instructorId: actorId } } } },
-      },
-      select: { id: true },
-    });
-    if (!allowed)
-      throw new NotFoundException("Không tìm thấy lịch sử chấm được phép xem.");
-    const rows = await prisma.gradeHistory.findMany({
-      where: { attemptId },
-      orderBy: { createdAt: "desc" },
-    });
-    return rows.map((row) => ({
-      id: row.id,
-      attemptId: row.attemptId,
-      graderId: row.graderId,
-      previousScore:
-        row.previousScore === null ? undefined : Number(row.previousScore),
-      nextScore: Number(row.nextScore),
-      reason: row.reason,
-      createdAt: row.createdAt.toISOString(),
-    }));
-  }
-  const attempt = serviceContext.findAttempt(attemptId);
-  if (
-    !serviceContext
-      .findClass(serviceContext.findExam(attempt.examId).classId)
-      .instructorIds.includes(actorId)
-  )
-    throw new NotFoundException("Không tìm thấy lịch sử chấm được phép xem.");
-  return serviceContext.gradeHistory
-    .filter((item) => item.attemptId === attemptId)
-    .map((item) => ({ ...item }));
-}

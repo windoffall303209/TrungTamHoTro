@@ -1,14 +1,5 @@
-import {
-  BadRequestException,
-  NotFoundException,
-  ServiceUnavailableException,
-} from "@nestjs/common";
-import { createHash } from "node:crypto";
-import { verifyRetentionStream } from "../../../../infrastructure/retention-archive.js";
-import {
-  SnapshotAssetAudit,
-  StorageCleanupFailure,
-} from "../../core/system.shared.js";
+import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { SnapshotAssetAudit, StorageCleanupFailure } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
 /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
@@ -24,7 +15,6 @@ export async function snapshotAssetAudit(
     classes,
     courseVersions,
     materials,
-    materialVersions,
     submissionAttachments,
     questionImages,
     chatAttachments,
@@ -37,7 +27,6 @@ export async function snapshotAssetAudit(
       select: { courseId: true, version: true },
     }),
     prisma.material.findMany({ select: { id: true, objectKey: true } }),
-    prisma.materialVersion.findMany({ select: { id: true, objectKey: true } }),
     prisma.assignmentSubmissionAttachment.findMany({
       where: { removedAt: null },
       select: { id: true, objectKey: true },
@@ -74,9 +63,6 @@ export async function snapshotAssetAudit(
     else references.set(objectKey, [reference]);
   };
   materials.forEach((item) => add(item.objectKey, `material:${item.id}`));
-  materialVersions.forEach((item) =>
-    add(item.objectKey, `material-version:${item.id}`),
-  );
   submissionAttachments.forEach((item) =>
     add(item.objectKey, `assignment-attachment:${item.id}`),
   );
@@ -169,132 +155,4 @@ export async function retryStorageCleanup(
     }),
   ]);
   return { cleaned: true };
-}
-
-/** Đọc archive của retention job và xác minh checksum gói cùng từng asset phục hồi được. */
-export async function verifyRetentionArchive(
-  serviceContext: SystemServiceContext,
-  jobId: string,
-): Promise<{
-  valid: true;
-  category: string;
-  recordCount: number;
-  assetCount: number;
-  checksum: string;
-}> {
-  const prisma = serviceContext.database();
-  if (!prisma || !serviceContext.objectStorage)
-    throw new ServiceUnavailableException(
-      "Cần database và kho object để kiểm tra archive.",
-    );
-  const job = await prisma.retentionJob.findUnique({ where: { id: jobId } });
-  if (!job) throw new NotFoundException("Không tìm thấy retention job.");
-  const evidence = serviceContext.asRecord(job.evidence);
-  const objectKey =
-    typeof evidence.archiveObjectKey === "string"
-      ? evidence.archiveObjectKey
-      : "";
-  const checksum =
-    typeof evidence.archiveChecksum === "string"
-      ? evidence.archiveChecksum
-      : "";
-  if (!objectKey || !checksum)
-    throw new BadRequestException("Job này không có archive để kiểm tra.");
-  if (objectKey.endsWith(".jsonl")) {
-    const archive = await verifyRetentionStream(
-      await serviceContext.objectStorage.openReadStream(objectKey),
-    );
-    if (archive.checksum !== checksum)
-      throw new ServiceUnavailableException(
-        "Checksum archive retention không hợp lệ.",
-      );
-    await serviceContext.logDatabase(
-      prisma,
-      "system",
-      "RETENTION_ARCHIVE_VERIFIED",
-      jobId,
-      `${archive.category} · ${archive.recordCount} bản ghi · ${archive.assetCount} asset`,
-    );
-    return { valid: true, ...archive };
-  }
-  const content = await serviceContext.objectStorage.get(objectKey);
-  const actualChecksum = `sha256:${createHash("sha256").update(content).digest("hex")}`;
-  if (actualChecksum !== checksum)
-    throw new ServiceUnavailableException(
-      "Checksum archive retention không hợp lệ.",
-    );
-  const archive = serviceContext.validateRetentionArchive(content);
-  await serviceContext.logDatabase(
-    prisma,
-    "system",
-    "RETENTION_ARCHIVE_VERIFIED",
-    jobId,
-    `${archive.category} · ${archive.records.length} bản ghi · ${archive.assets.length} asset`,
-  );
-  return {
-    valid: true,
-    category: archive.category,
-    recordCount: archive.records.length,
-    assetCount: archive.assets.length,
-    checksum,
-  };
-}
-
-/** Parse archive version 2 và kiểm tra checksum/size của toàn bộ asset nhúng. */
-export function validateRetentionArchive(content: Buffer): {
-  category: string;
-  records: unknown[];
-  assets: Array<{
-    objectKey: string;
-    checksum: string;
-    sizeBytes: number;
-    contentBase64: string;
-  }>;
-} {
-  try {
-    const value = JSON.parse(content.toString("utf8")) as {
-      format?: string;
-      version?: number;
-      category?: string;
-      records?: unknown[];
-      assets?: Array<{
-        objectKey?: string;
-        checksum?: string;
-        sizeBytes?: number;
-        contentBase64?: string;
-      }>;
-    };
-    if (
-      value.format !== "wind-edu-retention-archive" ||
-      value.version !== 2 ||
-      typeof value.category !== "string" ||
-      !Array.isArray(value.records) ||
-      !Array.isArray(value.assets)
-    )
-      throw new Error("invalid archive");
-    const assets = value.assets.map((asset) => {
-      if (
-        typeof asset.objectKey !== "string" ||
-        typeof asset.checksum !== "string" ||
-        typeof asset.sizeBytes !== "number" ||
-        typeof asset.contentBase64 !== "string"
-      )
-        throw new Error("invalid asset");
-      const buffer = Buffer.from(asset.contentBase64, "base64");
-      const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
-      if (buffer.length !== asset.sizeBytes || checksum !== asset.checksum)
-        throw new Error("asset checksum mismatch");
-      return {
-        objectKey: asset.objectKey,
-        checksum: asset.checksum,
-        sizeBytes: asset.sizeBytes,
-        contentBase64: asset.contentBase64,
-      };
-    });
-    return { category: value.category, records: value.records, assets };
-  } catch {
-    throw new ServiceUnavailableException(
-      "Archive retention không thể phục hồi hoặc đã bị thay đổi.",
-    );
-  }
 }

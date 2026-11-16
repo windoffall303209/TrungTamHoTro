@@ -1,3 +1,4 @@
+import type { Prisma } from "../../../../generated/prisma/client.js";
 import {
   BadRequestException,
   ConflictException,
@@ -30,9 +31,11 @@ export async function submitExamForReview(
   confirmQuestions = false,
   expectedVersion?: number,
   forcePublish = false,
+  creationTransaction?: Prisma.TransactionClient,
 ): Promise<LearningExam> {
   const nextStatus = "PUBLISHED";
-  const prisma = serviceContext.database();
+  const database = serviceContext.database();
+  const prisma = creationTransaction ?? database;
   if (prisma) {
     const assignment = await prisma.exam.findFirst({
       where: {
@@ -46,6 +49,8 @@ export async function submitExamForReview(
     const exam = await serviceContext.getDatabaseExam(prisma, examId);
     if (!exam.questionIds.length)
       throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+    if (expectedVersion !== undefined && exam.version !== expectedVersion) throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
+    if (exam.status === "PUBLISHED") return exam;
     if (exam.status !== "DRAFT")
       throw new ConflictException("Chỉ đề nháp mới được công bố.");
     const linkedQuestions = await prisma.examQuestion.findMany({
@@ -64,7 +69,10 @@ export async function submitExamForReview(
       throw new ConflictException(
         "Lịch đề không còn hợp lệ trong thời gian của lớp.",
       );
-    return prisma.$transaction(async (transaction) => {
+    // Công bố đề thi cùng câu hỏi liên kết ngay trong transaction tạo đề nếu có.
+    const publish = async (
+      transaction: Prisma.TransactionClient,
+    ): Promise<LearningExam> => {
       const changed = await transaction.exam.updateMany({
         where: {
           id: examId,
@@ -113,7 +121,8 @@ export async function submitExamForReview(
         })),
       });
       return serviceContext.getDatabaseExam(transaction, examId);
-    });
+    };
+    return creationTransaction ? publish(creationTransaction) : database!.$transaction(publish);
   }
   const item = serviceContext.findExam(examId);
 
@@ -122,6 +131,8 @@ export async function submitExamForReview(
     throw new NotFoundException("Không tìm thấy đề được phép công bố.");
   if (!item.questionIds.length)
     throw new BadRequestException("Đề cần ít nhất một câu hỏi.");
+  if (expectedVersion !== undefined && item.version !== expectedVersion) throw new ConflictException("Đề đã thay đổi. Hãy tải lại.");
+    if (item.status === "PUBLISHED") return { ...item, questionIds: [...item.questionIds] };
   if (item.status !== "DRAFT")
     throw new ConflictException("Chỉ đề nháp mới được công bố.");
   if (!confirmQuestions && !forcePublish && item.questionIds.some((id) => serviceContext.questions.find((q) => q.id === id)?.status !== "PUBLISHED"))

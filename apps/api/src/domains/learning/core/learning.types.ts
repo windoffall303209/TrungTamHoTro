@@ -74,17 +74,6 @@ interface ClassInstructorAssignment {
   role: InstructorRole;
   assignedAt: string;
 }
-export interface ClassMemberHistory {
-  id: string;
-  memberId: string;
-  memberType: "INSTRUCTOR" | "LEARNER";
-  action: string;
-  role?: InstructorRole;
-  source?: string;
-  reason?: string;
-  actorId: string;
-  createdAt: string;
-}
 export interface ClassRoster {
   classId: string;
   instructors: Array<
@@ -100,7 +89,6 @@ export interface ClassRoster {
     removalReason?: string;
     removedAt?: string;
   }>;
-  history: ClassMemberHistory[];
 }
 export interface EnrollmentImportResult {
   userId: string;
@@ -116,12 +104,9 @@ export interface DirectoryUser {
 
 export interface LearningMaterial {
   id: string;
-  /** Rỗng khi là học liệu dùng chung theo môn, không thuộc lớp nào. */
-  classId: string | null;
+  classId: string;
   courseId?: string;
   ownerId: string;
-  /** Giảng viên được người tải lên cấp quyền sửa; chỉ có khi truy vấn kèm danh sách này. */
-  editorIds?: string[];
   name: string;
   mimeType: string;
   sizeBytes: number;
@@ -134,8 +119,8 @@ export interface LearningMaterial {
   quarantineReason?: string;
   createdAt: string;
 }
-/** SHARED: mọi học viên tra cứu được khi đã phát hành; CLASS: chỉ học viên của lớp. */
-type MaterialScope = "SHARED" | "CLASS";
+/** CLASS: học liệu gắn chặt vào một lớp học cụ thể. */
+type MaterialScope = "CLASS";
 
 export interface LearningQuestion {
   id: string;
@@ -162,19 +147,6 @@ export interface LearningQuestion {
   /** Chỉ có ở bản xem đề của giảng viên: lỗi cần sửa trước khi gửi duyệt. */
   issues?: string[];
 }
-export interface MaterialVersionSnapshot {
-  id: string;
-  materialId: string;
-  version: number;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  folder: string;
-  tags: string[];
-  visibility: "DRAFT" | "PUBLISHED" | "HIDDEN";
-  createdBy: string;
-  createdAt: string;
-}
 export interface QuestionImportResult {
   row: number;
   status: "IMPORTED" | "FAILED";
@@ -183,6 +155,7 @@ export interface QuestionImportResult {
 }
 
 export interface LearningExam {
+  hidden?: boolean;
   id: string;
   classId: string;
   title: string;
@@ -207,24 +180,6 @@ export interface LearningExam {
     warnings?: string[];
   };
 }
-export interface GradeHistoryRecord {
-  id: string;
-  attemptId: string;
-  graderId: string;
-  previousScore?: number;
-  nextScore: number;
-  reason: string;
-  createdAt: string;
-}
-export interface ExamApprovalRecord {
-  id: string;
-  examId: string;
-  reviewerId: string;
-  examVersion: number;
-  decision: "APPROVE" | "RETURN";
-  reviewNote?: string;
-  createdAt: string;
-}
 
 export interface LearnerExamSummary extends LearningExam {
   questionCount: number;
@@ -239,6 +194,7 @@ export interface LearnerExamSummary extends LearningExam {
 }
 
 export interface ExamAttempt {
+  attemptNo?: number;
   id: string;
   examId: string;
   learnerId: string;
@@ -370,52 +326,6 @@ export interface LearningNotification {
   createdAt: string;
 }
 
-export interface ContentReport {
-  id: string;
-  targetType: "TOPIC" | "POST";
-  targetId: string;
-  reporterId: string;
-  reason: string;
-  details: string;
-  status: "OPEN" | "IN_REVIEW" | "ESCALATED" | "RESOLVED" | "REJECTED";
-  resolution?: string;
-  assignedToId?: string;
-  escalationLevel: number;
-  resolvedAt?: string;
-  appealReason?: string;
-  appealedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  actions: ModerationActionRecord[];
-}
-
-export interface ModerationActionRecord {
-  id: string;
-  reportId: string;
-  actorId: string;
-  action:
-    | "CLAIM"
-    | "HIDE_CONTENT"
-    | "KEEP_CONTENT"
-    | "ESCALATE_ADMIN"
-    | "APPEAL";
-  reason: string;
-  previousStatus: ContentReport["status"];
-  nextStatus: ContentReport["status"];
-  createdAt: string;
-}
-
-export interface ModerationContext {
-  report: ContentReport;
-  classId: string;
-  topicTitle: string;
-  targetAuthorId: string;
-  targetBody: string;
-  surroundingPosts: Array<
-    Pick<ForumPost, "id" | "authorId" | "body" | "createdAt">
-  >;
-}
-
 export interface RiskThresholds {
   scoreBelow: number;
   completionBelow: number;
@@ -479,27 +389,6 @@ export interface OperationalReport {
   timezone: string;
   metricDefinitions: Record<string, string>;
 }
-export interface ReportRun {
-  id: string;
-  reportType: "OPERATIONS";
-  definitionVersion: string;
-  timezone: string;
-  filters: { from: string; to: string };
-  result: OperationalReport;
-  requestedById: string;
-  createdAt: string;
-}
-export interface ReportExport {
-  id: string;
-  reportRunId: string;
-  format: "CSV";
-  status: "QUEUED" | "COMPLETED" | "FAILED" | "EXPIRED";
-  fileName: string;
-  sizeBytes?: number;
-  errorMessage?: string;
-  expiresAt: string;
-  createdAt: string;
-}
 
 export interface LiveSession {
   id: string;
@@ -516,8 +405,6 @@ export interface LiveSession {
   timezone: string;
   changeReason?: string;
   cancellationReason?: string;
-  attendanceLockedAt?: string;
-  attendanceLockedById?: string;
   recordingStatus?: "NONE" | "PROCESSING" | "READY" | "FAILED" | "EXPIRED";
   recordingReadyAt?: string;
   recordingExpiresAt?: string;
@@ -527,38 +414,6 @@ export interface LiveSession {
   provisioningAttempts?: number;
 }
 
-export interface AttendanceRecord {
-  sessionId: string;
-  learnerId: string;
-  joinedAt?: string;
-  leftAt?: string;
-  attendedMinutes: number;
-  status: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
-  adjustmentReason?: string;
-  providerParticipantId?: string;
-  providerSnapshot?: Record<string, unknown>;
-}
-export interface AttendanceAppeal {
-  id: string;
-  sessionId: string;
-  learnerId: string;
-  reason: string;
-  status: "OPEN" | "IN_REVIEW" | "RESOLVED" | "REJECTED";
-  resolution?: string;
-  createdAt: string;
-}
-export interface ProviderAttendanceInput {
-  providerParticipantId: string;
-  learnerId: string;
-  joinedAt: string;
-  leftAt: string;
-}
-export interface AttendanceSessionReview {
-  session: LiveSession;
-  enrolledLearnerIds: string[];
-  records: AttendanceRecord[];
-  appeals: AttendanceAppeal[];
-}
 
 export interface SupportTicket {
   id: string;

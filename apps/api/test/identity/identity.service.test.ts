@@ -30,11 +30,6 @@ describe("IdentityService", () => {
         "SYSTEM_ADMIN",
       ),
     ).rejects.toThrow(ConflictException);
-    expect((await service.listAuditEvents())[0]).toMatchObject({
-      actorId: "admin-real",
-      action: "USER_CREATED",
-      targetId: created.id,
-    });
   });
 
   it("giữ nhiều vai trò khi tạo tài khoản bằng mật khẩu tạm", async () => {

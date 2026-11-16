@@ -1,11 +1,22 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateClassDto, UpdateCourseDto } from "../core/learning.dto.js";
 import { LearningService } from "../core/learning.service.js";
 import type { ClassCapabilities, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "../core/learning.types.js";
+
+/** Chuẩn hóa tham số status tùy chọn theo tập giá trị hợp lệ của khóa học hoặc lớp học. */
+function parseStatusFilter<T extends string>(rawValue: unknown, allowed: readonly T[]): T | undefined {
+  const normalized = parseOptionalQueryString(rawValue, "status", 64)?.toUpperCase();
+  if (!normalized) return undefined;
+  if (!(allowed as readonly string[]).includes(normalized)) {
+    throw new BadRequestException("Tham số status không hợp lệ.");
+  }
+  return normalized as T;
+}
 
 @ApiTags("Course & Class")
 @Controller()
@@ -16,6 +27,20 @@ export class CourseController {
   @Get("manager/courses") @RequirePermissions("course:view")
   /** Liệt kê danh mục khóa học cho khu vực quản lý. */
   listCourses(): Promise<LearningCourse[]> { return this.learning.listCourses(); }
+
+  @Get("manager/courses/page") @RequirePermissions("course:view")
+  /** Trả danh mục khóa học phân trang từ DB kèm lọc theo khối, môn và từ khóa. */
+  listCoursesPage(@Query() raw: Record<string, unknown>): Promise<PaginatedResult<LearningCourse>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    return this.learning.listCoursesPage({
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      grade: parseOptionalQueryInt(raw.grade, "grade", 1, 12),
+      subject: parseOptionalQueryString(raw.subject, "subject", 100),
+      status: parseStatusFilter(raw.status, ["DRAFT", "PUBLISHED", "ARCHIVED"] as const),
+      page,
+      pageSize,
+    });
+  }
 
   @Post("manager/courses") @RequirePermissions("course:manage")
   /** Tạo khóa học nháp và ghi actor từ phiên hiện tại. */
@@ -40,6 +65,21 @@ export class CourseController {
   @Get("classes") @RequirePermissions("class:view")
   /** Liệt kê lớp theo vai trò và quan hệ thành viên của phiên. */
   listClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses(session.roleCode, session.user.id); }
+
+  @Get("classes/page") @RequirePermissions("class:view")
+  /** Trả danh sách lớp học phân trang theo quyền phiên và bộ lọc từ DB. */
+  listClassesPage(@Query() raw: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<PaginatedResult<LearningClass>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    return this.learning.listClassesPage(session.roleCode, session.user.id, {
+      query: parseOptionalQueryString(raw.query, "query", 255),
+      grade: parseOptionalQueryInt(raw.grade, "grade", 1, 12),
+      subject: parseOptionalQueryString(raw.subject, "subject", 100),
+      courseId: parseOptionalQueryString(raw.courseId, "courseId", 191),
+      status: parseStatusFilter(raw.status, ["DRAFT", "ACTIVE", "CLOSED"] as const),
+      page,
+      pageSize,
+    });
+  }
 
   @Get("instructor/classes") @RequirePermissions("class:view")
   /** Liệt kê riêng các lớp giảng viên hiện tại được phân công. */

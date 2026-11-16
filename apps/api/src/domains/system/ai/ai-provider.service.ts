@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import mammoth from "mammoth";
+import { answerKey, parseQuestionDocument, readQuestionDocx } from "./question-document-parser.js";
 import { randomUUID } from "node:crypto";
 import type { Environment } from "../../../config/environment.js";
 import { PrismaService } from "../../../database/prisma.service.js";
@@ -38,6 +38,7 @@ interface StoredAiProvider extends Omit<AiProviderConfig, "hasApiKey" | "maskedA
 }
 
 export interface ScannedQuestionDraft {
+  answerSource?: string;
   type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE" | "SHORT_ANSWER" | "ESSAY";
   content: string;
   options: string[];
@@ -372,78 +373,6 @@ export class AiProviderService {
   /** Trả các model có thể chọn cho một provider sẵn sàng mà không làm lộ API key. */
   async listModels(id: string): Promise<AiModelOption[]> { return this.discoverModels(id); }
 
-  /** Phân tích cấu trúc câu hỏi từ văn bản tài liệu bằng thuật toán chuẩn xác. */
-  private parseQuestionsFromText(text: string): ScannedQuestionDraft[] {
-    if (!text || text.trim().length < 10) return [];
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const questions: ScannedQuestionDraft[] = [];
-    let current: Partial<ScannedQuestionDraft> | null = null;
-
-    for (const line of lines) {
-      const qMatch = line.match(/^(?:Câu\s*(\d+)[:.]|Bài\s*(\d+)[:.]|(\d+)[:.]|\*\*(?:Câu|Bài)\s*(\d+)[:.]?\*\*)\s*(.+)/i);
-      if (qMatch) {
-        if (current && current.content) {
-          questions.push({
-            type: current.options && current.options.length >= 2 ? (current.correctAnswers && current.correctAnswers.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_CHOICE") : "SHORT_ANSWER",
-            content: current.content,
-            options: current.options || [],
-            correctAnswers: current.correctAnswers || [],
-            difficulty: 2,
-            tags: ["Tài liệu bóc tách"],
-            confidence: 0.95,
-            warnings: [],
-          });
-        }
-        current = {
-          content: (qMatch[5] || line).trim(),
-          options: [],
-          correctAnswers: [],
-        };
-        continue;
-      }
-
-      const optMatch = line.match(/^([A-D])[.:)]\s*(.+)/i);
-      if (optMatch && current && optMatch[2]) {
-        const optText = optMatch[2].trim();
-        current.options = current.options || [];
-        current.options.push(optText);
-        if (/\*\*.+\*\*|<strong>.+<\/strong>/iu.test(optText)) {
-          current.correctAnswers = [this.cleanAnswerMarkup(optText)];
-        }
-        continue;
-      }
-
-      const ansMatch = line.match(/^(?:Đáp án(?: đúng)?|ĐA|Hướng dẫn giải|Lời giải)[:.]?\s*(.+)$/iu);
-      if (ansMatch && current && ansMatch[1]) {
-        const answer = this.cleanAnswerMarkup(ansMatch[1]);
-        const letter = answer.match(/^([A-F])(?:[.)\s]|$)/iu)?.[1]?.toUpperCase();
-        const optIndex = letter ? letter.charCodeAt(0) - 65 : -1;
-        const option = current.options?.[optIndex];
-        current.correctAnswers = [option ? this.cleanAnswerMarkup(option) : answer];
-        continue;
-      }
-
-      if (current && !current.options?.length) {
-        current.content += " " + line;
-      }
-    }
-
-    if (current && current.content) {
-      questions.push({
-        type: current.options && current.options.length >= 2 ? (current.correctAnswers && current.correctAnswers.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_CHOICE") : "SHORT_ANSWER",
-        content: current.content,
-        options: current.options || [],
-        correctAnswers: current.correctAnswers || [],
-        difficulty: 2,
-        tags: ["Tài liệu bóc tách"],
-        confidence: 0.95,
-        warnings: [],
-      });
-    }
-
-    return questions;
-  }
-
   /** Bỏ markup hiển thị khỏi văn bản đáp án trước khi so khớp và lưu dữ liệu. */
   private cleanAnswerMarkup(value: string): string {
     return value.replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").replace(/^(?:đáp\s*án(?:\s+đúng)?|answer)(?:\s+là)?\s*[:.]?\s*/iu, "").trim();
@@ -464,65 +393,25 @@ export class AiProviderService {
   async scanImage(input: { providerId?: string; model?: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<QuestionScanResult> {
     if (!input.buffer.length || input.buffer.length > 25 * 1024 * 1024) throw new BadRequestException("Tệp tải lên phải có dung lượng từ 1 byte đến 25 MB.");
 
-    // Xử lý tệp DOCX / DOC / TXT
-    const isDoc = input.fileName.endsWith(".docx") || input.fileName.endsWith(".doc") || input.mimeType.includes("word") || input.mimeType.includes("officedocument") || input.fileName.endsWith(".txt") || input.mimeType === "text/plain";
-    if (isDoc) {
-      let rawText = "";
-      if (input.fileName.endsWith(".docx") || input.mimeType.includes("word") || input.mimeType.includes("officedocument")) {
-        try {
-          const mammothRes = await mammoth.extractRawText({ buffer: input.buffer });
-          rawText = mammothRes.value;
-        } catch {
-          // Chuyển sang nhận diện ảnh hoặc văn bản thô khi DOCX không đọc được.
-        }
-      } else {
-        rawText = input.buffer.toString("utf8");
-      }
-
-      if (rawText) {
-        const parsed = this.parseQuestionsFromText(rawText);
-        if (parsed.length > 0) {
-          return {
-            providerId: "system",
-            provider: "CUSTOM",
-            model: "document-parser",
-            sourceName: input.fileName,
-            questions: parsed,
-            warnings: [],
-          };
-        }
-      }
+    const isText = /\.txt$/iu.test(input.fileName) || input.mimeType === "text/plain";
+    const isDocx = /\.docx$/iu.test(input.fileName) || input.mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (isText || isDocx) {
+      const source = isDocx ? await readQuestionDocx(input.buffer) : input.buffer.toString("utf8");
+      const questions = parseQuestionDocument(source);
+      if (!questions.length) throw new BadRequestException("Không tìm thấy câu hỏi đánh số. Với đề là ảnh trong Word, hãy tải ảnh hoặc bản PDF.");
+      return { providerId: "system", provider: "CUSTOM", model: "document-parser", sourceName: input.fileName, questions, warnings: [] };
     }
-
-    // Nếu là ảnh hoặc PDF, gọi nhà cung cấp AI Vision
-    try {
-      const provider = input.providerId ? await this.requireReady(input.providerId, true) : await this.defaultProvider();
-      const model = input.model?.trim() || provider.model;
-      this.assertModelIdentifier(provider.provider, model);
-      const selected = { ...provider, model };
-      const raw = await this.invoke(selected, input.buffer, input.mimeType, input.fileName);
-      const questions = this.normalizeQuestions(raw);
-      if (questions.length) {
-        return { providerId: provider.id, provider: provider.provider, model: selected.model, sourceName: input.fileName, questions, warnings: questions.some((item) => item.confidence < 0.7) ? ["Một số câu có độ tin cậy thấp và cần được kiểm tra kỹ trước khi lưu."] : [] };
-      }
-    } catch {
-      // Nếu là tệp văn bản/pdf có trích xuất được thì thử lại qua bộ bóc tách văn bản
-      const textFallback = input.buffer.toString("utf8").replace(/[^\x20-\x7E\u00A0-\u024F\u1EA0-\u1EF9]/g, " ");
-      const parsedFallback = this.parseQuestionsFromText(textFallback);
-      if (parsedFallback.length > 0) {
-        return {
-          providerId: "system",
-          provider: "CUSTOM",
-          model: "document-parser",
-          sourceName: input.fileName,
-          questions: parsedFallback,
-          warnings: ["Đã trích xuất câu hỏi từ nội dung tài liệu."],
-        };
-      }
-      throw new BadRequestException("Không thể nhận diện câu hỏi từ tệp này. Hãy kiểm tra định dạng tệp hoặc chọn ảnh/văn bản rõ ràng hơn.");
-    }
-
-    throw new BadRequestException("Không nhận diện được câu hỏi nào từ tệp. Hãy kiểm tra lại nội dung tài liệu.");
+    if (/\.doc$/iu.test(input.fileName) || input.mimeType === "application/msword")
+      throw new BadRequestException("Hãy lưu tệp Word cũ thành DOCX hoặc PDF trước khi quét.");
+    const selected = input.providerId ? input : await this.resolveTask("SCAN_IMAGE");
+    const provider = await this.requireReady(selected.providerId!, true);
+    const model = selected.model?.trim() || provider.model;
+    this.assertModelIdentifier(provider.provider, model);
+    const raw = await this.invoke({ ...provider, model }, input.buffer, input.mimeType, input.fileName);
+    const questions = this.normalizeQuestions(raw, true);
+    if (!questions.length) throw new BadRequestException("Không nhận diện được câu hỏi nào từ tệp. Hãy kiểm tra lại nội dung tài liệu.");
+    return { providerId: provider.id, provider: provider.provider, model, sourceName: input.fileName, questions,
+      warnings: questions.some((item) => item.warnings.length) ? ["Hãy kiểm tra các câu có cảnh báo trước khi lưu."] : [] };
   }
 
   /** Chọn provider tương thích và tạo bộ câu hỏi từ tài liệu môn học hoặc nguồn Internet. */
@@ -966,11 +855,11 @@ export class AiProviderService {
 
   /** Giải mã key và gửi ảnh thật theo giao thức của provider để trích xuất câu hỏi. */
   private async invoke(provider: StoredAiProvider, buffer: Buffer, mimeType: string, fileName: string): Promise<unknown> {
-    const prompt = `Đọc toàn bộ ảnh đề thi ${fileName}. Trích xuất mọi câu hỏi theo đúng thứ tự. Nếu một phương án được in đậm, tô đậm, gạch chân hoặc đánh dấu nổi bật trong ảnh thì đó là đáp án đúng; đưa chính xác nội dung phương án đó vào correctAnswers. Nếu ảnh có dòng đáp án hoặc phần giải thích đáp án, dùng dòng đó để xác định đáp án và ưu tiên nó hơn suy đoán. Không coi chữ đậm trong phần nội dung câu hỏi là đáp án. Không trả về Markdown **...**, HTML hoặc ký hiệu đánh dấu trong content/options/correctAnswers; chỉ trả văn bản sạch. Đổi công thức toán sang LaTeX ($...$ hoặc $$...$$). Không tự bịa đáp án; nếu ảnh không có tín hiệu đáp án thì để correctAnswers rỗng và thêm cảnh báo. Trả về duy nhất JSON: {"questions":[{"type":"SINGLE_CHOICE|MULTIPLE_CHOICE|TRUE_FALSE|SHORT_ANSWER|ESSAY","content":"...","options":["..."],"correctAnswers":["..."],"difficulty":1,"tags":["..."],"confidence":0.0,"warnings":["..."]}]}.`;
+    const prompt = `Đọc toàn bộ các trang đề thi ${fileName}. Trích xuất mọi câu hỏi theo đúng thứ tự. Ghép bảng đáp án cuối đề theo phần và số câu gốc. Trả riêng hai mảng explicitKeys và markedKeys theo ký hiệu phương án khi có bằng chứng. Ví dụ explicitKeys=["B"], markedKeys=["C"]. Bỏ qua kiểu chữ đậm dùng chung cho mọi nhãn. Khi hai nguồn khác nhau, để correctAnswers rỗng, giữ cả hai mảng và cảnh báo. Nêu trang và nguồn trong answerSource khi xác định được. Nếu riêng một phương án được in đậm, tô đậm, gạch chân hoặc đánh dấu nổi bật trong ảnh thì đó là đáp án đúng; đưa chính xác nội dung phương án đó vào correctAnswers. Nếu ảnh có dòng đáp án hoặc phần giải thích đáp án, dùng dòng đó để xác định đáp án và ưu tiên nó hơn suy đoán. Không coi chữ đậm trong phần nội dung câu hỏi là đáp án. Không trả về Markdown **...**, HTML hoặc ký hiệu đánh dấu trong content/options/correctAnswers; chỉ trả văn bản sạch. Đổi công thức toán sang LaTeX ($...$ hoặc $$...$$). Không tự bịa đáp án; nếu ảnh không có tín hiệu đáp án thì để correctAnswers rỗng và thêm cảnh báo. Trả về duy nhất JSON: {"questions":[{"type":"SINGLE_CHOICE|MULTIPLE_CHOICE|TRUE_FALSE|SHORT_ANSWER|ESSAY","content":"...","options":["..."],"correctAnswers":["..."],"difficulty":1,"tags":["..."],"explicitKeys":[],"markedKeys":[],"answerSource":"...","confidence":0.0,"warnings":["..."]}]}.`;
     const apiKey = await decryptSecret(provider.encryptedApiKey, this.encryptionSecret());
     const response = provider.provider === "GEMINI"
       ? await fetchProviderEndpoint(`${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } }), signal: AbortSignal.timeout(60_000) })
-      : await fetchProviderEndpoint(provider.baseUrl!, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: provider.model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${mimeType};base64,${buffer.toString("base64")}` } }] }] }), signal: AbortSignal.timeout(60_000) });
+      : await fetchProviderEndpoint(provider.baseUrl!, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: provider.model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: [{ type: "text", text: prompt }, mimeType === "application/pdf" ? { type: "file", file: { filename: fileName, file_data: "data:application/pdf;base64," + buffer.toString("base64") } } : { type: "image_url", image_url: { url: `data:${mimeType};base64,${buffer.toString("base64")}` } }] }] }), signal: AbortSignal.timeout(60_000) });
     const payload = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
     if (!response.ok) this.throwProviderHttpError(response.status, "đọc ảnh đề thi");
     if (provider.provider === "GEMINI") return this.parseJson(((payload?.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined)?.[0]?.content?.parts?.[0]?.text));
@@ -985,7 +874,7 @@ export class AiProviderService {
   }
 
   /** Thu hẹp dữ liệu AI không tin cậy thành câu hỏi, options, đáp án và độ khó hợp lệ. */
-  private normalizeQuestions(raw: unknown): ScannedQuestionDraft[] {
+  private normalizeQuestions(raw: unknown, scan = false): ScannedQuestionDraft[] {
     const values = typeof raw === "object" && raw !== null && Array.isArray((raw as { questions?: unknown }).questions) ? (raw as { questions: unknown[] }).questions : [];
     const types = new Set(["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"]);
     return values.slice(0, 100).flatMap((value) => {
@@ -998,20 +887,31 @@ export class AiProviderService {
       const explicitAnswers = Array.isArray(item.correctAnswers) ? item.correctAnswers.filter((entry): entry is string => typeof entry === "string").map((entry) => this.cleanAnswerMarkup(entry)).filter(Boolean).slice(0, 20) : [];
       const markedAnswers = rawOptions.filter((entry) => /\*\*.+\*\*|<strong>.+<\/strong>|__.+__/iu.test(entry)).map((entry) => this.cleanAnswerMarkup(entry));
       const options = rawOptions.map((entry) => this.cleanAnswerMarkup(entry));
-      const correctAnswers = this.resolveCorrectAnswers(explicitAnswers.length ? explicitAnswers : markedAnswers, options);
       const warnings = Array.isArray(item.warnings) ? item.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 10) : [];
+      const choices = options.map((text, index) => ({ key: String.fromCharCode(65 + index), text }));
+      const objective = ["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(type);
+      let correctAnswers = this.resolveCorrectAnswers(explicitAnswers.length ? explicitAnswers : markedAnswers, options);
+      if (scan && objective) {
+        const hasEvidence = Array.isArray(item.explicitKeys) || Array.isArray(item.markedKeys);
+        const explicit = hasEvidence ? (Array.isArray(item.explicitKeys) ? item.explicitKeys : []) : explicitAnswers;
+        const marks = Array.isArray(item.markedKeys) && item.markedKeys.length ? item.markedKeys : markedAnswers;
+        // Quy đổi các phương án bằng chứng thành khóa A..Z hợp lệ trước khi đối chiếu nguồn.
+        const resolve = (values: unknown[]): Set<string | undefined> => new Set(values.map((v) =>
+          typeof v === "string" ? choices.find((o) => o.key === v.trim().toUpperCase())?.key ?? answerKey(v, choices) : undefined));
+        const stated = resolve(explicit);
+        const marked = resolve(marks);
+        if (marked.size === options.length && options.length > 1 && type === "SINGLE_CHOICE") marked.clear();
+        const chosen = stated.size ? stated : marked;
+        const conflict = stated.size && marked.size && (marked.size !== stated.size || [...marked].some((key) => !stated.has(key)));
+        if (chosen.has(undefined) || conflict || (type === "SINGLE_CHOICE" && chosen.size > 1)) {
+          warnings.push("Đáp án mâu thuẫn hoặc không khớp phương án. Dòng đáp án: " + [...stated].join(", ") + ". Phương án đánh dấu: " + [...marked].join(", ") + ".");
+          correctAnswers = [];
+        } else correctAnswers = choices.filter((o) => chosen.has(o.key)).map((o) => o.text);
+      }
       if (["SINGLE_CHOICE", "MULTIPLE_CHOICE", "TRUE_FALSE"].includes(type) && options.length < 2) warnings.push("Chưa nhận diện đủ lựa chọn trả lời.");
       if (!correctAnswers.length) warnings.push("Ảnh không cung cấp hoặc AI chưa xác định được đáp án đúng.");
-      return [{ type, content, options, correctAnswers, difficulty: [1, 2, 3].includes(Number(item.difficulty)) ? Number(item.difficulty) as 1 | 2 | 3 : 2, tags: Array.isArray(item.tags) ? item.tags.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [], confidence: Math.min(1, Math.max(0, Number(item.confidence) || 0.5)), warnings: [...new Set(warnings)] }];
+      return [{ type, content, options, correctAnswers, ...(scan && correctAnswers.length && typeof item.answerSource === "string" ? { answerSource: item.answerSource.slice(0, 200) } : {}), difficulty: [1, 2, 3].includes(Number(item.difficulty)) ? Number(item.difficulty) as 1 | 2 | 3 : 2, tags: Array.isArray(item.tags) ? item.tags.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, 20) : [], confidence: scan && !correctAnswers.length ? 0.5 : Math.min(1, Math.max(0, Number(item.confidence) || 0.5)), warnings: [...new Set(warnings)] }];
     });
-  }
-
-  /** Chọn provider mặc định đang bật/có key hoặc provider sẵn sàng đầu tiên. */
-  private async defaultProvider(): Promise<StoredAiProvider> {
-    const providers = await this.readAll();
-    const provider = providers.find((item) => item.enabled && item.isDefault) ?? providers.find((item) => item.enabled);
-    if (!provider) throw new BadRequestException("Chưa có nhà cung cấp AI đang bật. Hãy cấu hình trong Quản trị hệ thống.");
-    return provider;
   }
 
   /** Tải provider và bắt buộc có API key, đồng thời kiểm tra enabled khi được yêu cầu. */

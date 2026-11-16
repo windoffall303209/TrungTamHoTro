@@ -27,7 +27,7 @@ export async function listExams(
       where:
         role === "LEARNER"
           ? {
-              status: "PUBLISHED",
+              hidden: false, status: "PUBLISHED",
               class: {
                 enrollments: {
                   some: { learnerId: actorId, status: "ACTIVE" },
@@ -49,7 +49,7 @@ export async function listExams(
       );
       if (role === "LEARNER")
         return (
-          item.status === "PUBLISHED" && classItem?.learnerIds.includes(actorId)
+          !item.hidden && item.status === "PUBLISHED" && classItem?.learnerIds.includes(actorId)
         );
       if (role === "INSTRUCTOR")
         return classItem?.instructorIds.includes(actorId);
@@ -69,7 +69,7 @@ export async function listLearnerExamSummaries(
   if (prisma) {
     const rows = await prisma.exam.findMany({
       where: {
-        status: "PUBLISHED",
+        hidden: false, status: "PUBLISHED",
         classId: classId || undefined,
         class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
       },
@@ -100,7 +100,7 @@ export async function listLearnerExamSummaries(
     });
   }
   return serviceContext.exams
-    .filter((exam) => exam.status === "PUBLISHED")
+    .filter((exam) => !exam.hidden && exam.status === "PUBLISHED")
     .filter((exam) => !classId || exam.classId === classId)
     .filter((exam) =>
       serviceContext.classes.some(
@@ -141,7 +141,7 @@ export async function getExamQuestions(
     const exam = await prisma.exam.findFirst({
       where: {
         id: examId,
-        status: "PUBLISHED",
+        hidden: false, status: "PUBLISHED",
         class: { enrollments: { some: { learnerId, status: "ACTIVE" } } },
         attempts: { some: { learnerId, status: "IN_PROGRESS" } },
       },
@@ -184,7 +184,7 @@ export async function getExamQuestions(
     }));
   }
   const exam = serviceContext.findExam(examId);
-  if (exam.status !== "PUBLISHED")
+  if (exam.hidden || exam.status !== "PUBLISHED")
     throw new BadRequestException("Đề chưa được phát hành.");
   const classItem = serviceContext.findClass(exam.classId);
   if (!classItem.learnerIds.includes(learnerId))
@@ -294,7 +294,7 @@ export async function getReviewerExamPreview(
   const prisma = serviceContext.database();
   if (prisma) {
     const exam = await prisma.exam.findFirst({
-      where: { id: examId, status: "PUBLISHED" },
+      where: { id: examId, hidden: false, status: "PUBLISHED" },
       include: {
         questions: {
           include: { question: true },
@@ -309,7 +309,7 @@ export async function getReviewerExamPreview(
     );
   }
   const exam = serviceContext.findExam(examId);
-  if (exam.status !== "PUBLISHED")
+  if (exam.hidden || exam.status !== "PUBLISHED")
     throw new NotFoundException("Không tìm thấy đề đã công bố.");
   return exam.questionIds.map((questionId) =>
     serviceContext.cloneQuestion(

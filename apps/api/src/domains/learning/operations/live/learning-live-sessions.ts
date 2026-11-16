@@ -3,9 +3,158 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
+import type { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import { id, now } from "../../core/learning.shared.js";
 import type { LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+
+const GOOGLE_MEET_URL_ERROR =
+  "Link phòng học phải là URL Google Meet hợp lệ (https://meet.google.com/...).";
+
+const INVALID_SESSION_TIME_ERROR = "Thời gian buổi học không hợp lệ.";
+
+// Kiểm tra và chuẩn hóa URL Google Meet hợp lệ cho phòng học trực tuyến.
+export function normalizeGoogleMeetUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || /\s/.test(trimmed) || trimmed.length > 1000) {
+    throw new BadRequestException(GOOGLE_MEET_URL_ERROR);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new BadRequestException(GOOGLE_MEET_URL_ERROR);
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname.toLowerCase() !== "meet.google.com" ||
+    Boolean(parsed.username) ||
+    Boolean(parsed.password) ||
+    parsed.pathname.replaceAll("/", "").length === 0
+  ) {
+    throw new BadRequestException(GOOGLE_MEET_URL_ERROR);
+  }
+  return parsed.toString();
+}
+
+// Kiểm tra tiêu đề và mốc thời gian bắt đầu/kết thúc trước khi thao tác DB.
+function validateSessionWindow(
+  title: string,
+  startsAtRaw: string,
+  endsAtRaw: string,
+  pastErrorMessage: string,
+): { title: string; startsAt: Date; endsAt: Date } {
+  const normalizedTitle = title.trim();
+  if (normalizedTitle.length < 3) {
+    throw new BadRequestException("Tên buổi học cần ít nhất 3 ký tự.");
+  }
+  const startsAt = new Date(startsAtRaw);
+  const endsAt = new Date(endsAtRaw);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+    throw new BadRequestException(INVALID_SESSION_TIME_ERROR);
+  }
+  if (endsAt <= startsAt) {
+    throw new BadRequestException(
+      "Thời gian kết thúc phải sau thời gian bắt đầu.",
+    );
+  }
+  if (startsAt < new Date()) {
+    throw new BadRequestException(pastErrorMessage);
+  }
+  return { title: normalizedTitle, startsAt, endsAt };
+}
+
+// Tạo metadata phòng học từ link Google Meet gắn trực tiếp hoặc fallback provider cũ.
+async function resolveProvisionedMeeting(
+  serviceContext: LearningServiceContext,
+  requestedProvider: LiveSession["provider"] = "GOOGLE_MEET",
+  meetingUrl?: string,
+): Promise<{
+  provider: LiveSession["provider"];
+  requestedProvider: LiveSession["provider"];
+  hostUrl: string;
+  attendeeUrl: string;
+  fallbackUsed: boolean;
+  attempts: number;
+}> {
+  if (meetingUrl !== undefined) {
+    const normalizedUrl = normalizeGoogleMeetUrl(meetingUrl);
+    return {
+      provider: "GOOGLE_MEET",
+      requestedProvider: "GOOGLE_MEET",
+      hostUrl: normalizedUrl,
+      attendeeUrl: normalizedUrl,
+      fallbackUsed: false,
+      attempts: 1,
+    };
+  }
+  const provisioned =
+    await serviceContext.provisionProviderMeeting(requestedProvider);
+  return {
+    ...provisioned,
+    requestedProvider,
+  };
+}
+
+// Kiểm tra vai trò quản trị được quyền lên lịch thay cho giảng viên của lớp.
+function isManagerRole(role: string): boolean {
+  return role === "CENTER_MANAGER" || role === "SYSTEM_ADMIN";
+}
+
+export interface LiveSessionPageFilters {
+  classId?: string;
+  status?: LiveSession["status"];
+  query?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** Tạo điều kiện giới hạn buổi học theo vai trò và quan hệ thành viên lớp. */
+function buildSessionRoleWhere(
+  role: string,
+  actorId: string,
+): Prisma.LiveSessionWhereInput | undefined {
+  if (role === "LEARNER") {
+    return {
+      class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } },
+    };
+  }
+  if (role === "INSTRUCTOR") {
+    return { class: { instructors: { some: { instructorId: actorId } } } };
+  }
+  return undefined;
+}
+
+/** Ẩn thông tin điều khiển host khi trả buổi học cho vai trò học viên. */
+function redactSessionForRole(
+  mapped: LiveSession,
+  role: string,
+): LiveSession {
+  return role === "LEARNER"
+    ? { ...mapped, hostUrl: "", recordingUrl: undefined }
+    : mapped;
+}
+
+/** Kiểm tra thành viên lớp trên kho nhớ fallback cho danh sách buổi học. */
+function canAccessMemorySession(
+  serviceContext: LearningServiceContext,
+  item: LiveSession,
+  role: string,
+  actorId: string,
+): boolean {
+  const classItem = serviceContext.classes.find(
+    (candidate) => candidate.id === item.classId,
+  );
+  if (role === "LEARNER") return Boolean(classItem?.learnerIds.includes(actorId));
+  if (role === "INSTRUCTOR") return Boolean(classItem?.instructorIds.includes(actorId));
+  return true;
+}
 
 /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
 export async function listSessions(
@@ -16,59 +165,128 @@ export async function listSessions(
   const prisma = serviceContext.database();
   if (prisma) {
     const rows = await prisma.liveSession.findMany({
-      where:
-        role === "LEARNER"
-          ? {
-              class: {
-                enrollments: {
-                  some: { learnerId: actorId, status: "ACTIVE" },
-                },
-              },
-            }
-          : role === "INSTRUCTOR"
-            ? { class: { instructors: { some: { instructorId: actorId } } } }
-            : undefined,
+      where: buildSessionRoleWhere(role, actorId),
       orderBy: { startsAt: "desc" },
     });
     return rows.map((row) =>
-      role === "LEARNER"
-        ? {
-            ...serviceContext.mapSession(row),
-            hostUrl: "",
-            recordingUrl: undefined,
-          }
-        : serviceContext.mapSession(row),
+      redactSessionForRole(serviceContext.mapSession(row), role),
     );
   }
   return serviceContext.sessions
-    .filter((item) => {
-      const classItem = serviceContext.classes.find(
-        (candidate) => candidate.id === item.classId,
-      );
-      if (role === "LEARNER") return classItem?.learnerIds.includes(actorId);
-      if (role === "INSTRUCTOR")
-        return classItem?.instructorIds.includes(actorId);
-      return true;
-    })
-    .map((item) =>
-      role === "LEARNER"
-        ? { ...item, hostUrl: "", recordingUrl: undefined }
-        : { ...item },
-    );
+    .filter((item) => canAccessMemorySession(serviceContext, item, role, actorId))
+    .map((item) => redactSessionForRole({ ...item }, role));
 }
 
-/** Validate lịch/quyền lớp, cấp phòng từ provider có fallback rồi thông báo thành viên. */
+/** Phân trang danh sách buổi học theo vai trò, lớp, trạng thái và khoảng thời gian trên DB. */
+export async function listSessionsPage(
+  serviceContext: LearningServiceContext,
+  role = "LEARNER",
+  actorId = serviceContext.userIdForRole(role),
+  filters: LiveSessionPageFilters = {},
+): Promise<PaginatedResult<LiveSession>> {
+  const query = filters.query?.trim();
+  const classId = filters.classId?.trim();
+  if ((query && query.length > 255) || (classId && classId.length > 191)) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const from = filters.from ? new Date(filters.from) : undefined;
+  const to = filters.to ? new Date(filters.to) : undefined;
+  if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    throw new BadRequestException(INVALID_SESSION_TIME_ERROR);
+  }
+  if (from && to && from > to) {
+    throw new BadRequestException("Thời gian bắt đầu phải trước thời gian kết thúc.");
+  }
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 10;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const andConditions: Prisma.LiveSessionWhereInput[] = [];
+    const roleWhere = buildSessionRoleWhere(role, actorId);
+    if (roleWhere) andConditions.push(roleWhere);
+    if (classId) andConditions.push({ classId });
+    if (filters.status) andConditions.push({ status: filters.status });
+    if (from || to) andConditions.push({ startsAt: { gte: from, lte: to } });
+    if (query) {
+      andConditions.push({
+        OR: [
+          { title: { contains: query, mode: "insensitive" } },
+          { provider: { contains: query, mode: "insensitive" } },
+        ],
+      });
+    }
+    const where: Prisma.LiveSessionWhereInput | undefined =
+      andConditions.length > 0 ? { AND: andConditions } : undefined;
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const total = await transaction.liveSession.count({ where });
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        const rows =
+          total === 0
+            ? []
+            : await transaction.liveSession.findMany({
+                where,
+                orderBy: [{ startsAt: "desc" }, { id: "asc" }],
+                skip: (safePage - 1) * pageSize,
+                take: pageSize,
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) =>
+        redactSessionForRole(serviceContext.mapSession(row), role),
+      ),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const normalizedQuery = query?.toLowerCase() ?? "";
+  const filtered = serviceContext.sessions
+    .filter(
+      (item) =>
+        canAccessMemorySession(serviceContext, item, role, actorId) &&
+        (!classId || item.classId === classId) &&
+        (!filters.status || item.status === filters.status) &&
+        (!from || new Date(item.startsAt) >= from) &&
+        (!to || new Date(item.startsAt) <= to) &&
+        (!normalizedQuery ||
+          `${item.title} ${item.provider}`
+            .toLowerCase()
+            .includes(normalizedQuery)),
+    )
+    .map((item) => redactSessionForRole({ ...item }, role));
+  return paginateArray(filtered, page, pageSize);
+}
+
+/** Validate lịch/quyền lớp, lưu link Google Meet hoặc cấp phòng từ provider rồi thông báo thành viên. */
 export async function createSession(
   serviceContext: LearningServiceContext,
   classId: string,
-  input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">,
+  input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
+    meetingUrl?: string;
+  },
   actorId = "usr-instructor",
   actorRole = "INSTRUCTOR",
 ): Promise<LiveSession> {
-  if (new Date(input.endsAt) <= new Date(input.startsAt))
-    throw new BadRequestException(
-      "Thời gian kết thúc phải sau thời gian bắt đầu.",
-    );
+  const validated = validateSessionWindow(
+    input.title,
+    input.startsAt,
+    input.endsAt,
+    "Không thể lên lịch buổi học trong quá khứ.",
+  );
   const prisma = serviceContext.database();
   if (prisma) {
     const classItem = await prisma.learningClass.findUnique({
@@ -78,23 +296,18 @@ export async function createSession(
     if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
     if (classItem.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    const hostId =
-      actorRole === "CENTER_MANAGER"
-        ? (classItem.instructors.find((row) => row.role === "PRIMARY")
-            ?.instructorId ?? classItem.instructors[0]?.instructorId)
-        : actorId;
+    const hostId = isManagerRole(actorRole)
+      ? (classItem.instructors.find((row) => row.role === "PRIMARY")
+          ?.instructorId ?? classItem.instructors[0]?.instructorId)
+      : actorId;
     if (
       !hostId ||
       !classItem.instructors.some((item) => item.instructorId === hostId)
     )
       throw new NotFoundException("Lớp chưa có giảng viên phù hợp để chủ trì.");
-    if (new Date(input.startsAt) < new Date())
-      throw new BadRequestException(
-        "Không thể lên lịch buổi học trong quá khứ.",
-      );
     if (
-      new Date(input.startsAt) < classItem.startAt ||
-      new Date(input.endsAt) > classItem.endAt
+      validated.startsAt < classItem.startAt ||
+      validated.endsAt > classItem.endAt
     )
       throw new BadRequestException(
         "Buổi học phải nằm trong thời gian của lớp.",
@@ -103,24 +316,26 @@ export async function createSession(
       where: {
         OR: [{ classId }, { hostId }],
         status: { not: "CANCELLED" },
-        startsAt: { lt: new Date(input.endsAt) },
-        endsAt: { gt: new Date(input.startsAt) },
+        startsAt: { lt: validated.endsAt },
+        endsAt: { gt: validated.startsAt },
       },
     });
     if (overlaps) throw new ConflictException("Lịch học bị trùng.");
-    const provisioned = await serviceContext.provisionProviderMeeting(
+    const provisioned = await resolveProvisionedMeeting(
+      serviceContext,
       input.provider,
+      input.meetingUrl,
     );
     const created = await prisma.liveSession.create({
       data: {
         id: id("session"),
         classId,
         hostId,
-        title: input.title.trim(),
-        startsAt: new Date(input.startsAt),
-        endsAt: new Date(input.endsAt),
+        title: validated.title,
+        startsAt: validated.startsAt,
+        endsAt: validated.endsAt,
         provider: provisioned.provider,
-        requestedProvider: input.provider,
+        requestedProvider: provisioned.requestedProvider,
         fallbackUsed: provisioned.fallbackUsed,
         provisioningAttempts: provisioned.attempts,
         timezone: classItem.timezone,
@@ -149,10 +364,10 @@ export async function createSession(
         entityId: created.id,
         context: {
           classId,
-          startsAt: input.startsAt,
-          endsAt: input.endsAt,
+          startsAt: validated.startsAt.toISOString(),
+          endsAt: validated.endsAt.toISOString(),
           timezone: classItem.timezone,
-          requestedProvider: input.provider,
+          requestedProvider: provisioned.requestedProvider,
           provider: provisioned.provider,
           fallbackUsed: provisioned.fallbackUsed,
           provisioningAttempts: provisioned.attempts,
@@ -164,32 +379,33 @@ export async function createSession(
   const classItem = serviceContext.findClass(classId);
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  const hostId =
-    actorRole === "CENTER_MANAGER" ? classItem.instructorIds[0] : actorId;
+  const hostId = isManagerRole(actorRole) ? classItem.instructorIds[0] : actorId;
   if (!hostId || !classItem.instructorIds.includes(hostId))
     throw new NotFoundException("Lớp chưa có giảng viên phù hợp để chủ trì.");
-  if (new Date(input.startsAt) < new Date())
-    throw new BadRequestException("Không thể lên lịch buổi học trong quá khứ.");
   if (
-    new Date(input.startsAt) < new Date(classItem.startAt) ||
-    new Date(input.endsAt) > new Date(classItem.endAt)
+    validated.startsAt < new Date(classItem.startAt) ||
+    validated.endsAt > new Date(classItem.endAt)
   )
     throw new BadRequestException("Buổi học phải nằm trong thời gian của lớp.");
   const overlaps = serviceContext.sessions.some(
     (item) =>
       item.classId === classId &&
       item.status !== "CANCELLED" &&
-      new Date(input.startsAt) < new Date(item.endsAt) &&
-      new Date(input.endsAt) > new Date(item.startsAt),
+      validated.startsAt < new Date(item.endsAt) &&
+      validated.endsAt > new Date(item.startsAt),
   );
   if (overlaps) throw new ConflictException("Lịch học bị trùng.");
-  const provisioned = await serviceContext.provisionProviderMeeting(
+  const provisioned = await resolveProvisionedMeeting(
+    serviceContext,
     input.provider,
+    input.meetingUrl,
   );
   const item: LiveSession = {
-    ...input,
+    title: validated.title,
+    startsAt: validated.startsAt.toISOString(),
+    endsAt: validated.endsAt.toISOString(),
     provider: provisioned.provider,
-    requestedProvider: input.provider,
+    requestedProvider: provisioned.requestedProvider,
     fallbackUsed: provisioned.fallbackUsed,
     provisioningAttempts: provisioned.attempts,
     id: id("session"),
@@ -204,58 +420,78 @@ export async function createSession(
   return { ...item };
 }
 
-/** Cập nhật lịch/provider trước khi buổi học diễn ra và lưu lý do audit. */
+/** Cập nhật lịch và liên kết phòng họp trước khi buổi học diễn ra và lưu lý do audit. */
 export async function updateSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
   input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
     reason: string;
+    meetingUrl?: string;
   },
   actorId = "usr-manager",
+  actorRole = "CENTER_MANAGER",
 ): Promise<LiveSession> {
   const reason = input.reason.trim();
   if (reason.length < 5)
     throw new BadRequestException("Lý do đổi lịch cần ít nhất 5 ký tự.");
-  const startsAt = new Date(input.startsAt);
-  const endsAt = new Date(input.endsAt);
-  if (endsAt <= startsAt)
-    throw new BadRequestException(
-      "Thời gian kết thúc phải sau thời gian bắt đầu.",
-    );
-  if (startsAt < new Date())
-    throw new BadRequestException("Không thể chuyển buổi học vào quá khứ.");
+  const validated = validateSessionWindow(
+    input.title,
+    input.startsAt,
+    input.endsAt,
+    "Không thể chuyển buổi học vào quá khứ.",
+  );
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.liveSession.findUnique({
       where: { id: sessionId },
+      include: { class: { include: { instructors: true } } },
     });
     if (!current) throw new NotFoundException("Không tìm thấy buổi học.");
+    if (current.class.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (
+      actorRole === "INSTRUCTOR" &&
+      current.hostId !== actorId &&
+      !current.class.instructors.some((row) => row.instructorId === actorId)
+    )
+      throw new NotFoundException(
+        "Không tìm thấy buổi học được phép điều khiển.",
+      );
     if (current.status !== "SCHEDULED" || current.startsAt <= new Date())
       throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
+    if (
+      validated.startsAt < current.class.startAt ||
+      validated.endsAt > current.class.endAt
+    )
+      throw new BadRequestException(
+        "Buổi học phải nằm trong thời gian của lớp.",
+      );
     const overlap = await prisma.liveSession.count({
       where: {
         id: { not: sessionId },
         OR: [{ classId: current.classId }, { hostId: current.hostId }],
         status: { not: "CANCELLED" },
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
+        startsAt: { lt: validated.endsAt },
+        endsAt: { gt: validated.startsAt },
       },
     });
     if (overlap)
       throw new ConflictException(
         "Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.",
       );
-    const provisioned = await serviceContext.provisionProviderMeeting(
+    const provisioned = await resolveProvisionedMeeting(
+      serviceContext,
       input.provider,
+      input.meetingUrl,
     );
     const updated = await prisma.liveSession.update({
       where: { id: sessionId },
       data: {
-        title: input.title.trim(),
-        startsAt,
-        endsAt,
+        title: validated.title,
+        startsAt: validated.startsAt,
+        endsAt: validated.endsAt,
         provider: provisioned.provider,
-        requestedProvider: input.provider,
+        requestedProvider: provisioned.requestedProvider,
         fallbackUsed: provisioned.fallbackUsed,
         provisioningAttempts: provisioned.attempts,
         changeReason: reason,
@@ -279,35 +515,54 @@ export async function updateSession(
         context: {
           reason,
           previousStartsAt: current.startsAt,
-          startsAt,
-          endsAt,
-          provider: input.provider,
+          startsAt: validated.startsAt,
+          endsAt: validated.endsAt,
+          provider: provisioned.provider,
         },
       },
     });
     return serviceContext.mapSession(updated);
   }
   const item = serviceContext.findSession(sessionId);
+  const classItem = serviceContext.findClass(item.classId);
+  if (classItem.status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (
+    actorRole === "INSTRUCTOR" &&
+    item.hostId !== actorId &&
+    !classItem.instructorIds.includes(actorId)
+  )
+    throw new NotFoundException("Không tìm thấy buổi học được phép điều khiển.");
   if (item.status !== "SCHEDULED" || new Date(item.startsAt) <= new Date())
     throw new ConflictException("Chỉ được sửa buổi học sắp diễn ra.");
+  if (
+    validated.startsAt < new Date(classItem.startAt) ||
+    validated.endsAt > new Date(classItem.endAt)
+  )
+    throw new BadRequestException("Buổi học phải nằm trong thời gian của lớp.");
   const overlap = serviceContext.sessions.some(
     (row) =>
       row.id !== sessionId &&
       row.classId === item.classId &&
       row.status !== "CANCELLED" &&
-      startsAt < new Date(row.endsAt) &&
-      endsAt > new Date(row.startsAt),
+      validated.startsAt < new Date(row.endsAt) &&
+      validated.endsAt > new Date(row.startsAt),
   );
   if (overlap)
     throw new ConflictException(
       "Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.",
     );
-  const provisioned = await serviceContext.provisionProviderMeeting(
+  const provisioned = await resolveProvisionedMeeting(
+    serviceContext,
     input.provider,
+    input.meetingUrl,
   );
-  Object.assign(item, input, {
+  Object.assign(item, {
+    title: validated.title,
+    startsAt: validated.startsAt.toISOString(),
+    endsAt: validated.endsAt.toISOString(),
     provider: provisioned.provider,
-    requestedProvider: input.provider,
+    requestedProvider: provisioned.requestedProvider,
     fallbackUsed: provisioned.fallbackUsed,
     provisioningAttempts: provisioned.attempts,
     changeReason: reason,
@@ -323,6 +578,7 @@ export async function cancelSession(
   sessionId: string,
   reason: string,
   actorId = "usr-manager",
+  actorRole = "CENTER_MANAGER",
 ): Promise<LiveSession> {
   const normalized = reason.trim();
   if (normalized.length < 5)
@@ -331,8 +587,19 @@ export async function cancelSession(
   if (prisma) {
     const current = await prisma.liveSession.findUnique({
       where: { id: sessionId },
+      include: { class: { include: { instructors: true } } },
     });
     if (!current) throw new NotFoundException("Không tìm thấy buổi học.");
+    if (current.class.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (
+      actorRole === "INSTRUCTOR" &&
+      current.hostId !== actorId &&
+      !current.class.instructors.some((row) => row.instructorId === actorId)
+    )
+      throw new NotFoundException(
+        "Không tìm thấy buổi học được phép điều khiển.",
+      );
     if (current.status !== "SCHEDULED" || current.startsAt <= new Date())
       throw new ConflictException("Chỉ được hủy buổi học chưa diễn ra.");
     const updated = await prisma.liveSession.update({
@@ -358,6 +625,15 @@ export async function cancelSession(
     return serviceContext.mapSession(updated);
   }
   const item = serviceContext.findSession(sessionId);
+  const classItem = serviceContext.findClass(item.classId);
+  if (classItem.status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (
+    actorRole === "INSTRUCTOR" &&
+    item.hostId !== actorId &&
+    !classItem.instructorIds.includes(actorId)
+  )
+    throw new NotFoundException("Không tìm thấy buổi học được phép điều khiển.");
   if (item.status !== "SCHEDULED" || new Date(item.startsAt) <= new Date())
     throw new ConflictException("Chỉ được hủy buổi học chưa diễn ra.");
   item.status = "CANCELLED";
@@ -382,11 +658,18 @@ export async function transitionSession(
   if (prisma) {
     const item = await prisma.liveSession.findUnique({
       where: { id: sessionId },
+      include: { class: { include: { instructors: true } } },
     });
-    if (!item || item.hostId !== actorId)
+    if (
+      !item ||
+      (item.hostId !== actorId &&
+        !item.class.instructors.some((row) => row.instructorId === actorId))
+    )
       throw new NotFoundException(
         "Không tìm thấy buổi học được phép điều khiển.",
       );
+    if (item.class.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (!allowed[item.status].includes(status))
       throw new BadRequestException(
         `Không thể chuyển ${item.status} → ${status}.`,
@@ -399,10 +682,13 @@ export async function transitionSession(
     );
   }
   const item = serviceContext.findSession(sessionId);
-  if (item.hostId !== actorId)
+  const classItem = serviceContext.findClass(item.classId);
+  if (item.hostId !== actorId && !classItem.instructorIds.includes(actorId))
     throw new NotFoundException(
       "Không tìm thấy buổi học được phép điều khiển.",
     );
+  if (classItem.status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   if (!allowed[item.status].includes(status))
     throw new BadRequestException(
       `Không thể chuyển ${item.status} → ${status}.`,
@@ -411,24 +697,55 @@ export async function transitionSession(
   return { ...item };
 }
 
-/** Xác minh ghi danh/cửa sổ tham dự, mở bản ghi attendance và trả URL người học. */
+/** Xác minh quyền lớp/cửa sổ tham dự theo vai trò và trả URL phòng họp hợp lệ. */
 export async function joinSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  learnerId = "usr-learner",
+  actorId = "usr-learner",
+  actorRole = "LEARNER",
 ): Promise<{ attendeeUrl: string; joinedAt: string }> {
   const prisma = serviceContext.database();
   if (prisma) {
     const session = await prisma.liveSession.findUnique({
       where: { id: sessionId },
+      include: { class: { include: { instructors: true } } },
     });
     if (!session) throw new NotFoundException("Không tìm thấy buổi học.");
-    const enrollment = await prisma.classEnrollment.findFirst({
-      where: { classId: session.classId, learnerId, status: "ACTIVE" },
-    });
-    if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
     if (["CANCELLED", "COMPLETED"].includes(session.status))
       throw new BadRequestException("Buổi học không còn cho phép tham gia.");
+
+    if (actorRole === "INSTRUCTOR") {
+      if (
+        session.hostId !== actorId &&
+        !session.class.instructors.some((row) => row.instructorId === actorId)
+      ) {
+        throw new BadRequestException("Giảng viên không thuộc lớp của buổi học.");
+      }
+      const meetingUrl = session.hostUrl || session.attendeeUrl;
+      if (!meetingUrl) {
+        throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+      }
+      return {
+        attendeeUrl: meetingUrl,
+        joinedAt: new Date().toISOString(),
+      };
+    }
+
+    if (isManagerRole(actorRole)) {
+      const meetingUrl = session.hostUrl || session.attendeeUrl;
+      if (!meetingUrl) {
+        throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+      }
+      return {
+        attendeeUrl: meetingUrl,
+        joinedAt: new Date().toISOString(),
+      };
+    }
+
+    const enrollment = await prisma.classEnrollment.findFirst({
+      where: { classId: session.classId, learnerId: actorId, status: "ACTIVE" },
+    });
+    if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
     const joinedAt = new Date();
     if (joinedAt < new Date(session.startsAt.getTime() - 15 * 60_000))
       throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
@@ -441,10 +758,27 @@ export async function joinSession(
   }
   const item = serviceContext.findSession(sessionId);
   const classItem = serviceContext.findClass(item.classId);
-  if (!classItem.learnerIds.includes(learnerId))
-    throw new BadRequestException("Học viên không thuộc lớp.");
   if (item.status === "CANCELLED" || item.status === "COMPLETED")
     throw new BadRequestException("Buổi học không còn cho phép tham gia.");
+  if (actorRole === "INSTRUCTOR") {
+    if (item.hostId !== actorId && !classItem.instructorIds.includes(actorId)) {
+      throw new BadRequestException("Giảng viên không thuộc lớp của buổi học.");
+    }
+    const meetingUrl = item.hostUrl || item.attendeeUrl;
+    if (!meetingUrl) {
+      throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+    }
+    return { attendeeUrl: meetingUrl, joinedAt: now() };
+  }
+  if (isManagerRole(actorRole)) {
+    const meetingUrl = item.hostUrl || item.attendeeUrl;
+    if (!meetingUrl) {
+      throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+    }
+    return { attendeeUrl: meetingUrl, joinedAt: now() };
+  }
+  if (!classItem.learnerIds.includes(actorId))
+    throw new BadRequestException("Học viên không thuộc lớp.");
   const timestamp = new Date();
   if (timestamp < new Date(new Date(item.startsAt).getTime() - 15 * 60_000))
     throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");

@@ -16,8 +16,9 @@ export async function enrollLearner(
   serviceContext: LearningServiceContext,
   classId: string,
   learnerId: string,
-  actorId = "usr-manager",
+  _actorId = "usr-manager",
 ): Promise<LearningClass> {
+  void _actorId;
   const prisma = serviceContext.database();
   if (prisma) {
     await serviceContext.requireUserRole(
@@ -51,16 +52,6 @@ export async function enrollLearner(
           },
           create: { classId, learnerId, status: "ACTIVE", source: "MANUAL" },
         });
-        await transaction.classEnrollmentHistory.create({
-          data: {
-            id: id("enrollment-history"),
-            classId,
-            learnerId,
-            action: "ENROLLED",
-            source: "MANUAL",
-            actorId,
-          },
-        });
         await transaction.notification.upsert({
           where: { dedupKey: `class-enrolled:${classId}:${learnerId}` },
           update: {
@@ -91,14 +82,6 @@ export async function enrollLearner(
   if (item.learnerIds.length >= item.capacity)
     throw new BadRequestException("Lớp đã đủ sĩ số.");
   item.learnerIds.push(learnerId);
-  serviceContext.recordMemberHistory(
-    classId,
-    learnerId,
-    "LEARNER",
-    "ENROLLED",
-    actorId,
-    { source: "MANUAL" },
-  );
   serviceContext.notifications.unshift({
     id: id("notification"),
     recipientId: learnerId,
@@ -162,14 +145,15 @@ export async function importEnrollments(
   return results;
 }
 
-/** Hủy ghi danh theo kiểu lưu lịch sử, thay vì xóa mất dấu vết thành viên. */
+/** Hủy ghi danh và ghi nhận lý do trực tiếp trên bản ghi ghi danh lớp. */
 export async function removeEnrollment(
   serviceContext: LearningServiceContext,
   classId: string,
   learnerId: string,
   reason: string,
-  actorId = "usr-manager",
+  _actorId = "usr-manager",
 ): Promise<LearningClass> {
+  void _actorId;
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)
     throw new BadRequestException("Lý do gỡ học viên cần ít nhất 5 ký tự.");
@@ -187,17 +171,6 @@ export async function removeEnrollment(
           status: "CANCELLED",
           removalReason: normalizedReason,
           removedAt: new Date(),
-        },
-      }),
-      prisma.classEnrollmentHistory.create({
-        data: {
-          id: id("enrollment-history"),
-          classId,
-          learnerId,
-          action: "REMOVED",
-          source: enrollment.source,
-          reason: normalizedReason,
-          actorId,
         },
       }),
       prisma.notification.upsert({
@@ -220,18 +193,10 @@ export async function removeEnrollment(
   if (!item.learnerIds.includes(learnerId))
     throw new NotFoundException("Học viên không có ghi danh đang hoạt động.");
   item.learnerIds = item.learnerIds.filter((value) => value !== learnerId);
-  serviceContext.recordMemberHistory(
-    classId,
-    learnerId,
-    "LEARNER",
-    "REMOVED",
-    actorId,
-    { source: "MANUAL", reason: normalizedReason },
-  );
   return copyLearningClass(item);
 }
 
-/** Tổng hợp giảng viên, ghi danh đang/cũ và lịch sử thao tác thành roster chi tiết. */
+/** Tổng hợp giảng viên và danh sách ghi danh thành roster chi tiết. */
 export async function getClassRoster(
   serviceContext: LearningServiceContext,
   classId: string,
@@ -253,8 +218,6 @@ export async function getClassRoster(
             learner: { select: { displayName: true, email: true } },
           },
         },
-        instructorHistory: { orderBy: { createdAt: "desc" } },
-        enrollmentHistory: { orderBy: { createdAt: "desc" } },
       },
     });
     if (!item) throw new NotFoundException("Không tìm thấy lớp học.");
@@ -277,28 +240,6 @@ export async function getClassRoster(
         removalReason: row.removalReason ?? undefined,
         removedAt: row.removedAt?.toISOString(),
       })),
-      history: [
-        ...item.instructorHistory.map((row) => ({
-          id: row.id,
-          memberId: row.instructorId,
-          memberType: "INSTRUCTOR" as const,
-          action: row.action,
-          role: row.role,
-          reason: row.reason ?? undefined,
-          actorId: row.actorId,
-          createdAt: row.createdAt.toISOString(),
-        })),
-        ...item.enrollmentHistory.map((row) => ({
-          id: row.id,
-          memberId: row.learnerId,
-          memberType: "LEARNER" as const,
-          action: row.action,
-          source: row.source,
-          reason: row.reason ?? undefined,
-          actorId: row.actorId,
-          createdAt: row.createdAt.toISOString(),
-        })),
-      ].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     };
   }
   const item = serviceContext.findClass(classId);
@@ -317,8 +258,5 @@ export async function getClassRoster(
       source: "MANUAL",
       joinedAt: now(),
     })),
-    history: serviceContext.classMemberHistory
-      .filter((row) => row.id.startsWith(`${classId}:`))
-      .map((row) => ({ ...row })),
   };
 }

@@ -1,11 +1,59 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException } from "@nestjs/common";
+import { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import {
   AuditEvent,
   AuditFilter,
+  AuditPageFilter,
   StorageOverview,
-  SystemAlertView,
 } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
+
+/** Kiểm tra và chuyển đổi khoảng thời gian audit từ chuỗi ISO sang Date hợp lệ. */
+function parseAuditDateRange(filter: AuditFilter): { from?: Date; to?: Date } {
+  const from = filter.from ? new Date(filter.from) : undefined;
+  const to = filter.to ? new Date(filter.to) : undefined;
+  if (
+    (from && Number.isNaN(from.getTime())) ||
+    (to && Number.isNaN(to.getTime()))
+  ) {
+    throw new BadRequestException("Khoảng thời gian audit không hợp lệ.");
+  }
+  if (from && to && from > to) {
+    throw new BadRequestException(
+      "Thời gian bắt đầu phải trước thời gian kết thúc.",
+    );
+  }
+  return { from, to };
+}
+
+/** Lọc nhật ký audit trên bộ nhớ fallback khi chưa kết nối DB. */
+function filterMemoryAudit(
+  items: readonly AuditEvent[],
+  filter: AuditFilter,
+  from?: Date,
+  to?: Date,
+): AuditEvent[] {
+  const normalized = filter.query?.trim().toLowerCase() ?? "";
+  const actorFilter = filter.actor?.trim().toLowerCase() ?? "";
+  const actionFilter = filter.action?.trim().toLowerCase() ?? "";
+  const targetFilter = filter.target?.trim().toLowerCase() ?? "";
+  return items.filter(
+    (item) =>
+      (!normalized ||
+        `${item.actor} ${item.action} ${item.target} ${item.detail}`
+          .toLowerCase()
+          .includes(normalized)) &&
+      (!actorFilter || item.actor.toLowerCase().includes(actorFilter)) &&
+      (!actionFilter || item.action.toLowerCase().includes(actionFilter)) &&
+      (!targetFilter || item.target.toLowerCase().includes(targetFilter)) &&
+      (!from || new Date(item.createdAt) >= from) &&
+      (!to || new Date(item.createdAt) <= to),
+  );
+}
 
 /** Lọc audit theo nhiều tiêu chí và che token/secret trong phần detail trước khi trả. */
 export async function listAudit(
@@ -13,17 +61,7 @@ export async function listAudit(
   filter: AuditFilter = {},
 ): Promise<AuditEvent[]> {
   const normalized = filter.query?.trim().toLowerCase() ?? "";
-  const from = filter.from ? new Date(filter.from) : undefined;
-  const to = filter.to ? new Date(filter.to) : undefined;
-  if (
-    (from && Number.isNaN(from.getTime())) ||
-    (to && Number.isNaN(to.getTime()))
-  )
-    throw new BadRequestException("Khoảng thời gian audit không hợp lệ.");
-  if (from && to && from > to)
-    throw new BadRequestException(
-      "Thời gian bắt đầu phải trước thời gian kết thúc.",
-    );
+  const { from, to } = parseAuditDateRange(filter);
   const limit = Math.min(500, Math.max(1, filter.limit ?? 100));
   const prisma = serviceContext.database();
   if (prisma) {
@@ -50,35 +88,104 @@ export async function listAudit(
       );
   }
   return structuredClone(
-    serviceContext.audit
-      .filter(
-        (item) =>
-          (!normalized ||
-            `${item.actor} ${item.action} ${item.target} ${item.detail}`
-              .toLowerCase()
-              .includes(normalized)) &&
-          (!filter.actor || item.actor.includes(filter.actor)) &&
-          (!filter.action || item.action.includes(filter.action)) &&
-          (!filter.target || item.target.includes(filter.target)) &&
-          (!from || new Date(item.createdAt) >= from) &&
-          (!to || new Date(item.createdAt) <= to),
-      )
-      .slice(0, limit),
+    filterMemoryAudit(serviceContext.audit, filter, from, to).slice(0, limit),
   );
 }
 
-/** Tổng hợp health DB/integration/storage và tạo hoặc phục hồi cảnh báo theo ngưỡng. */
+/** Phân trang nhật ký audit trực tiếp ở SQL kèm lọc từ khóa trên actor, action, target và context. */
+export async function listAuditPage(
+  serviceContext: SystemServiceContext,
+  filter: AuditPageFilter = {},
+): Promise<PaginatedResult<AuditEvent>> {
+  const { from, to } = parseAuditDateRange(filter);
+  const page =
+    Number.isSafeInteger(filter.page) &&
+    (filter.page ?? 0) > 0 &&
+    (filter.page ?? 0) <= 100_000
+      ? (filter.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filter.pageSize) && (filter.pageSize ?? 0) > 0
+      ? Math.min(filter.pageSize as number, 100)
+      : 20;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    // Chuẩn hóa từ khóa tìm kiếm LIKE an toàn.
+    const contains = (value: string): string =>
+      `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+    const conditions: Prisma.Sql[] = [];
+    if (filter.actor?.trim()) {
+      conditions.push(
+        Prisma.sql`COALESCE(a.actor_id, 'system') ILIKE ${contains(filter.actor.trim())}`,
+      );
+    }
+    if (filter.action?.trim()) {
+      conditions.push(
+        Prisma.sql`a.action ILIKE ${contains(filter.action.trim())}`,
+      );
+    }
+    if (filter.target?.trim()) {
+      conditions.push(
+        Prisma.sql`COALESCE(a.entity_id, a.entity_type) ILIKE ${contains(filter.target.trim())}`,
+      );
+    }
+    if (from) conditions.push(Prisma.sql`a.created_at >= ${from}`);
+    if (to) conditions.push(Prisma.sql`a.created_at <= ${to}`);
+    if (filter.query?.trim()) {
+      const pattern = contains(filter.query.trim());
+      conditions.push(
+        Prisma.sql`(COALESCE(a.actor_id, 'system') ILIKE ${pattern} OR a.action ILIKE ${pattern} OR COALESCE(a.entity_id, a.entity_type) ILIKE ${pattern} OR COALESCE(a.context::text, '') ILIKE ${pattern})`,
+      );
+    }
+    const where = conditions.length
+      ? Prisma.join(conditions, " AND ")
+      : Prisma.sql`TRUE`;
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const counts = await transaction.$queryRaw<{ count: bigint }[]>(
+          Prisma.sql`SELECT COUNT(*) AS count FROM audit_logs a WHERE ${where}`,
+        );
+        const total = Number(counts[0]?.count ?? 0n);
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        if (total === 0) {
+          return { rows: [], total: 0, safePage, totalPages };
+        }
+        const offset = (safePage - 1) * pageSize;
+        const ids = await transaction.$queryRaw<{ id: bigint }[]>(
+          Prisma.sql`SELECT a.id FROM audit_logs a WHERE ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT ${pageSize} OFFSET ${offset}`,
+        );
+        const rows =
+          ids.length === 0
+            ? []
+            : await transaction.auditLog.findMany({
+                where: { id: { in: ids.map((item) => item.id) } },
+                orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) => serviceContext.mapAudit(row)),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const filtered = structuredClone(
+    filterMemoryAudit(serviceContext.audit, filter, from, to),
+  );
+  return paginateArray(filtered, page, pageSize);
+}
+
+/** Tổng hợp chỉ số sức khỏe DB, độ trễ API, dung lượng lưu trữ và hàng đợi operational_jobs. */
 export async function healthOverview(
   serviceContext: SystemServiceContext,
 ): Promise<object> {
   const prisma = serviceContext.database();
   if (!prisma) {
-    await serviceContext.recordAlert(
-      "database:disabled",
-      "database",
-      "CRITICAL",
-      "Kết nối cơ sở dữ liệu đang tắt.",
-    );
     return {
       status: "degraded",
       database: "disabled",
@@ -104,37 +211,6 @@ export async function healthOverview(
   ]);
   const apiLatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
   const totalQueueDepth = queueDepth.reduce((sum, value) => sum + value, 0);
-  if (storage.usagePercent >= 90)
-    await serviceContext.recordAlert(
-      "storage:usage",
-      "storage",
-      "CRITICAL",
-      "Dung lượng lưu trữ vượt ngưỡng 90%.",
-      storage.usagePercent,
-      90,
-    );
-  else await serviceContext.recoverAlert("storage:usage");
-  if (totalQueueDepth >= 20)
-    await serviceContext.recordAlert(
-      "queue:depth",
-      "job-queue",
-      "WARNING",
-      "Hàng đợi tác vụ vượt ngưỡng 20.",
-      totalQueueDepth,
-      20,
-    );
-  else await serviceContext.recoverAlert("queue:depth");
-  if (apiLatencyMs >= 1000)
-    await serviceContext.recordAlert(
-      "api:latency",
-      "api",
-      "WARNING",
-      "Độ trễ API vượt ngưỡng 1000 ms.",
-      apiLatencyMs,
-      1000,
-    );
-  else await serviceContext.recoverAlert("api:latency");
-  await serviceContext.recoverAlert("database:disabled");
   return {
     status: storage.usagePercent >= 90 ? "warning" : "healthy",
     database: "connected",
@@ -145,77 +221,7 @@ export async function healthOverview(
   };
 }
 
-/** Liệt kê cảnh báo hệ thống mới nhất trước. */
-export async function listAlerts(
-  serviceContext: SystemServiceContext,
-): Promise<SystemAlertView[]> {
-  const prisma = serviceContext.database();
-  if (prisma)
-    return (
-      await prisma.systemAlert.findMany({
-        orderBy: { detectedAt: "desc" },
-        take: 200,
-      })
-    ).map((row) => serviceContext.mapAlert(row));
-  return structuredClone(serviceContext.alerts);
-}
-
-/** Áp dụng thao tác vận hành lên cảnh báo và ghi nhận actor/thời hạn mute. */
-export async function updateAlert(
-  serviceContext: SystemServiceContext,
-  alertId: string,
-  action: "ACKNOWLEDGE" | "MUTE" | "RESOLVE",
-  actorId = "usr-admin",
-  muteMinutes = 60,
-): Promise<SystemAlertView> {
-  const prisma = serviceContext.database();
-  const data =
-    action === "ACKNOWLEDGE"
-      ? { status: "ACKNOWLEDGED", acknowledgedBy: actorId }
-      : action === "MUTE"
-        ? {
-            status: "MUTED",
-            acknowledgedBy: actorId,
-            mutedUntil: new Date(
-              Date.now() + Math.min(1440, Math.max(5, muteMinutes)) * 60_000,
-            ),
-          }
-        : {
-            status: "RESOLVED",
-            recoveredAt: new Date(),
-            acknowledgedBy: actorId,
-          };
-  if (prisma) {
-    const current = await prisma.systemAlert.findUnique({
-      where: { id: alertId },
-    });
-    if (!current) throw new NotFoundException("Không tìm thấy cảnh báo.");
-    const row = await prisma.systemAlert.update({
-      where: { id: alertId },
-      data,
-    });
-    await serviceContext.logDatabase(
-      prisma,
-      actorId,
-      `ALERT_${action}`,
-      alertId,
-      row.summary,
-    );
-    return serviceContext.mapAlert(row);
-  }
-  const item = serviceContext.alerts.find((row) => row.id === alertId);
-  if (!item) throw new NotFoundException("Không tìm thấy cảnh báo.");
-  Object.assign(item, {
-    ...data,
-    mutedUntil: data.mutedUntil?.toISOString(),
-    recoveredAt: data.recoveredAt?.toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-  serviceContext.log(actorId, `ALERT_${action}`, alertId, item.summary);
-  return structuredClone(item);
-}
-
-/** Tổng hợp byte lưu trữ theo MIME, so sánh quota và phát cảnh báo khi gần đầy. */
+/** Tổng hợp dung lượng lưu trữ theo lớp so với quota hệ thống. */
 export async function getStorageOverview(
   serviceContext: SystemServiceContext,
 ): Promise<StorageOverview> {
@@ -238,7 +244,9 @@ export async function getStorageOverview(
     _count: { id: true },
   });
   const classes = await prisma.learningClass.findMany({
-    where: { id: { in: groups.flatMap((item) => (item.classId ? [item.classId] : [])) } },
+    where: {
+      id: { in: groups.flatMap((item) => (item.classId ? [item.classId] : [])) },
+    },
     select: { id: true, code: true, name: true },
   });
   const classMap = new Map(classes.map((item) => [item.id, item]));
