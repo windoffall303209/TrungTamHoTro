@@ -209,7 +209,6 @@ export class IdentityService {
   /** Tạo tài khoản chưa xác thực bằng mật khẩu tạm; chỉ vai trò Quản trị hệ thống được cấp vai trò quản trị. */
   async createUser(
     input: CreateUserDto,
-    _actorId: string,
     actorRoleCode: RoleCode,
   ): Promise<IdentityUser> {
     const normalizedUsername = input.username.trim().toLowerCase();
@@ -405,7 +404,6 @@ export class IdentityService {
             transaction,
             userId,
             input.handoffUserId,
-            input.handoffReason!.trim(),
             actorId,
             impact,
           );
@@ -661,7 +659,6 @@ export class IdentityService {
     transaction: Prisma.TransactionClient,
     fromUserId: string,
     toUserId: string,
-    _reason: string,
     actorId: string,
     impact: IdentityChangeImpact,
   ): Promise<void> {

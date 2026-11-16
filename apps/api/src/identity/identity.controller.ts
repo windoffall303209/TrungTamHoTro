@@ -29,7 +29,7 @@ import type {
 
 @ApiTags("Identity")
 @Controller("admin")
-/** API quản trị danh tính; từng handler khai báo quyền và chuyển actorId sang service để ghi audit. */
+/** API quản trị danh tính; từng handler khai báo quyền và phạm vi vai trò của người thao tác. */
 export class IdentityController {
   constructor(private readonly identityService: IdentityService) {}
 
@@ -44,12 +44,12 @@ export class IdentityController {
   @Post("users")
   @RequirePermissions("user:create")
   @ApiOperation({ summary: "Tạo tài khoản người dùng" })
-  /** Tạo tài khoản theo vai trò đang dùng của người thực hiện và ghi người đó vào nhật ký. */
+  /** Tạo tài khoản theo vai trò đang dùng của người thực hiện. */
   createUser(
     @Body() input: CreateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.createUser(input, session.user.id, session.roleCode);
+    return this.identityService.createUser(input, session.roleCode);
   }
 
   @Get("users/:userId/change-impact")

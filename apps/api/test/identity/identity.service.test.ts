@@ -11,7 +11,6 @@ describe("IdentityService", () => {
         roleCode: "LEARNER",
         initialPassword: "Temp-2026-pass",
       },
-      "admin-real",
       "SYSTEM_ADMIN",
     );
     expect(created).toMatchObject({
@@ -26,7 +25,6 @@ describe("IdentityService", () => {
           roleCode: "LEARNER",
           initialPassword: "Temp-2026-pass",
         },
-        "admin-real",
         "SYSTEM_ADMIN",
       ),
     ).rejects.toThrow(ConflictException);
@@ -41,7 +39,6 @@ describe("IdentityService", () => {
         roleCodes: ["INSTRUCTOR", "LEARNER"],
         initialPassword: "Password-2030",
       },
-      "usr-admin",
       "SYSTEM_ADMIN",
     );
 
