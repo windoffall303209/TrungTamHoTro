@@ -32,6 +32,7 @@ import { UserPicker } from "@/shared/ui/user-picker";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import { ClassSchedulePanel } from "@/features/class-detail/class-schedule-panel";
+import { ClassMaterialRow } from "@/features/class-detail/class-material-row";
 import { activeLocale } from "@/i18n/runtime";
 import { hasPermission } from "@/lib/access-control";
 import { useI18n } from "@/providers/i18n-provider";
@@ -1192,39 +1193,16 @@ export function ManagerClassWorkspace({
                         filtered.map((mat) => {
                           const isSelected = activeMat?.id === mat.id;
                           return (
-                            <div
+                            <ClassMaterialRow
                               key={mat.id}
-                              onClick={() => setSelectedMaterialId(mat.id)}
-                              className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                                isSelected
-                                  ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-500 shadow-2xs"
-                                  : "bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-800"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
-                                <div className={`size-8 rounded-lg text-white font-bold text-xs uppercase flex items-center justify-center shrink-0 shadow-xs ${
-                                  mat.fileType === "pdf"
-                                    ? "bg-rose-600"
-                                    : mat.fileType === "xlsx"
-                                    ? "bg-emerald-600"
-                                    : mat.fileType === "pptx"
-                                    ? "bg-amber-600"
-                                    : "bg-blue-600"
-                                }`}>
-                                  {mat.fileType}
-                                </div>
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                    {mat.title}
-                                  </strong>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                    {mat.size} · Tải lên {mat.uploadedAt}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="shrink-0 text-right">
-                                {mat.visibility === "HIDDEN" ? (
+                              fileType={mat.fileType}
+                              title={mat.title}
+                              size={mat.size}
+                              uploadedAt={mat.uploadedAt}
+                              selected={isSelected}
+                              onSelect={() => setSelectedMaterialId(mat.id)}
+                              trailing={
+                                mat.visibility === "HIDDEN" ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-bold">
                                     <EyeOff size={11} />
                                     Đã ẩn
@@ -1233,9 +1211,9 @@ export function ManagerClassWorkspace({
                                   <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                                     Đang hiển thị
                                   </span>
-                                )}
-                              </div>
-                            </div>
+                                )
+                              }
+                            />
                           );
                         })
                       )}

@@ -8,6 +8,7 @@ import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import { canLearnerJoinSession } from "@/features/class-detail/live-session-utils";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
+import { ClassMaterialRow } from "@/features/class-detail/class-material-row";
 import {
   ArrowLeft,
   Calendar,
@@ -1973,43 +1974,22 @@ export function LearnerClassWorkspace({
                       filteredMaterials.map((mat) => {
                         const isSelected = (activeMaterialItem?.id || filteredMaterials[0]?.id) === mat.id;
                         return (
-                          <div
+                          <ClassMaterialRow
                             key={mat.id}
-                            onClick={() => setSelectedMaterialId(mat.id)}
-                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                              isSelected
-                                ? "bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-500 shadow-2xs"
-                                : "bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-800"
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
-                              <div className={`size-8 rounded-lg text-white font-bold text-xs uppercase flex items-center justify-center shrink-0 shadow-xs ${
-                                mat.fileType === "pdf"
-                                  ? "bg-rose-600"
-                                  : mat.fileType === "xlsx"
-                                    ? "bg-emerald-600"
-                                    : "bg-blue-600"
-                              }`}>
-                                {mat.fileType}
-                              </div>
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 block truncate">
-                                  {mat.title}
-                                </strong>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                  {mat.size ? `${mat.size} · ` : ""}Tải lên {new Date(mat.uploadedAt).toLocaleDateString(locale)}
-                                </p>
-                              </div>
-                            </div>
-
-                            {mat.downloadsCount !== undefined && (
-                              <div className="shrink-0 text-right">
+                            fileType={mat.fileType}
+                            title={mat.title}
+                            size={mat.size}
+                            uploadedAt={new Date(mat.uploadedAt).toLocaleDateString(locale)}
+                            selected={isSelected}
+                            onSelect={() => setSelectedMaterialId(mat.id)}
+                            trailing={
+                              mat.downloadsCount !== undefined ? (
                                 <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                                   {mat.downloadsCount} lượt tải
                                 </span>
-                              </div>
-                            )}
-                          </div>
+                              ) : undefined
+                            }
+                          />
                         );
                       })
                     )}
