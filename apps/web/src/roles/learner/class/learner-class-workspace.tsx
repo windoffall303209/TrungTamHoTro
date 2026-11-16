@@ -1,8 +1,11 @@
 "use client";
 
+import { InlineFilePreview } from "@/features/academic/inline-file-preview";
+import { SubmissionFile } from "@/features/academic/submission-file";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { canLearnerJoinSession } from "@/features/class-detail/live-session-utils";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
 import {
@@ -43,12 +46,13 @@ import type {
 } from "@/lib/learning-types";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
+import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { getLectureEmbedUrl, getLectureSourceUrl, getLectureYoutubeId } from "@/lib/lecture-links";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
+import { RichText } from "@/shared/ui/ui";
 import { UserAvatar } from "@/shared/ui/user-avatar";
-import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
+import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 import { filterLearnerAssignments, filterLearnerFiles, getLearnerFolderNames } from "./learner-class-workspace.helpers";
 
@@ -101,7 +105,7 @@ interface AssignmentItem {
   subtypeText?: string;
   scoringMethod?: string;
   createdAt?: string;
-  attempts?: AttemptRecord[];
+  latestAttempt?: AttemptRecord;
 }
 
 interface LectureItem {
@@ -285,7 +289,7 @@ export function LearnerClassWorkspace({
     const responses = await Promise.allSettled([
       apiRequest<LearnerExamSummary[]>(`/learner/classes/${classId}/exams`, { signal: controller.signal }),
       apiRequest<Assignment[]>(`/academic/assignments?classId=${classId}`, { signal: controller.signal }),
-      loadAllMaterials<Material>("/materials", { signal: controller.signal }),
+      loadClassMaterials<Material>(classId, { signal: controller.signal }),
       apiRequest<LearnerResult[]>("/learner/results", { signal: controller.signal }),
       apiRequest<LiveSession[]>("/sessions", { signal: controller.signal }),
     ] as const);
@@ -294,7 +298,7 @@ export function LearnerClassWorkspace({
     if (exams.status === "fulfilled" && Array.isArray(exams.value)) setClassExams(exams.value);
     if (assignments.status === "fulfilled" && Array.isArray(assignments.value)) setClassAssignments(assignments.value);
     if (materials.status === "fulfilled" && Array.isArray(materials.value)) {
-      setClassMaterials(materials.value.filter((material) => isMaterialForClass(material, item.id, item.courseId)));
+      setClassMaterials(materials.value.filter((material) => isMaterialForClass(material, item.id)));
     }
     if (results.status === "fulfilled" && Array.isArray(results.value)) setLearnerResults(results.value);
     if (sessions.status === "fulfilled" && Array.isArray(sessions.value)) {
@@ -302,7 +306,7 @@ export function LearnerClassWorkspace({
     }
     const failedCount = responses.filter((response) => response.status === "rejected" || !Array.isArray(response.value)).length;
     setDataLoadError(failedCount ? `Không tải được ${failedCount} nguồn dữ liệu lớp học. Vui lòng thử tải lại.` : null);
-  }, [item.id, item.courseId]);
+  }, [item.id]);
 
   useEffect(() => {
     void loadClassData();
@@ -343,6 +347,7 @@ export function LearnerClassWorkspace({
   const [activeEssayAssignment, setActiveEssayAssignment] = useState<Assignment | null>(null);
   const [essayContent, setEssayContent] = useState("");
   const [essayFiles, setEssayFiles] = useState<File[]>([]);
+  const [removedEssayAttachmentIds, setRemovedEssayAttachmentIds] = useState<string[]>([]);
   const [essayError, setEssayError] = useState<string | null>(null);
   const [essaySubmitting, setEssaySubmitting] = useState(false);
 
@@ -351,8 +356,6 @@ export function LearnerClassWorkspace({
     examTitle: string;
     attempt: AttemptRecord;
   } | null>(null);
-  const [historyAssignment, setHistoryAssignment] = useState<AssignmentItem | null>(null);
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   // State trang xem chi tiết bài giảng độc lập (3 cột theo ảnh minh họa)
   const [selectedLectureForPage, setSelectedLectureForPage] = useState<LectureItem | null>(null);
@@ -436,6 +439,14 @@ export function LearnerClassWorkspace({
     })();
   };
 
+  /** Đóng hộp thoại bài tự luận và xóa danh sách tệp tạm chưa lưu. */
+  const closeEssayAssignment = () => {
+    setActiveEssayAssignment(null);
+    setEssayFiles([]);
+    setRemovedEssayAttachmentIds([]);
+    setEssayError(null);
+  };
+
   /** Mở đúng luồng làm bài thi hoặc nộp bài tự luận theo loại bài tập. */
   const openAssignment = (assignment: AssignmentItem) => {
     if (assignment.type === "ESSAY") {
@@ -447,6 +458,7 @@ export function LearnerClassWorkspace({
       setActiveEssayAssignment(source);
       setEssayContent(source.submission?.content ?? "");
       setEssayFiles([]);
+      setRemovedEssayAttachmentIds([]);
       setEssayError(null);
       return;
     }
@@ -465,7 +477,10 @@ export function LearnerClassWorkspace({
   const chooseEssayFiles = (files: FileList | null) => {
     if (!files || !activeEssayAssignment) return;
     const next = [...essayFiles, ...Array.from(files)];
-    if (next.length + (activeEssayAssignment.submission?.attachments.length ?? 0) > 5) {
+    const keptCount = (activeEssayAssignment.submission?.attachments ?? []).filter(
+      (file) => !removedEssayAttachmentIds.includes(file.id),
+    ).length;
+    if (next.length + keptCount > 5) {
       setEssayError("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
       return;
     }
@@ -482,13 +497,19 @@ export function LearnerClassWorkspace({
   const submitEssayAssignment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!activeEssayAssignment || essaySubmitting) return;
-    if (!essayContent.trim() && essayFiles.length === 0 && !activeEssayAssignment.submission?.attachments.length) {
+    const keptAttachmentIds = (activeEssayAssignment.submission?.attachments ?? [])
+      .filter((file) => !removedEssayAttachmentIds.includes(file.id))
+      .map((file) => file.id);
+    if (!essayContent.trim() && essayFiles.length === 0 && keptAttachmentIds.length === 0) {
       setEssayError("Cần nhập nội dung hoặc đính kèm ít nhất một tệp.");
       return;
     }
     const body = new FormData();
     body.set("content", essayContent.trim());
     body.set("expectedRevision", String(activeEssayAssignment.submission?.revision ?? 0));
+    if (activeEssayAssignment.submission) {
+      body.set("keepAttachmentIds", JSON.stringify(keptAttachmentIds));
+    }
     essayFiles.forEach((file) => body.append("files", file));
     setEssaySubmitting(true);
     setEssayError(null);
@@ -499,6 +520,7 @@ export function LearnerClassWorkspace({
       });
       setActiveEssayAssignment(null);
       setEssayFiles([]);
+      setRemovedEssayAttachmentIds([]);
       showToast("Đã lưu bài nộp tự luận.", { type: "success" });
       await loadClassData();
     } catch (error) {
@@ -519,12 +541,12 @@ export function LearnerClassWorkspace({
   // Danh sách bài tập & đề thi: 100% LẤY DỮ LIỆU THẬT TỪ DATABASE CỦA LỚP
   const assignmentsList: AssignmentItem[] = useMemo(() => {
     const dbExams: AssignmentItem[] = classExams.map((exam) => {
-      const relatedResults = learnerResults.filter(
+      const r = learnerResults.find(
         (r) => r.attempt && r.attempt.examId === exam.id,
       );
-      const attempts: AttemptRecord[] = relatedResults.map((r, aIdx) => ({
+      const latestAttempt: AttemptRecord | undefined = r ? {
         id: r.attempt.id,
-        attemptNo: r.attempt.attemptNo || aIdx + 1,
+        attemptNo: r.attempt.attemptNo ?? 1,
         score: r.attempt.score == null ? undefined : Number(r.attempt.score),
         maxScore: Number(exam.totalScore),
         submittedAt: r.attempt.submittedAt
@@ -544,11 +566,8 @@ export function LearnerClassWorkspace({
           awardedScore: ans.awardedScore,
           maxScore: ans.maxScore,
         })),
-      }));
-
-      const completedCount = relatedResults.filter((r) => r.attempt.status !== "IN_PROGRESS").length;
-      const latestScore = attempts.length > 0 && attempts[attempts.length - 1] ? attempts[attempts.length - 1]!.score : undefined;
-      const latestStatus = relatedResults.at(-1)?.attempt.status;
+      } : undefined;
+      const latestStatus = r?.attempt.status;
 
       return {
         id: exam.id,
@@ -557,15 +576,15 @@ export function LearnerClassWorkspace({
         durationMinutes: exam.durationMinutes,
         dueAt: exam.closeAt,
         status: latestStatus === "GRADED" ? "GRADED" : latestStatus === "SUBMITTED" ? "SUBMITTED" : "PENDING",
-        score: latestScore,
+        score: latestAttempt?.score,
         maxScore: Number(exam.totalScore),
         totalQuestions: exam.questionCount ?? exam.questionIds?.length,
         remainingAttempts: exam.remainingAttempts,
         attemptLimit: exam.attemptLimit,
-        completedAttempts: completedCount,
-        attempts: attempts,
+        completedAttempts: Math.max(0, exam.attemptLimit - exam.remainingAttempts - (exam.availabilityStatus === "IN_PROGRESS" ? 1 : 0)),
+        latestAttempt,
         subtypeText: "Trắc nghiệm",
-        scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm cao nhất" : "Lần đầu tiên",
+        scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm lần chấm mới nhất" : "Lần đầu tiên",
       };
     });
 
@@ -586,16 +605,6 @@ export function LearnerClassWorkspace({
       remainingAttempts: null,
       attemptLimit: 1,
       completedAttempts: assign.submission ? 1 : 0,
-      attempts: assign.submission ? [
-        {
-          id: assign.submission.id,
-          attemptNo: 1,
-          score: assign.submission.score == null ? undefined : Number(assign.submission.score),
-          maxScore: Number(assign.maxScore),
-          submittedAt: assign.submission.submittedAt ? new Date(assign.submission.submittedAt).toLocaleDateString(locale) : undefined,
-          feedback: assign.submission.feedback,
-        },
-      ] : [],
       subtypeText: "Bài tập tự luận",
       scoringMethod: "Điểm đánh giá",
       createdAt: assign.createdAt ? new Date(assign.createdAt).toLocaleDateString(locale) : undefined,
@@ -957,15 +966,11 @@ export function LearnerClassWorkspace({
                   <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700">Mở bài giảng từ liên kết</a>
                 </div>
               ) : (
-                <div className="w-full aspect-video rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center gap-3 p-6 text-center">
-                  <FileText size={38} className="text-blue-500" />
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{selectedLectureForPage.title}</p>
-                  <button type="button" onClick={() => previewClassMaterial(selectedLectureForPage.id, selectedLectureForPage.title)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
-                    Xem học liệu
-                  </button>
+                <div className="space-y-2">
+                  <InlineFilePreview key={selectedLectureForPage.id} materialId={selectedLectureForPage.id} title={selectedLectureForPage.title} />
+                  <button type="button" className="text-sm font-semibold underline" onClick={() => void downloadClassMaterial(selectedLectureForPage.id)}>Tải xuống</button>
                 </div>
               )}
-
 
               {/* Phần Bài tập & Tài liệu đính kèm (chuẩn Ảnh 2 của người dùng) */}
               <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1189,26 +1194,13 @@ export function LearnerClassWorkspace({
                 </div>
               </div>
               {gradebookError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{gradebookError}</p>}
-              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900/90">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-extrabold uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-800/60">
-                    <tr><th className="min-w-44 px-4 py-3">Học sinh</th><th className="px-4 py-3 text-center">Điểm thi</th><th className="px-4 py-3 text-center">Điểm bài tập</th><th className="px-4 py-3 text-center">Tổng (%)</th><th className="px-4 py-3 text-center">Chờ chấm</th><th className="px-4 py-3 text-center">Chưa nộp</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {gradebook.filter((row) => `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase())).map((row) => (
-                      <tr key={row.learnerId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="px-4 py-3"><div className="flex items-center gap-2 font-bold"><UserAvatar name={row.learnerName} className="size-6 text-[10px]" /><span>{row.learnerName}</span></div><span className="text-slate-500">{row.learnerEmail}</span></td>
-                        <td className="px-4 py-3 text-center">{row.examEarned} / {row.examPossible}</td>
-                        <td className="px-4 py-3 text-center">{row.assignmentEarned} / {row.assignmentPossible}</td>
-                        <td className="px-4 py-3 text-center"><span className={`inline-flex rounded-full border px-2 py-0.5 font-bold ${getScoreColorClass(row.totalPercent, 100)}`}>{row.totalPercent.toFixed(1)}%</span></td>
-                        <td className="px-4 py-3 text-center">{row.awaitingGrade}</td><td className="px-4 py-3 text-center">{row.notSubmitted}</td>
-                      </tr>
-                    ))}
-                    {!gradebookLoading && gradebook.filter((row) => `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase())).length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">{gradebookSearch ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}</td></tr>}
-                    {gradebookLoading && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Đang tải bảng điểm...</td></tr>}
-                  </tbody>
-                </table>
-              </div>
+              <ClassGradebookTable
+                rows={gradebook.filter((row) =>
+                  `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase()),
+                )}
+                loading={gradebookLoading}
+                emptyMessage={gradebookSearch ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
+              />
             </section>
           )}
           {/* ================= TAB 1: BẢNG TIN LỚP HỌC (FACEBOOK STYLE VỚI BÌNH LUẬN ĐA TẦNG) ================= */}
@@ -1286,7 +1278,9 @@ export function LearnerClassWorkspace({
                                   {new Date(entry.startsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
                                 </p>
                                 <p className="text-[10px] text-slate-500">{entry.status}</p>
-                                {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">Vào phòng</button>}
+                                {canLearnerJoinSession(entry, Date.now()) && (
+                                  <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">Vào phòng</button>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1305,7 +1299,9 @@ export function LearnerClassWorkspace({
                           {new Date(entry.startsAt).toLocaleString(locale)} – {new Date(entry.endsAt).toLocaleString(locale)} · {entry.status}
                         </p>
                       </div>
-                      {entry.status === "LIVE" && <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Vào phòng học</button>}
+                      {canLearnerJoinSession(entry, Date.now()) && (
+                        <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Vào phòng học</button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1621,15 +1617,13 @@ export function LearnerClassWorkspace({
                               openAssignment(activeAssignment);
                               return;
                             }
-                            const attempts = activeAssignment.attempts || [];
-                            if (attempts.length === 1 && attempts[0]) {
+                            const attempt = activeAssignment.latestAttempt;
+                            if (attempt) {
                               setSelectedAttemptForReview({
                                 examTitle: activeAssignment.title,
-                                attempt: attempts[0],
+                                attempt,
                               });
-                            } else if (attempts.length > 1) {
-                              setHistoryAssignment(activeAssignment);
-                              setIsHistoryModalOpen(true);
+
                             } else {
                               showToast("Bạn chưa nộp lượt làm bài nào cho bài tập này.", {
                                 type: "info",
@@ -2131,53 +2125,105 @@ export function LearnerClassWorkspace({
         const editable = activeEssayAssignment.status === "PUBLISHED" &&
           activeEssayAssignment.submission?.status !== "GRADED" &&
           new Date(activeEssayAssignment.dueAt).getTime() >= Date.now();
+        const storedAttachments = activeEssayAssignment.submission?.attachments ?? [];
+        const keptAttachments = storedAttachments.filter((file) => !removedEssayAttachmentIds.includes(file.id));
+        const removedAttachments = storedAttachments.filter((file) => removedEssayAttachmentIds.includes(file.id));
         return (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="presentation">
-            <section role="dialog" aria-modal="true" aria-labelledby="essay-submission-title" className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900">
-              <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="fixed inset-0 z-[100] flex flex-col w-screen h-dvh bg-slate-50 dark:bg-slate-950 overflow-hidden" role="presentation">
+            <section role="dialog" aria-modal="true" aria-labelledby="essay-submission-title" className="flex flex-col w-full h-full bg-white dark:bg-slate-900 overflow-hidden">
+              <header className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-4 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90 shrink-0">
                 <div className="min-w-0">
                   <h2 id="essay-submission-title" className="text-xl font-bold text-slate-900 dark:text-white break-words">{activeEssayAssignment.title}</h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hạn nộp: {new Date(activeEssayAssignment.dueAt).toLocaleString(locale)}</p>
                 </div>
-                <button type="button" aria-label="Đóng bài tập" disabled={essaySubmitting} onClick={() => setActiveEssayAssignment(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-50 dark:hover:bg-slate-800"><X size={20} /></button>
+                <button type="button" aria-label="Đóng bài tập" disabled={essaySubmitting} onClick={closeEssayAssignment} className="rounded-xl border border-slate-200 dark:border-slate-700 p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-50 dark:hover:bg-slate-800 shrink-0"><X size={20} /></button>
+              </header>
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="mx-auto grid w-full max-w-6xl grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="lg:col-span-5 space-y-4">
+                    {activeEssayAssignment.description && <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.description}</p>}
+                    {activeEssayAssignment.instructions && <div className="rounded-2xl bg-slate-50 p-5 border border-slate-200/80 dark:border-slate-700 dark:bg-slate-800/70"><h3 className="mb-1.5 font-semibold text-slate-900 dark:text-white">Hướng dẫn</h3><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-300">{activeEssayAssignment.instructions}</p></div>}
+                    {activeEssayAssignment.sourceMaterial && (
+                      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 dark:border-sky-900 dark:bg-sky-950/30">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tệp đề bài</h3>
+                        <p className="mt-1 break-all text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.sourceMaterial.name}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => previewClassMaterial(activeEssayAssignment.sourceMaterial!.id, activeEssayAssignment.sourceMaterial!.name)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 focus-visible:outline-2 focus-visible:outline-sky-500">Xem đề</button>
+                          <button type="button" onClick={() => void downloadClassMaterial(activeEssayAssignment.sourceMaterial!.id)} className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 focus-visible:outline-2 focus-visible:outline-sky-500 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950">Tải đề về</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <form id="essay-submission-form" onSubmit={(event) => void submitEssayAssignment(event)} className="lg:col-span-7 space-y-4">
+                    <div>
+                      <label htmlFor="essay-submission-content" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Nội dung bài làm</label>
+                      <textarea id="essay-submission-content" value={essayContent} onChange={(event) => setEssayContent(event.target.value)} disabled={!editable || essaySubmitting} rows={14} className="w-full resize-y rounded-2xl border border-slate-300 bg-white p-4 text-base leading-relaxed text-slate-900 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Nhập nội dung bài làm của bạn…" />
+                    </div>
+                    {storedAttachments.length > 0 && (
+                      <div className="space-y-2 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 text-sm text-slate-600 dark:text-slate-300">
+                        <p className="font-semibold text-slate-800 dark:text-slate-100">Tệp đã nộp</p>
+                        {keptAttachments.map((file) => (
+                  <SubmissionFile key={file.id} submissionId={activeEssayAssignment.submission!.id} file={file}>
+{editable && (
+                                <button
+                                  type="button"
+                                  disabled={essaySubmitting}
+                                  onClick={() => {
+                                    setRemovedEssayAttachmentIds((current) =>
+                                      current.includes(file.id) ? current : [...current, file.id],
+                                    );
+                                    setEssayError(null);
+                                  }}
+                                  className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                                >
+                                  Bỏ tệp
+                                </button>
+                              )}
+                  </SubmissionFile>
+                ))}
+                        {removedAttachments.map((file) => (
+                          <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 opacity-75 dark:border-slate-800">
+                            <div className="min-w-0 flex-1">
+                              <p className="break-all line-through text-slate-400">{file.originalName}</p>
+                              <p className="text-xs text-rose-600 dark:text-rose-400">Sẽ xóa khi lưu bài nộp mới</p>
+                            </div>
+                            {editable && (
+                              <button
+                                type="button"
+                                disabled={essaySubmitting}
+                                onClick={() => {
+                                  if (keptAttachments.length + 1 + essayFiles.length > 5) {
+                                    setEssayError("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
+                                    return;
+                                  }
+                                  setRemovedEssayAttachmentIds((current) => current.filter((id) => id !== file.id));
+                                  setEssayError(null);
+                                }}
+                                className="rounded-lg border border-sky-200 px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50 dark:border-sky-800 dark:text-sky-300 dark:hover:bg-sky-950/40"
+                              >
+                                Khôi phục
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {editable && (
+                      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4">
+                        <label htmlFor="essay-submission-files" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Tệp đính kèm (tối đa 5 tệp, 20 MB/tệp)</label>
+                        <input id="essay-submission-files" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt" disabled={essaySubmitting || keptAttachments.length + essayFiles.length >= 5} onChange={(event) => { chooseEssayFiles(event.target.files); event.target.value = ""; }} className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:font-semibold file:text-sky-800 dark:text-slate-300" />
+                        {essayFiles.map((file, index) => <div key={`${file.name}-${index}`} className="mt-2 flex items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300"><span className="min-w-0 truncate">{file.name}</span><button type="button" disabled={essaySubmitting} onClick={() => setEssayFiles((current) => current.filter((_, position) => position !== index))} className="shrink-0 text-rose-600 hover:underline">Bỏ tệp</button></div>)}
+                      </div>
+                    )}
+                    {!editable && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Bài tập đã đóng hoặc đã chấm điểm. Bạn chỉ có thể xem lại nội dung.</p>}
+                    {essayError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{essayError}</p>}
+                  </form>
+                </div>
               </div>
-              {activeEssayAssignment.description && <p className="mb-3 whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.description}</p>}
-              {activeEssayAssignment.instructions && <div className="mb-5 rounded-xl bg-slate-50 p-4 dark:bg-slate-800"><h3 className="mb-1 font-semibold text-slate-900 dark:text-white">Hướng dẫn</h3><p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.instructions}</p></div>}
-              {activeEssayAssignment.sourceMaterial && (
-                <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/30">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tệp đề bài</h3>
-                  <p className="mt-1 break-all text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.sourceMaterial.name}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => previewClassMaterial(activeEssayAssignment.sourceMaterial!.id, activeEssayAssignment.sourceMaterial!.name)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 focus-visible:outline-2 focus-visible:outline-sky-500">Xem đề</button>
-                    <button type="button" onClick={() => void downloadClassMaterial(activeEssayAssignment.sourceMaterial!.id)} className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 focus-visible:outline-2 focus-visible:outline-sky-500 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950">Tải đề về</button>
-                  </div>
-                </div>
-              )}
-              <form onSubmit={(event) => void submitEssayAssignment(event)} className="space-y-4">
-                <div>
-                  <label htmlFor="essay-submission-content" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Nội dung bài làm</label>
-                  <textarea id="essay-submission-content" value={essayContent} onChange={(event) => setEssayContent(event.target.value)} disabled={!editable || essaySubmitting} rows={8} className="w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-base text-slate-900 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Nhập nội dung bài làm của bạn…" />
-                </div>
-                {Boolean(activeEssayAssignment.submission?.attachments.length) && (
-                  <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
-                    <p className="font-semibold">Tệp đã nộp</p>
-                    {activeEssayAssignment.submission?.attachments.map((file) => <p className="break-all" key={file.id}>{file.originalName}</p>)}
-                  </div>
-                )}
-                {editable && (
-                  <div>
-                    <label htmlFor="essay-submission-files" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Tệp đính kèm (tối đa 5 tệp, 20 MB/tệp)</label>
-                    <input id="essay-submission-files" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt" disabled={essaySubmitting} onChange={(event) => { chooseEssayFiles(event.target.files); event.target.value = ""; }} className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:font-semibold file:text-sky-800 dark:text-slate-300" />
-                    {essayFiles.map((file, index) => <div key={`${file.name}-${index}`} className="mt-2 flex items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300"><span className="min-w-0 truncate">{file.name}</span><button type="button" disabled={essaySubmitting} onClick={() => setEssayFiles((current) => current.filter((_, position) => position !== index))} className="shrink-0 text-rose-600 hover:underline">Bỏ tệp</button></div>)}
-                  </div>
-                )}
-                {!editable && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">Bài tập đã đóng hoặc đã chấm điểm. Bạn chỉ có thể xem lại nội dung.</p>}
-                {essayError && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{essayError}</p>}
-                <div className="flex flex-wrap justify-end gap-3 pt-2">
-                  <button type="button" disabled={essaySubmitting} onClick={() => setActiveEssayAssignment(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Đóng</button>
-                  {editable && <button type="submit" disabled={essaySubmitting} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-wait disabled:opacity-60">{essaySubmitting ? "Đang lưu bài…" : activeEssayAssignment.submission ? "Lưu bài nộp" : "Nộp bài"}</button>}
-                </div>
-              </form>
+              <footer className="flex flex-wrap justify-end gap-3 border-t border-slate-200 px-6 py-4 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/90 shrink-0">
+                <button type="button" disabled={essaySubmitting} onClick={closeEssayAssignment} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Đóng</button>
+                {editable && <button type="submit" form="essay-submission-form" disabled={essaySubmitting} className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-wait disabled:opacity-60">{essaySubmitting ? "Đang lưu bài…" : activeEssayAssignment.submission ? "Lưu bài nộp" : "Nộp bài"}</button>}
+              </footer>
             </section>
           </div>
         );
@@ -2192,21 +2238,6 @@ export function LearnerClassWorkspace({
         />
       )}
 
-      {/* ================= MODAL LỊCH SỬ LÀM BÀI (KHI CÓ NHIỀU LẦN NỘP BÀI) ================= */}
-      {isHistoryModalOpen && historyAssignment && (
-        <AttemptHistoryModal
-          open={isHistoryModalOpen}
-          onClose={() => setIsHistoryModalOpen(false)}
-          assignment={historyAssignment}
-          onSelectAttempt={(att) => {
-            setIsHistoryModalOpen(false);
-            setSelectedAttemptForReview({
-              examTitle: historyAssignment.title,
-              attempt: att,
-            });
-          }}
-        />
-      )}
 
       {/* THÔNG BÁO TOAST NỘI BỘ THAY THẾ TOÀN BỘ POPUP NATIVE */}
       {toastNotification}
@@ -2286,114 +2317,32 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
                   key={ans.questionId || i}
                   className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 text-xs space-y-1"
                 >
-                  <div className="flex items-center justify-between font-semibold text-slate-900 dark:text-slate-100">
-                    <span>Câu {i + 1}: {ans.questionTitle || "Chưa có nội dung câu hỏi"}</span>
+                  <div className="flex items-start justify-between gap-2 font-semibold text-slate-900 dark:text-slate-100">
+                    <div className="flex items-start gap-1.5 min-w-0">
+                      <span className="shrink-0">Câu {i + 1}:</span>
+                      <RichText className="text-xs font-semibold [&>p]:my-0">{ans.questionTitle || "Chưa có nội dung câu hỏi"}</RichText>
+                    </div>
                     {ans.awardedScore !== undefined && ans.maxScore !== undefined && (
-                      <span className="text-[11px] text-blue-600 font-bold">
+                      <span className="text-[11px] text-blue-600 font-bold shrink-0">
                         {ans.awardedScore}/{ans.maxScore}đ
                       </span>
                     )}
                   </div>
-                  <p className="text-slate-500 dark:text-slate-400 text-[11px]">
-                    Đáp án đã nộp:{" "}
-                    <span className="font-medium text-slate-700 dark:text-slate-200">
-                      {(ans.submittedAnswers || []).join(", ") || "Chưa có dữ liệu"}
-                    </span>
-                  </p>
+                  <div className="text-slate-500 dark:text-slate-400 text-[11px] flex flex-wrap items-baseline gap-1">
+                    <span className="shrink-0">Đáp án đã nộp:</span>
+                    {ans.submittedAnswers?.length ? (
+                      <RichText className="font-medium text-slate-700 dark:text-slate-200 [&>p]:my-0">
+                        {ans.submittedAnswers.join(", ")}
+                      </RichText>
+                    ) : (
+                      <span className="font-medium text-slate-700 dark:text-slate-200">Chưa có dữ liệu</span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-
-        <div className="pt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 cursor-pointer"
-          >
-            Đóng
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface AttemptHistoryModalProps {
-  open: boolean;
-  onClose: () => void;
-  assignment: AssignmentItem | null;
-  onSelectAttempt: (attempt: AttemptRecord) => void;
-}
-
-// Hiển thị danh sách lịch sử các lần nộp bài của học sinh để lựa chọn xem lại.
-function AttemptHistoryModal({
-  open,
-  onClose,
-  assignment,
-  onSelectAttempt,
-}: AttemptHistoryModalProps) {
-  if (!open || !assignment) return null;
-  const attempts = assignment.attempts || [];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-      <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-              Lịch sử làm bài ({attempts.length} lần)
-            </h3>
-            <p className="text-xs text-slate-500">{assignment.title}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 grid place-items-center cursor-pointer"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-          {attempts.map((att) => {
-            const theme = getScoreTheme(att.score);
-            return (
-              <div
-                key={att.id}
-                className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-3"
-              >
-                <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      Lần làm bài {att.attemptNo}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${theme.badgeBg}`}>
-                      {theme.label}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Nộp bài lúc: {att.submittedAt}
-                  </p>
-                  {att.feedback && (
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300 italic truncate max-w-xs">
-                      &quot;{att.feedback}&quot;
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onSelectAttempt(att)}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
-                >
-                  Xem lại bài làm
-                </button>
-              </div>
-            );
-          })}
-        </div>
 
         <div className="pt-2 flex justify-end">
           <button

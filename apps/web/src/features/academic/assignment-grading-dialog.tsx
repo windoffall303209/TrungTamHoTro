@@ -1,8 +1,7 @@
 "use client";
+import { SubmissionFile } from "@/features/academic/submission-file";
 import { AssignmentAiGrading } from "@/features/academic/assignment-ai-grading";
 import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
-import { activeLocale } from "@/i18n/runtime";
-import { Download, Eye } from "lucide-react";
 import type { useAcademicModel } from "./use-academic-model";
 
 /** Chấm bài tập theo tiêu chí và ghi nhận lý do sửa điểm. */
@@ -21,7 +20,6 @@ export function AssignmentGradingDialog({
     | "correctionReason"
     | "setCorrectionReason"
     | "canTeach"
-    | "openAttachment"
     | "grade"
   >;
 }) {
@@ -36,7 +34,6 @@ export function AssignmentGradingDialog({
     correctionReason,
     setCorrectionReason,
     canTeach,
-    openAttachment,
     grade,
   } = model;
   return (
@@ -54,37 +51,10 @@ export function AssignmentGradingDialog({
             <p className="mb-2 text-sm font-bold">Tệp bài làm</p>
             <div className="flex flex-wrap gap-2">
               {grading.attachments.map((file) => (
-                <Button
-                  key={file.id}
-                  onClick={() =>
-                    void openAttachment(grading.id, file.id, file.canPreview)
-                  }
-                  variant="ghost"
-                >
-                  {file.canPreview ? <Eye size={15} /> : <Download size={15} />}
-                  {file.originalName}
-                </Button>
-              ))}
+                  <SubmissionFile key={file.id} submissionId={grading.id} file={file} showImage />
+                ))}
             </div>
           </div>
-        ) : null}
-        {grading?.gradeHistory?.length ? (
-          <details className="border-y border-[var(--rule)] py-3">
-            <summary className="cursor-pointer text-sm font-bold">
-              Lịch sử chấm · {grading.gradeHistory.length} lần
-            </summary>
-            <ol className="mt-3 space-y-2 text-xs text-[var(--ink-soft)]">
-              {grading.gradeHistory.map((change) => (
-                <li key={change.id}>
-                  {new Date(change.createdAt).toLocaleString(activeLocale())} ·{" "}
-                  {change.action === "CORRECTED"
-                    ? `Sửa ${change.previousScore ?? 0} → ${change.nextScore}`
-                    : `Chấm ${change.nextScore}`}{" "}
-                  {change.reason ? `· ${change.reason}` : ""}
-                </li>
-              ))}
-            </ol>
-          </details>
         ) : null}
         {canTeach && grading && reviewing ? (
           <AssignmentAiGrading

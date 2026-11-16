@@ -146,13 +146,18 @@ const classSession: LiveSession = {
   attendeeUrl: "https://meet.example.test/attend", timezone: "Asia/Bangkok",
 };
 
+// Tạo payload phân trang học liệu chuẩn cho endpoint /materials/search trong unit test.
+function toMaterialPage<T>(items: T[]) {
+  return { items, total: items.length, page: 1, pageSize: 50, totalPages: 1 };
+}
+
 // Mô phỏng chính xác các endpoint mà workspace sử dụng khi nạp lớp và mở bài thi.
 function mockClassEndpoints() {
   mockApiRequest.mockImplementation(async (path: string) => {
+    if (path.startsWith("/materials/search")) return toMaterialPage(classMaterials);
     switch (path) {
       case "/learner/classes/cls-1/exams": return [gradedExam, pendingExam];
       case "/academic/assignments?classId=cls-1": return [];
-      case "/materials": return classMaterials;
       case "/learner/results": return [examResult];
       case "/sessions": return [classSession];
       case "/learner/exams/exam-graded/attempts":
@@ -181,11 +186,11 @@ function mockLiveSessionEndpoints(joinResponse: Promise<{ attendeeUrl: string }>
 function mockLectureWithAttachedExam() {
   const defaultRequest = mockApiRequest.getMockImplementation();
   mockApiRequest.mockImplementation((path: string, options?: unknown) => {
-    if (path === "/materials") {
-      return Promise.resolve([
+    if (path.startsWith("/materials/search")) {
+      return Promise.resolve(toMaterialPage([
         { ...classMaterials[0], tags: [...(classMaterials[0]?.tags ?? []), `attachedExamId:${gradedExam.id}`] },
         classMaterials[1],
-      ]);
+      ]));
     }
     if (!defaultRequest) throw new Error(`Unexpected API request: ${path}`);
     return defaultRequest(path, options);
@@ -353,18 +358,13 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Chưa có bài tập đính kèm.")).toBeInTheDocument();
   });
 
-  it("hiển thị và đóng toast khi cửa sổ xem bài giảng bị chặn ở trang chi tiết", async () => {
+  it("yêu cầu bản xem trước ngay khi mở bài giảng và giữ người học trong trang", async () => {
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     renderWorkspace();
-
     fireEvent.click(screen.getAllByText("Bài giảng")[0]!);
     fireEvent.click((await screen.findAllByText("Xem bài giảng"))[0]!);
-    fireEvent.click(screen.getByText("Xem học liệu"));
-
-    expect(openSpy).toHaveBeenCalledWith("", "_blank");
-    expect(screen.getByRole("status")).toHaveTextContent("Trình duyệt đã chặn cửa sổ xem trước.");
-    fireEvent.click(screen.getByRole("button", { name: "Đóng thông báo" }));
-    expect(screen.queryByText("Trình duyệt đã chặn cửa sổ xem trước.")).not.toBeInTheDocument();
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledWith(expect.stringContaining("/access?action=PREVIEW"), expect.objectContaining({roleCode: "LEARNER"})));
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
   it("mở và đóng modal đề thi đính kèm ngay trên trang chi tiết bài giảng", async () => {
@@ -410,16 +410,14 @@ describe("LearnerClassWorkspace", () => {
     expect(screen.getByText("Dung lượng")).toBeInTheDocument();
   });
 
-  it("chỉ hiển thị tài liệu của lớp và học liệu dùng chung đúng môn học", async () => {
+  it("chỉ hiển thị tài liệu thuộc đúng lớp hiện tại", async () => {
     const publishedMaterial = classMaterials.find((item) => item.id === "material-1")!;
     const originalRequest = mockApiRequest.getMockImplementation();
     mockApiRequest.mockImplementation((path: string, options?: unknown) => {
-      if (path === "/materials") return Promise.resolve([
+      if (path.startsWith("/materials/search")) return Promise.resolve(toMaterialPage([
         ...classMaterials,
         { ...publishedMaterial, id: "other-class", classId: "cls-2", name: "Tệp lớp khác.pdf" },
-        { ...publishedMaterial, id: "shared-course", classId: null, courseId: "crs-1", scope: "SHARED", name: "Tệp dùng chung.pdf" },
-        { ...publishedMaterial, id: "shared-other", classId: null, courseId: "crs-2", scope: "SHARED", name: "Tệp môn khác.pdf" },
-      ]);
+      ]));
       if (!originalRequest) throw new Error(`Unexpected API request: ${path}`);
       return originalRequest(path, options);
     });
@@ -427,9 +425,7 @@ describe("LearnerClassWorkspace", () => {
     renderWorkspace();
     fireEvent.click(screen.getByText("Tài liệu"));
     expect((await screen.findAllByText("Tài liệu đại số.pdf")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Tệp dùng chung.pdf").length).toBeGreaterThan(0);
     expect(screen.queryByText("Tệp lớp khác.pdf")).not.toBeInTheDocument();
-    expect(screen.queryByText("Tệp môn khác.pdf")).not.toBeInTheDocument();
   });
 
   it("không sử dụng window.alert khi bấm Chi tiết bài tập chưa làm mà hiển thị Toast mềm mại kèm nút Làm bài ngay", async () => {
@@ -481,7 +477,8 @@ describe("LearnerClassWorkspace", () => {
         return firstExams;
       }
       if (path === "/learner/classes/cls-2/exams") return [{ ...gradedExam, id: "exam-new", classId: "cls-2", title: "Đề lớp mới" }];
-      if (path.startsWith("/academic/assignments?") || path === "/materials") return [];
+      if (path.startsWith("/academic/assignments?")) return [];
+      if (path.startsWith("/materials/search")) return toMaterialPage([]);
       if (path === "/learner/results" || path === "/sessions") return [];
       throw new Error(`Unexpected API request: ${path}`);
     });
@@ -513,7 +510,7 @@ describe("LearnerClassWorkspace", () => {
     mockApiRequest.mockImplementation(async (path: string) => {
       if (path === "/learner/classes/cls-1/exams") return [gradedExam];
       if (path === "/academic/assignments?classId=cls-1" || path === "/learner/results" || path === "/sessions") return [];
-      if (path === "/materials") return returnInvalidMaterials ? { data: classMaterials } : classMaterials;
+      if (path.startsWith("/materials/search")) return returnInvalidMaterials ? { data: classMaterials } : toMaterialPage(classMaterials);
       throw new Error(`Unexpected API request: ${path}`);
     });
 

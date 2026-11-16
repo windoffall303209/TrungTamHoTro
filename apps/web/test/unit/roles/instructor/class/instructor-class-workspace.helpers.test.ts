@@ -214,4 +214,52 @@ describe("instructor class workspace helpers", () => {
     expect(assignmentText).toContain('"A,B"');
     expect(assignmentText).toContain('"ghi"" chú"');
   });
+
+  it("xuất CSV bảng điểm theo từng cột bài kiểm tra và điểm trung bình khi có assessments", async () => {
+    const blobs: Blob[] = [];
+    vi.stubGlobal("URL", {
+      createObjectURL: (blob: Blob) => {
+        blobs.push(blob);
+        return `blob:${blobs.length}`;
+      },
+      revokeObjectURL: vi.fn(),
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.useFakeTimers();
+
+    exportGradebookCsv(
+      [
+        {
+          learnerId: "learner-1",
+          learnerName: "Trần Minh",
+          learnerEmail: "minh@example.com",
+          examEarned: 9,
+          examPossible: 10,
+          assignmentEarned: 8,
+          assignmentPossible: 10,
+          totalPercent: 85,
+          awaitingGrade: 0,
+          notSubmitted: 0,
+          averageScore: 8.5,
+          assessments: [
+            { id: "exam-1", kind: "EXAM", title: "Bài 1", maxScore: 10 },
+            { id: "asg-1", kind: "ASSIGNMENT", title: "Bài 2", maxScore: 10 },
+          ],
+          cells: [
+            { assessmentId: "exam-1", kind: "EXAM", score: 9, maxScore: 10, status: "GRADED", attemptCount: 3 },
+            { assessmentId: "asg-1", kind: "ASSIGNMENT", score: null, maxScore: 10, status: "AWAITING_GRADE", attemptCount: 1 },
+          ],
+        },
+      ],
+      "Lớp 10A",
+    );
+
+    expect(click).toHaveBeenCalledTimes(1);
+    vi.runAllTimers();
+    vi.useRealTimers();
+
+    const csvText = await readBlob(blobs[0]!);
+    expect(csvText).toContain('"Học sinh","Email","Trung bình (/10)","Tổng (%)","Bài 1 (/10)","Bài 2 (/10)"');
+    expect(csvText).toContain('"Trần Minh","minh@example.com","8.50","85%","9","Chờ chấm"');
+  });
 });

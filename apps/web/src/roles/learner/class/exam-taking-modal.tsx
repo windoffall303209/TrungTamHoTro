@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/api-client";
 import type { Question } from "@/lib/learning-types";
+import { RichText } from "@/shared/ui/ui";
 
 type ExamApiOption = string | { key?: string; text?: string; value?: string };
 type ExamApiQuestion = Omit<Question, "options"> & {
@@ -33,14 +34,47 @@ export interface ExamTakingData {
   remainingAttempts?: number | null;
   totalScore?: number;
   closeAt?: string;
+  questionScores?: Record<string, number>;
 }
 
 interface QuestionItem {
   id: string | number;
+  type: Question["type"];
   question: string;
   options: { key: string; text: string; value: string }[];
   correctAnswer?: string;
+  correctAnswersList: string[];
   explanation?: string;
+}
+
+/** Kiểm tra một câu hỏi trong bài làm thử/xem lại đã trả lời đúng hay chưa. */
+function evaluatePreviewQuestion(
+  question: QuestionItem,
+  singleAnswer: string | undefined,
+  multiAnswer: string[] | undefined,
+  textAnswer: string | undefined,
+): "correct" | "wrong" | "unanswered" | "manual" {
+  if (question.type === "ESSAY") {
+    return textAnswer?.trim() ? "manual" : "unanswered";
+  }
+  if (question.type === "SHORT_ANSWER") {
+    const trimmed = textAnswer?.trim();
+    if (!trimmed) return "unanswered";
+    const normalized = trimmed.toLocaleLowerCase();
+    return question.correctAnswersList.some((expected) => expected.trim().toLocaleLowerCase() === normalized)
+      ? "correct"
+      : "wrong";
+  }
+  if (question.type === "MULTIPLE_CHOICE") {
+    const picked = [...(multiAnswer ?? [])].sort();
+    if (!picked.length) return "unanswered";
+    const expected = [...question.correctAnswersList].sort();
+    return picked.length === expected.length && picked.every((key, idx) => key === expected[idx])
+      ? "correct"
+      : "wrong";
+  }
+  if (!singleAnswer) return "unanswered";
+  return question.correctAnswer && singleAnswer === question.correctAnswer ? "correct" : "wrong";
 }
 
 interface ExamTakingModalProps {
@@ -61,6 +95,7 @@ export function ExamTakingModal({
 }: ExamTakingModalProps) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [multiAnswers, setMultiAnswers] = useState<Record<number, string[]>>({});
   const [essayTextAnswers, setEssayTextAnswers] = useState<Record<number, string>>({});
   const [flagged, setFlagged] = useState<Record<number, boolean>>({});
   const [remainingSeconds, setRemainingSeconds] = useState(15 * 60);
@@ -88,10 +123,11 @@ export function ExamTakingModal({
   const autoSubmitAttemptedRef = useRef(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const answersRef = useRef<Record<number, string>>({});
+  const multiAnswersRef = useRef<Record<number, string[]>>({});
   const essayAnswersRef = useRef<Record<number, string>>({});
 
   // Trạng thái modal xác nhận
-  const [startConfirmed, setStartConfirmed] = useState(false);
+  const [startConfirmed, setStartConfirmed] = useState(isInstructorPreview);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [confirmSubmitModalOpen, setConfirmSubmitModalOpen] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<"all" | "correct" | "wrong">("all");
@@ -165,34 +201,61 @@ export function ExamTakingModal({
                   value: typeof optText.value === "string" ? optText.value : optText.text ?? "",
                 };
               });
-              const expectedAnswer = q.correctAnswers?.[0] ?? q.correctAnswer;
-              const matchedOption = options.find((option) => option.value === expectedAnswer)
-                ?? options.find((option) => option.key === expectedAnswer || option.text === expectedAnswer);
+              const questionType: Question["type"] = q.type ?? (options.length ? "SINGLE_CHOICE" : "ESSAY");
+              const rawCorrect = Array.isArray(q.correctAnswers) && q.correctAnswers.length
+                ? q.correctAnswers
+                : q.correctAnswer ? [q.correctAnswer] : [];
+              const matchedCorrectKeys = options.length
+                ? rawCorrect
+                  .map((expected) => {
+                    const found = options.find((option) => option.value === expected)
+                      ?? options.find((option) => option.key === expected || option.text === expected);
+                    return found?.key ?? expected;
+                  })
+                  .filter(Boolean)
+                : rawCorrect;
               return {
                 id: q.id || `q-${idx + 1}`,
+                type: questionType,
                 question: q.content || `Câu hỏi số ${idx + 1}`,
                 options,
-                correctAnswer: matchedOption?.key ?? expectedAnswer,
+                correctAnswer: matchedCorrectKeys[0],
+                correctAnswersList: matchedCorrectKeys,
                 explanation: q.explanation || undefined,
               };
             });
             setDbQuestions(mapped);
             if (!isInstructorPreview) {
               const restored: Record<number, string> = {};
+              const restoredMulti: Record<number, string[]> = {};
               const restoredEssays: Record<number, string> = {};
               mapped.forEach((question, index) => {
-                const saved = resumedAnswers[String(question.id)]?.[0];
-                if (!saved) return;
-                const selected = question.options.find((option) => option.value === saved);
-                if (selected) restored[index] = selected.key;
-                else if (!question.options.length) {
-                  restored[index] = "COMPLETED";
-                  restoredEssays[index] = saved;
+                const savedValues = resumedAnswers[String(question.id)] ?? [];
+                if (!savedValues.length) return;
+                if (question.type === "MULTIPLE_CHOICE" && question.options.length) {
+                  const keysPicked = savedValues
+                    .map((val) => question.options.find((option) => option.value === val)?.key)
+                    .filter((key): key is string => Boolean(key));
+                  if (keysPicked.length) {
+                    restoredMulti[index] = keysPicked;
+                    restored[index] = keysPicked.join(",");
+                  }
+                } else {
+                  const saved = savedValues[0];
+                  if (!saved) return;
+                  const selected = question.options.find((option) => option.value === saved);
+                  if (selected) restored[index] = selected.key;
+                  else if (!question.options.length) {
+                    restored[index] = "COMPLETED";
+                    restoredEssays[index] = saved;
+                  }
                 }
               });
               answersRef.current = restored;
+              multiAnswersRef.current = restoredMulti;
               essayAnswersRef.current = restoredEssays;
               setAnswers(restored);
+              setMultiAnswers(restoredMulti);
               setEssayTextAnswers(restoredEssays);
             }
           } else {
@@ -227,6 +290,8 @@ export function ExamTakingModal({
     serverOffsetRef.current = 0;
     setAnswers({});
     answersRef.current = {};
+    multiAnswersRef.current = {};
+    setMultiAnswers({});
     essayAnswersRef.current = {};
     setEssayTextAnswers({});
     setAttemptId(null);
@@ -239,14 +304,15 @@ export function ExamTakingModal({
     saveQueueRef.current = Promise.resolve();
     setFlagged({});
     setCurrentIdx(0);
+    setReviewFilter("all");
     setIsSubmitted(false);
     setScoreResult(null);
-    setStartConfirmed(false);
+    setStartConfirmed(isInstructorPreview);
     setExitConfirmOpen(false);
     setConfirmSubmitModalOpen(false);
 
     if (timerRef.current) clearInterval(timerRef.current);
-  }, [open, examId, examDurationMinutes]);
+  }, [open, examId, examDurationMinutes, isInstructorPreview]);
 
   // Đồng hồ sử dụng thời hạn thật của lượt thi trên máy chủ, kể cả khi mở lại bài.
   useEffect(() => {
@@ -277,14 +343,41 @@ export function ExamTakingModal({
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  /** Chọn đáp án cho câu hỏi hiện tại và lưu tạm lên server nếu có lượt thi */
+  /** Chọn đáp án cho câu hỏi hiện tại (hỗ trợ cả chọn một và chọn nhiều) và lưu tạm nếu có lượt thi. */
   const handleSelectOption = (key: string) => {
     if (isSubmitted || submittingRef.current) return;
+    const question = questions[currentIdx];
+    if (question?.type === "MULTIPLE_CHOICE") {
+      const currentKeys = multiAnswersRef.current[currentIdx] ?? [];
+      const nextKeys = currentKeys.includes(key)
+        ? currentKeys.filter((item) => item !== key)
+        : [...currentKeys, key].sort();
+      const nextMulti = { ...multiAnswersRef.current };
+      const nextAnswers = { ...answersRef.current };
+      if (nextKeys.length) {
+        nextMulti[currentIdx] = nextKeys;
+        nextAnswers[currentIdx] = nextKeys.join(",");
+      } else {
+        delete nextMulti[currentIdx];
+        delete nextAnswers[currentIdx];
+      }
+      multiAnswersRef.current = nextMulti;
+      answersRef.current = nextAnswers;
+      setMultiAnswers(nextMulti);
+      setAnswers(nextAnswers);
+      if (attemptId && !isInstructorPreview) {
+        const values = nextKeys
+          .map((pickedKey) => question.options.find((item) => item.key === pickedKey)?.value)
+          .filter((value): value is string => Boolean(value));
+        queueAnswerSave(String(question.id), values);
+      }
+      return;
+    }
+
     const next = { ...answersRef.current, [currentIdx]: key };
     answersRef.current = next;
     setAnswers(next);
 
-    const question = questions[currentIdx];
     const option = question?.options.find((item) => item.key === key);
     if (attemptId && question && option && !isInstructorPreview) {
       queueAnswerSave(String(question.id), [option.value]);
@@ -336,6 +429,18 @@ export function ExamTakingModal({
         }
         if (remainingSeconds > 0) {
           for (const [index, question] of questions.entries()) {
+            if (question.type === "MULTIPLE_CHOICE" && question.options.length) {
+              const selectedKeys = multiAnswersRef.current[index] ?? [];
+              const values = selectedKeys
+                .map((key) => question.options.find((option) => option.key === key)?.value)
+                .filter((value): value is string => Boolean(value));
+              if (!values.length) continue;
+              await apiRequest(`/learner/exam-attempts/${attemptId}/answers`, {
+                method: "PATCH",
+                body: JSON.stringify({ questionId: String(question.id), answers: values }),
+              });
+              continue;
+            }
             const selected = answersRef.current[index];
             const answer = question.options.length
               ? question.options.find((option) => option.key === selected)?.value
@@ -360,17 +465,34 @@ export function ExamTakingModal({
       }
 
       const total = questions.length;
+      const totalScore = examTotalScore ?? 10;
+      const customScores = exam?.questionScores;
       let correctCount = 0;
       let wrongCount = 0;
       let unanswered = 0;
+      let earnedPreviewScore = 0;
+      let hasManualQuestion = false;
       questions.forEach((question, index) => {
-        const answer = answersRef.current[index];
-        if (!answer) unanswered += 1;
-        else if (question.correctAnswer && answer === question.correctAnswer) correctCount += 1;
-        else if (isInstructorPreview) wrongCount += 1;
+        const verdict = evaluatePreviewQuestion(
+          question,
+          answersRef.current[index],
+          multiAnswersRef.current[index],
+          essayAnswersRef.current[index],
+        );
+        const weight = customScores?.[String(question.id)] ?? totalScore / Math.max(1, total);
+        if (verdict === "unanswered") unanswered += 1;
+        else if (verdict === "correct") {
+          correctCount += 1;
+          earnedPreviewScore += weight;
+        } else if (verdict === "manual") {
+          hasManualQuestion = true;
+        } else if (isInstructorPreview) {
+          wrongCount += 1;
+        }
       });
-      const totalScore = examTotalScore ?? 10;
-      const previewScore = Math.round(((correctCount * totalScore) / Math.max(1, total)) * 10) / 10;
+      const previewScore = hasManualQuestion && correctCount === 0 && wrongCount === 0
+        ? null
+        : Math.round(earnedPreviewScore * 100) / 100;
       const score = isInstructorPreview ? previewScore : serverScore;
       setScoreResult({
         score,
@@ -392,7 +514,7 @@ export function ExamTakingModal({
       submittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [attemptId, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingSeconds]);
+  }, [attemptId, exam, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingSeconds]);
 
   // Gọi nộp bài bên ngoài updater để tránh tác dụng phụ khi React tính lại state.
   useEffect(() => {
@@ -413,11 +535,13 @@ export function ExamTakingModal({
 
   if (!open || !exam) return null;
 
-  const currentQ = questions[currentIdx] || questions[0] || {
+  const currentQ: QuestionItem = questions[currentIdx] || questions[0] || {
     id: "q-fallback",
+    type: "SINGLE_CHOICE",
     question: "Chưa có nội dung câu hỏi",
     options: [],
     correctAnswer: undefined,
+    correctAnswersList: [],
   };
   const answeredCount = Object.keys(answers).length;
   const flaggedCount = Object.values(flagged).filter(Boolean).length;
@@ -428,9 +552,9 @@ export function ExamTakingModal({
     exam.remainingAttempts <= 0 && !attemptId;
 
   return (
-    // Lớp phủ toàn màn hình với z-[99999] ghi đè lên toàn bộ giao diện và vô hiệu hóa các widget nổi
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 select-none">
-      <div className="relative flex flex-col w-full max-w-6xl h-[94vh] rounded-2xl bg-white dark:bg-[#13141a] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100">
+    // Giao diện phòng làm bài toàn màn hình thay cho popup nổi
+    <div className="fixed inset-0 z-[99999] flex flex-col w-screen h-dvh bg-slate-50 dark:bg-[#0f1118] select-none overflow-hidden">
+      <div className="relative flex flex-col w-full h-full bg-white dark:bg-[#13141a] overflow-hidden text-slate-900 dark:text-slate-100">
         
         {/* ================= GIAO DIỆN KHI ĐÃ NỘP BÀI THÀNH CÔNG (RESULT SUMMARY VIEW) ================= */}
         {isSubmitted && scoreResult ? (
@@ -446,14 +570,21 @@ export function ExamTakingModal({
                     <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
                       Đã nộp bài
                     </span>
+                    {isInstructorPreview && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[11px] font-bold">
+                        Làm thử
+                      </span>
+                    )}
                     <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
                       {exam.title}
                     </h2>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {scoreResult.score === null
-                      ? "Bài làm đã được ghi nhận và đang chờ giảng viên chấm điểm."
-                      : "Bài làm đã được ghi nhận và có kết quả chấm điểm."}
+                    {isInstructorPreview
+                      ? "Kết quả làm thử đã được chấm tự động."
+                      : scoreResult.score === null
+                        ? "Bài làm đã được ghi nhận và đang chờ giảng viên chấm điểm."
+                        : "Bài làm đã được ghi nhận và có kết quả chấm điểm."}
                   </p>
                 </div>
               </div>
@@ -619,17 +750,27 @@ export function ExamTakingModal({
                 <div className="space-y-4">
                   {questions
                     .filter((q, idx) => {
-                      const userAns = answers[idx];
-                      const isCorrect = userAns && q.correctAnswer && userAns === q.correctAnswer;
-                      if (reviewFilter === "correct") return isCorrect;
-                      if (reviewFilter === "wrong") return !isCorrect;
+                      const verdict = evaluatePreviewQuestion(q, answers[idx], multiAnswers[idx], essayTextAnswers[idx]);
+                      if (reviewFilter === "correct") return verdict === "correct";
+                      if (reviewFilter === "wrong") return verdict === "wrong" || verdict === "unanswered";
                       return true;
                     })
                     .map((q) => {
                       const originalIdx = questions.findIndex((item) => item.id === q.id);
-                      const userAns = answers[originalIdx];
-                      const isCorrect = userAns && q.correctAnswer && userAns === q.correctAnswer;
-                      const isUnanswered = !userAns;
+                      const verdict = evaluatePreviewQuestion(
+                        q,
+                        answers[originalIdx],
+                        multiAnswers[originalIdx],
+                        essayTextAnswers[originalIdx],
+                      );
+                      const isCorrect = verdict === "correct";
+                      const isUnanswered = verdict === "unanswered";
+                      const isManual = verdict === "manual";
+                      const qWeight = exam?.questionScores?.[String(q.id)]
+                        ?? Math.round(((scoreResult.total / Math.max(1, questions.length)) * 100)) / 100;
+                      const pickedKeys = q.type === "MULTIPLE_CHOICE"
+                        ? (multiAnswers[originalIdx] ?? [])
+                        : answers[originalIdx] ? [answers[originalIdx]] : [];
 
                       return (
                         <div
@@ -637,7 +778,7 @@ export function ExamTakingModal({
                           className={`p-5 rounded-2xl border transition-all ${
                             isCorrect
                               ? "bg-emerald-50/40 dark:bg-emerald-950/10 border-emerald-200/80 dark:border-emerald-900/60"
-                              : isUnanswered
+                              : isUnanswered || isManual
                                 ? "bg-amber-50/40 dark:bg-amber-950/10 border-amber-200/80 dark:border-amber-900/60"
                                 : "bg-rose-50/40 dark:bg-rose-950/10 border-rose-200/80 dark:border-rose-900/60"
                           }`}
@@ -652,6 +793,10 @@ export function ExamTakingModal({
                                   <CheckCircle2 size={13} />
                                   Chính xác
                                 </span>
+                              ) : isManual ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-900/60 text-sky-800 dark:text-sky-300 text-xs font-bold">
+                                  Tự đối chiếu
+                                </span>
                               ) : isUnanswered ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 text-xs font-bold">
                                   <AlertTriangle size={13} />
@@ -664,56 +809,80 @@ export function ExamTakingModal({
                                 </span>
                               )}
                             </div>
-                            <span className="text-xs text-slate-400 font-semibold">1.0 điểm</span>
+                            <span className="text-xs text-slate-400 font-semibold">{qWeight} điểm</span>
                           </div>
 
-                          <p className="text-sm text-slate-800 dark:text-slate-200 font-medium leading-relaxed mb-4">
+                          <RichText className="text-sm font-medium leading-relaxed mb-4 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
                             {q.question}
-                          </p>
+                          </RichText>
 
-                          {/* 4 Lựa chọn A, B, C, D */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            {q.options.map((opt) => {
-                              const isUserPick = userAns === opt.key;
-                              const isTargetCorrect = q.correctAnswer === opt.key;
+                          {q.options.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {q.options.map((opt) => {
+                                const isUserPick = pickedKeys.includes(opt.key);
+                                const isTargetCorrect = q.correctAnswersList.includes(opt.key);
 
-                              let optStyle =
-                                "bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300";
+                                let optStyle =
+                                  "bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300";
 
-                              if (isTargetCorrect) {
-                                optStyle =
-                                  "bg-emerald-100/70 dark:bg-emerald-950/50 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold ring-1 ring-emerald-500";
-                              } else if (isUserPick && !isTargetCorrect) {
-                                optStyle =
-                                  "bg-rose-100/70 dark:bg-rose-950/50 border-rose-500 text-rose-900 dark:text-rose-200 font-bold ring-1 ring-rose-500 line-through opacity-80";
-                              }
+                                if (isTargetCorrect) {
+                                  optStyle =
+                                    "bg-emerald-100/70 dark:bg-emerald-950/50 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold ring-1 ring-emerald-500";
+                                } else if (isUserPick && !isTargetCorrect) {
+                                  optStyle =
+                                    "bg-rose-100/70 dark:bg-rose-950/50 border-rose-500 text-rose-900 dark:text-rose-200 font-bold ring-1 ring-rose-500 line-through opacity-80";
+                                }
 
-                              return (
-                                <div
-                                  key={opt.key}
-                                  className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs sm:text-sm ${optStyle}`}
-                                >
-                                  <span
-                                    className={`size-6 rounded-full grid place-items-center font-bold text-xs shrink-0 ${
-                                      isTargetCorrect
-                                        ? "bg-emerald-600 text-white"
-                                        : isUserPick
-                                          ? "bg-rose-600 text-white"
-                                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                                    }`}
+                                return (
+                                  <div
+                                    key={opt.key}
+                                    className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs sm:text-sm ${optStyle}`}
                                   >
-                                    {opt.key}
-                                  </span>
-                                  <span className="pt-0.5 leading-relaxed">{opt.text}</span>
+                                    <span
+                                      className={`size-6 rounded-full grid place-items-center font-bold text-xs shrink-0 ${
+                                        isTargetCorrect
+                                          ? "bg-emerald-600 text-white"
+                                          : isUserPick
+                                            ? "bg-rose-600 text-white"
+                                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                      }`}
+                                    >
+                                      {opt.key}
+                                    </span>
+                                    <RichText className="min-w-0 flex-1 pt-0.5 leading-relaxed [&>p]:my-0 [&_*]:text-inherit">
+                                      {opt.text}
+                                    </RichText>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="space-y-2 text-xs">
+                              <div className="rounded-xl bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 p-3">
+                                <span className="font-bold text-slate-500">Câu trả lời của bạn: </span>
+                                <span className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                                  {essayTextAnswers[originalIdx]?.trim() || "Chưa nhập"}
+                                </span>
+                              </div>
+                              {q.correctAnswersList.length > 0 && (
+                                <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3">
+                                  <span className="font-bold text-emerald-700 dark:text-emerald-300">Đáp án tham khảo: </span>
+                                  <div className="mt-1 space-y-1 text-emerald-900 dark:text-emerald-200">
+                                    {q.correctAnswersList.map((ans, ansIdx) => (
+                                      <RichText key={`${ans}-${ansIdx}`} className="[&>p]:my-0 [&_*]:text-inherit">
+                                        {ans}
+                                      </RichText>
+                                    ))}
+                                  </div>
                                 </div>
-                              );
-                            })}
-                          </div>
+                              )}
+                            </div>
+                          )}
 
                           {q.explanation && (
                             <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-800/50 text-xs text-slate-500 dark:text-slate-400">
                               <span className="font-bold text-blue-600 dark:text-blue-400">Giải thích: </span>
-                              {q.explanation}
+                              <RichText className="mt-1 [&>p]:my-1">{q.explanation}</RichText>
                             </div>
                           )}
                         </div>
@@ -741,7 +910,7 @@ export function ExamTakingModal({
             <header className="flex items-center justify-between px-5 py-3.5 bg-slate-50 dark:bg-[#1a1b22] border-b border-slate-200 dark:border-slate-800 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <span className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-bold uppercase tracking-wider">
-                  Bài kiểm tra
+                  {isInstructorPreview ? "Làm thử" : "Bài kiểm tra"}
                 </span>
                 <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 truncate">
                   {exam.title}
@@ -820,16 +989,23 @@ export function ExamTakingModal({
 
                 {/* Đề bài câu hỏi */}
                 <div className="my-5 p-4 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80">
-                  <p className="text-sm sm:text-base text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                  <RichText className="text-sm sm:text-base leading-relaxed font-medium [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
                     {currentQ.question}
-                  </p>
+                  </RichText>
                 </div>
 
                 {/* Danh sách các phương án A, B, C, D hoặc ô nhập tự luận */}
                 {currentQ.options && currentQ.options.length > 0 ? (
                   <div className="space-y-3 flex-1">
+                    {currentQ.type === "MULTIPLE_CHOICE" && (
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                        Có thể chọn nhiều đáp án đúng.
+                      </p>
+                    )}
                     {currentQ.options.map((opt) => {
-                      const selected = answers[currentIdx] === opt.key;
+                      const selected = currentQ.type === "MULTIPLE_CHOICE"
+                        ? (multiAnswers[currentIdx] ?? []).includes(opt.key)
+                        : answers[currentIdx] === opt.key;
                       return (
                         <div
                           key={opt.key}
@@ -841,7 +1017,9 @@ export function ExamTakingModal({
                           }`}
                         >
                           <div
-                            className={`size-7 rounded-full grid place-items-center text-xs font-bold shrink-0 transition-colors ${
+                            className={`size-7 grid place-items-center text-xs font-bold shrink-0 transition-colors ${
+                              currentQ.type === "MULTIPLE_CHOICE" ? "rounded-lg" : "rounded-full"
+                            } ${
                               selected
                                 ? "bg-blue-600 text-white"
                                 : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
@@ -849,15 +1027,15 @@ export function ExamTakingModal({
                           >
                             {opt.key}
                           </div>
-                          <p
-                            className={`text-xs sm:text-sm pt-0.5 leading-relaxed ${
+                          <RichText
+                            className={`min-w-0 flex-1 text-xs sm:text-sm pt-0.5 leading-relaxed [&>p]:my-0 ${
                               selected
-                                ? "font-bold text-blue-900 dark:text-blue-200"
-                                : "text-slate-700 dark:text-slate-300"
+                                ? "font-bold text-blue-900 dark:text-blue-200 [&_*]:text-blue-900 dark:[&_*]:text-blue-200"
+                                : ""
                             }`}
                           >
                             {opt.text}
-                          </p>
+                          </RichText>
                         </div>
                       );
                     })}
@@ -985,8 +1163,8 @@ export function ExamTakingModal({
         )}
       </div>
 
-      {/* ================= MODAL XÁC NHẬN BẮT ĐẦU LÀM BÀI HOẶC THÔNG BÁO HẾT LƯỢT ================= */}
-      {!startConfirmed && !isSubmitted && (
+      {/* ================= TRẠNG THÁI CHỜ / XÁC NHẬN BẮT ĐẦU LÀM BÀI HOẶC HẾT LƯỢT ================= */}
+      {(isInstructorPreview ? isLoadingQuestions || questions.length === 0 : !startConfirmed) && !isSubmitted && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1a1b22] border border-slate-200 dark:border-slate-800 p-6 shadow-2xl text-center space-y-4">
             {isLoadingQuestions ? (
@@ -1060,12 +1238,10 @@ export function ExamTakingModal({
 
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    {isInstructorPreview ? "Xem trước đề bài (Chế độ giáo viên)" : "Xác nhận bắt đầu làm bài"}
+                    Xác nhận bắt đầu làm bài
                   </h3>
                   <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {isInstructorPreview
-                      ? "Bạn đang ở chế độ xem trước và làm thử đề thi với tư cách giáo viên."
-                      : "Bạn xác định sẽ bắt đầu làm bài này chứ?"}
+                    Bạn xác định sẽ bắt đầu làm bài này chứ?
                   </p>
                   {!isInstructorPreview &&
                     exam.remainingAttempts !== undefined &&
@@ -1088,7 +1264,7 @@ export function ExamTakingModal({
                     onClick={() => setStartConfirmed(true)}
                     className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-xs transition-colors cursor-pointer"
                   >
-                    {isInstructorPreview ? "Bắt đầu xem thử" : "Bắt đầu làm bài"}
+                    Bắt đầu làm bài
                   </button>
                   <button
                     type="button"

@@ -60,7 +60,10 @@ describe("useAcademicModel request lifecycle", () => {
         return pending.promise;
       }
       if (path === "/academic/classes/b/gradebook") return Promise.resolve(makeGrade("b"));
-      if (["/academic/assignments", "/academic/calendar", "/academic/announcements"].includes(path)) {
+      if (path.startsWith("/academic/assignments/page?")) {
+        return Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 1 });
+      }
+      if (["/academic/calendar", "/academic/announcements"].includes(path)) {
         return Promise.resolve([]);
       }
       throw new Error(`Unexpected API request: ${path}`);
@@ -105,5 +108,51 @@ describe("useAcademicModel request lifecycle", () => {
     hook.unmount();
     await act(async () => pending.reject(new Error("Unmounted academic error")));
     expect(mocks.notify).not.toHaveBeenCalled();
+  });
+
+  it("gọi đúng trang bài tập theo lớp đang chọn và đặt lại trang khi đổi lớp", async () => {
+    mocks.request.mockImplementation((path: string) => {
+      if (path === "/classes") return Promise.resolve(classes);
+      if (path === "/academic/classes/a/gradebook") return Promise.resolve(makeGrade("a"));
+      if (path === "/academic/classes/b/gradebook") return Promise.resolve(makeGrade("b"));
+      if (path.startsWith("/academic/assignments/page?")) {
+        const params = new URLSearchParams(path.split("?")[1] ?? "");
+        const page = Number(params.get("page") ?? "1");
+        return Promise.resolve({ items: [], total: 15, page, pageSize: 10, totalPages: 2 });
+      }
+      if (["/academic/calendar", "/academic/announcements"].includes(path)) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const { result } = renderHook(() => useAcademicModel());
+    await waitFor(() => expect(result.current.assignmentPagination.totalItems).toBe(15));
+    expect(
+      mocks.request.mock.calls.some(
+        ([path]) => String(path).startsWith("/academic/assignments/page?") && String(path).includes("classId=a") && String(path).includes("page=1"),
+      ),
+    ).toBe(true);
+
+    act(() => result.current.assignmentPagination.setPage(2));
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.some(
+          ([path]) => String(path).startsWith("/academic/assignments/page?") && String(path).includes("page=2"),
+        ),
+      ).toBe(true),
+    );
+
+    mocks.request.mockClear();
+    await act(async () => {
+      await result.current.changeClass("b");
+    });
+    await waitFor(() =>
+      expect(
+        mocks.request.mock.calls.some(
+          ([path]) => String(path).startsWith("/academic/assignments/page?") && String(path).includes("classId=b") && String(path).includes("page=1"),
+        ),
+      ).toBe(true),
+    );
   });
 });

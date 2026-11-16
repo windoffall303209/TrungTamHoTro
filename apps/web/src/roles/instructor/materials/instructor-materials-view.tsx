@@ -1,74 +1,101 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpen,
+  Check,
   ChevronRight,
+  Download,
+  Edit3,
+  Eye,
+  EyeOff,
   FileText,
-  Filter,
   Folder,
+  FolderOpen,
+  FolderPlus,
   Grid,
   List as ListIcon,
   MoreVertical,
+  Move,
+  RefreshCw,
   Search,
   Trash2,
   Upload,
   UploadCloud,
-  Move,
-  BookOpen,
   Video,
   X,
-  Check,
-  Eye,
-  EyeOff,
-  FolderMinus,
-  FolderOpen,
 } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
-import { apiRequest } from "@/lib/api-client";
-import { loadAllMaterials } from "@/lib/materials";
+import { Modal, Pagination } from "@/shared/ui/ui";
+import { useServerPagination } from "@/shared/hooks/use-server-pagination";
+import { InlineFilePreview } from "@/features/academic/inline-file-preview";
+import { apiRequest, downloadApiFile } from "@/lib/api-client";
+import {
+  loadMaterialSummary,
+  searchMaterialsPage,
+  type MaterialSummaryBucket,
+} from "@/lib/materials";
 import type { LearningClass, Material } from "@/lib/learning-types";
+
+export type FolderKind = "materials" | "lectures";
+
+export interface ClassFoldersResponse {
+  materials: string[];
+  lectures: string[];
+  assignments: string[];
+}
+
+export interface FolderEntry {
+  kind: FolderKind;
+  name: string;
+}
 
 export interface MaterialFileItem {
   id: string;
+  classId: string;
   name: string;
-  type: "word" | "pdf" | "image" | "folder" | "video" | "slide" | "link";
+  mimeType: string;
+  type: "word" | "pdf" | "image" | "video" | "slide";
   size: string;
   updatedAt: string;
-  folderCategory?: string;
-  isUnclassified?: boolean;
-  tag?: string;
-  url?: string;
+  folder: string;
+  kind: FolderKind;
   visibility: "PUBLISHED" | "HIDDEN";
-  tags?: string[];
-  assignedRole?: "MATERIAL" | "LECTURE";
+  tags: string[];
 }
 
-interface ClassFolderItem {
+interface ClassTreeItem {
   id: string;
   courseId: string;
   name: string;
   code: string;
+  status: LearningClass["status"];
+  instructorIds: string[];
   itemsCount: number;
-  updatedAt: string;
-  files: MaterialFileItem[];
 }
 
-interface SubjectFolderItem {
+interface SubjectTreeItem {
   id: string;
   name: string;
   itemsCount: number;
-  updatedAt: string;
-  classes: ClassFolderItem[];
+  classes: ClassTreeItem[];
 }
 
-export interface GradeFolderItem {
+export interface GradeTreeItem {
   id: string;
-  name: string; // "6", "7", "Đại học", v.v.
-  label: string; // "Khối 6", "Khối 7", "Đại học"
+  name: string;
+  label: string;
   itemsCount: number;
-  updatedAt: string;
-  subjects: SubjectFolderItem[];
+  subjects: SubjectTreeItem[];
+}
+
+// Khớp quy tắc phân loại bài giảng và tài liệu trên máy chủ.
+function isLectureContent(tags: readonly string[], mimeType = ""): boolean {
+  return (
+    /^(audio|video)\//.test(mimeType) ||
+    tags.some((tag) => /lecture|video|bài giảng/i.test(tag))
+  );
 }
 
 // Hiển thị dung lượng tệp từ số byte thật do API trả về.
@@ -79,813 +106,762 @@ function formatMaterialSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Phân loại biểu tượng theo MIME và tên tệp thật.
+// Phân loại biểu tượng theo MIME và phần mở rộng của tên tệp thật.
 function getMaterialFileType(name: string, mimeType = ""): MaterialFileItem["type"] {
   const extension = name.split(".").pop()?.toLowerCase();
   if (mimeType.startsWith("image/") || ["png", "jpg", "jpeg"].includes(extension ?? "")) return "image";
-  if (mimeType.startsWith("video/") || extension === "mp4") return "video";
+  if (mimeType.startsWith("video/") || extension === "mp4" || mimeType === "text/uri-list") return "video";
   if (extension === "ppt" || extension === "pptx") return "slide";
   if (extension === "doc" || extension === "docx") return "word";
   return "pdf";
 }
 
 // Định dạng mốc thời gian cập nhật học liệu theo ngôn ngữ hiển thị hiện hành.
-function formatMaterialUpdatedAt(raw: string, locale: string, translate: (value: string) => string): string {
+function formatMaterialUpdatedAt(
+  raw: string,
+  locale: string,
+  translate: (value: string) => string,
+): string {
   if (!raw) return translate("Hôm nay");
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString(locale);
 }
 
-// Giao diện học liệu chuẩn xác với phân cấp Khối -> Môn -> Lớp nạp trực tiếp từ CSDL PostgreSQL
-export function InstructorMaterialsView() {
-  const { session, notify } = useApp();
-  const { t, locale } = useI18n();
-  const [gradesData, setGradesData] = useState<GradeFolderItem[]>([]);
-  const [unclassifiedExams, setUnclassifiedExams] = useState<MaterialFileItem[]>([]);
-  const loadRequestRef = useRef(0);
+// Suy ra tên khối hiển thị từ thông tin lớp khi dữ liệu chưa tách riêng trường grade.
+function resolveGradeName(cls: LearningClass): string {
+  if (cls.grade != null) return String(cls.grade);
+  const combined = `${cls.code || ""} ${cls.name || ""}`;
+  for (const grade of ["12", "11", "10", "9", "8", "7", "6"]) {
+    if (combined.includes(grade)) return grade;
+  }
+  return "Khác";
+}
 
-  // Nạp tài liệu và cấu trúc lớp học thật từ CSDL PostgreSQL
-  const loadData = useCallback(async () => {
-    const requestId = ++loadRequestRef.current;
-    try {
-      const [classesData, materialsData] = await Promise.all([
-        apiRequest<LearningClass[]>(session.roleCode === "INSTRUCTOR" ? "/instructor/classes" : "/classes", {
-          roleCode: session.roleCode,
-        }),
-        loadAllMaterials<Material & { title?: string }>("/materials", {
-          roleCode: session.roleCode,
-        }),
-      ]);
-      if (requestId !== loadRequestRef.current) return false;
+// Suy ra tên môn hiển thị từ thông tin lớp khi trường subject đang trống.
+function resolveSubjectName(cls: LearningClass): string {
+  if (cls.subject?.trim()) return cls.subject.trim();
+  const cName = cls.name || "";
+  const cCode = cls.code || "";
+  if (cName.includes("Văn") || cCode.includes("VAN")) return "Ngữ văn";
+  if (cName.includes("Lý") || cCode.includes("PHY") || cCode.includes("LY")) return "Vật lí";
+  if (cName.includes("Hóa") || cCode.includes("CHE")) return "Hóa học";
+  if (cName.includes("Anh") || cCode.includes("ENG")) return "Tiếng Anh";
+  return "Môn chung";
+}
 
-      const unclassified: MaterialFileItem[] = [];
-      const classMap: Record<string, MaterialFileItem[]> = {};
+// Định dạng nhãn môn học tránh lặp chữ "Môn" khi tên mặc định đã có tiền tố.
+function formatSubjectLabel(subjectName: string): string {
+  return subjectName.startsWith("Môn ") ? subjectName : `Môn ${subjectName}`;
+}
 
-      if (Array.isArray(materialsData)) {
-        materialsData.forEach((m) => {
-          const rawName = m.name || m.title || "Tài liệu học tập";
-          const fType = getMaterialFileType(rawName, m.mimeType);
-          const sizeMb = formatMaterialSize(m.sizeBytes);
+// Ánh xạ bản ghi học liệu từ API phân trang sang dòng tệp hiển thị trên UI.
+function mapMaterialToFileItem(m: Material & { title?: string }): MaterialFileItem {
+  const rawName = m.name || m.title || "Tài liệu học tập";
+  const tags = Array.isArray(m.tags) ? m.tags : [];
+  const kind: FolderKind = isLectureContent(tags, m.mimeType) ? "lectures" : "materials";
+  return {
+    id: m.id,
+    classId: m.classId ?? "",
+    name: rawName,
+    mimeType: m.mimeType,
+    type: getMaterialFileType(rawName, m.mimeType),
+    size: formatMaterialSize(m.sizeBytes),
+    updatedAt: m.createdAt ?? "",
+    folder: m.folder || (kind === "lectures" ? "Bài giảng chung" : "Tài liệu chung"),
+    kind,
+    visibility: m.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED",
+    tags,
+  };
+}
 
-          const fileItem: MaterialFileItem = {
-            id: m.id,
-            name: rawName,
-            type: fType,
-            size: sizeMb,
-            updatedAt: m.createdAt ?? "",
-            folderCategory: m.folder || "Tài liệu chung",
-            visibility: m.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED",
-            tags: m.tags ?? [],
-            tag: m.folder || "Tài liệu",
-            assignedRole: m.tags?.includes("LECTURE") ? "LECTURE" : "MATERIAL",
-          };
+// Dựng cây phân cấp Khối -> Môn -> Lớp từ dữ liệu lớp và thống kê tổng hợp từ DB.
+function buildGradeTree(
+  classesData: LearningClass[],
+  summaryBuckets: MaterialSummaryBucket[],
+): { grades: GradeTreeItem[]; allClasses: ClassTreeItem[] } {
+  const classCountMap = new Map<string, number>();
+  for (const bucket of summaryBuckets) {
+    classCountMap.set(bucket.classId, (classCountMap.get(bucket.classId) ?? 0) + bucket.count);
+  }
 
-          if (m.classId) {
-            const arr = classMap[m.classId] || [];
-            arr.push(fileItem);
-            classMap[m.classId] = arr;
-          } else {
-            unclassified.push(fileItem);
-          }
-        });
-      }
+  const gradesDict: Record<string, Record<string, ClassTreeItem[]>> = {};
+  const allClasses: ClassTreeItem[] = [];
+  for (const c of classesData) {
+    const gradeName = resolveGradeName(c);
+    const subjectName = resolveSubjectName(c);
+    const classItem: ClassTreeItem = {
+      id: c.id,
+      courseId: c.courseId,
+      name: c.name,
+      code: c.code,
+      status: c.status,
+      instructorIds: Array.isArray(c.instructorIds) ? c.instructorIds : [],
+      itemsCount: classCountMap.get(c.id) ?? 0,
+    };
+    allClasses.push(classItem);
+    gradesDict[gradeName] = gradesDict[gradeName] ?? {};
+    gradesDict[gradeName][subjectName] = gradesDict[gradeName][subjectName] ?? [];
+    gradesDict[gradeName][subjectName].push(classItem);
+  }
 
-      setUnclassifiedExams(unclassified);
-
-      // Dựng cây phân cấp Khối -> Môn -> Lớp từ danh sách lớp CSDL
-      const gradesDict: Record<string, Record<string, ClassFolderItem[]>> = {};
-
-      if (Array.isArray(classesData)) {
-        classesData.forEach((c) => {
-          let gradeName = c.grade != null ? String(c.grade) : "10";
-          let subjectName = c.subject?.trim() || "Toán";
-          const cCode = c.code || "";
-          const cName = c.name || "";
-
-          if (c.grade == null) {
-            if (cCode.includes("11") || cName.includes("11")) gradeName = "11";
-            else if (cCode.includes("12") || cName.includes("12")) gradeName = "12";
-            else if (cCode.includes("6") || cName.includes("6")) gradeName = "6";
-            else if (cCode.includes("7") || cName.includes("7")) gradeName = "7";
-            else if (cCode.includes("8") || cName.includes("8")) gradeName = "8";
-            else if (cCode.includes("9") || cName.includes("9")) gradeName = "9";
-          }
-
-          if (!c.subject?.trim()) {
-            if (cName.includes("Văn") || cCode.includes("VAN")) subjectName = "Ngữ văn";
-            else if (cName.includes("Lý") || cCode.includes("PHY") || cCode.includes("LY")) subjectName = "Vật lí";
-            else if (cName.includes("Hóa") || cCode.includes("CHE")) subjectName = "Hóa học";
-            else if (cName.includes("Anh") || cCode.includes("ENG")) subjectName = "Tiếng Anh";
-          }
-
-          const currentGrade = gradesDict[gradeName] || {};
-          gradesDict[gradeName] = currentGrade;
-          const currentSubject = currentGrade[subjectName] || [];
-          currentGrade[subjectName] = currentSubject;
-
-          const classFiles = classMap[c.id] || [];
-          currentSubject.push({
-            id: c.id,
-            courseId: c.courseId,
-            name: c.name,
-            code: c.code,
-            itemsCount: classFiles.length,
-            updatedAt: "",
-            files: classFiles,
-          });
-        });
-      }
-
-      const builtGrades: GradeFolderItem[] = Object.keys(gradesDict).map((gName) => {
-        const subjectsObj = gradesDict[gName] || {};
-        const subjects: SubjectFolderItem[] = Object.keys(subjectsObj).map((sName) => {
-          const classes = subjectsObj[sName] || [];
-          const totalFiles = classes.reduce((sum, cl) => sum + cl.itemsCount, 0);
+  const grades: GradeTreeItem[] = Object.keys(gradesDict)
+    .sort((a, b) => a.localeCompare(b, "vi", { numeric: true }))
+    .map((gName) => {
+      const subjectsObj = gradesDict[gName] ?? {};
+      const subjects: SubjectTreeItem[] = Object.keys(subjectsObj)
+        .sort((a, b) => a.localeCompare(b, "vi"))
+        .map((sName) => {
+          const classes = (subjectsObj[sName] ?? []).sort((a, b) => a.name.localeCompare(b.name, "vi"));
           return {
             id: `sub-${gName}-${sName}`,
             name: sName,
-            itemsCount: totalFiles,
-            updatedAt: "",
+            itemsCount: classes.reduce((sum, cl) => sum + cl.itemsCount, 0),
             classes,
           };
         });
-        const totalItemsInGrade = subjects.reduce((sum, s) => sum + s.itemsCount, 0);
-        return {
-          id: `grade-${gName}`,
-          name: gName,
-          label: `Khối ${gName}`,
-          itemsCount: totalItemsInGrade,
-          updatedAt: "",
-          subjects,
-        };
-      });
+      return {
+        id: `grade-${gName}`,
+        name: gName,
+        label: gName === "Khác" ? "Khối khác" : `Khối ${gName}`,
+        itemsCount: subjects.reduce((sum, s) => sum + s.itemsCount, 0),
+        subjects,
+      };
+    });
 
-      setGradesData(builtGrades);
+  return { grades, allClasses };
+}
+
+/** Trang Học liệu trên thanh điều hướng ngang: Khối → Môn → Lớp → Thư mục → Tệp. */
+export function InstructorMaterialsView() {
+  const { session, notify } = useApp();
+  const { t, locale } = useI18n();
+  const [gradesData, setGradesData] = useState<GradeTreeItem[]>([]);
+  const [allClasses, setAllClasses] = useState<ClassTreeItem[]>([]);
+  const [summaryBuckets, setSummaryBuckets] = useState<MaterialSummaryBucket[]>([]);
+  const [folderFiles, setFolderFiles] = useState<MaterialFileItem[]>([]);
+  const [folderFilesLoading, setFolderFilesLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const loadRequestRef = useRef(0);
+  const filesRequestRef = useRef(0);
+  const filePagination = useServerPagination(20);
+  const { page: filePage, pageSize: filePageSize, syncResponse: syncFilePage } = filePagination;
+
+  // Điều hướng 5 cấp: Khối → Môn → Lớp → Thư mục → Tệp
+  const [selectedGradeId, setSelectedGradeId] = useState<string | null>(null);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<FolderEntry | null>(null);
+
+  // Thư mục 1 cấp của lớp đang chọn theo bảng class_folders
+  const [classFolders, setClassFolders] = useState<ClassFoldersResponse>({
+    materials: [],
+    lectures: [],
+    assignments: [],
+  });
+  const [foldersLoading, setFoldersLoading] = useState(false);
+
+  // Tìm kiếm & chế độ hiển thị
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [activeMenuFileId, setActiveMenuFileId] = useState<string | null>(null);
+
+  // Modal tạo thư mục mới ở cấp Lớp
+  const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderKind, setNewFolderKind] = useState<FolderKind>("materials");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  // Modal tải tệp vào đúng lớp và thư mục đang mở
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadVisibility, setUploadVisibility] = useState<"PUBLISHED" | "HIDDEN">("PUBLISHED");
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Modal chỉnh sửa metadata hoặc thay tệp đơn lẻ
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<MaterialFileItem | null>(null);
+  const [editingFile, setEditingFile] = useState<MaterialFileItem | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editVisibility, setEditVisibility] = useState<"PUBLISHED" | "HIDDEN">("PUBLISHED");
+  const [replaceFileObj, setReplaceFileObj] = useState<File | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Modal di chuyển tệp sang lớp/thư mục khác thuộc quyền giảng dạy
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [movingFile, setMovingFile] = useState<MaterialFileItem | null>(null);
+  const [moveTargetClassId, setMoveTargetClassId] = useState("");
+  const [moveTargetFolder, setMoveTargetFolder] = useState("");
+  const [moveTargetFolders, setMoveTargetFolders] = useState<string[]>([]);
+  const [loadingMoveFolders, setLoadingMoveFolders] = useState(false);
+  const [savingMove, setSavingMove] = useState(false);
+
+  // Nạp danh sách lớp và thống kê học liệu tổng hợp (GROUP BY SQL) mà không tải toàn bộ bảng materials.
+  const loadData = useCallback(async (): Promise<boolean> => {
+    const requestId = ++loadRequestRef.current;
+    setLoading(true);
+    try {
+      const classesPath =
+        session.roleCode === "INSTRUCTOR"
+          ? "/instructor/classes"
+          : session.roleCode === "LEARNER"
+            ? "/learner/classes"
+            : "/classes";
+      const [classesData, summaryData] = await Promise.all([
+        apiRequest<LearningClass[]>(classesPath, { roleCode: session.roleCode }),
+        loadMaterialSummary({ roleCode: session.roleCode }),
+      ]);
+      if (requestId !== loadRequestRef.current) return false;
+      const safeClasses = Array.isArray(classesData) ? classesData : [];
+      const safeSummary = Array.isArray(summaryData) ? summaryData : [];
+      const tree = buildGradeTree(safeClasses, safeSummary);
+      setSummaryBuckets(safeSummary);
+      setGradesData(tree.grades);
+      setAllClasses(tree.allClasses);
       return true;
     } catch (err) {
       if (requestId === loadRequestRef.current) {
-        console.error("Lỗi nạp tài liệu từ CSDL:", err);
         notify(err instanceof Error ? err.message : "Không thể tải danh sách học liệu.", "error");
       }
       return false;
+    } finally {
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }, [notify, session.roleCode]);
 
   useEffect(() => {
     void loadData();
-    return () => { loadRequestRef.current += 1; };
+    return () => {
+      loadRequestRef.current += 1;
+    };
   }, [loadData]);
 
-  // Điều hướng phân cấp (Breadcrumb: Khối -> Môn -> Lớp)
-  const [selectedGradeId, setSelectedGradeId] = useState<string | null>(null);
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setDebouncedSearch("");
+      return;
+    }
+    const timer = setTimeout(() => setDebouncedSearch(trimmed), 180);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  // Bộ lọc & Toggle UI
-  const [showDetail, setShowDetail] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  // Nạp một trang tệp thuộc đúng lớp, loại nội dung và thư mục đang mở từ máy chủ.
+  const loadFolderFiles = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!selectedClassId || !selectedFolder) {
+        setFolderFiles([]);
+        return;
+      }
+      const requestId = ++filesRequestRef.current;
+      setFolderFilesLoading(true);
+      try {
+        const result = await searchMaterialsPage<Material & { title?: string }>(
+          {
+            classId: selectedClassId,
+            folder: selectedFolder.name,
+            folderExact: true,
+            kind: selectedFolder.kind,
+            query: debouncedSearch || undefined,
+            page: filePage,
+            pageSize: filePageSize,
+          },
+          { roleCode: session.roleCode, signal },
+        );
+        if (requestId !== filesRequestRef.current || signal?.aborted) return;
+        setFolderFiles(result.items.map(mapMaterialToFileItem));
+        syncFilePage(result);
+      } catch (err) {
+        if (requestId === filesRequestRef.current && !signal?.aborted) {
+          setFolderFiles([]);
+          notify(err instanceof Error ? err.message : "Không thể tải danh sách học liệu.", "error");
+        }
+      } finally {
+        if (requestId === filesRequestRef.current && !signal?.aborted) {
+          setFolderFilesLoading(false);
+        }
+      }
+    },
+    [
+      debouncedSearch,
+      filePage,
+      filePageSize,
+      notify,
+      selectedClassId,
+      selectedFolder,
+      session.roleCode,
+      syncFilePage,
+    ],
+  );
 
-  // State Modal Tải lên Tài liệu / Bài giảng (Tải lên học liệu thật)
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadModalStep, setUploadModalStep] = useState<"SELECT_TYPE" | "FORM">("SELECT_TYPE");
-  const [uploadForm, setUploadForm] = useState({
-    title: "",
-    category: "MATERIAL" as "MATERIAL" | "LECTURE",
-    fileName: "",
-    fileSize: "",
-    targetClassId: "unclassified",
-    visibility: "PUBLISHED" as "PUBLISHED" | "HIDDEN",
-  });
-  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  useEffect(() => {
+    if (!selectedClassId || !selectedFolder) {
+      filesRequestRef.current += 1;
+      setFolderFiles([]);
+      setFolderFilesLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    void loadFolderFiles(controller.signal);
+    return () => {
+      filesRequestRef.current += 1;
+      controller.abort();
+    };
+  }, [selectedClassId, selectedFolder, loadFolderFiles]);
 
-  // State Modal Gán vai trò (Dùng làm tài liệu / bài giảng)
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
-  const [selectedFileForAssign, setSelectedFileForAssign] = useState<MaterialFileItem | null>(null);
+  // Nạp thư mục một cấp từ class_folders khi người dùng chọn một lớp cụ thể
+  const loadFoldersForClass = useCallback(
+    async (classId: string, signal?: AbortSignal) => {
+      setFoldersLoading(true);
+      try {
+        const res = await apiRequest<ClassFoldersResponse>(
+          `/classes/${encodeURIComponent(classId)}/folders`,
+          { roleCode: session.roleCode, signal },
+        );
+        if (!signal?.aborted) {
+          setClassFolders({
+            materials: Array.isArray(res?.materials) ? res.materials : [],
+            lectures: Array.isArray(res?.lectures) ? res.lectures : [],
+            assignments: Array.isArray(res?.assignments) ? res.assignments : [],
+          });
+        }
+      } catch (err) {
+        if (!signal?.aborted) {
+          setClassFolders({ materials: [], lectures: [], assignments: [] });
+          notify(err instanceof Error ? err.message : "Không tải được thư mục của lớp.", "error");
+        }
+      } finally {
+        if (!signal?.aborted) setFoldersLoading(false);
+      }
+    },
+    [notify, session.roleCode],
+  );
 
-  // State Modal Phân loại / Di chuyển sang thư mục
-  const [moveModalOpen, setMoveModalOpen] = useState(false);
-  const [selectedFileForMove, setSelectedFileForMove] = useState<MaterialFileItem | null>(null);
-  const [targetMoveClassId, setTargetMoveClassId] = useState<string>("unclassified");
+  useEffect(() => {
+    if (!selectedClassId) {
+      setClassFolders({ materials: [], lectures: [], assignments: [] });
+      setSelectedFolder(null);
+      return;
+    }
+    const controller = new AbortController();
+    void loadFoldersForClass(selectedClassId, controller.signal);
+    return () => controller.abort();
+  }, [selectedClassId, loadFoldersForClass]);
 
-  // State menu 3 chấm đang mở
-  const [activeMenuFileId, setActiveMenuFileId] = useState<string | null>(null);
+  const currentGrade = useMemo(
+    () => gradesData.find((g) => g.id === selectedGradeId) ?? null,
+    [gradesData, selectedGradeId],
+  );
 
-  // Mở hộp thoại phân loại cho học liệu được chọn từ một trong hai danh sách.
-  const openAssignModal = (file: MaterialFileItem) => {
-    setSelectedFileForAssign(file);
-    setAssignModalOpen(true);
-    setActiveMenuFileId(null);
+  const currentSubject = useMemo(
+    () => currentGrade?.subjects.find((s) => s.id === selectedSubjectId) ?? null,
+    [currentGrade, selectedSubjectId],
+  );
+
+  const currentClass = useMemo(
+    () => currentSubject?.classes.find((c) => c.id === selectedClassId) ?? null,
+    [currentSubject, selectedClassId],
+  );
+
+  // Chỉ giảng viên được phân công trong class_instructors của lớp chưa đóng mới có quyền ghi
+  const canManageClass = useCallback(
+    (cls: ClassTreeItem | null): boolean =>
+      Boolean(
+        cls &&
+          session.roleCode === "INSTRUCTOR" &&
+          cls.status !== "CLOSED" &&
+          cls.instructorIds.includes(session.user.id),
+      ),
+    [session.roleCode, session.user.id],
+  );
+
+  const canManageCurrentClass = canManageClass(currentClass);
+  const canUploadInOpenFolder = Boolean(currentClass && selectedFolder && canManageCurrentClass);
+
+  // Danh sách các lớp giảng viên đang phụ trách (chưa đóng) để chọn khi di chuyển tệp
+  const movableClasses = useMemo(
+    () => allClasses.filter((cls) => canManageClass(cls)),
+    [allClasses, canManageClass],
+  );
+
+  // Danh sách thư mục 1 cấp của lớp hiện tại kèm số lượng tệp đúng loại nội dung từ summary
+  const currentClassFolderItems = useMemo(() => {
+    if (!currentClass) return [];
+    const bucketCount = new Map<string, number>();
+    for (const bucket of summaryBuckets) {
+      if (bucket.classId === currentClass.id) {
+        bucketCount.set(`${bucket.kind}\u0000${bucket.folder}`, bucket.count);
+      }
+    }
+    const items: Array<FolderEntry & { count: number }> = [];
+    for (const name of classFolders.materials) {
+      items.push({
+        kind: "materials",
+        name,
+        count: bucketCount.get(`materials\u0000${name}`) ?? 0,
+      });
+    }
+    for (const name of classFolders.lectures) {
+      items.push({
+        kind: "lectures",
+        name,
+        count: bucketCount.get(`lectures\u0000${name}`) ?? 0,
+      });
+    }
+    return items.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+  }, [currentClass, classFolders, summaryBuckets]);
+
+  // Tải danh sách thư mục hợp lệ cho lớp đích trong modal Di chuyển
+  useEffect(() => {
+    if (!moveModalOpen || !movingFile || !moveTargetClassId) {
+      setMoveTargetFolders([]);
+      setMoveTargetFolder("");
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingMoveFolders(true);
+    apiRequest<ClassFoldersResponse>(`/classes/${encodeURIComponent(moveTargetClassId)}/folders`, {
+      roleCode: session.roleCode,
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        const candidates = movingFile.kind === "lectures" ? res.lectures : res.materials;
+        setMoveTargetFolders(candidates);
+        setMoveTargetFolder((prev) =>
+          candidates.includes(prev) ? prev : (candidates[0] ?? ""),
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMoveTargetFolders([]);
+          setMoveTargetFolder("");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingMoveFolders(false);
+      });
+    return () => controller.abort();
+  }, [moveModalOpen, movingFile, moveTargetClassId, session.roleCode]);
+
+  // Làm mới dữ liệu trang, thư mục và trang tệp hiện hành sau thao tác ghi.
+  const refreshAfterMutation = async (message: string) => {
+    const ok = await loadData();
+    if (selectedClassId) {
+      await loadFoldersForClass(selectedClassId);
+    }
+    if (selectedClassId && selectedFolder) {
+      await loadFolderFiles();
+    }
+    notify(ok ? message : `${message} Hãy tải lại trang nếu danh sách chưa cập nhật.`, ok ? "success" : "info");
   };
 
-  // Kéo thả (Drag & Drop)
-  const [draggedFile, setDraggedFile] = useState<MaterialFileItem | null>(null);
-  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
-
-
-  // Tìm đối tượng đang được chọn trong cây thư mục
-  const currentGrade = useMemo(() => {
-    return gradesData.find((g) => g.id === selectedGradeId) || null;
-  }, [gradesData, selectedGradeId]);
-
-  const currentSubject = useMemo(() => {
-    if (!currentGrade) return null;
-    return currentGrade.subjects.find((s) => s.id === selectedSubjectId) || null;
-  }, [currentGrade, selectedSubjectId]);
-
-  const currentClass = useMemo(() => {
-    if (!currentSubject) return null;
-    return currentSubject.classes.find((c) => c.id === selectedClassId) || null;
-  }, [currentSubject, selectedClassId]);
-
-  // Danh sách phẳng tất cả các lớp để thuận tiện chọn vị trí tải lên / di chuyển
-  const allClassesList = useMemo(() => {
-    const list: { classId: string; courseId: string; className: string; path: string }[] = [];
-    gradesData.forEach((grade) => {
-      grade.subjects.forEach((sub) => {
-        sub.classes.forEach((cls) => {
-          list.push({
-            classId: cls.id,
-            courseId: cls.courseId,
-            className: cls.name,
-            path: `${grade.label} > ${sub.name} > ${cls.name}`,
-          });
-        });
-      });
-    });
-    return list;
-  }, [gradesData]);
-
-  // Chỉ tự chọn lớp khi người dùng đang xem chính lớp đó.
-  const currentContextLocation = useMemo(() => {
-    if (selectedClassId && currentClass) {
-      return {
-        classId: currentClass.id,
-        path: `${currentGrade?.label || "Khối"} > Môn ${currentSubject?.name || "Môn"} > ${currentClass.name}`,
-        label: currentClass.name,
-      };
-    }
-    if (selectedSubjectId && currentSubject) {
-      return {
-        classId: "unclassified",
-        path: `${currentGrade?.label || "Khối"} > Môn ${currentSubject.name}`,
-        label: currentSubject.name,
-      };
-    }
-    if (selectedGradeId && currentGrade) {
-      return {
-        classId: "unclassified",
-        path: currentGrade.label,
-        label: currentGrade.label,
-      };
-    }
-    return {
-      classId: "unclassified",
-      path: "📍 Cần phân cấp lại (Chưa phân loại)",
-      label: "Cần phân cấp lại",
-    };
-  }, [selectedClassId, currentClass, selectedSubjectId, currentSubject, selectedGradeId, currentGrade]);
-
-  // Khởi tạo biểu mẫu tải tệp mới, loại bỏ tệp và metadata từ lần mở trước.
-  const openUploadModal = (targetClassId: string) => {
-    setUploadForm({
-      title: "",
-      category: "MATERIAL",
-      fileName: "",
-      fileSize: "",
-      targetClassId,
-      visibility: "PUBLISHED",
-    });
+  // Mở hộp thoại tải tệp cố định theo đúng lớp và thư mục đang mở.
+  const openUploadModal = () => {
+    if (!canUploadInOpenFolder) return;
+    setUploadTitle("");
+    setUploadVisibility("PUBLISHED");
     setSelectedUploadFile(null);
-    setUploadModalStep("SELECT_TYPE");
     setUploadModalOpen(true);
   };
 
-  // Đọc lại cây học liệu từ API sau khi ghi, kể cả khi lần tải mới thất bại.
-  const refreshMaterialList = async (successMessage: string) => {
-    const refreshed = await loadData();
-    notify(
-      refreshed ? successMessage : `${successMessage} Danh sách chưa làm mới được; hãy tải lại trang.`,
-      refreshed ? "success" : "info",
-    );
-  };
-
-  // Tải byte thật qua API multipart, chọn đúng lớp hoặc môn cho học liệu dùng chung.
-  const uploadMaterialFile = async (
-    file: File,
-    targetClassId: string,
-    category: "MATERIAL" | "LECTURE",
-    title?: string,
-    visibility: "PUBLISHED" | "HIDDEN" = "PUBLISHED",
-  ): Promise<Material> => {
-    const selectedClass = allClassesList.find((item) => item.classId === targetClassId);
-    if (targetClassId !== "unclassified" && !selectedClass) {
-      throw new Error("Không tìm thấy lớp học hợp lệ để lưu học liệu.");
-    }
-    const contextClasses = selectedSubjectId && currentSubject
-      ? currentSubject.classes
-      : selectedGradeId && currentGrade
-        ? currentGrade.subjects.flatMap((subject) => subject.classes)
-        : allClassesList;
-    const courseIds = [...new Set(contextClasses.map((item) => item.courseId))];
-    const courseId = courseIds.length === 1 ? courseIds[0] : undefined;
-    if (!selectedClass && !courseId) {
-      throw new Error("Hãy chọn một lớp cụ thể để xác định môn học của học liệu.");
-    }
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("folder", category === "LECTURE" ? "Bài giảng" : "Tài liệu");
-    formData.append("tags", [category, file.name.split(".").pop()?.toLowerCase() ?? "file"].join(","));
-    formData.append("visibility", visibility);
-    if (selectedClass) formData.append("scope", "CLASS");
-    const endpoint = selectedClass
-      ? `/instructor/classes/${selectedClass.classId}/material-uploads`
-      : `/instructor/courses/${courseId}/material-uploads`;
-    const created = await apiRequest<Material>(endpoint, {
-      method: "POST",
-      roleCode: session.roleCode,
-      body: formData,
-    });
-    if (!created?.id) throw new Error("API không trả về ID học liệu mới.");
-    const nextName = title?.trim() || created.name;
-    if (nextName !== created.name || created.visibility !== visibility) {
-      try {
-        return await apiRequest<Material>(`/instructor/materials/${created.id}`, {
-          method: "PATCH",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ name: nextName, visibility }),
-        });
-      } catch (error) {
-        await loadData();
-        throw new Error(`Tệp đã tải lên nhưng không cập nhật được tiêu đề: ${error instanceof Error ? error.message : "Lỗi API"}`);
-      }
-    }
-    return created;
-  };
-
-  // Lưu học liệu đã chọn và chỉ đóng biểu mẫu khi máy chủ xác nhận lưu tệp.
-  const handleUploadMaterialSubmit = async () => {
-    if (isUploading) return;
-    if (!uploadForm.title.trim()) {
-      notify("Vui lòng nhập tiêu đề tài liệu / bài giảng!", "error");
+  // Tạo thư mục một cấp mới trong class_folders cho lớp đang chọn.
+  const handleCreateFolderSubmit = async () => {
+    if (!currentClass || !canManageCurrentClass || creatingFolder) return;
+    const trimmed = newFolderName.trim();
+    if (!trimmed) {
+      notify("Vui lòng nhập tên thư mục.", "error");
       return;
     }
+    setCreatingFolder(true);
+    try {
+      const updated = await apiRequest<ClassFoldersResponse>(
+        `/instructor/classes/${encodeURIComponent(currentClass.id)}/folders`,
+        {
+          method: "POST",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ kind: newFolderKind, name: trimmed }),
+        },
+      );
+      setClassFolders(updated);
+      setCreateFolderModalOpen(false);
+      setNewFolderName("");
+      notify(`Đã tạo thư mục '${trimmed}'.`, "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Không thể tạo thư mục.", "error");
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  // Tải tệp lên đúng lớp và thư mục đang mở, không cho phép chọn nơi lưu khác.
+  const handleUploadSubmit = async () => {
+    if (isUploading || !currentClass || !selectedFolder || !canManageCurrentClass) return;
     if (!selectedUploadFile) {
-      notify("Vui lòng chọn tệp thực tế để tải lên.", "error");
+      notify("Vui lòng chọn tệp từ máy để tải lên.", "error");
       return;
     }
     setIsUploading(true);
     try {
-      const created = await uploadMaterialFile(
-        selectedUploadFile,
-        uploadForm.targetClassId,
-        uploadForm.category,
-        uploadForm.title,
-        uploadForm.visibility,
+      const formData = new FormData();
+      formData.append("file", selectedUploadFile);
+      formData.append("folder", selectedFolder.name);
+      formData.append("tags", selectedFolder.kind === "lectures" ? "LECTURE" : "MATERIAL");
+      formData.append("scope", "CLASS");
+      formData.append("visibility", uploadVisibility);
+
+      const created = await apiRequest<Material>(
+        `/instructor/classes/${encodeURIComponent(currentClass.id)}/material-uploads`,
+        { method: "POST", roleCode: session.roleCode, body: formData },
       );
-      await refreshMaterialList(`Đã tải lên '${created.name}' (${formatMaterialSize(created.sizeBytes)}).`);
+      if (!created?.id) throw new Error("API không trả về ID học liệu mới.");
+
+      const customName = uploadTitle.trim();
+      if (customName && customName !== created.name) {
+        await apiRequest<Material>(`/instructor/materials/${encodeURIComponent(created.id)}`, {
+          method: "PATCH",
+          roleCode: session.roleCode,
+          body: JSON.stringify({ name: customName, visibility: uploadVisibility }),
+        });
+      }
+
       setUploadModalOpen(false);
       setSelectedUploadFile(null);
-      setUploadForm({
-        title: "",
-        category: "MATERIAL",
-        fileName: "",
-        fileSize: "",
-        targetClassId: currentContextLocation.classId,
-        visibility: "PUBLISHED",
-      });
+      await refreshAfterMutation(`Đã tải lên '${customName || created.name}'.`);
     } catch (err) {
-      console.error("Lỗi tải lên học liệu:", err);
       notify(err instanceof Error ? err.message : "Không thể tải lên học liệu.", "error");
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Chuyển đổi trạng thái hiển thị hoặc ẩn của học liệu đối với học viên.
-  const handleToggleFileVisibility = async (file: MaterialFileItem) => {
-    const nextVisibility: "PUBLISHED" | "HIDDEN" =
-      file.visibility === "HIDDEN" ? "PUBLISHED" : "HIDDEN";
+  // Mở xem hoặc tải tệp bằng URL đã ký kiểm tra quyền trên máy chủ.
+  const handleAccessFile = async (file: MaterialFileItem, action: "PREVIEW" | "DOWNLOAD") => {
+    if (action === "PREVIEW") {
+      setPreviewFile(file);
+      return;
+    }
+    try {
+      const access = await apiRequest<{ url: string }>(
+        `/materials/${encodeURIComponent(file.id)}/access?action=DOWNLOAD`,
+        { roleCode: session.roleCode },
+      );
+      await downloadApiFile(access.url, session.roleCode);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Không thể mở tệp học liệu.", "error");
+    }
+  };
+
+  // Bật/tắt trạng thái hiển thị học liệu đối với học viên trong lớp.
+  const handleToggleVisibility = async (file: MaterialFileItem) => {
+    const nextVisibility = file.visibility === "HIDDEN" ? "PUBLISHED" : "HIDDEN";
     try {
       await apiRequest(`/instructor/materials/${encodeURIComponent(file.id)}`, {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({ visibility: nextVisibility }),
       });
-      await refreshMaterialList(
+      setActiveMenuFileId(null);
+      await refreshAfterMutation(
         nextVisibility === "HIDDEN"
-          ? `Đã ẩn '${file.name}' đối với học sinh.`
+          ? `Đã ẩn '${file.name}' với học sinh.`
           : `Đã hiển thị '${file.name}' cho học sinh.`,
       );
-      setActiveMenuFileId(null);
     } catch (err) {
-      notify(
-        err instanceof Error ? err.message : "Không thể cập nhật trạng thái hiển thị.",
-        "error",
+      notify(err instanceof Error ? err.message : "Không thể đổi trạng thái hiển thị.", "error");
+    }
+  };
+
+  // Mở modal chỉnh sửa tên, trạng thái hiển thị hoặc thay thế tệp đơn lẻ.
+  const openEditModal = (file: MaterialFileItem) => {
+    setEditingFile(file);
+    setEditTitle(file.name);
+    setEditVisibility(file.visibility);
+    setReplaceFileObj(null);
+    setEditModalOpen(true);
+    setActiveMenuFileId(null);
+  };
+
+  // Lưu thay đổi tên, trạng thái hoặc thay tệp mới cho học liệu hiện tại.
+  const handleSaveEditSubmit = async () => {
+    if (!editingFile || savingEdit) return;
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle && !replaceFileObj) {
+      notify("Vui lòng nhập tên học liệu.", "error");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      if (replaceFileObj) {
+        const form = new FormData();
+        form.append("file", replaceFileObj);
+        form.append("folder", editingFile.folder);
+        form.append(
+          "tags",
+          editingFile.tags.length > 0
+            ? editingFile.tags.join(",")
+            : editingFile.kind === "lectures"
+              ? "LECTURE"
+              : "MATERIAL",
+        );
+        form.append("visibility", editVisibility);
+        await apiRequest(`/instructor/materials/${encodeURIComponent(editingFile.id)}/file`, {
+          method: "PUT",
+          roleCode: session.roleCode,
+          body: form,
+        });
+      }
+      await apiRequest(`/instructor/materials/${encodeURIComponent(editingFile.id)}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          name: trimmedTitle || editingFile.name,
+          visibility: editVisibility,
+        }),
+      });
+      setEditModalOpen(false);
+      setEditingFile(null);
+      setReplaceFileObj(null);
+      await refreshAfterMutation("Đã cập nhật học liệu.");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Không thể cập nhật học liệu.", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Mở modal di chuyển tệp sang lớp và thư mục hợp lệ khác trong phạm vi phân công.
+  const openMoveModal = (file: MaterialFileItem) => {
+    const defaultClass = movableClasses.find((cls) => cls.id !== file.classId) ?? movableClasses[0];
+    setMovingFile(file);
+    setMoveTargetClassId(defaultClass?.id ?? "");
+    setMoveTargetFolder("");
+    setMoveModalOpen(true);
+    setActiveMenuFileId(null);
+  };
+
+  // Thực hiện di chuyển tệp đến lớp và thư mục đích đã xác thực.
+  const handleMoveSubmit = async () => {
+    if (!movingFile || savingMove) return;
+    if (!moveTargetClassId || !moveTargetFolder) {
+      notify("Vui lòng chọn lớp và thư mục đích hợp lệ.", "error");
+      return;
+    }
+    setSavingMove(true);
+    try {
+      await apiRequest(`/instructor/materials/${encodeURIComponent(movingFile.id)}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          classId: moveTargetClassId,
+          scope: "CLASS",
+          folder: moveTargetFolder,
+        }),
+      });
+      const destCls = movableClasses.find((cls) => cls.id === moveTargetClassId);
+      setMoveModalOpen(false);
+      setMovingFile(null);
+      await refreshAfterMutation(
+        `Đã chuyển '${movingFile.name}' vào ${destCls?.name ?? "lớp"} (${moveTargetFolder}).`,
       );
-    }
-  };
-
-  // Chuyển tệp ra kho dùng chung rồi đồng bộ số lượng từ máy chủ.
-  const handleMoveToUnclassified = async (file: MaterialFileItem) => {
-    try {
-      await apiRequest(`/instructor/materials/${file.id}`, {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          classId: null,
-          scope: "SHARED",
-        }),
-      });
     } catch (err) {
-      console.error("Lỗi cập nhật Cần phân cấp lại vào CSDL:", err);
-      notify(err instanceof Error ? err.message : "Không thể chuyển học liệu.", "error");
-      return;
-    }
-
-    await refreshMaterialList(`Đã chuyển '${file.name}' vào Cần phân cấp lại.`);
-    setActiveMenuFileId(null);
-    setDraggedFile(null);
-  };
-
-  // Di chuyển tệp đến lớp đích rồi nạp lại cây phân cấp từ API.
-  const handleMoveFileToTargetClass = async (
-    file: MaterialFileItem,
-    targetClassId: string,
-  ) => {
-    const isToUnclassified = targetClassId === "unclassified";
-    if (!isToUnclassified && !allClassesList.some((item) => item.classId === targetClassId)) {
-      notify("Không tìm thấy lớp học đích hợp lệ.", "error");
-      return;
-    }
-    try {
-      await apiRequest(`/instructor/materials/${file.id}`, {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          classId: isToUnclassified ? null : targetClassId,
-          scope: isToUnclassified ? "SHARED" : "CLASS",
-        }),
-      });
-    } catch (err) {
-      console.error("Lỗi cập nhật vị trí di chuyển file vào CSDL:", err);
       notify(err instanceof Error ? err.message : "Không thể di chuyển học liệu.", "error");
-      return;
+    } finally {
+      setSavingMove(false);
     }
-
-    const targetCls = allClassesList.find((item) => item.classId === targetClassId);
-    await refreshMaterialList(isToUnclassified
-      ? `Đã chuyển '${file.name}' vào Cần phân cấp lại.`
-      : `Đã chuyển '${file.name}' vào ${targetCls?.className || "lớp mới"}.`);
-
-    setMoveModalOpen(false);
-    setSelectedFileForMove(null);
-    setActiveMenuFileId(null);
-    setDraggedFile(null);
-    setDragOverTargetId(null);
   };
 
-  // Xóa học liệu trên máy chủ rồi nạp lại cây phân cấp.
+  // Xóa hẳn học liệu khỏi lớp học sau khi xác nhận thao tác.
   const handleDeleteFile = async (file: MaterialFileItem) => {
     try {
-      await apiRequest(`/instructor/materials/${file.id}`, {
+      await apiRequest(`/instructor/materials/${encodeURIComponent(file.id)}`, {
         method: "DELETE",
         roleCode: session.roleCode,
       });
+      setActiveMenuFileId(null);
+      await refreshAfterMutation(`Đã xóa '${file.name}'.`);
     } catch (err) {
-      console.error("Lỗi xóa file trong CSDL:", err);
       notify(err instanceof Error ? err.message : "Không thể xóa học liệu.", "error");
-      return;
-    }
-
-    await refreshMaterialList(`Đã xóa '${file.name}' khỏi kho học liệu.`);
-    setActiveMenuFileId(null);
-  };
-
-  // Đổi loại học liệu và giữ nguyên các tag không liên quan.
-  const handleAssignRoleConfirm = async (role: "MATERIAL" | "LECTURE") => {
-    if (!selectedFileForAssign) return;
-    const file = selectedFileForAssign;
-    try {
-      await apiRequest(`/instructor/materials/${file.id}`, {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          folder: role === "LECTURE" ? "Bài giảng" : "Tài liệu",
-          tags: [...(file.tags ?? []).filter((tag) => tag !== "MATERIAL" && tag !== "LECTURE"), role],
-        }),
-      });
-    } catch (err) {
-      console.error("Lỗi phân loại học liệu:", err);
-      notify(err instanceof Error ? err.message : "Không thể phân loại học liệu.", "error");
-      return;
-    }
-    await refreshMaterialList(`Đã thiết lập '${file.name}' làm ${role === "LECTURE" ? "Bài giảng" : "Tài liệu học tập"}.`);
-    setAssignModalOpen(false);
-    setSelectedFileForAssign(null);
-    setActiveMenuFileId(null);
-  };
-
-  // Xử lý kéo thả kiểu Laptop: Hỗ trợ cả file nội bộ và file kéo từ máy tính cá nhân
-  const handleDropOnTargetFolder = async (
-    targetClassId: string,
-    e: React.DragEvent
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverTargetId(null);
-
-    // TH1: Kéo thả file từ máy tính cá nhân và gửi nội dung binary.
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
-      try {
-        const created = await uploadMaterialFile(file, targetClassId, "MATERIAL");
-        await refreshMaterialList(`Đã tải lên '${created.name}' (${formatMaterialSize(created.sizeBytes)}).`);
-      } catch (err) {
-        console.error("Lỗi tải lên tệp kéo thả:", err);
-        notify(err instanceof Error ? err.message : "Không thể tải lên tệp kéo thả.", "error");
-      }
-      return;
-    }
-
-    // TH2: Kéo thả file nội bộ
-    if (draggedFile) {
-      if (targetClassId === "unclassified") {
-        await handleMoveToUnclassified(draggedFile);
-      } else {
-        await handleMoveFileToTargetClass(draggedFile, targetClassId);
-      }
     }
   };
 
-  // Xử lý khi thả tệp vào một Khối (kéo thả kiểu laptop)
-  const handleDropOnTargetGrade = async (gradeId: string, e: React.DragEvent) => {
-    const targetGrade = gradesData.find((g) => g.id === gradeId);
-    if (!targetGrade) return;
-    const classes = targetGrade.subjects.flatMap((subject) => subject.classes);
-    if (classes.length !== 1) {
-      e.preventDefault();
-      notify("Hãy mở một lớp cụ thể trước khi thả tệp vào khối.", "error");
-      return;
-    }
-    await handleDropOnTargetFolder(classes[0]!.id, e);
-  };
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredGrades = useMemo(
+    () =>
+      gradesData.filter(
+        (g) => !normalizedSearch || g.label.toLowerCase().includes(normalizedSearch),
+      ),
+    [gradesData, normalizedSearch],
+  );
+  const filteredSubjects = useMemo(
+    () =>
+      (currentGrade?.subjects ?? []).filter(
+        (s) => !normalizedSearch || s.name.toLowerCase().includes(normalizedSearch),
+      ),
+    [currentGrade, normalizedSearch],
+  );
+  const filteredClasses = useMemo(
+    () =>
+      (currentSubject?.classes ?? []).filter(
+        (c) =>
+          !normalizedSearch ||
+          c.name.toLowerCase().includes(normalizedSearch) ||
+          c.code.toLowerCase().includes(normalizedSearch),
+      ),
+    [currentSubject, normalizedSearch],
+  );
+  const filteredFolders = useMemo(
+    () =>
+      currentClassFolderItems.filter(
+        (f) => !normalizedSearch || f.name.toLowerCase().includes(normalizedSearch),
+      ),
+    [currentClassFolderItems, normalizedSearch],
+  );
 
-  // Xử lý khi thả tệp vào một Môn (kéo thả kiểu laptop)
-  const handleDropOnTargetSubject = async (subjectId: string, e: React.DragEvent) => {
-    const classes = gradesData.flatMap((grade) => grade.subjects)
-      .find((subject) => subject.id === subjectId)?.classes ?? [];
-    if (classes.length === 1) {
-      await handleDropOnTargetFolder(classes[0]!.id, e);
-    } else {
-      e.preventDefault();
-      notify("Hãy mở một lớp cụ thể trước khi thả tệp vào môn học.", "error");
-    }
-  };
+  const currentLevel: "GRADE" | "SUBJECT" | "CLASS" | "FOLDER" | "FILE" = !selectedGradeId
+    ? "GRADE"
+    : !selectedSubjectId
+      ? "SUBJECT"
+      : !selectedClassId
+        ? "CLASS"
+        : !selectedFolder
+          ? "FOLDER"
+          : "FILE";
 
-  // Xử lý khi thả tệp vào một Thư mục hoặc Lớp
-  const handleDropOnTargetClass = async (classId: string, e: React.DragEvent) => {
-    await handleDropOnTargetFolder(classId, e);
-  };
+  const firstColLabel =
+    currentLevel === "GRADE"
+      ? "Tên khối"
+      : currentLevel === "SUBJECT"
+        ? "Tên môn"
+        : currentLevel === "CLASS"
+          ? "Tên lớp"
+          : currentLevel === "FOLDER"
+            ? "Tên thư mục"
+            : "Tên tệp";
 
   return (
     <div
       onClick={() => setActiveMenuFileId(null)}
-      className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)] w-full bg-slate-50/50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100"
+      className="min-h-[calc(100vh-80px)] w-full bg-slate-50/50 dark:bg-[#070b14] text-slate-900 dark:text-slate-100"
     >
-      {/* =========================================================================
-          CỘT TRÁI: CẦN PHÂN CẤP LẠI (HỖ TRỢ KÉO THẢ KIỂU LAPTOP & MENU 3 CHẤM)
-          ========================================================================= */}
-      <aside
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setDragOverTargetId("unclassified-zone");
-        }}
-        onDragLeave={() => {
-          if (dragOverTargetId === "unclassified-zone") setDragOverTargetId(null);
-        }}
-        onDrop={(e) => handleDropOnTargetFolder("unclassified", e)}
-        className={`w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 space-y-4 transition-all ${
-          dragOverTargetId === "unclassified-zone"
-            ? "bg-rose-50/80 dark:bg-rose-950/40 ring-2 ring-dashed ring-rose-500 scale-[1.01]"
-            : ""
-        }`}
-      >
-        {/* Hàng Header: Cần phân cấp lại kèm badge đỏ tròn */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-              <span>📍</span>
-              <span>Cần phân cấp lại</span>
-            </h2>
-            <span className="grid size-5 place-items-center rounded-full bg-rose-500 text-white text-[11px] font-extrabold shadow-2xs">
-              {unclassifiedExams.length}
-            </span>
-          </div>
-          {dragOverTargetId === "unclassified-zone" && (
-            <span className="text-[10px] font-extrabold text-rose-600 bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-full animate-pulse">
-              Thả vào đây
-            </span>
-          )}
-        </div>
-
-        {/* Switch: Hiển thị chi tiết học liệu */}
-        <div className="flex items-center justify-between pt-1 pb-1 border-b border-slate-100 dark:border-slate-800">
-          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-            Hiển thị chi tiết học liệu
-          </span>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showDetail}
-              onChange={(e) => setShowDetail(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-          </label>
-        </div>
-
-        {/* Hướng dẫn kéo thả trực quan */}
-        <div className="px-3 py-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 flex items-center gap-2">
-          <Move size={14} className="shrink-0 animate-pulse text-blue-600" />
-          <span>Kéo thả thẻ vào các Thư mục/Lớp ở bảng bên phải để lưu (hoặc kéo tệp máy tính thả vào đây).</span>
-        </div>
-
-        {/* Danh sách các thẻ đề chưa phân loại (Kéo thả draggable, Icon phân loại & Menu 3 chấm) */}
-        <div className="space-y-3 pt-1">
-          {unclassifiedExams.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-              Không có tài liệu nào cần phân cấp lại. Bấm &quot;Tải lên&quot; hoặc kéo thả tệp từ máy tính vào đây.
-            </div>
-          ) : (
-            unclassifiedExams.map((item) => (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("text/plain", item.id);
-                  setDraggedFile(item);
-                }}
-                onDragEnd={() => {
-                  setDraggedFile(null);
-                }}
-                className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-3 shadow-2xs space-y-2 hover:border-blue-400 transition cursor-grab active:cursor-grabbing group ${
-                  draggedFile?.id === item.id
-                    ? "opacity-50 border-blue-500 scale-[0.98]"
-                    : "border-slate-200 dark:border-slate-800"
-                }`}
-              >
-                {/* Dòng 1: Tag học liệu, vai trò gán và Nút 3 chấm */}
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <div className="flex items-center gap-1.5 font-semibold text-slate-500">
-                    <span>📍</span>
-                    <span>Học liệu</span>
-                    {item.assignedRole && (
-                      <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${
-                        item.assignedRole === "LECTURE"
-                          ? "bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300"
-                          : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                      }`}>
-                        {item.assignedRole === "LECTURE" ? "Bài giảng" : "Tài liệu"}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Nút 3 chấm và Dropdown Popover */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveMenuFileId(activeMenuFileId === item.id ? null : item.id);
-                      }}
-                      className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer"
-                      title="Tùy chọn học liệu"
-                    >
-                      <MoreVertical size={15} />
-                    </button>
-
-                    {activeMenuFileId === item.id && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handleToggleFileVisibility(item);
-                          }}
-                          className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                        >
-                          <span>
-                            {item.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
-                          </span>
-                          {item.visibility === "HIDDEN" ? (
-                            <Eye size={14} className="text-emerald-600 shrink-0" />
-                          ) : (
-                            <EyeOff size={14} className="text-slate-500 shrink-0" />
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openAssignModal(item)}
-                          className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                        >
-                          <span>Dùng làm tài liệu/bài giảng</span>
-                          <BookOpen size={14} className="text-blue-600 shrink-0" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedFileForMove(item);
-                            setMoveModalOpen(true);
-                            setActiveMenuFileId(null);
-                          }}
-                          className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                        >
-                          <span>Di chuyển đến thư mục...</span>
-                          <Move size={14} className="text-amber-600 shrink-0" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleDeleteFile(item);
-                          }}
-                          className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                        >
-                          <span>Xóa</span>
-                          <Trash2 size={14} className="shrink-0" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Dòng 2: Icon loại file, tên đề và tag */}
-                <div className="flex items-start gap-2.5">
-                  <div className={`size-7 rounded-lg text-white font-extrabold text-xs grid place-items-center shrink-0 mt-0.5 shadow-xs ${
-                    item.type === "word"
-                      ? "bg-blue-600"
-                      : item.type === "pdf"
-                      ? "bg-rose-600"
-                      : item.type === "video"
-                      ? "bg-purple-600"
-                      : "bg-emerald-600"
-                  }`}>
-                    {item.type === "word" ? "W" : item.type === "pdf" ? "PDF" : item.type === "video" ? "MP4" : "DOC"}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200 truncate group-hover:text-blue-600 transition">
-                        {item.name}
-                      </strong>
-                      {item.visibility === "HIDDEN" && (
-                        <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                          <EyeOff size={10} />
-                          <span>Đã ẩn</span>
-                        </span>
-                      )}
-                    </div>
-                    {showDetail && (
-                      <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
-                        <span>{item.size}</span>
-                        <span>•</span>
-                        <span>{formatMaterialUpdatedAt(item.updatedAt, locale, t)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </aside>
-
-      {/* =========================================================================
-          CỘT PHẢI: BẢNG HỌC LIỆU PHÂN CẤP (KHỐI -> MÔN -> LỚP)
-          ========================================================================= */}
-      <main className="flex-1 p-5 sm:p-6 space-y-4 overflow-y-auto">
-        {/* Header hàng trên: Tiêu đề Học liệu & Breadcrumb + Icon view + Nút Tải lên */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <h1
+      <main className="mx-auto max-w-6xl p-5 sm:p-6 space-y-4">
+        {/* Header: Breadcrumb Khối → Môn → Lớp → Thư mục → Tệp + Nút tạo thư mục & tải tệp */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <nav aria-label="Điều hướng học liệu" className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
               onClick={() => {
                 setSelectedGradeId(null);
                 setSelectedSubjectId(null);
                 setSelectedClassId(null);
+                setSelectedFolder(null);
               }}
               className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 cursor-pointer"
             >
               Học liệu
-            </h1>
+            </button>
 
-            {/* Breadcrumb drill-down Khối */}
             {currentGrade && (
               <>
                 <ChevronRight size={15} className="text-slate-400" />
@@ -894,6 +870,7 @@ export function InstructorMaterialsView() {
                   onClick={() => {
                     setSelectedSubjectId(null);
                     setSelectedClassId(null);
+                    setSelectedFolder(null);
                   }}
                   className="text-sm font-bold text-blue-600 hover:underline cursor-pointer"
                 >
@@ -902,36 +879,52 @@ export function InstructorMaterialsView() {
               </>
             )}
 
-            {/* Breadcrumb drill-down Môn */}
             {currentSubject && (
               <>
                 <ChevronRight size={15} className="text-slate-400" />
                 <button
                   type="button"
-                  onClick={() => setSelectedClassId(null)}
+                  onClick={() => {
+                    setSelectedClassId(null);
+                    setSelectedFolder(null);
+                  }}
                   className="text-sm font-bold text-blue-600 hover:underline cursor-pointer"
                 >
-                  Môn {currentSubject.name}
+                  {formatSubjectLabel(currentSubject.name)}
                 </button>
               </>
             )}
 
-            {/* Breadcrumb drill-down Lớp */}
             {currentClass && (
               <>
                 <ChevronRight size={15} className="text-slate-400" />
-                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedFolder(null)}
+                  className={`text-sm font-bold cursor-pointer ${
+                    selectedFolder ? "text-blue-600 hover:underline" : "text-slate-900 dark:text-slate-100"
+                  }`}
+                >
                   {currentClass.name}
+                </button>
+              </>
+            )}
+
+            {selectedFolder && (
+              <>
+                <ChevronRight size={15} className="text-slate-400" />
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {selectedFolder.name}
                 </span>
               </>
             )}
-          </div>
+          </nav>
 
-          {/* Icon view toggle + Nút Tải lên tài liệu/bài giảng */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-0.5">
               <button
                 type="button"
+                aria-label="Chế độ danh sách"
                 onClick={() => setViewMode("list")}
                 className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
                   viewMode === "list" ? "bg-slate-100 dark:bg-slate-800 text-blue-600" : "text-slate-400"
@@ -941,6 +934,7 @@ export function InstructorMaterialsView() {
               </button>
               <button
                 type="button"
+                aria-label="Chế độ lưới"
                 onClick={() => setViewMode("grid")}
                 className={`p-1.5 rounded-lg text-xs transition cursor-pointer ${
                   viewMode === "grid" ? "bg-slate-100 dark:bg-slate-800 text-blue-600" : "text-slate-400"
@@ -950,842 +944,735 @@ export function InstructorMaterialsView() {
               </button>
             </div>
 
-            {/* Nút Tải lên học liệu (Tài liệu / Bài giảng) */}
+            {currentClass && !selectedFolder && canManageCurrentClass && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewFolderName("");
+                  setNewFolderKind("materials");
+                  setCreateFolderModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <FolderPlus size={14} className="text-blue-600" />
+                <span>Tạo thư mục</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => openUploadModal(currentContextLocation.classId)}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
+              disabled={!canUploadInOpenFolder}
+              onClick={openUploadModal}
+              title={
+                canUploadInOpenFolder
+                  ? "Tải tài liệu / bài giảng vào thư mục đang mở"
+                  : "Hãy mở một thư mục cụ thể thuộc lớp được phân công để tải lên"
+              }
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-400 disabled:cursor-not-allowed text-white text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
             >
               <Upload size={14} />
-              <span>Tải lên tài liệu / bài giảng</span>
+              <span>Tải tài liệu / bài giảng</span>
             </button>
           </div>
         </div>
 
-        {/* Thanh tìm kiếm dài toàn chiều ngang bo góc kèm icon kính lúp */}
+        {/* Thanh tìm kiếm */}
         <div className="relative">
           <input
             type="text"
-            placeholder="Tìm kiếm học liệu, tài liệu, bài giảng..."
+            placeholder="Tìm theo tên khối, môn, lớp, thư mục hoặc tệp..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (selectedFolder) filePagination.resetPage();
+            }}
             className="w-full px-4 py-2.5 pr-10 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 shadow-2xs focus:outline-hidden focus:ring-1 focus:ring-blue-500"
           />
           <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
 
-        {/* =====================================================================
-            BẢNG DANH SÁCH MỤC (TABLE VIEW HỖ TRỢ THẢ KÉO THAY ĐỔI THƯ MỤC)
-            ===================================================================== */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
-          {/* Hàng Header bảng chuẩn */}
-          <div className="grid grid-cols-12 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs font-semibold text-slate-500">
-            <div className="col-span-6 flex items-center gap-1">
-              <span>
-                {!selectedGradeId
-                  ? "Tên khối"
-                  : !selectedSubjectId
-                  ? "Tên môn"
-                  : !selectedClassId
-                  ? "Tên lớp"
-                  : "Tên tệp"}
-              </span>
-              <span>↑</span>
-            </div>
-            <div className="col-span-3 text-left">Kích thước tệp</div>
-            <div className="col-span-2 flex items-center gap-1 text-left">
-              <span>Sửa đổi lần cuối</span>
-              <Filter size={12} className="text-slate-400" />
-            </div>
-            <div className="col-span-1 text-right">Tùy chọn</div>
-          </div>
+        {!selectedFolder && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Mở thư mục trong lớp để tải học liệu lên.
+          </p>
+        )}
 
-          {currentClass && (
-            <button
-              type="button"
-              onClick={() => openUploadModal(currentClass.id)}
-              className="flex w-full items-center gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 cursor-pointer text-xs font-bold text-blue-600 transition"
-            >
-              <span className="size-6 rounded bg-blue-600 text-white grid place-items-center text-xs shadow-2xs">+</span>
-              <span>Thêm tài liệu / bài giảng mới cho {currentClass.name}</span>
-            </button>
+        {/* Nội dung chính */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-2xs">
+          {viewMode === "list" && currentLevel !== "FOLDER" && (
+            <div className="grid grid-cols-12 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs font-semibold text-slate-500">
+              <div className="col-span-6">{firstColLabel}</div>
+              <div className="col-span-3">{currentLevel === "FILE" ? "Kích thước tệp" : "Số lượng"}</div>
+              <div className="col-span-2">{currentLevel === "FILE" ? "Cập nhật" : "Loại"}</div>
+              <div className="col-span-1 text-right">Tùy chọn</div>
+            </div>
           )}
 
-          {/* DANH SÁCH NỘI DUNG THEO TỪNG CẤP ĐỘ */}
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
-            {/* CẤP 1: DANH SÁCH KHỐI (6, 7, Đại học...) NẾU CHƯA CHỌN KHỐI (HỖ TRỢ NHẬN THẢ FILE) */}
-            {!selectedGradeId &&
-              gradesData
-                .filter((g) => !searchQuery || g.label.toLowerCase().includes(searchQuery.toLowerCase()))
-                .map((grade) => {
-                  const isDragOver = dragOverTargetId === grade.id;
-                  return (
-                    <div
+          {loading ? (
+            <div className="p-10 text-center text-xs text-slate-500">Đang tải danh sách học liệu...</div>
+          ) : (
+            <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4" : "divide-y divide-slate-100 dark:divide-slate-800/50"}>
+              {/* CẤP 1: KHỐI */}
+              {currentLevel === "GRADE" &&
+                (filteredGrades.length > 0 ? (
+                  filteredGrades.map((grade) => (
+                    <button
                       key={grade.id}
+                      type="button"
                       onClick={() => setSelectedGradeId(grade.id)}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setDragOverTargetId(grade.id);
-                      }}
-                      onDragLeave={() => setDragOverTargetId(null)}
-                      onDrop={(e) => {
-                        handleDropOnTargetGrade(grade.id, e);
-                      }}
-                      className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
-                        isDragOver
-                          ? "bg-blue-100/80 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
-                          : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                      }`}
+                      className={
+                        viewMode === "grid"
+                          ? "rounded-xl border border-slate-200 dark:border-slate-800 p-4 text-left hover:border-blue-400 transition space-y-2 cursor-pointer"
+                          : "w-full grid grid-cols-12 px-4 py-3.5 items-center text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-xs transition cursor-pointer"
+                      }
                     >
-                      <div className="col-span-6 flex items-center gap-3">
-                        <Folder size={18} className="text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" />
-                        <div>
-                          <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                            {grade.name}
+                      <div className={viewMode === "grid" ? "flex items-center gap-2.5" : "col-span-6 flex items-center gap-3"}>
+                        <Folder size={18} className="text-slate-700 dark:text-slate-200 shrink-0" />
+                        <strong className="font-bold text-slate-900 dark:text-slate-100">{grade.label}</strong>
+                      </div>
+                      <div className={viewMode === "grid" ? "text-[11px] text-slate-500" : "col-span-3 text-slate-500"}>
+                        {t(`${grade.itemsCount} mục`)}
+                      </div>
+                      {viewMode === "list" && (
+                        <>
+                          <div className="col-span-2 text-slate-400">Khối học</div>
+                          <div className="col-span-1 text-right text-slate-400">→</div>
+                        </>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-full p-8 text-center text-xs text-slate-400">
+                    Chưa có khối học nào khả dụng.
+                  </div>
+                ))}
+
+              {/* CẤP 2: MÔN */}
+              {currentLevel === "SUBJECT" &&
+                (filteredSubjects.length > 0 ? (
+                  filteredSubjects.map((sub) => (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      onClick={() => setSelectedSubjectId(sub.id)}
+                      className={
+                        viewMode === "grid"
+                          ? "rounded-xl border border-slate-200 dark:border-slate-800 p-4 text-left hover:border-blue-400 transition space-y-2 cursor-pointer"
+                          : "w-full grid grid-cols-12 px-4 py-3.5 items-center text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-xs transition cursor-pointer"
+                      }
+                    >
+                      <div className={viewMode === "grid" ? "flex items-center gap-2.5" : "col-span-6 flex items-center gap-3"}>
+                        <Folder size={18} className="text-slate-700 dark:text-slate-200 shrink-0" />
+                        <strong className="font-bold text-slate-900 dark:text-slate-100">{formatSubjectLabel(sub.name)}</strong>
+                      </div>
+                      <div className={viewMode === "grid" ? "text-[11px] text-slate-500" : "col-span-3 text-slate-500"}>
+                        {t(`${sub.classes.length} lớp`)}
+                      </div>
+                      {viewMode === "list" && (
+                        <>
+                          <div className="col-span-2 text-slate-400">Môn học</div>
+                          <div className="col-span-1 text-right text-slate-400">→</div>
+                        </>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-full p-8 text-center text-xs text-slate-400">
+                    Khối này chưa có môn học nào.
+                  </div>
+                ))}
+
+              {/* CẤP 3: LỚP */}
+              {currentLevel === "CLASS" &&
+                (filteredClasses.length > 0 ? (
+                  filteredClasses.map((cls) => (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => setSelectedClassId(cls.id)}
+                      className={
+                        viewMode === "grid"
+                          ? "rounded-xl border border-slate-200 dark:border-slate-800 p-4 text-left hover:border-blue-400 transition space-y-2 cursor-pointer"
+                          : "w-full grid grid-cols-12 px-4 py-3.5 items-center text-left hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-xs transition cursor-pointer"
+                      }
+                    >
+                      <div className={viewMode === "grid" ? "flex items-center gap-2.5" : "col-span-6 flex items-center gap-3"}>
+                        <Folder size={18} className="text-blue-600 shrink-0" />
+                        <div className="min-w-0">
+                          <strong className="font-bold text-slate-900 dark:text-slate-100 truncate block">
+                            {cls.name} ({cls.code})
                           </strong>
-                          {isDragOver && (
-                            <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
-                              Thả tệp vào đây để lưu vào khối {grade.label}
-                            </span>
+                          {cls.status === "CLOSED" && (
+                            <span className="text-[10px] text-amber-600 font-semibold">Lớp đã đóng (chỉ đọc)</span>
                           )}
                         </div>
                       </div>
-                      <div className="col-span-3 text-slate-500">{t(`${grade.itemsCount} mục`)}</div>
-                      <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(grade.updatedAt, locale, t)}</div>
-                      <div className="col-span-1 text-right text-slate-400">...</div>
-                    </div>
-                  );
-                })}
-
-            {/* CẤP 2: DANH SÁCH MÔN HỌC (NẾU ĐÃ CHỌN KHỐI - HỖ TRỢ NHẬN THẢ FILE) */}
-            {selectedGradeId && !selectedSubjectId && currentGrade && (
-              <>
-                {currentGrade.subjects.length > 0 ? (
-                  currentGrade.subjects.map((sub) => {
-                    const isDragOver = dragOverTargetId === sub.id;
-                    return (
-                      <div
-                        key={sub.id}
-                        onClick={() => setSelectedSubjectId(sub.id)}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          setDragOverTargetId(sub.id);
-                        }}
-                        onDragLeave={() => setDragOverTargetId(null)}
-                        onDrop={(e) => {
-                          handleDropOnTargetSubject(sub.id, e);
-                        }}
-                        className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
-                          isDragOver
-                            ? "bg-blue-100/80 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
-                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                        }`}
-                      >
-                        <div className="col-span-6 flex items-center gap-3">
-                          <Folder size={18} className="text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" />
-                          <div>
-                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                              Môn {sub.name}
-                            </strong>
-                            {isDragOver && (
-                              <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
-                                Thả tệp vào đây để lưu vào môn {sub.name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="col-span-3 text-slate-500">{t(`${sub.classes.length} lớp`)}</div>
-                        <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(sub.updatedAt, locale, t)}</div>
-                        <div className="col-span-1 text-right text-slate-400">...</div>
+                      <div className={viewMode === "grid" ? "text-[11px] text-slate-500" : "col-span-3 text-slate-500"}>
+                        {t(`${cls.itemsCount} tệp`)}
                       </div>
+                      {viewMode === "list" && (
+                        <>
+                          <div className="col-span-2 text-slate-400">Lớp học</div>
+                          <div className="col-span-1 text-right text-slate-400">→</div>
+                        </>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-full p-8 text-center text-xs text-slate-400">
+                    Môn này chưa có lớp học nào.
+                  </div>
+                ))}
+
+              {/* CẤP 4: THƯ MỤC MỘT CẤP TRONG LỚP (class_folders) */}
+              {currentLevel === "FOLDER" &&
+                (foldersLoading ? (
+                  <div className="col-span-full p-8 text-center text-xs text-slate-500">
+                    Đang tải danh sách thư mục của lớp...
+                  </div>
+                ) : filteredFolders.length > 0 ? (
+                  (["materials", "lectures"] as const).map((kind) => {
+                    const folders = filteredFolders.filter((folder) => folder.kind === kind);
+                    if (!folders.length) return null;
+                    const title = kind === "lectures" ? "Bài giảng" : "Tài liệu";
+                    return (
+                      <section key={kind} aria-label={t(title)} className="col-span-full min-w-0">
+                        <h3 className="flex items-baseline gap-2 bg-slate-50 px-4 py-2 text-sm font-semibold dark:bg-slate-800">
+                          {t(title)} <span className="text-xs font-normal tabular-nums text-slate-500 dark:text-slate-300">({folders.length})</span>
+                        </h3>
+                        <div className={viewMode === "grid" ? "grid gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3" : "divide-y divide-slate-100 dark:divide-slate-800"}>
+                          {folders.map((folder) => (
+                            <button key={folder.name} type="button"
+                              onClick={() => {
+                                filePagination.resetPage();
+                                setSelectedFolder({ kind, name: folder.name });
+                              }}
+                              className={`flex min-h-11 w-full items-center gap-3 px-4 py-2 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-600 dark:hover:bg-slate-800 ${viewMode === "grid" ? "rounded-lg border border-slate-200 dark:border-slate-700" : ""}`}>
+                              <FolderOpen aria-hidden="true" size={18} className={kind === "lectures" ? "shrink-0 text-purple-600" : "shrink-0 text-amber-600"} />
+                              <span className="min-w-0 flex-1 break-words text-sm font-medium">{folder.name}</span>
+                              <span className="shrink-0 text-xs tabular-nums text-slate-600 dark:text-slate-300">{t(`${folder.count} tệp`)}</span>
+                              <span aria-hidden="true" className="text-slate-500">›</span>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
                     );
                   })
                 ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    Khối này chưa có môn học nào được phân công.
+                  <div className="col-span-full p-8 text-center text-xs text-slate-400">
+                    {canManageCurrentClass
+                      ? "Lớp chưa có thư mục nào. Hãy bấm \"Tạo thư mục\" trước khi tải học liệu lên."
+                      : "Lớp chưa có thư mục học liệu nào."}
                   </div>
-                )}
-              </>
-            )}
+                ))}
 
-            {/* CẤP 3: DANH SÁCH LỚP HỌC (HỖ TRỢ THẢ KÉO ĐỂ PHÂN LOẠI FILE VÀO LỚP) */}
-            {selectedSubjectId && !selectedClassId && currentSubject && (
-              <>
-                {currentSubject.classes.length > 0 ? (
-                  currentSubject.classes.map((cls) => {
-                    const isDragOver = dragOverTargetId === cls.id;
-                    return (
-                      <div
-                        key={cls.id}
-                        onClick={() => setSelectedClassId(cls.id)}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          setDragOverTargetId(cls.id);
-                        }}
-                        onDragLeave={() => setDragOverTargetId(null)}
-                        onDrop={(e) => {
-                          handleDropOnTargetClass(cls.id, e);
-                        }}
-                        className={`grid grid-cols-12 px-4 py-3.5 items-center cursor-pointer text-xs transition group ${
-                          isDragOver
-                            ? "bg-blue-100/70 dark:bg-blue-900/40 border-2 border-dashed border-blue-500 scale-[1.01]"
-                            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                        }`}
-                      >
-                        <div className="col-span-6 flex items-center gap-3">
-                          <Folder size={18} className="text-blue-600 fill-blue-600" />
-                          <div>
-                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition">
-                              {cls.name} ({cls.code})
-                            </strong>
-                            {isDragOver && (
-                              <span className="block text-[11px] font-bold text-blue-600 animate-pulse">
-                                Thả tệp vào đây để di chuyển vào lớp này
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="col-span-3 text-slate-500">{t(`${cls.files.length} tệp`)}</div>
-                        <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(cls.updatedAt, locale, t)}</div>
-                        <div className="col-span-1 text-right text-slate-400">...</div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    Môn này chưa có lớp học nào được phân công.
+              {/* CẤP 5: DANH SÁCH TỆP TRONG THƯ MỤC ĐANG MỞ */}
+              {currentLevel === "FILE" &&
+                (folderFilesLoading ? (
+                  <div className="col-span-full p-8 text-center text-xs text-slate-500">
+                    Đang tải danh sách học liệu...
                   </div>
-                )}
-              </>
-            )}
-
-            {/* CẤP 4: DANH SÁCH TÀI LIỆU & BÀI GIẢNG CỦA LỚP KÈM MENU 3 CHẤM ĐẦY ĐỦ TÙY CHỌN */}
-            {selectedClassId && currentClass && (
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "copy";
-                  setDragOverTargetId(currentClass.id);
-                }}
-                onDragLeave={() => {
-                  if (dragOverTargetId === currentClass.id) setDragOverTargetId(null);
-                }}
-                onDrop={(e) => handleDropOnTargetClass(currentClass.id, e)}
-                className={`divide-y divide-slate-100 dark:divide-slate-800/50 transition ${
-                  dragOverTargetId === currentClass.id
-                    ? "bg-blue-50/60 dark:bg-blue-950/30 ring-2 ring-dashed ring-blue-500"
-                    : ""
-                }`}
-              >
-                {currentClass.files.length > 0 ? (
-                  currentClass.files.map((file) => (
+                ) : folderFiles.length > 0 ? (
+                  folderFiles.map((file) => (
                     <div
                       key={file.id}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/plain", file.id);
-                        setDraggedFile(file);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedFile(null);
-                      }}
-                      onClick={() => {
-                        notify(`Đang xem tài liệu/bài giảng: ${file.name}`, "info");
-                      }}
-                      className={`grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-grab active:cursor-grabbing text-xs transition group relative ${
-                        draggedFile?.id === file.id ? "opacity-50 scale-[0.99]" : ""
-                      }`}
+                      className={
+                        viewMode === "grid"
+                          ? "rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 relative"
+                          : "grid grid-cols-12 px-4 py-3.5 items-center hover:bg-slate-50/80 dark:hover:bg-slate-800/40 text-xs transition relative"
+                      }
                     >
-                      <div className="col-span-6 flex items-center gap-3">
+                      <div className={viewMode === "grid" ? "flex items-start gap-2.5" : "col-span-6 flex items-center gap-3 min-w-0"}>
                         <span
-                          className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 shadow-2xs ${
+                          className={`size-7 rounded-lg text-white font-extrabold text-[11px] grid place-items-center shrink-0 ${
                             file.type === "word"
                               ? "bg-blue-600"
                               : file.type === "pdf"
-                              ? "bg-rose-600"
-                              : file.type === "video"
-                              ? "bg-purple-600"
-                              : "bg-emerald-600"
+                                ? "bg-rose-600"
+                                : file.type === "video"
+                                  ? "bg-purple-600"
+                                  : "bg-emerald-600"
                           }`}
                         >
                           {file.type === "word" ? "W" : file.type === "pdf" ? "PDF" : file.type === "video" ? "MP4" : "DOC"}
                         </span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <strong className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition block truncate">
-                              {file.name}
-                            </strong>
+                        <div className="min-w-0 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleAccessFile(file, "PREVIEW")}
+                            className="font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 truncate block text-left w-full cursor-pointer"
+                          >
+                            {file.name}
+                          </button>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${
+                                file.kind === "lectures"
+                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300"
+                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                              }`}
+                            >
+                              {file.kind === "lectures" ? "Bài giảng" : "Tài liệu"}
+                            </span>
                             {file.visibility === "HIDDEN" && (
-                              <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
                                 <EyeOff size={10} />
                                 <span>Đã ẩn</span>
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {file.tag && (
-                              <span className="text-[10px] text-blue-600 font-semibold">{file.tag}</span>
-                            )}
-                            {file.assignedRole && (
-                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold ${
-                                file.assignedRole === "LECTURE"
-                                  ? "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300"
-                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
-                              }`}>
-                                {file.assignedRole === "LECTURE" ? "Bài giảng" : "Tài liệu học tập"}
-                              </span>
-                            )}
-                          </div>
                         </div>
                       </div>
-                      <div className="col-span-3 text-slate-500">{file.size}</div>
-                      <div className="col-span-2 text-slate-500">{formatMaterialUpdatedAt(file.updatedAt, locale, t)}</div>
 
-                      {/* Cột Tùy chọn 3 chấm với: từng hàng 1 chức năng, tên trái - icon phải */}
-                      <div className="col-span-1 text-right relative">
+                      <div className={viewMode === "grid" ? "text-[11px] text-slate-500 flex items-center justify-between" : "col-span-3 text-slate-500"}>
+                        <span>{file.size}</span>
+                        {viewMode === "grid" && (
+                          <span>{formatMaterialUpdatedAt(file.updatedAt, locale, t)}</span>
+                        )}
+                      </div>
+
+                      {viewMode === "list" && (
+                        <div className="col-span-2 text-slate-500">
+                          {formatMaterialUpdatedAt(file.updatedAt, locale, t)}
+                        </div>
+                      )}
+
+                      <div className={viewMode === "grid" ? "flex items-center justify-end gap-1.5" : "col-span-1 text-right relative"}>
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenuFileId(activeMenuFileId === file.id ? null : file.id);
-                          }}
-                          className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer"
-                          title="Tùy chọn"
+                          onClick={() => void handleAccessFile(file, "DOWNLOAD")}
+                          title="Tải xuống"
+                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 cursor-pointer inline-flex items-center"
                         >
-                          <MoreVertical size={16} />
+                          <Download size={14} />
                         </button>
 
-                        {activeMenuFileId === file.id && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute right-0 top-full mt-1 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
-                          >
+                        {canManageCurrentClass && (
+                          <div className="relative inline-block">
                             <button
                               type="button"
-                              onClick={() => {
-                                void handleToggleFileVisibility(file);
+                              aria-label="Tùy chọn học liệu"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuFileId(activeMenuFileId === file.id ? null : file.id);
                               }}
-                              className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
+                              className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
                             >
-                              <span>
-                                {file.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}
-                              </span>
-                              {file.visibility === "HIDDEN" ? (
-                                <Eye size={14} className="text-emerald-600 shrink-0" />
-                              ) : (
-                                <EyeOff size={14} className="text-slate-500 shrink-0" />
-                              )}
+                              <MoreVertical size={16} />
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() => openAssignModal(file)}
-                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                            >
-                              <span>Dùng làm tài liệu/bài giảng</span>
-                              <BookOpen size={14} className="text-blue-600 shrink-0" />
-                            </button>
+                            {activeMenuFileId === file.id && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-30 divide-y divide-slate-100 dark:divide-slate-800 text-xs text-left"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(file)}
+                                  className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                                >
+                                  <span>Chỉnh sửa / Thay tệp</span>
+                                  <Edit3 size={14} className="text-blue-600 shrink-0" />
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedFileForMove(file);
-                                setTargetMoveClassId(allClassesList[0]?.classId || "unclassified");
-                                setMoveModalOpen(true);
-                                setActiveMenuFileId(null);
-                              }}
-                              className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                            >
-                              <span>Di chuyển</span>
-                              <Move size={14} className="text-amber-600 shrink-0" />
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleVisibility(file)}
+                                  className="w-full px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                                >
+                                  <span>{file.visibility === "HIDDEN" ? "Hiển thị học liệu" : "Ẩn học liệu"}</span>
+                                  {file.visibility === "HIDDEN" ? (
+                                    <Eye size={14} className="text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <EyeOff size={14} className="text-slate-500 shrink-0" />
+                                  )}
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void handleMoveToUnclassified(file);
-                              }}
-                              className="w-full px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                            >
-                              <span>Chuyển vào Cần phân cấp lại</span>
-                              <FolderMinus size={14} className="text-blue-600 shrink-0" />
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openMoveModal(file)}
+                                  className="w-full px-3.5 py-2.5 hover:bg-amber-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                                >
+                                  <span>Di chuyển đến lớp/thư mục</span>
+                                  <Move size={14} className="text-amber-600 shrink-0" />
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void handleDeleteFile(file);
-                              }}
-                              className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 text-left cursor-pointer font-medium"
-                            >
-                              <span>Xóa</span>
-                              <Trash2 size={14} className="shrink-0" />
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteFile(file)}
+                                  className="w-full px-3.5 py-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 flex items-center justify-between gap-2 cursor-pointer font-medium"
+                                >
+                                  <span>Xóa</span>
+                                  <Trash2 size={14} className="shrink-0" />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    Lớp chưa có học liệu hoặc bài giảng nào. Hãy bấm &quot;Tải lên tài liệu / bài giảng&quot; hoặc kéo thả tệp từ máy tính vào đây.
+                  <div className="col-span-full p-8 text-center text-xs text-slate-400">
+                    {canManageCurrentClass
+                      ? "Thư mục này chưa có tệp nào. Hãy bấm \"Tải tài liệu / bài giảng\" để thêm tệp mới."
+                      : "Thư mục này chưa có tệp nào."}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                ))}
+            </div>
+          )}
+          {!loading && currentLevel === "FILE" && filePagination.totalItems > 0 && (
+            <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-800">
+              <Pagination
+                totalItems={filePagination.totalItems}
+                page={filePagination.displayPage}
+                pageSize={filePagination.pageSize}
+                onPageChange={filePagination.setPage}
+                onPageSizeChange={filePagination.setPageSize}
+                itemLabel="tệp"
+              />
+            </div>
+          )}
         </div>
       </main>
 
-      {/* =========================================================================
-          MODAL TẢI LÊN TÀI LIỆU / BÀI GIẢNG (QUY TRÌNH 2 BƯỚC CHUẨN LỚP HỌC)
-          ========================================================================= */}
-      {uploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          {/* BƯỚC 1: CHỌN TẢI TÀI LIỆU HOẶC BÀI GIẢNG */}
-          {uploadModalStep === "SELECT_TYPE" && (
-            <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <UploadCloud size={20} className="text-blue-600" />
-                  <span>Chọn loại học liệu cần thêm</span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setUploadModalOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-500">
-                Lựa chọn phương thức học liệu bạn muốn thêm vào <strong className="text-slate-800 dark:text-slate-200">{currentContextLocation.label}</strong>:
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                {/* Cách 1: Tải lên tài liệu */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUploadForm((prev) => ({
-                      ...prev,
-                      category: "MATERIAL",
-                      title: "",
-                      fileName: "",
-                      fileSize: "",
-                    }));
-                    setSelectedUploadFile(null);
-                    setUploadModalStep("FORM");
-                  }}
-                  className="w-full p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 transition cursor-pointer space-y-2 group shadow-2xs text-left"
-                >
-                  <div className="size-11 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 grid place-items-center group-hover:scale-105 transition-transform">
-                    <BookOpen size={22} />
-                  </div>
-                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
-                    1. Tải tài liệu
-                  </strong>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Học liệu số, giáo trình, bài tập, đề cương dạng PDF, Word hoặc hình ảnh.
-                  </p>
-                </button>
-
-                {/* Cách 2: Tải lên bài giảng */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUploadForm((prev) => ({
-                      ...prev,
-                      category: "LECTURE",
-                      title: "",
-                      fileName: "",
-                      fileSize: "",
-                    }));
-                    setSelectedUploadFile(null);
-                    setUploadModalStep("FORM");
-                  }}
-                  className="w-full p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-purple-500 hover:bg-purple-50/40 dark:hover:bg-purple-950/20 transition cursor-pointer space-y-2 group shadow-2xs text-left"
-                >
-                  <div className="size-11 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-400 grid place-items-center group-hover:scale-105 transition-transform">
-                    <Video size={22} />
-                  </div>
-                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
-                    2. Tải bài giảng
-                  </strong>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Video bài học chuyên đề từ tệp MP4, PDF hoặc Word trên máy.
-                  </p>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* BƯỚC 2: FORM TƯƠNG ỨNG THEO ĐÚNG LOẠI ĐÃ CHỌN (CHUẨN LỚP HỌC) */}
-          {uploadModalStep === "FORM" && (
-            <div className={`w-full rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${uploadForm.category === "LECTURE" ? "max-w-3xl" : "max-w-lg"}`}>
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setUploadModalStep("SELECT_TYPE")}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer font-bold text-sm"
-                    title="Quay lại chọn loại học liệu"
-                  >
-                    ←
-                  </button>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                    {uploadForm.category === "LECTURE" ? (
-                      <>
-                        <Video size={20} className="text-purple-600" />
-                        <span>Thêm bài giảng mới</span>
-                      </>
-                    ) : (
-                      <>
-                        <BookOpen size={20} className="text-blue-600" />
-                        <span>Tải lên tài liệu học tập</span>
-                      </>
-                    )}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUploadModalOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* FORM CHO TÀI LIỆU */}
-              {uploadForm.category === "MATERIAL" && (
-                <div className="space-y-3.5 text-xs">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Tên tài liệu <span className="text-rose-500">*</span>:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ví dụ: Đề cương ôn tập Toán giữa kỳ 1..."
-                      value={uploadForm.title}
-                      onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 text-slate-900 dark:text-slate-100"
-                    />
-                  </div>
-
-                  {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Vị trí lưu mặc định:
-                    </label>
-                    <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="size-8 rounded-lg bg-blue-600 text-white grid place-items-center shrink-0 shadow-2xs">
-                          <FolderOpen size={16} />
-                        </div>
-                        <div className="min-w-0">
-                          <strong className="block text-xs font-bold text-blue-700 dark:text-blue-300 truncate">
-                            {currentContextLocation.path}
-                          </strong>
-                          <span className="text-[11px] text-slate-500 block">
-                            Tự động lưu vào vị trí này theo ngữ cảnh bạn đang mở.
-                          </span>
-                        </div>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 text-[10px] font-extrabold shrink-0 border border-blue-200 dark:border-blue-800">
-                        Hiện tại
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Tệp đính kèm */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Tệp tài liệu (PDF, Word, hình ảnh):
-                    </label>
-                    <label className="block cursor-pointer border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 bg-slate-50/50 dark:bg-slate-800/30 hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition">
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setSelectedUploadFile(file);
-                            setUploadForm({
-                              ...uploadForm,
-                              title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
-                              fileName: file.name,
-                              fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-                            });
-                          }
-                        }}
-                      />
-                      <FileText size={28} className="mx-auto text-blue-600" />
-                      <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-                        Bấm để <span className="text-blue-600 font-bold">chọn tệp từ máy</span>
-                      </div>
-                      {uploadForm.fileName && (
-                        <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2.5 rounded-lg inline-block">
-                          ✓ Đã chọn: {uploadForm.fileName} ({uploadForm.fileSize})
-                        </div>
-                      )}
-                    </label>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Trạng thái hiển thị:
-                    </label>
-                    <select
-                      value={uploadForm.visibility}
-                      onChange={(e) =>
-                        setUploadForm({
-                          ...uploadForm,
-                          visibility: e.target.value as "PUBLISHED" | "HIDDEN",
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                    >
-                      <option value="PUBLISHED">Hiển thị với học sinh</option>
-                      <option value="HIDDEN">Ẩn với học sinh</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* FORM CHO BÀI GIẢNG */}
-              {uploadForm.category === "LECTURE" && (
-                <div className="grid md:grid-cols-2 gap-5 text-xs">
-                  {/* Vùng 1: Chọn tệp bài giảng */}
-                  <div className="space-y-3.5 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-4">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-purple-600 block">
-                      Bước 1: Nguồn bài giảng
-                    </span>
-
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                        Tệp bài giảng:
-                      </label>
-                      <label className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 block text-center cursor-pointer hover:border-purple-500 transition">
-                        <input
-                          type="file"
-                          accept=".mp4,.pdf,.doc,.docx"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setSelectedUploadFile(file);
-                              setUploadForm({
-                                ...uploadForm,
-                                title: uploadForm.title || file.name.replace(/\.[^/.]+$/, ""),
-                                fileName: file.name,
-                                fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-                              });
-                            }
-                          }}
-                        />
-                        <UploadCloud size={24} className="mx-auto text-purple-600 mb-1" />
-                        <span className="block text-xs font-bold">Chọn tệp bài giảng</span>
-                        <span className="block text-[10px] text-slate-400">Hỗ trợ MP4, PDF, DOC, DOCX</span>
-                      </label>
-                      {uploadForm.fileName && (
-                        <div className="text-[11px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg text-center">
-                          ✓ {uploadForm.fileName} ({uploadForm.fileSize})
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Vùng 2: Thông tin bài giảng & Vị trí lưu */}
-                  <div className="space-y-3.5">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 block">
-                      Bước 2: Thông tin bài giảng
-                    </span>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Tên bài giảng <span className="text-rose-500">*</span>:
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ví dụ: Bài giảng 01: Đại số & Giải tích..."
-                        value={uploadForm.title}
-                        onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-purple-500 text-slate-900 dark:text-slate-100"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Trạng thái hiển thị:
-                      </label>
-                      <select
-                        value={uploadForm.visibility}
-                        onChange={(e) =>
-                          setUploadForm({
-                            ...uploadForm,
-                            visibility: e.target.value as "PUBLISHED" | "HIDDEN",
-                          })
-                        }
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                      >
-                        <option value="PUBLISHED">Hiển thị với học sinh</option>
-                        <option value="HIDDEN">Ẩn với học sinh</option>
-                      </select>
-                    </div>
-
-                    {/* Vị trí lưu mặc định: Lưu ngay tại nơi đang mở */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Vị trí lưu mặc định:
-                      </label>
-                      <div className="p-2.5 rounded-xl bg-purple-50/80 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="size-7 rounded-lg bg-purple-600 text-white grid place-items-center shrink-0 shadow-2xs">
-                            <FolderOpen size={14} />
-                          </div>
-                          <span className="text-xs font-bold text-purple-700 dark:text-purple-300 truncate">
-                            {currentContextLocation.path}
-                          </span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 text-[10px] font-extrabold shrink-0">
-                          Hiện tại
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setUploadModalStep("SELECT_TYPE")}
-                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  ← Đổi loại
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setUploadModalOpen(false)}
-                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUploadMaterialSubmit}
-                    disabled={isUploading}
-                    className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Check size={14} />
-                    <span>{isUploading ? "Đang tải lên..." : "Hoàn tất & Lưu vào kho"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* =========================================================================
-          MODAL GÁN VAI TRÒ (DÙNG LÀM TÀI LIỆU / BÀI GIẢNG)
-          ========================================================================= */}
-      {assignModalOpen && selectedFileForAssign && (
+      {/* MODAL TẠO THƯ MỤC Ở CẤP LỚP */}
+      {previewFile && <Modal open title={previewFile.name} onClose={() => setPreviewFile(null)}>
+        <InlineFilePreview key={previewFile.id} materialId={previewFile.id} title={previewFile.name} />
+        <button type="button" className="mt-3 text-sm font-semibold underline" onClick={() => void handleAccessFile(previewFile, "DOWNLOAD")}>Tải xuống</button>
+      </Modal>}
+      {createFolderModalOpen && currentClass && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <BookOpen size={20} className="text-blue-600" />
-              <span>Dùng làm tài liệu / bài giảng</span>
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Chọn vai trò áp dụng cho tệp <strong className="text-slate-900 dark:text-slate-100">&quot;{selectedFileForAssign.name}&quot;</strong>:
-            </p>
-
-            <div className="space-y-2 pt-1">
-              <div
-                onClick={() => handleAssignRoleConfirm("MATERIAL")}
-                className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 cursor-pointer transition flex items-center gap-3"
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold flex items-center gap-2">
+                <FolderPlus size={18} className="text-blue-600" />
+                <span>Tạo thư mục mới</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCreateFolderModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                <div className="size-9 rounded-xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 grid place-items-center shrink-0">
-                  <FileText size={18} />
-                </div>
-                <div>
-                  <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Dùng làm Tài liệu tham khảo
-                  </strong>
-                  <span className="text-[11px] text-slate-500">
-                    Xuất hiện ở danh sách Tài liệu học tập để học sinh tải về ôn luyện.
-                  </span>
-                </div>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="font-bold text-slate-500">Lớp đang mở:</span>{" "}
+                <strong className="text-slate-900 dark:text-slate-100">{currentClass.name}</strong>
               </div>
 
-              <div
-                onClick={() => handleAssignRoleConfirm("LECTURE")}
-                className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-950/20 cursor-pointer transition flex items-center gap-3"
-              >
-                <div className="size-9 rounded-xl bg-purple-100 dark:bg-purple-900/50 text-purple-600 grid place-items-center shrink-0">
-                  <Video size={18} />
-                </div>
-                <div>
-                  <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Dùng làm Bài giảng
-                  </strong>
-                  <span className="text-[11px] text-slate-500">
-                    Gắn vào hệ thống Bài giảng trực tuyến cho học sinh theo dõi video và lý thuyết.
-                  </span>
-                </div>
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Loại nội dung:
+                </label>
+                <select
+                  value={newFolderKind}
+                  onChange={(e) => setNewFolderKind(e.target.value as FolderKind)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold"
+                >
+                  <option value="materials">Tài liệu học tập</option>
+                  <option value="lectures">Bài giảng</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên thư mục:
+                </label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="Ví dụ: Chương 1 - Hàm số"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                />
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setAssignModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                onClick={() => setCreateFolderModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer"
               >
-                Đóng
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={creatingFolder}
+                onClick={() => void handleCreateFolderSubmit()}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+              >
+                {creatingFolder ? "Đang tạo..." : "Tạo thư mục"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* =========================================================================
-          MODAL DI CHUYỂN TÀI LIỆU / BÀI GIẢNG SANG THƯ MỤC KHÁC
-          ========================================================================= */}
-      {moveModalOpen && selectedFileForMove && (
+      {/* MODAL TẢI TỆP KHÓA ĐÍCH LƯU THEO ĐÚNG LỚP & THƯ MỤC ĐANG MỞ */}
+      {uploadModalOpen && currentClass && selectedFolder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold flex items-center gap-2">
+                {selectedFolder.kind === "lectures" ? (
+                  <Video size={18} className="text-purple-600" />
+                ) : (
+                  <BookOpen size={18} className="text-blue-600" />
+                )}
+                <span>Tải tài liệu / bài giảng</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center gap-3">
+                <div className="size-8 rounded-lg bg-blue-600 text-white grid place-items-center shrink-0">
+                  <FolderOpen size={16} />
+                </div>
+                <div className="min-w-0">
+                  <strong className="block font-bold text-blue-700 dark:text-blue-300 truncate">
+                    {currentClass.name} ({currentClass.code}) / {selectedFolder.name}
+                  </strong>
+                  <span className="text-[11px] text-slate-500 block">
+                    {selectedFolder.kind === "lectures"
+                      ? "Lưu cố định vào đúng lớp và thư mục bài giảng đang mở."
+                      : "Lưu cố định vào đúng lớp và thư mục tài liệu đang mở."}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên hiển thị:
+                </label>
+                <input
+                  type="text"
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  placeholder="Để trống sẽ giữ nguyên tên tệp gốc"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Chọn tệp từ máy:
+                </label>
+                <label className="block cursor-pointer border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2 hover:border-blue-500 transition">
+                  <input
+                    type="file"
+                    accept={
+                      selectedFolder.kind === "lectures"
+                        ? ".mp4,.pdf,.doc,.docx"
+                        : ".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                    }
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      setSelectedUploadFile(file);
+                      if (file && !uploadTitle.trim()) {
+                        setUploadTitle(file.name);
+                      }
+                    }}
+                  />
+                  <UploadCloud size={24} className="mx-auto text-blue-600" />
+                  <div className="text-xs text-slate-600 dark:text-slate-400">
+                    Bấm để chọn tệp cần tải lên
+                  </div>
+                  {selectedUploadFile && (
+                    <div className="text-[11px] font-bold text-emerald-600">
+                      ✓ {selectedUploadFile.name} ({formatMaterialSize(selectedUploadFile.size)})
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Trạng thái hiển thị:
+                </label>
+                <select
+                  value={uploadVisibility}
+                  onChange={(e) => setUploadVisibility(e.target.value as "PUBLISHED" | "HIDDEN")}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                >
+                  <option value="PUBLISHED">Hiển thị với học sinh</option>
+                  <option value="HIDDEN">Ẩn với học sinh</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => void handleUploadSubmit()}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
+              >
+                <Check size={14} />
+                <span>{isUploading ? "Đang tải lên..." : "Hoàn tất & Lưu vào kho"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỈNH SỬA / THAY TỆP ĐƠN LẺ */}
+      {editModalOpen && editingFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Move size={20} className="text-amber-600" />
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-extrabold flex items-center gap-2">
+                <RefreshCw size={18} className="text-blue-600" />
+                <span>Chỉnh sửa / Thay tệp</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tên học liệu:
+                </label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Thay tệp mới (tùy chọn — tệp cũ sẽ bị xóa):
+                </label>
+                <label className="block cursor-pointer border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center hover:border-blue-500 transition">
+                  <input
+                    type="file"
+                    className="sr-only"
+                    onChange={(e) => setReplaceFileObj(e.target.files?.[0] ?? null)}
+                  />
+                  <FileText size={20} className="mx-auto text-blue-600 mb-1" />
+                  <span className="text-slate-600 dark:text-slate-300">
+                    {replaceFileObj ? replaceFileObj.name : "Bấm để chọn tệp mới thay thế"}
+                  </span>
+                </label>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Trạng thái hiển thị:
+                </label>
+                <select
+                  value={editVisibility}
+                  onChange={(e) => setEditVisibility(e.target.value as "PUBLISHED" | "HIDDEN")}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                >
+                  <option value="PUBLISHED">Hiển thị với học sinh</option>
+                  <option value="HIDDEN">Ẩn với học sinh</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEditModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => void handleSaveEditSubmit()}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+              >
+                {savingEdit ? "Đang lưu..." : "Lưu thay đổi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DI CHUYỂN TỆP SANG LỚP & THƯ MỤC ĐÍCH */}
+      {moveModalOpen && movingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold flex items-center gap-2">
+              <Move size={18} className="text-amber-600" />
               <span>Di chuyển tệp sang thư mục khác</span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Chọn thư mục đích để di chuyển tệp <strong className="text-slate-900 dark:text-slate-100">&quot;{selectedFileForMove.name}&quot;</strong>:
+              Chọn lớp và thư mục đích hợp lệ cho <strong>{movingFile.name}</strong>:
             </p>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Thư mục đích:
-              </label>
-              <select
-                value={targetMoveClassId}
-                onChange={(e) => setTargetMoveClassId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
-              >
-                <option value="unclassified">📍 Cần phân cấp lại (Chưa phân loại)</option>
-                {allClassesList.map((item) => (
-                  <option key={item.classId} value={item.classId}>
-                    📁 {item.path}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Lớp đích:
+                </label>
+                <select
+                  value={moveTargetClassId}
+                  onChange={(e) => setMoveTargetClassId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold"
+                >
+                  {movableClasses.length === 0 && (
+                    <option value="">Không có lớp khả dụng</option>
+                  )}
+                  {movableClasses.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name} ({cls.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Thư mục đích:
+                </label>
+                <select
+                  value={moveTargetFolder}
+                  disabled={loadingMoveFolders || moveTargetFolders.length === 0}
+                  onChange={(e) => setMoveTargetFolder(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold"
+                >
+                  {loadingMoveFolders && <option value="">Đang tải thư mục...</option>}
+                  {!loadingMoveFolders && moveTargetFolders.length === 0 && (
+                    <option value="">Lớp đích chưa có thư mục phù hợp</option>
+                  )}
+                  {moveTargetFolders.map((folderName) => (
+                    <option key={folderName} value={folderName}>
+                      {folderName}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1798,18 +1685,16 @@ export function InstructorMaterialsView() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  void handleMoveFileToTargetClass(selectedFileForMove, targetMoveClassId);
-                }}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                disabled={savingMove || !moveTargetClassId || !moveTargetFolder}
+                onClick={() => void handleMoveSubmit()}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
               >
-                Xác nhận di chuyển
+                {savingMove ? "Đang chuyển..." : "Xác nhận di chuyển"}
               </button>
             </div>
           </div>
         </div>
       )}
-
     </div>
   );
 }

@@ -1,21 +1,23 @@
 "use client";
 
+import { InlineFilePreview } from "@/features/academic/inline-file-preview";
+import { SubmissionFile } from "@/features/academic/submission-file";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
 import { useI18n } from "@/providers/i18n-provider";
-import { ClassScheduleMonthList } from "@/features/class-detail/class-schedule-month-list";
+import { ClassSchedulePanel } from "@/features/class-detail/class-schedule-panel";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
 import { ExamTakingModal, type ExamTakingData } from "@/roles/learner/class/exam-taking-modal";
 import {
   ArrowLeft,
   Award,
+  BarChart3,
   Calendar,
   CalendarDays,
   ChevronDown,
   ChevronRight,
-  Clock,
   Download,
   Edit2,
   Edit3,
@@ -38,7 +40,6 @@ import {
   MessageSquare,
   Play,
   Plus,
-  Printer,
   RefreshCw,
   Search,
   Settings,
@@ -69,11 +70,16 @@ import type {
   Question,
   QuestionImportResult,
 } from "@/lib/learning-types";
+import { loadClassExams } from "@/lib/class-exams";
 import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/exam-question-selection";
-import { isMaterialForClass, loadAllMaterials } from "@/lib/materials";
+import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
+import { QuestionRenderPreview } from "@/features/questions/question-render-preview";
+import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
+import { Pagination, RichText } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
 import {
@@ -81,7 +87,6 @@ import {
   exportGradebookCsv,
   filterClassQuestions,
   filterClassResources,
-  getClassFolderNames,
   getClassQuestionStats,
   getScoreColorClass,
   getLectureEmbedUrl,
@@ -94,6 +99,14 @@ import {
   type LectureItem,
   type MaterialDisplayItem,
 } from "./instructor-class-workspace.helpers";
+import { ClassWorkDetailView, type DetailStatusFilter, type DetailSubTab } from "./class-work-detail-view";
+import {
+  ClassAssignmentEditModal,
+  ClassAssignmentPreviewModal,
+  ClassAssignmentTrialModal,
+  ClassExamEditModal,
+  ClassExamPreviewModal,
+} from "./class-work-modals";
 
 export interface InstructorClassWorkspaceProps {
   item: LearningClass;
@@ -140,6 +153,10 @@ export function InstructorClassWorkspace({
   const router = useRouter();
   const { session, notify } = useApp();
   const { t, locale } = useI18n();
+  const canManageClassContent =
+    session.roleCode === "INSTRUCTOR" &&
+    item.status !== "CLOSED" &&
+    item.instructorIds.includes(session.user.id);
 
   // Tab điều hướng dọc của giáo viên: mặc định là bảng tin ("feed"), lưu bền vững qua URL và sessionStorage
   const [activeTab, setActiveTab] = useState<InstructorSubTab>(() => {
@@ -184,12 +201,12 @@ export function InstructorClassWorkspace({
 
   // Dữ liệu lớp học
   const [learners, setLearners] = useState<DirectoryUser[]>([]);
+  const [classExams, setClassExams] = useState<Exam[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState("");
+  const visibleExams = classExams.filter(exam => exam.classId === item.id);
   const [assignments, setAssignments] = useState<AssignmentPreview[]>([]);
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<Record<string, AssignmentSubmission[]>>({});
-
-  // Chế độ xem lịch học: dạng tuần (lưới) hoặc dạng tháng (danh sách)
-  const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
 
   // Bộ lọc và tìm kiếm chung
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,62 +219,46 @@ export function InstructorClassWorkspace({
   const [newFolderInput, setNewFolderInput] = useState("");
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
 
-  // Đồng bộ danh sách thư mục tùy chỉnh theo từng lớp học trong bộ nhớ trình duyệt.
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(`wind_class_folders_${item.id}`);
-      if (!raw) {
-        setCustomFolders([]);
-        setCustomLectureFolders([]);
-        setCustomMaterialFolders([]);
-        return;
-      }
-      const parsed = JSON.parse(raw) as {
-        assignments?: string[];
-        lectures?: string[];
-        materials?: string[];
-      };
-      setCustomFolders(Array.isArray(parsed.assignments) ? parsed.assignments : []);
-      setCustomLectureFolders(Array.isArray(parsed.lectures) ? parsed.lectures : []);
-      setCustomMaterialFolders(Array.isArray(parsed.materials) ? parsed.materials : []);
-    } catch {
-      setCustomFolders([]);
-      setCustomLectureFolders([]);
-      setCustomMaterialFolders([]);
-    }
-  }, [item.id]);
-
-  // Lưu danh sách thư mục tùy chỉnh của lớp học vào localStorage.
-  const persistClassFolders = useCallback(
-    (next: { assignments: string[]; lectures: string[]; materials: string[] }) => {
-      try {
-        window.localStorage.setItem(`wind_class_folders_${item.id}`, JSON.stringify(next));
-      } catch {
-        // Bỏ qua lỗi ghi bộ nhớ trình duyệt khi đầy dung lượng
-      }
-    },
-    [item.id],
-  );
-
-  // Chế độ xem bài tập: "list" (danh sách 3 cột theo Ảnh 2) hoặc "detail" (chi tiết & bảng điểm theo Ảnh 1)
+  // Chế độ xem bài tập: "list" (danh sách 3 cột) hoặc "detail" (chi tiết & bảng điểm)
   const [assignmentViewMode, setAssignmentViewMode] = useState<"list" | "detail">("list");
-  const [assignmentDetailSubTab, setAssignmentDetailSubTab] = useState<
-    "gradebook" | "overview" | "stats" | "exam_content" | "solution"
-  >("gradebook");
-  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<
-    "ALL" | "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED"
-  >("ALL");
+  const [assignmentDetailSubTab, setAssignmentDetailSubTab] = useState<DetailSubTab>("gradebook");
+  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<DetailStatusFilter>("ALL");
   const [assignmentStudentSearch, setAssignmentStudentSearch] = useState("");
   const [assignmentListDisplayMode, setAssignmentListDisplayMode] = useState<"list" | "grid">("list");
+  const [assignmentSort, setAssignmentSort] = useState<"newest" | "oldest">("newest");
 
   // Bài tập được chọn ở Cột 3
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentPreview | null>(null);
+  const selectedClassExam = visibleExams.find(exam => exam.id === selectedExamId)
+    ?? (!selectedAssignment ? visibleExams[0] : undefined);
+  const selectedWork = selectedClassExam ?? selectedAssignment;
+  const deadline = selectedClassExam ? selectedClassExam.closeAt : selectedAssignment?.dueAt;
+  const [changingWork, setChangingWork] = useState(false);
+  const essayQuestionCount = selectedAssignment?.totalQuestions
+    ?? (selectedAssignment?.instructions
+      ? selectedAssignment.instructions.match(/^Câu\s+\d+\s*:/gmu)?.length || undefined
+      : undefined);
+  const workDetails = [
+    ["Loại", selectedClassExam ? "Trắc nghiệm" : "Tự luận"],
+    ["Trạng thái", selectedWork?.hidden ? "Đã ẩn với học sinh" : "Đang hiển thị"],
+    ["Hạn nộp", deadline ? new Date(deadline).toLocaleString(locale) : "—"],
+    ["Điểm tối đa", selectedClassExam ? selectedClassExam.totalScore : selectedAssignment?.maxScore],
+    ["Số câu hỏi", selectedClassExam ? selectedClassExam.questionIds.length : essayQuestionCount ?? "—"],
+    ["Thời lượng", selectedClassExam ? selectedClassExam.durationMinutes + " phút" : "Theo hạn nộp"],
+    ["Số lần làm bài", selectedClassExam ? selectedClassExam.attemptLimit : "Một bài nộp, có thể cập nhật"],
+  ];
+
   const [previewExam, setPreviewExam] = useState<ExamTakingData | null>(null);
+  const [previewExamContent, setPreviewExamContent] = useState<Exam | null>(null);
   const [previewAssignment, setPreviewAssignment] = useState<Assignment | null>(null);
+  const [trialAssignment, setTrialAssignment] = useState<Assignment | null>(null);
+  const [editingClassExam, setEditingClassExam] = useState<Exam | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareScope, setShareScope] = useState<"CLASS_ONLY" | "PUBLIC">("CLASS_ONLY");
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<AssignmentSubmission | null>(null);
+
+
 
   // Bài giảng được nạp từ danh sách học liệu của API, cùng nguồn với học viên.
   const [lectures, setLectures] = useState<LectureItem[]>([]);
@@ -285,7 +286,7 @@ export function InstructorClassWorkspace({
   const [lectureFormVisibility, setLectureFormVisibility] = useState<"PUBLISHED" | "HIDDEN">(
     "PUBLISHED",
   );
-  const [lectureFormFolder, setLectureFormFolder] = useState("Bài giảng chung");
+  const [lectureFormFolder, setLectureFormFolder] = useState("");
   const [lectureAttachedAssignments, setLectureAttachedAssignments] = useState<string[]>([]);
 
   // State chỉnh sửa bài giảng 2 vùng (y hệt tạo mới)
@@ -305,15 +306,8 @@ export function InstructorClassWorkspace({
   // Modal tạo Bài tập mới
   const [addAssignmentModalOpen, setAddAssignmentModalOpen] = useState(false);
 
-  // Modal Chỉnh sửa Bài tập (áp dụng tương tự)
-  const [editAssignmentModalOpen, setEditAssignmentModalOpen] = useState(false);
+  // Modal Chỉnh sửa Bài tập tự luận
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
-  const [editAssignmentTitle, setEditAssignmentTitle] = useState("");
-  const [editAssignmentDesc, setEditAssignmentDesc] = useState("");
-  const [editAssignmentInstructions, setEditAssignmentInstructions] = useState("");
-  const [editAssignmentDue, setEditAssignmentDue] = useState("");
-  const [editAssignmentMaxScore, setEditAssignmentMaxScore] = useState(10);
-  const [editAssignmentSaving, setEditAssignmentSaving] = useState(false);
 
   // Modal Hub điều phối 5 cách tạo Bài tập & Soạn câu hỏi
   const [creationHubOpen, setCreationHubOpen] = useState(false);
@@ -333,6 +327,7 @@ export function InstructorClassWorkspace({
   ]);
   const [authoringCorrect, setAuthoringCorrect] = useState<number[]>([0]);
   const [authoringSaving, setAuthoringSaving] = useState(false);
+  const [authoringPreview, setAuthoringPreview] = useState(false);
 
   // Cách 2: Quét đề bằng AI OCR
   const [scanModalOpen, setScanModalOpen] = useState(false);
@@ -395,6 +390,7 @@ export function InstructorClassWorkspace({
   // Chỉnh sửa câu hỏi trong ngân hàng
   const [editingQuestionModalOpen, setEditingQuestionModalOpen] = useState(false);
   const [editingQuestionSaving, setEditingQuestionSaving] = useState(false);
+  const [editingQuestionPreview, setEditingQuestionPreview] = useState(false);
   const [editingQuestionData, setEditingQuestionData] = useState<{
     id: string;
     content: string;
@@ -408,6 +404,29 @@ export function InstructorClassWorkspace({
 
   // Ngân hàng chỉ lấy từ API để không giữ các bản ghi giả hoặc dữ liệu đã lỗi thời.
   const [classQuestions, setClassQuestions] = useState<ClassQuestion[]>([]);
+  const [pagedClassQuestions, setPagedClassQuestions] = useState<ClassQuestion[]>([]);
+  const [questionSummary, setQuestionSummary] = useState<{ total: number; multipleChoice: number; essay: number }>({
+    total: 0,
+    multipleChoice: 0,
+    essay: 0,
+  });
+  const [questionBankLoading, setQuestionBankLoading] = useState(false);
+  const [questionBankError, setQuestionBankError] = useState("");
+  const questionPagination = useServerPagination(10);
+  const {
+    page: questionPage,
+    displayPage: questionDisplayPage,
+    pageSize: questionPageSize,
+    totalItems: questionTotalItems,
+    setPage: setQuestionPage,
+    setPageSize: setQuestionPageSize,
+    resetPage: resetQuestionPage,
+    syncResponse: syncQuestionPage,
+  } = questionPagination;
+  const questionBankRequestRef = useRef(0);
+  const questionBankControllerRef = useRef<AbortController | null>(null);
+  const publishedPoolLoadedRef = useRef<string | null>(null);
+  const publishedPoolRequestRef = useRef(0);
 
   // Chỉ dùng câu hỏi đã xuất bản khi lập đề; câu nháp vẫn hiển thị trong ngân hàng.
   const publishedClassQuestions = useMemo(
@@ -426,14 +445,6 @@ export function InstructorClassWorkspace({
     manualExamVisibleQuestions.every((question) => manualExamSelectedQuestions.includes(question.id));
   const publishedQuestionStats = useMemo(() => getClassQuestionStats(publishedClassQuestions), [publishedClassQuestions]);
 
-  // Thống kê phân loại Ngân hàng câu hỏi riêng của lớp
-  const classQuestionStats = useMemo(() => getClassQuestionStats(classQuestions), [classQuestions]);
-
-  // Danh sách câu hỏi sau lọc trong Tab 9
-  const filteredClassQuestions = useMemo(() => {
-    return filterClassQuestions(classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch);
-  }, [classQuestions, questionBankTab, questionBankDifficulty, questionBankSearch]);
-
   // API là nguồn dữ liệu duy nhất để tránh hiện tài liệu đã xóa/di chuyển hoặc bản ghi giả.
   const [materialsList, setMaterialsList] = useState<MaterialDisplayItem[]>([]);
   const rawMaterialsMapRef = useRef<Map<string, Material>>(new Map());
@@ -441,34 +452,81 @@ export function InstructorClassWorkspace({
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>("");
   const [materialSearch, setMaterialSearch] = useState("");
   const [materialSort, setMaterialSort] = useState<"alpha" | "newest" | "type">("alpha");
+  // Thư mục tài liệu & biểu mẫu tải/chỉnh sửa tài liệu
   const [selectedMaterialFolder, setSelectedMaterialFolder] = useState<string>("__ALL__");
   const [materialFolderExpanded, setMaterialFolderExpanded] = useState<Record<string, boolean>>({});
-
-  // Modal tải & chỉnh sửa tài liệu
   const [addMaterialModalOpen, setAddMaterialModalOpen] = useState(false);
   const [editMaterialModalOpen, setEditMaterialModalOpen] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<MaterialDisplayItem | null>(null);
-
   const [materialFormTitle, setMaterialFormTitle] = useState("");
-  const [materialFormFolder, setMaterialFormFolder] = useState("Tài liệu chung");
+  const [materialFormFolder, setMaterialFormFolder] = useState("");
   const [materialUploadFile, setMaterialUploadFile] = useState<File | null>(null);
   const [materialSaving, setMaterialSaving] = useState(false);
   const [materialFormVisibility, setMaterialFormVisibility] = useState<"PUBLISHED" | "HIDDEN">(
     "PUBLISHED",
   );
-
-  // State chỉnh sửa tài liệu (hỗ trợ thay tệp mới từ máy)
   const [editMaterialFileObj, setEditMaterialFileObj] = useState<File | null>(null);
   const [editMaterialFormTitle, setEditMaterialFormTitle] = useState("");
-  const [editMaterialFormFolder, setEditMaterialFormFolder] = useState("Tài liệu chung");
+  const [editMaterialFormFolder, setEditMaterialFormFolder] = useState("");
   const [editMaterialFormVisibility, setEditMaterialFormVisibility] = useState<
     "PUBLISHED" | "HIDDEN"
   >("PUBLISHED");
 
-  // Modal Di chuyển Bài giảng & Tài liệu sang lớp khác hoặc Cần phân cấp lại
+  // Tải thư mục lớp dùng chung từ API và đồng bộ thư mục trống cũ nếu có.
+  useEffect(() => {
+    const controller = new AbortController();
+    const path = `/instructor/classes/${encodeURIComponent(item.id)}/folders`;
+    const options = { roleCode: session.roleCode, signal: controller.signal };
+    type Folders = { materials: string[]; lectures: string[]; assignments: string[] };
+    setCustomFolders([]);
+    setCustomLectureFolders([]);
+    setCustomMaterialFolders([]);
+    setSelectedLectureFolder("__ALL__");
+    setSelectedMaterialFolder("__ALL__");
+    setSelectedFolder("__ALL__");
+    // Tải danh sách thư mục của lớp từ API và đồng bộ thư mục cũ từ localStorage nếu có.
+    async function loadFolders() {
+      let folders = await apiRequest<Folders>(path, options);
+      const key = `wind_class_folders_${item.id}`;
+      let legacy: unknown;
+      try { legacy = JSON.parse(window.localStorage.getItem(key) ?? "null"); } catch { legacy = null; }
+      if (legacy && typeof legacy === "object" && item.status !== "CLOSED") {
+        const saved = legacy as Record<string, unknown>;
+        // Lấy mảng tên thư mục theo từng loại nội dung từ dữ liệu lưu cục bộ.
+        const entries = (kind: string): unknown[] => Array.isArray(saved[kind]) ? saved[kind] : [];
+        for (const kind of ["assignments", "lectures", "materials"] as const) {
+          for (const name of entries(kind)) {
+            if (typeof name === "string" && name.trim() && !folders[kind].includes(name))
+              folders = await apiRequest<Folders>(path, { ...options, method: "POST", body: JSON.stringify({ name, kind }) });
+          }
+        }
+        try { window.localStorage.removeItem(key); } catch { /* Import is idempotent. */ }
+      }
+      if (!controller.signal.aborted) {
+        setCustomFolders(folders.assignments);
+        setCustomLectureFolders(folders.lectures);
+        setCustomMaterialFolders(folders.materials);
+        setLectureFormFolder((prev) =>
+          folders.lectures.includes(prev) ? prev : (folders.lectures[0] ?? ""),
+        );
+        setMaterialFormFolder((prev) =>
+          folders.materials.includes(prev) ? prev : (folders.materials[0] ?? ""),
+        );
+      }
+    }
+    void loadFolders().catch(() => {
+      if (!controller.signal.aborted) notify("Không tải được thư mục của lớp.", "error");
+    });
+    return () => controller.abort();
+  }, [item.id, item.status, session.roleCode, notify]);
+
+  // Modal di chuyển bài giảng / tài liệu sang lớp được phân công và thư mục hợp lệ
   const [moveItemModalOpen, setMoveItemModalOpen] = useState(false);
   const [itemForMove, setItemForMove] = useState<{ id: string; title: string; kind: "LECTURE" | "MATERIAL" } | null>(null);
-  const [targetDestinationClassId, setTargetDestinationClassId] = useState<string>("unclassified");
+  const [targetDestinationClassId, setTargetDestinationClassId] = useState<string>("");
+  const [targetDestinationFolders, setTargetDestinationFolders] = useState<string[]>([]);
+  const [targetDestinationFolder, setTargetDestinationFolder] = useState<string>("");
+  const [loadingDestinationFolders, setLoadingDestinationFolders] = useState(false);
   const [allInstructorClasses, setAllInstructorClasses] = useState<LearningClass[]>([]);
 
   useEffect(() => {
@@ -486,24 +544,72 @@ export function InstructorClassWorkspace({
     return () => controller.abort();
   }, [session.roleCode]);
 
-/** Đảm nhiệm handleOpenMoveItem trong phạm vi module hiện tại. */
+  const movableDestinationClasses = useMemo(
+    () =>
+      allInstructorClasses.filter(
+        (cls) => cls.status !== "CLOSED" && cls.instructorIds.includes(session.user.id),
+      ),
+    [allInstructorClasses, session.user.id],
+  );
+
+  // Nạp danh sách thư mục hợp lệ từ class_folders của lớp đích khi mở hoặc đổi lớp
+  useEffect(() => {
+    if (!moveItemModalOpen || !itemForMove || !targetDestinationClassId) {
+      setTargetDestinationFolders([]);
+      setTargetDestinationFolder("");
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingDestinationFolders(true);
+    apiRequest<{ materials: string[]; lectures: string[]; assignments: string[] }>(
+      `/classes/${encodeURIComponent(targetDestinationClassId)}/folders`,
+      { roleCode: session.roleCode, signal: controller.signal },
+    )
+      .then((folders) => {
+        if (controller.signal.aborted) return;
+        const candidates = itemForMove.kind === "LECTURE" ? folders.lectures : folders.materials;
+        setTargetDestinationFolders(candidates);
+        setTargetDestinationFolder((prev) =>
+          candidates.includes(prev) ? prev : (candidates[0] ?? ""),
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setTargetDestinationFolders([]);
+          setTargetDestinationFolder("");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingDestinationFolders(false);
+      });
+    return () => controller.abort();
+  }, [moveItemModalOpen, itemForMove, targetDestinationClassId, session.roleCode]);
+
+  /** Mở hộp thoại di chuyển đến lớp được phân công giảng dạy và thư mục hợp lệ. */
   const handleOpenMoveItem = (id: string, title: string, kind: "LECTURE" | "MATERIAL") => {
+    const preferredClass =
+      movableDestinationClasses.find((cls) => cls.id !== item.id) ?? movableDestinationClasses[0];
     setItemForMove({ id, title, kind });
-    setTargetDestinationClassId("unclassified");
+    setTargetDestinationClassId(preferredClass?.id ?? "");
+    setTargetDestinationFolder("");
     setMoveItemModalOpen(true);
   };
 
-/** Đảm nhiệm handleConfirmMoveItem trong phạm vi module hiện tại. */
+  /** Di chuyển học liệu sang lớp và thư mục thuộc class_folders. */
   const handleConfirmMoveItem = async () => {
     if (!itemForMove) return;
-    const isUnclassified = targetDestinationClassId === "unclassified";
+    if (!targetDestinationClassId || !targetDestinationFolder) {
+      notify("Vui lòng chọn lớp và thư mục đích hợp lệ.", "error");
+      return;
+    }
     try {
       await apiRequest(`/instructor/materials/${itemForMove.id}`, {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          classId: isUnclassified ? null : targetDestinationClassId,
-          scope: isUnclassified ? "SHARED" : "CLASS",
+          classId: targetDestinationClassId,
+          scope: "CLASS",
+          folder: targetDestinationFolder,
         }),
       });
 
@@ -513,14 +619,16 @@ export function InstructorClassWorkspace({
         } else {
           setMaterialsList((prev) => prev.filter((m) => m.id !== itemForMove.id));
         }
+      } else {
+        await loadClassData();
       }
 
-      const targetCls = allInstructorClasses.find((c) => c.id === targetDestinationClassId);
-      const destName = isUnclassified ? "Cần phân cấp lại (Chưa phân loại)" : targetCls?.name || "lớp mới";
-      notify(`Đã di chuyển '${itemForMove.title}' sang ${destName} thành công!`, "success");
+      const targetCls = movableDestinationClasses.find((c) => c.id === targetDestinationClassId);
+      const destName = targetCls?.name || "lớp mới";
+      notify(`Đã di chuyển '${itemForMove.title}' sang ${destName} (${targetDestinationFolder}) thành công!`, "success");
     } catch (err) {
       console.warn("Lỗi di chuyển học liệu trong CSDL:", err);
-      notify("Có lỗi khi di chuyển học liệu. Vui lòng thử lại!", "error");
+      notify(err instanceof Error ? err.message : "Có lỗi khi di chuyển học liệu. Vui lòng thử lại!", "error");
     } finally {
       setMoveItemModalOpen(false);
       setItemForMove(null);
@@ -557,7 +665,7 @@ export function InstructorClassWorkspace({
     const controller = new AbortController();
     classDataControllerRef.current = controller;
     try {
-      const [learnersResult, assignmentsResult, materialsResult, questionsResult, gradebookResult] =
+      const [learnersResult, assignmentsResult, materialsResult, gradebookResult, examsResult] =
         await Promise.allSettled([
           apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
             roleCode: session.roleCode,
@@ -567,26 +675,23 @@ export function InstructorClassWorkspace({
             roleCode: session.roleCode,
             signal: controller.signal,
           }),
-          loadAllMaterials<Material>("/materials", {
+          loadClassMaterials<Material>(item.id, {
             roleCode: session.roleCode,
             signal: controller.signal,
           }),
-          apiRequest<Array<Question & { solution?: string; createdAt?: string }>>(
-            item.courseId ? `/instructor/question-bank/questions?courseId=${item.courseId}` : `/instructor/question-bank/questions`,
-            { roleCode: session.roleCode, signal: controller.signal }
-          ),
           apiRequest<GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
             roleCode: session.roleCode,
             signal: controller.signal,
           }),
+          loadClassExams(item.id, session.roleCode, controller.signal),
         ]);
 
       if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
       const failedSources = [
+        ["đề thi", examsResult],
         ["học viên", learnersResult],
         ["bài tập", assignmentsResult],
         ["tài liệu", materialsResult],
-        ["ngân hàng câu hỏi", questionsResult],
         ["bảng điểm", gradebookResult],
       ] as const;
       for (const [source, result] of failedSources) {
@@ -595,19 +700,15 @@ export function InstructorClassWorkspace({
       if (failedSources.some(([, result]) => result.status === "rejected")) {
         notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
       }
+      if (examsResult.status === "fulfilled") setClassExams(examsResult.value);
       if (learnersResult.status === "fulfilled") setLearners(learnersResult.value);
       if (gradebookResult.status === "fulfilled") setGradebook(gradebookResult.value);
       // API is authoritative; legacy local entries may contain fabricated IDs or stale publication states.
       if (assignmentsResult.status === "fulfilled") setAssignments(assignmentsResult.value);
 
-      // Đồng bộ câu hỏi thật từ CSDL vào ngân hàng câu hỏi riêng của lớp
-      if (questionsResult.status === "fulfilled") {
-        setClassQuestions(questionsResult.value.map(toClassQuestion));
-      }
-
       // Đồng bộ tài liệu thật từ CSDL vào danh sách tài liệu lớp
       if (materialsResult.status === "fulfilled") {
-        const classMaterials = materialsResult.value.filter((m) => isMaterialForClass(m, item.id, item.courseId));
+        const classMaterials = materialsResult.value.filter((m) => isMaterialForClass(m, item.id));
         rawMaterialsMapRef.current = new Map(classMaterials.map((m) => [m.id, m]));
         const mappedLectures = classMaterials.filter(isLectureMaterial)
           .map((material) => toLectureItem(material, session.user.name || "Giảng viên"));
@@ -643,12 +744,131 @@ export function InstructorClassWorkspace({
         notify("Không tải được toàn bộ dữ liệu lớp học", "error");
       }
     }
-  }, [item.id, item.courseId, session.roleCode, session.user.name, notify]);
+  }, [item.id, session.roleCode, session.user.name, notify, setSelectedLectureId, setSelectedLectureForPage, setSelectedMaterialId]);
 
   useEffect(() => {
     void loadClassData();
     return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
   }, [loadClassData]);
+
+  /** Tải thống kê và một trang câu hỏi của ngân hàng lớp từ API phân trang trên DB. */
+  const loadClassQuestionBank = useCallback(async () => {
+    const requestId = ++questionBankRequestRef.current;
+    questionBankControllerRef.current?.abort();
+    const controller = new AbortController();
+    questionBankControllerRef.current = controller;
+    setQuestionBankLoading(true);
+    setQuestionBankError("");
+    try {
+      const summaryUrl = item.courseId
+        ? `/instructor/question-bank/questions/summary?courseId=${encodeURIComponent(item.courseId)}`
+        : "/instructor/question-bank/questions/summary";
+      const params = new URLSearchParams({
+        page: String(questionPage),
+        pageSize: String(questionPageSize),
+      });
+      if (item.courseId) params.set("courseId", item.courseId);
+      if (questionBankTab === "MULTIPLE_CHOICE") params.set("typeGroup", "OBJECTIVE");
+      else if (questionBankTab === "ESSAY") params.set("typeGroup", "ESSAY");
+      if (questionBankDifficulty === "Cơ bản") params.set("difficulty", "1");
+      else if (questionBankDifficulty === "Thông hiểu") params.set("difficulty", "2");
+      else if (questionBankDifficulty === "Vận dụng" || questionBankDifficulty === "Vận dụng cao") {
+        params.set("difficulty", "3");
+      }
+      const trimmedQuery = questionBankSearch.trim();
+      if (trimmedQuery) params.set("query", trimmedQuery);
+
+      const [summary, pageResult] = await Promise.all([
+        apiRequest<{ total: number; multipleChoice: number; essay: number }>(summaryUrl, {
+          roleCode: session.roleCode,
+          signal: controller.signal,
+        }),
+        apiRequest<PaginatedResponse<Question & { solution?: string; createdAt?: string }>>(
+          `/instructor/question-bank/questions/page?${params.toString()}`,
+          {
+            roleCode: session.roleCode,
+            signal: controller.signal,
+          },
+        ),
+      ]);
+      if (requestId !== questionBankRequestRef.current || controller.signal.aborted) return;
+      setQuestionSummary(summary);
+      setPagedClassQuestions(pageResult.items.map(toClassQuestion));
+      syncQuestionPage(pageResult);
+    } catch (error) {
+      if (!controller.signal.aborted && requestId === questionBankRequestRef.current) {
+        const message = error instanceof Error ? error.message : "Không tải được ngân hàng câu hỏi.";
+        setQuestionBankError(message);
+        notify(message, "error");
+      }
+    } finally {
+      if (!controller.signal.aborted && requestId === questionBankRequestRef.current) {
+        setQuestionBankLoading(false);
+      }
+    }
+  }, [
+    item.courseId,
+    questionPage,
+    questionPageSize,
+    questionBankTab,
+    questionBankDifficulty,
+    questionBankSearch,
+    session.roleCode,
+    syncQuestionPage,
+    notify,
+  ]);
+
+  /** Chỉ tải tập câu hỏi đã xuất bản khi người dùng mở modal tạo hoặc chỉnh sửa đề thi. */
+  const loadPublishedExamPool = useCallback(async (force = false) => {
+    const cacheKey = item.courseId || "__ALL__";
+    if (!force && publishedPoolLoadedRef.current === cacheKey) return;
+    const requestId = ++publishedPoolRequestRef.current;
+    try {
+      const queryUrl = item.courseId
+        ? `/instructor/question-bank/questions?courseId=${encodeURIComponent(item.courseId)}&status=PUBLISHED`
+        : "/instructor/question-bank/questions?status=PUBLISHED";
+      const summaryUrl = item.courseId
+        ? `/instructor/question-bank/questions/summary?courseId=${encodeURIComponent(item.courseId)}`
+        : "/instructor/question-bank/questions/summary";
+      const [publishedRows, summary] = await Promise.all([
+        apiRequest<Array<Question & { solution?: string; createdAt?: string }>>(queryUrl, {
+          roleCode: session.roleCode,
+        }),
+        apiRequest<{ total: number; multipleChoice: number; essay: number }>(summaryUrl, {
+          roleCode: session.roleCode,
+        }),
+      ]);
+      if (requestId !== publishedPoolRequestRef.current) return;
+      publishedPoolLoadedRef.current = cacheKey;
+      setClassQuestions(publishedRows.map(toClassQuestion));
+      setQuestionSummary(summary);
+    } catch (error) {
+      console.warn("Không tải được câu hỏi đã xuất bản cho biểu mẫu đề thi:", error);
+    }
+  }, [item.courseId, session.roleCode]);
+
+  useEffect(() => {
+    if (activeTab !== "questions") return;
+    void loadClassQuestionBank();
+    return () => {
+      questionBankRequestRef.current += 1;
+      questionBankControllerRef.current?.abort();
+    };
+  }, [activeTab, loadClassQuestionBank]);
+
+  useEffect(() => {
+    if (!manualExamModalOpen && !editingClassExam) return;
+    void loadPublishedExamPool();
+  }, [manualExamModalOpen, editingClassExam, loadPublishedExamPool]);
+
+  /** Làm mới trang câu hỏi và hủy bộ nhớ đệm câu hỏi xuất bản sau khi thay đổi dữ liệu. */
+  const refreshQuestionData = async () => {
+    publishedPoolLoadedRef.current = null;
+    const tasks: Array<Promise<void>> = [];
+    if (activeTab === "questions") tasks.push(loadClassQuestionBank());
+    if (manualExamModalOpen || editingClassExam) tasks.push(loadPublishedExamPool(true));
+    await Promise.all(tasks);
+  };
 
   const assignmentIds = assignments.map((assignment) => assignment.id).join("|");
 
@@ -719,10 +939,14 @@ export function InstructorClassWorkspace({
       notify("Vui lòng chọn tệp bài giảng hợp lệ.", "error");
       return;
     }
+    const targetFolder = lectureFormFolder.trim();
+    if (!targetFolder || !customLectureFolders.includes(targetFolder)) {
+      notify("Vui lòng chọn hoặc tạo thư mục bài giảng hợp lệ trong lớp trước.", "error");
+      return;
+    }
     setLectureSaving(true);
     let uploadedId: string | null = null;
     try {
-      const targetFolder = lectureFormFolder.trim() || "Bài giảng chung";
       const tags = [
         "LECTURE",
         ...lectureAttachedAssignments.map((id) => `assignmentId:${id}`),
@@ -784,6 +1008,16 @@ export function InstructorClassWorkspace({
   };
 
   // Kiểm tra dữ liệu từ biểu mẫu và lưu bài thi hoặc bài tự luận qua API.
+  // Select the confirmed exam immediately, including when a subsequent refresh fails.
+  const selectCreatedExam = (exam: Exam) => {
+    setClassExams(previous => [exam, ...previous.filter(row => row.id !== exam.id)]);
+    setSelectedExamId(exam.id);
+    setSearchQuery("");
+    setSelectedFolder("__ALL__");
+    setAssignmentViewMode("list");
+  };
+
+  // Kiểm tra ràng buộc thời gian lớp và lưu bài tập hoặc đề thi mới tạo từ trình dựng đề.
   const handleSaveFromBuilder = async (data: Parameters<AssignmentBuilderModalProps["onSaveAssignment"]>[0]) => {
     const title = data.title.trim();
     if (title.length < 3) throw new Error("Tên bài cần ít nhất 3 ký tự.");
@@ -860,19 +1094,6 @@ export function InstructorClassWorkspace({
         throw new Error("Chỉ nhập được " + successful.length + "/" + questions.length + " câu. ID đã lưu: " + (successful.map((result) => result.questionId).join(", ") || "không có") + ". " + failed + " Kiểm tra ngân hàng trước khi thử lại để tránh nhập trùng.");
       }
       const questionIds = successful.map((result) => result.questionId!);
-      const published = await Promise.allSettled(questionIds.map((questionId) =>
-        apiRequest<{ status: string }>("/instructor/question-bank/questions/" + questionId + "/publish", {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({ immediate: true }),
-        }),
-      ));
-      const unpublished = published.flatMap((result, index) =>
-        result.status === "fulfilled" && result.value.status === "PUBLISHED" ? [] : [questionIds[index]!],
-      );
-      if (unpublished.length) {
-        throw new Error("Đã nhập câu hỏi nhưng các câu " + unpublished.join(", ") + " chưa được xuất bản. Hãy kiểm tra quy trình duyệt câu hỏi trước khi tạo đề.");
-      }
 
       const createdExam = await apiRequest<Exam>("/instructor/exams", {
         method: "POST",
@@ -893,11 +1114,8 @@ export function InstructorClassWorkspace({
           })),
         }),
       });
-      await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(createdExam.id)}/publish`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: createdExam.version }),
-      });
+      const publishedExam = createdExam;
+      selectCreatedExam(publishedExam);
       notify("Đã tạo và phát hành bài tập trắc nghiệm cho học viên.", "success");
     } else {
       const essayQuestions = data.essayQuestions.map((question) => question.trim()).filter(Boolean);
@@ -920,6 +1138,7 @@ export function InstructorClassWorkspace({
         form.append("file", data.attachedFile);
         form.append("folder", "Bài tập tự luận");
         form.append("tags", "ESSAY,ASSIGNMENT");
+        form.append("visibility", data.hidden ? "HIDDEN" : "PUBLISHED");
         form.append("scope", "CLASS");
         const uploaded = await apiRequest<Material>(`/instructor/classes/${encodeURIComponent(item.id)}/material-uploads`, {
           method: "POST",
@@ -938,6 +1157,7 @@ export function InstructorClassWorkspace({
             title,
             description: description.length >= 10 ? description : "Bài tập tự luận: " + title,
             instructions,
+            hidden: data.hidden,
             ...(sourceMaterialId ? { sourceMaterialId } : {}),
             dueAt: new Date(dueAt).toISOString(),
             maxScore: 10,
@@ -960,8 +1180,10 @@ export function InstructorClassWorkspace({
           roleCode: session.roleCode,
         });
       }
+      setSelectedExamId("");
+      setSearchQuery("");
       setSelectedAssignment(created);
-      notify("Đã tạo và phát hành bài tập tự luận cho học viên.", "success");
+      notify(data.hidden ? "Đã tạo bài tập tự luận ở trạng thái ẩn." : "Đã tạo bài tập tự luận cho học viên.", "success");
     }
 
     await loadClassData();
@@ -969,11 +1191,8 @@ export function InstructorClassWorkspace({
   };
   // Thư mục bài giảng của lớp học (kết hợp từ dữ liệu thực tế và thư mục giảng viên vừa tạo)
   const lectureFolders = useMemo(
-    () =>
-      Array.from(new Set([...getClassFolderNames(lectures), ...customLectureFolders])).sort((a, b) =>
-        a.localeCompare(b, "vi"),
-      ),
-    [lectures, customLectureFolders],
+    () => [...customLectureFolders].sort((a, b) => a.localeCompare(b, "vi")),
+    [customLectureFolders],
   );
 
   // Danh sách bài giảng lọc
@@ -990,63 +1209,36 @@ export function InstructorClassWorkspace({
 
   // Thư mục tài liệu của lớp học (kết hợp từ dữ liệu thực tế và thư mục giảng viên vừa tạo)
   const materialFolders = useMemo(
-    () =>
-      Array.from(new Set([...getClassFolderNames(materialsList), ...customMaterialFolders])).sort(
-        (a, b) => a.localeCompare(b, "vi"),
-      ),
-    [materialsList, customMaterialFolders],
+    () => [...customMaterialFolders].sort((a, b) => a.localeCompare(b, "vi")),
+    [customMaterialFolders],
   );
 
   // Tạo thư mục mới đúng theo tab đang mở (Bài tập, Bài giảng hoặc Tài liệu)
-  const handleCreateFolder = () => {
+  const handleCreateFolder = async () => {
     const folderName = newFolderInput.trim();
+    const kind = activeTab === "lectures" || activeTab === "materials" ? activeTab : "assignments";
     if (!folderName) return;
-
-    if (activeTab === "lectures") {
-      if (lectureFolders.includes(folderName)) {
-        notify("Thư mục đã tồn tại!", "error");
-        return;
-      }
-      const nextLectures = [...customLectureFolders, folderName];
-      setCustomLectureFolders(nextLectures);
-      setLectureFolderExpanded((prev) => ({ ...prev, [folderName]: true }));
+    try {
+      const folders = await apiRequest<{ assignments: string[]; lectures: string[]; materials: string[] }>(
+        `/instructor/classes/${encodeURIComponent(item.id)}/folders`,
+        { method: "POST", roleCode: session.roleCode, body: JSON.stringify({ kind, name: folderName }) }
+      );
+      setCustomFolders(folders.assignments);
+      setCustomLectureFolders(folders.lectures);
+      setCustomMaterialFolders(folders.materials);
+    } catch {
+      notify("Không tạo được thư mục trong lớp.", "error");
+      return;
+    }
+    if (kind === "lectures") {
       setSelectedLectureFolder(folderName);
       setLectureFormFolder(folderName);
-      persistClassFolders({
-        assignments: customFolders,
-        lectures: nextLectures,
-        materials: customMaterialFolders,
-      });
-    } else if (activeTab === "materials") {
-      if (materialFolders.includes(folderName)) {
-        notify("Thư mục đã tồn tại!", "error");
-        return;
-      }
-      const nextMaterials = [...customMaterialFolders, folderName];
-      setCustomMaterialFolders(nextMaterials);
-      setMaterialFolderExpanded((prev) => ({ ...prev, [folderName]: true }));
+    } else if (kind === "materials") {
       setSelectedMaterialFolder(folderName);
       setMaterialFormFolder(folderName);
-      persistClassFolders({
-        assignments: customFolders,
-        lectures: customLectureFolders,
-        materials: nextMaterials,
-      });
     } else {
-      if (customFolders.includes(folderName)) {
-        notify("Thư mục đã tồn tại!", "error");
-        return;
-      }
-      const nextAssignments = [...customFolders, folderName];
-      setCustomFolders(nextAssignments);
       setSelectedFolder(folderName);
-      persistClassFolders({
-        assignments: nextAssignments,
-        lectures: customLectureFolders,
-        materials: customMaterialFolders,
-      });
     }
-
     setNewFolderInput("");
     setShowNewFolderModal(false);
     notify("Đã tạo thư mục mới!", "success");
@@ -1192,8 +1384,8 @@ export function InstructorClassWorkspace({
         form.append("folder", targetFolder);
         form.append("tags", tags.join(","));
         form.append("visibility", editLectureFormVisibility);
-        await apiRequest<Material>(`${path}/versions`, {
-          method: "POST", roleCode: session.roleCode, body: form,
+        await apiRequest<Material>(`${path}/file`, {
+          method: "PUT", roleCode: session.roleCode, body: form,
         });
         versionUploaded = true;
       }
@@ -1300,10 +1492,14 @@ export function InstructorClassWorkspace({
       notify("Vui lòng nhập tên tài liệu!", "error");
       return;
     }
+    const targetFolder = editMaterialFormFolder.trim();
+    if (!targetFolder || !materialFolders.includes(targetFolder)) {
+      notify("Vui lòng chọn thư mục tài liệu hợp lệ trong lớp.", "error");
+      return;
+    }
     setMaterialSaving(true);
     let versionUploaded = false;
     try {
-      const targetFolder = editMaterialFormFolder.trim() || "Tài liệu chung";
       const path = `/instructor/materials/${encodeURIComponent(editingMaterial.id)}`;
       const existingTags = rawMaterialsMapRef.current.get(editingMaterial.id)?.tags ?? [];
       const tags = existingTags.filter((tag) => !tag.startsWith("Mô tả: "));
@@ -1313,7 +1509,7 @@ export function InstructorClassWorkspace({
         form.append("folder", targetFolder);
         form.append("tags", tags.join(","));
         form.append("visibility", editMaterialFormVisibility);
-        await apiRequest<Material>(`${path}/versions`, { method: "POST", roleCode: session.roleCode, body: form });
+        await apiRequest<Material>(`${path}/file`, { method: "PUT", roleCode: session.roleCode, body: form });
         versionUploaded = true;
       }
       await apiRequest<Material>(path, {
@@ -1340,57 +1536,82 @@ export function InstructorClassWorkspace({
     }
   };
 
-  // Mở biểu mẫu sửa nội dung bài tập đang được chọn.
-  const handleOpenEditAssignment = (assign: Assignment) => {
-    setEditingAssignment({ ...assign });
-    setEditAssignmentTitle(assign.title);
-    setEditAssignmentDesc(assign.description || "");
-    setEditAssignmentInstructions(assign.instructions || "");
-    const due = new Date(assign.dueAt);
-    setEditAssignmentDue(Number.isFinite(due.getTime())
-      ? new Date(due.getTime() - due.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-      : "");
-    setEditAssignmentMaxScore(assign.maxScore);
-    setEditAssignmentModalOpen(true);
+  // Mở hộp thoại xem đề ngay trong lớp học (không điều hướng sang trang Đề thi).
+  const openWorkPreview = () => {
+    if (selectedClassExam) {
+      setPreviewExamContent(selectedClassExam);
+      return;
+    }
+    if (selectedAssignment) {
+      setPreviewAssignment(selectedAssignment);
+    }
   };
 
-  // Lưu nội dung bài tập qua API với expectedVersion và chỉ báo thành công khi máy chủ xác nhận.
-  const handleSaveEditAssignment = async () => {
-    if (!editingAssignment || editAssignmentSaving) return;
-    const title = editAssignmentTitle.trim();
-    const description = editAssignmentDesc.trim();
-    const instructions = editAssignmentInstructions.trim();
-    const dueAt = new Date(editAssignmentDue);
-    const maxScore = editAssignmentMaxScore;
-    if (title.length < 3 || title.length > 255 || description.length < 10 || description.length > 5000 ||
-      instructions.length < 5 || instructions.length > 10_000 || !Number.isFinite(dueAt.getTime()) ||
-      dueAt.getTime() <= Date.now() || !Number.isFinite(maxScore) || maxScore < 0.25 || maxScore > 1000 ||
-      Math.round(maxScore * 100) !== maxScore * 100) {
-      notify("Kiểm tra tiêu đề (3–255 ký tự), mô tả (10–5000), hướng dẫn (5–10000), hạn nộp tương lai và thang điểm hợp lệ.", "error");
-      return;
-    }
-    const rubric = editingAssignment.rubric.map(({ title: rubricTitle, description: rubricDescription, maxPoints }) => ({
-      title: rubricTitle, description: rubricDescription, maxPoints,
-    }));
-    if (rubric.length === 1) rubric[0]!.maxPoints = maxScore;
-    if (!rubric.length || Math.abs(rubric.reduce((sum, criterion) => sum + criterion.maxPoints, 0) - maxScore) > 0.001) {
-      notify("Tổng điểm các tiêu chí chấm phải bằng điểm tối đa. Không thể đổi thang điểm của rubric nhiều tiêu chí tại đây.", "error");
-      return;
-    }
-    setEditAssignmentSaving(true);
-    try {
-      await apiRequest<Assignment>(`/instructor/assignments/${encodeURIComponent(editingAssignment.id)}`, {
-        method: "PATCH", roleCode: session.roleCode,
-        body: JSON.stringify({ title, description, instructions, dueAt: dueAt.toISOString(), maxScore, rubric, expectedVersion: editingAssignment.version }),
+  // Mở chế độ làm thử đề giống học sinh nhưng không lưu dữ liệu lịch sử làm bài.
+  const openWorkTrial = () => {
+    if (selectedClassExam) {
+      setPreviewExam({
+        id: selectedClassExam.id,
+        title: selectedClassExam.title,
+        durationMinutes: selectedClassExam.durationMinutes,
+        totalQuestions: selectedClassExam.questionIds.length,
+        totalScore: selectedClassExam.totalScore,
+        closeAt: selectedClassExam.closeAt,
+        questionScores: selectedClassExam.questionScores,
       });
-      await loadClassData();
-      setEditAssignmentModalOpen(false);
-      setEditingAssignment(null);
-      notify("Đã cập nhật bài tập trên máy chủ.", "success");
+      return;
+    }
+    if (selectedAssignment) {
+      setTrialAssignment(selectedAssignment);
+    }
+  };
+
+  // Mở hộp thoại chỉnh sửa trực tiếp cho đề trắc nghiệm hoặc bài tự luận trong lớp.
+  const openWorkEdit = () => {
+    if (selectedClassExam) {
+      setEditingClassExam(selectedClassExam);
+      return;
+    }
+    if (selectedAssignment) {
+      setEditingAssignment(selectedAssignment);
+    }
+  };
+
+  // Cập nhật ẩn/hiện hoặc xóa bài tập đang được chọn theo phiên bản hiển thị.
+  const changeSelectedWork = async (action: "visibility" | "delete") => {
+    const work = selectedWork;
+    if (!work || changingWork) return;
+    const isExam = Boolean(selectedClassExam);
+    const path = "/instructor/" + (isExam ? "exams/" : "assignments/") + encodeURIComponent(work.id);
+    if (action === "delete" && !window.confirm('Xóa “' + work.title + '” cùng các bài làm và điểm liên quan?')) return;
+    setChangingWork(true);
+    try {
+      if (action === "delete") {
+        await apiRequest(path, { method: "DELETE", roleCode: session.roleCode, body: JSON.stringify({ expectedVersion: work.version }) });
+        if (isExam) {
+          setClassExams(rows => rows.filter(row => row.id !== work.id));
+          setSelectedExamId(current => current === work.id ? "" : current);
+        } else {
+          setAssignments(rows => rows.filter(row => row.id !== work.id));
+          setSelectedAssignment(row => row?.id === work.id ? null : row);
+        }
+        setAssignmentViewMode("list");
+        notify("Đã xóa bài tập.", "success");
+      } else {
+        const result = await apiRequest<{ hidden: boolean; version: number }>(path + "/visibility", {
+          method: "PATCH", roleCode: session.roleCode, body: JSON.stringify({ hidden: !work.hidden, expectedVersion: work.version }),
+        });
+        if (isExam) setClassExams(rows => rows.map(row => row.id === work.id ? { ...row, ...result } : row));
+        else {
+          setAssignments(rows => rows.map(row => row.id === work.id ? { ...row, ...result } : row));
+          setSelectedAssignment(row => row?.id === work.id ? { ...row, ...result } : row);
+        }
+        notify(result.hidden ? "Đã ẩn bài tập." : "Đã hiện bài tập.", "success");
+      }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không thể lưu bài tập.", "error");
+      notify(error instanceof Error ? error.message : "Không cập nhật được bài tập.", "error");
     } finally {
-      setEditAssignmentSaving(false);
+      setChangingWork(false);
     }
   };
 
@@ -1435,8 +1656,9 @@ export function InstructorClassWorkspace({
           tags: ["Soạn thủ công"],
         }),
       });
-      await loadClassData();
+      await refreshQuestionData();
       setAuthoringModalOpen(false);
+      setAuthoringPreview(false);
       setAuthoringContent("");
       notify("Đã lưu câu hỏi nháp vào ngân hàng. Cần duyệt và xuất bản trước khi tạo đề thi.", "success");
     } catch (error) {
@@ -1500,7 +1722,7 @@ export function InstructorClassWorkspace({
       });
       const imported = results.filter((r) => r.status === "IMPORTED").length;
       const failed = results.filter((r) => r.status === "FAILED");
-      await loadClassData();
+      await refreshQuestionData();
       notify(`Đã nhập ${imported}/${results.length} câu hỏi nháp.${failed.length ? ` Lỗi: ${failed.map((r) => `dòng ${r.row}: ${r.message}`).join("; ")}` : ""}`, failed.length ? "error" : "success");
       if (!failed.length) {
         setScanModalOpen(false);
@@ -1550,11 +1772,8 @@ export function InstructorClassWorkspace({
           clientRequestId: aiRequestRef.current.id,
         }),
       });
-      const publishedExam = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(result.exam.id)}/publish`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: result.exam.version }),
-      });
+      const publishedExam = result.exam;
+      selectCreatedExam(publishedExam);
       setAiGeneratedExam({ ...result, exam: publishedExam });
       await loadClassData();
       notify(`Đã tạo và phát hành đề AI ${publishedExam.title} gồm ${result.generatedQuestionCount} câu.`, "success");
@@ -1567,6 +1786,7 @@ export function InstructorClassWorkspace({
 
   // Mở modal chỉnh sửa câu hỏi trong ngân hàng lớp
   const handleOpenEditQuestion = (q: ClassQuestion) => {
+    setEditingQuestionPreview(false);
     setEditingQuestionData({
       id: q.id,
       content: q.content,
@@ -1611,7 +1831,7 @@ export function InstructorClassWorkspace({
             tags: editingQuestionData.source.split(",").map((tag) => tag.trim()).filter(Boolean),
           }),
         });
-        await loadClassData();
+        await refreshQuestionData();
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể cập nhật câu hỏi.", "error");
       return;
@@ -1620,6 +1840,7 @@ export function InstructorClassWorkspace({
     }
 
     setEditingQuestionModalOpen(false);
+    setEditingQuestionPreview(false);
     setEditingQuestionData(null);
     notify("Đã cập nhật câu hỏi thành công!", "success");
   };
@@ -1681,11 +1902,8 @@ export function InstructorClassWorkspace({
         }),
       });
       if (!created?.id) throw new Error("Máy chủ không trả về đề thi vừa tạo.");
-      const published = await apiRequest<Exam>(`/instructor/exams/${encodeURIComponent(created.id)}/publish`, {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ confirmQuestions: true, forcePublish: true, expectedVersion: created.version }),
-      });
+      const published = created;
+      selectCreatedExam(published);
       await loadClassData();
       notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu.", "success");
       return true;
@@ -1796,7 +2014,7 @@ export function InstructorClassWorkspace({
           method: "DELETE",
           roleCode: session.roleCode,
         });
-        await loadClassData();
+        await refreshQuestionData();
         notify("Đã xóa câu hỏi khỏi ngân hàng lớp!", "success");
       } catch (error) {
         console.warn("Không thể xóa câu hỏi khỏi ngân hàng lớp:", error);
@@ -1816,10 +2034,14 @@ export function InstructorClassWorkspace({
       notify("Vui lòng chọn tệp tài liệu hợp lệ!", "error");
       return;
     }
+    const targetFolder = materialFormFolder.trim();
+    if (!targetFolder || !materialFolders.includes(targetFolder)) {
+      notify("Vui lòng chọn hoặc tạo thư mục tài liệu hợp lệ trong lớp trước.", "error");
+      return;
+    }
     setMaterialSaving(true);
     let uploadedId: string | null = null;
     try {
-      const targetFolder = materialFormFolder.trim() || "Tài liệu chung";
       const form = new FormData();
       form.append("file", materialUploadFile);
       form.append("folder", targetFolder);
@@ -1948,22 +2170,26 @@ export function InstructorClassWorkspace({
                   <span className="text-xs text-slate-400 font-medium mr-2">
                     {selectedLectureForPage.uploadedAt}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditLecture(selectedLectureForPage)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/80 cursor-pointer transition-colors"
-                  >
-                    <Edit3 size={13} />
-                    <span>Chỉnh sửa</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteLecture(selectedLectureForPage.id, selectedLectureForPage.title)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/80 cursor-pointer transition-colors"
-                  >
-                    <Trash2 size={13} />
-                    <span>Xóa</span>
-                  </button>
+                  {canManageClassContent && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditLecture(selectedLectureForPage)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/80 cursor-pointer transition-colors"
+                      >
+                        <Edit3 size={13} />
+                        <span>Chỉnh sửa</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLecture(selectedLectureForPage.id, selectedLectureForPage.title)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/80 cursor-pointer transition-colors"
+                      >
+                        <Trash2 size={13} />
+                        <span>Xóa</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1988,50 +2214,10 @@ export function InstructorClassWorkspace({
                   <p className="text-sm text-slate-700 dark:text-slate-200">Nếu không xem được trong trang, hãy mở bài giảng từ liên kết bên dưới.</p>
                   <a href={selectedLectureForPage.sourceUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-semibold text-white hover:bg-sky-700">Mở bài giảng</a>
                 </div>
-              ) : selectedLectureForPage.fileType === "pptx" || selectedLectureForPage.title.includes("Phiếu") ? (
-                /* Giao diện Phiếu bài tập / Slide trình chiếu (chuẩn Ảnh 2 của người dùng) */
-                <div className="w-full min-h-[420px] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-6 shadow-sm space-y-5">
-                  <div className="text-center space-y-1 pb-4 border-b border-slate-100 dark:border-slate-800">
-                    <h3 className="text-base sm:text-lg font-extrabold uppercase text-slate-900 dark:text-slate-100 tracking-wide">
-                      PHIẾU BÀI TẬP TRẮC NGHIỆM TOÁN HỌC
-                    </h3>
-                    <p className="text-xs text-slate-500">Thời gian gợi ý: 15 phút</p>
-                    <div className="flex justify-center gap-8 text-xs text-slate-500 pt-2">
-                      <span>Họ và tên: ........................................................</span>
-                      <span>Lớp: .......................................</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
-                    <p className="font-semibold italic text-slate-600 dark:text-slate-400">
-                      Khoanh tròn vào chữ cái trước đáp án đúng.
-                    </p>
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
-                      <p className="font-bold">Câu 1. Kết quả của phép tính 3 475 + 2 618 là:</p>
-                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
-                        <span>A. 6 083</span>
-                        <span>B. 6 093</span>
-                        <span>C. 6 193</span>
-                        <span>D. 5 093</span>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 space-y-2">
-                      <p className="font-bold">Câu 2. Kết quả của phép chia 864 : 8 là:</p>
-                      <div className="grid grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
-                        <span>A. 108</span>
-                        <span>B. 118</span>
-                        <span>C. 106</span>
-                        <span>D. 98</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               ) : (
-                <div className="w-full aspect-video rounded-2xl bg-slate-900 flex flex-col items-center justify-center text-white p-6 shadow-md">
-                  <Video size={48} className="text-purple-400 mb-3" />
-                  <p className="text-sm font-bold">{selectedLectureForPage.title}</p>
-                  <p className="text-xs text-slate-400 mt-1">Trình phát video bài học chuyên đề</p>
+                <div className="space-y-2">
+                  <InlineFilePreview key={selectedLectureForPage.id} materialId={selectedLectureForPage.id} title={selectedLectureForPage.title} />
+                  <button type="button" className="text-sm font-semibold underline" onClick={() => void handleDownloadMaterial(selectedLectureForPage.id)}>Tải xuống</button>
                 </div>
               )}
 
@@ -2316,127 +2502,15 @@ export function InstructorClassWorkspace({
 
         {/* TAB 2: LỊCH HỌC */}
         {activeTab === "schedule" && (
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Lịch học của {item.name || item.code}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Theo dõi và quản lý các ca học, phòng học trực tuyến của lớp này.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Nút chuyển đổi: Dạng tuần (Lưới) & Dạng tháng (Danh sách) */}
-                <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                  <button
-                    type="button"
-                    onClick={() => setScheduleView("week")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      scheduleView === "week"
-                        ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                    }`}
-                  >
-                    <LayoutGrid size={14} />
-                    <span>Dạng tuần (Lưới)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setScheduleView("month")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      scheduleView === "month"
-                        ? "bg-white dark:bg-slate-900 text-blue-600 shadow-xs"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                    }`}
-                  >
-                    <List size={14} />
-                    <span>Dạng tháng (Danh sách)</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => notify("Chức năng thêm buổi học mới đã sẵn sàng.", "info")}
-                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Plus size={14} />
-                  <span>Thêm buổi học mới</span>
-                </button>
-              </div>
-            </div>
-
-            {scheduleView === "week" ? (
-              /* CHẾ ĐỘ DẠNG TUẦN: HIỂN THỊ DẠNG LƯỚI 7 NGÀY CỦA LỚP */
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
-                {[
-                  { day: "Thứ 2", date: "26/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Quy chế", isToday: false },
-                  { day: "Thứ 3", date: "27/10", hasClass: false, isToday: true },
-                  { day: "Thứ 4", date: "28/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Hệ thức", isToday: false },
-                  { day: "Thứ 5", date: "29/10", hasClass: false, isToday: false },
-                  { day: "Thứ 6", date: "30/10", hasClass: true, time: "19:30 - 21:00", title: "Buổi 03: Bài tập chuyên đề 1", isToday: false },
-                  { day: "Thứ 7", date: "31/10", hasClass: false, isToday: false },
-                  { day: "Chủ nhật", date: "01/11", hasClass: false, isToday: false },
-                ].map((col, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-3 rounded-xl border flex flex-col justify-between min-h-40 ${
-                      col.hasClass
-                        ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/60"
-                        : "bg-slate-50/60 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-1.5 mb-2">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{col.day}</span>
-                        <span className="text-[10px] text-slate-400">{col.date}</span>
-                      </div>
-
-                      {col.hasClass ? (
-                        <div className="space-y-1.5">
-                          <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold block w-fit">
-                            Trực tuyến
-                          </span>
-                          <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">
-                            {col.title}
-                          </p>
-                          <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                            <Clock size={11} /> {col.time}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-400 italic pt-6 text-center">Nghỉ</p>
-                      )}
-                    </div>
-
-                    {col.hasClass && (
-                      <div className="space-y-1 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-                          className="w-full py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
-                        >
-                          Vào phòng
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              /* CHẾ ĐỘ DẠNG THÁNG: HIỂN THỊ DẠNG DANH SÁCH */
-              <ClassScheduleMonthList
-                rows={[
-                  { date: "26/10/2026", time: "19:30 - 21:00", title: "Buổi 01: Nhập môn & Hướng dẫn phương pháp học", status: "Đã diễn ra" },
-                  { date: "28/10/2026", time: "19:30 - 21:00", title: "Buổi 02: Phương trình & Biến đổi đại số nâng cao", status: "Hôm nay" },
-                  { date: "30/10/2026", time: "19:30 - 21:00", title: "Buổi 03: Chữa bài tập chuyên đề và Kiểm tra 15p", status: "Sắp diễn ra" },
-                  { date: "02/11/2026", time: "19:30 - 21:00", title: "Buổi 04: Chuyên đề nâng cao và Vận dụng thực tế", status: "Sắp diễn ra" },
-                ]}
-                onJoin={() => notify("Đang kết nối phòng học trực tuyến...", "info")}
-              />
-            )}
-          </div>
+          <ClassSchedulePanel
+            classItem={item}
+            roleCode={session.roleCode}
+            canManage={canManageClassContent}
+            canTransitionStatus={canManageClassContent}
+            locale={locale}
+            notify={notify}
+            t={t}
+          />
         )}
 
         {/* TAB 3: THÀNH VIÊN */}
@@ -2624,315 +2698,36 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* TAB 5: BÀI TẬP (HỖ TRỢ CHUYỂN ĐỔI CHẾ ĐỘ DANH SÁCH 3 CỘT VÀ TRANG CHI TIẾT/BẢNG ĐIỂM RIÊNG BIỆT THEO ẢNH MẪU) */}
+        {/* TAB 5: BÀI TẬP (HỖ TRỢ DANH SÁCH 3 CỘT VÀ XEM CHI TIẾT BẢNG ĐIỂM CHO CẢ TRẮC NGHIỆM & TỰ LUẬN) */}
         {activeTab === "assignments" && (
           <>
-            {assignmentViewMode === "detail" && selectedAssignment ? (
-              /* =========================================================================
-                 TRANG CHI TIẾT BÀI TẬP & BẢNG ĐIỂM HỌC SINH (CHUẨN ẢNH 1 CỦA NGƯỜI DÙNG)
-                 ========================================================================= */
-              <div className="space-y-4">
-                {/* Header: Breadcrumb bên trái + 5 nút tab con bên phải */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-                  {/* Breadcrumb: Bài tập > Tên bài tập */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentViewMode("list")}
-                      className="font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1"
-                    >
-                      <ArrowLeft size={16} className="text-slate-400" />
-                      <span>Bài tập</span>
-                    </button>
-                    <ChevronRight size={14} className="text-slate-400" />
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 truncate max-w-[280px] sm:max-w-md">
-                      {selectedAssignment.title}
-                    </span>
-                  </div>
-
-                  {/* Cụm 5 nút Tab bên phải */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentDetailSubTab("gradebook")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentDetailSubTab === "gradebook"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Bảng điểm
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentDetailSubTab("overview")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentDetailSubTab === "overview"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Tổng quan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentDetailSubTab("stats")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentDetailSubTab === "stats"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Thông số câu
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssignmentDetailSubTab("exam_content");
-                        setPreviewAssignment(selectedAssignment);
-                      }}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentDetailSubTab === "exam_content"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Đề bài
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssignmentDetailSubTab("solution");
-                        notify("Xem hướng dẫn giải chi tiết cho đề thi này", "info");
-                      }}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentDetailSubTab === "solution"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Lời giải
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditAssignment(selectedAssignment)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/80 transition cursor-pointer"
-                    >
-                      <Edit3 size={13} />
-                      <span>Chỉnh sửa bài tập</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Toolbar lọc trạng thái & tìm kiếm theo Ảnh 1 */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  {/* Nhóm 4 nút trạng thái: Tất cả, Chưa làm, Đang làm, Đã nộp */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentStatusFilter("ALL")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentStatusFilter === "ALL"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Tất cả
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentStatusFilter("NOT_STARTED")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentStatusFilter === "NOT_STARTED"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Chưa làm
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentStatusFilter("IN_PROGRESS")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentStatusFilter === "IN_PROGRESS"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Đang làm
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAssignmentStatusFilter("SUBMITTED")}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                        assignmentStatusFilter === "SUBMITTED"
-                          ? "bg-blue-600 text-white shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      }`}
-                    >
-                      Đã nộp
-                    </button>
-                  </div>
-
-                  {/* Bên phải: Dropdown đối tượng + Ô tìm kiếm + Icon máy in */}
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <select className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer pr-7">
-                        <option value="class">Học sinh lớp</option>
-                        <option value="all">Tất cả đối tượng</option>
-                      </select>
-                      <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    </div>
-
-                    <div className="relative w-48 sm:w-60">
-                      <input
-                        type="text"
-                        placeholder="Nhập để tìm kiếm..."
-                        value={assignmentStudentSearch}
-                        onChange={(e) => setAssignmentStudentSearch(e.target.value)}
-                        className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                      />
-                      <Search size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        notify("Đang chuẩn bị bảng in điểm học sinh...", "info");
-                        if (typeof window !== "undefined") window.print();
-                      }}
-                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                      title="In bảng điểm"
-                    >
-                      <Printer size={15} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* BẢNG ĐIỂM CHI TIẾT (CHUẨN ẢNH 1 VỚI DỮ LIỆU THẬT TỪ POSTGRESQL CỦA LỚP) */}
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
-                      <tr>
-                        <th className="px-4 py-3 w-10 text-center">
-                          <input type="checkbox" className="rounded text-blue-600 cursor-pointer" />
-                        </th>
-                        <th className="px-3 py-3 w-12 text-slate-500">#</th>
-                        <th className="px-4 py-3 min-w-48 text-slate-700 dark:text-slate-200">
-                          <div className="flex items-center gap-1 cursor-pointer">
-                            <span>Họ và tên</span>
-                            <ChevronDown size={13} className="text-slate-400" />
-                          </div>
-                        </th>
-                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
-                          Đã làm
-                        </th>
-                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
-                          <div className="flex items-center justify-center gap-1 cursor-pointer">
-                            <span>Điểm</span>
-                            <span className="text-slate-400">↓</span>
-                          </div>
-                        </th>
-                        <th className="px-4 py-3 text-center min-w-28 text-slate-600 dark:text-slate-300">
-                          <div className="flex items-center justify-center gap-1 cursor-pointer">
-                            <span>Thời lượng</span>
-                            <ChevronDown size={13} className="text-slate-400" />
-                          </div>
-                        </th>
-                        <th className="px-4 py-3 text-center min-w-32 text-slate-600 dark:text-slate-300">
-                          Ngày nộp
-                        </th>
-                        <th className="px-4 py-3 text-center min-w-24 text-slate-600 dark:text-slate-300">
-                          Rời khỏi
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {learners.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
-                            Chưa có học sinh nào tham gia lớp học này.
-                          </td>
-                        </tr>
-                      ) : (
-                        learners
-                          .filter((l) => {
-                            if (!assignmentStudentSearch) return true;
-                            const name = l.displayName || l.email || "";
-                            return (
-                              name.toLowerCase().includes(assignmentStudentSearch.toLowerCase()) ||
-                              (l.email?.toLowerCase().includes(assignmentStudentSearch.toLowerCase()) ?? false)
-                            );
-                          })
-                          .filter((l) => {
-                            const submission = selectedSubmissions.find((entry) => entry.learnerId === l.id);
-                            if (assignmentStatusFilter === "SUBMITTED") return !!submission;
-                            if (assignmentStatusFilter === "NOT_STARTED") return !submission;
-                            return true;
-                          })
-                          .map((learner, index) => {
-                            const studentName = learner.displayName || learner.email || "Học sinh";
-                            const submission = selectedSubmissions.find((entry) => entry.learnerId === learner.id);
-                            const initials = studentName
-                              .split(" ")
-                              .map((n: string) => n[0] || "")
-                              .slice(-2)
-                              .join("")
-                              .toUpperCase() || "TN";
-
-                            return (
-                              <tr
-                                key={learner.id}
-                                className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition"
-                              >
-                                <td className="px-4 py-3.5 text-center">
-                                  <input type="checkbox" className="rounded text-blue-600 cursor-pointer" />
-                                </td>
-                                <td className="px-3 py-3.5 text-slate-400 font-medium">
-                                  {index + 1}
-                                </td>
-                                <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-slate-100">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className="size-7 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold text-[11px] grid place-items-center shrink-0">
-                                      {initials}
-                                    </div>
-                                    <span className="truncate">{studentName}</span>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-slate-600 dark:text-slate-400 font-medium">
-                                  {submission ? "1/1" : "0/1"}
-                                </td>
-                                <td className="px-4 py-3.5 text-center font-bold">
-                                  {submission?.score !== undefined ? (
-                                    <span
-                                      className={`px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColorClass(
-                                        submission.score,
-                                        selectedAssignment?.maxScore ?? 10
-                                      )}`}
-                                    >
-                                      {submission.score}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400">--</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-slate-500">
-                                  —
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-slate-500">
-                                  {submission ? new Date(submission.submittedAt).toLocaleString(locale) : "—"}
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-slate-500">
-                                  —
-                                </td>
-                              </tr>
-                            );
-                          })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            {assignmentViewMode === "detail" && selectedWork ? (
+              <ClassWorkDetailView
+                work={
+                  selectedClassExam
+                    ? { kind: "EXAM", exam: selectedClassExam }
+                    : { kind: "ASSIGNMENT", assignment: selectedAssignment! }
+                }
+                roleCode={session.roleCode}
+                locale={locale}
+                learners={learners}
+                submissions={selectedSubmissions}
+                subTab={assignmentDetailSubTab}
+                onChangeSubTab={setAssignmentDetailSubTab}
+                statusFilter={assignmentStatusFilter}
+                onChangeStatusFilter={setAssignmentStatusFilter}
+                studentSearch={assignmentStudentSearch}
+                onChangeStudentSearch={setAssignmentStudentSearch}
+                changingWork={changingWork}
+                onBack={() => setAssignmentViewMode("list")}
+                onOpenPreviewModal={openWorkPreview}
+                onTryWork={openWorkTrial}
+                onEditWork={openWorkEdit}
+                onToggleVisibility={() => void changeSelectedWork("visibility")}
+                onDeleteWork={() => void changeSelectedWork("delete")}
+                onPreviewMaterial={(materialId) => void handlePreviewMaterial(materialId)}
+                onDownloadMaterial={(materialId) => void handleDownloadMaterial(materialId)}
+              />
             ) : (
               /* =========================================================================
                  DANH SÁCH BÀI TẬP BỐ CỤC 3 CỘT (CHUẨN ẢNH 2 CỦA NGƯỜI DÙNG)
@@ -3050,7 +2845,12 @@ export function InstructorClassWorkspace({
 
                       <div className="flex items-center gap-2">
                         <div className="relative">
-                          <select className="py-1.5 pl-3 pr-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+                          <select
+                            aria-label="Sắp xếp bài tập"
+                            value={assignmentSort}
+                            onChange={(event) => setAssignmentSort(event.target.value as "newest" | "oldest")}
+                            className="py-1.5 pl-3 pr-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                          >
                             <option value="newest">Mới nhất</option>
                             <option value="oldest">Cũ nhất</option>
                           </select>
@@ -3068,102 +2868,82 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    {/* Danh sách thẻ bài tập (Theo Ảnh 2: Thẻ W xanh, tiêu đề, loại đề, x/y đã làm) */}
+                    {/* Danh sách thẻ bài tập */}
                     <div className={`flex-1 overflow-y-auto max-h-[540px] pr-1 ${assignmentListDisplayMode === "grid" ? "grid content-start gap-3 sm:grid-cols-2" : "space-y-2"}`}>
-                      {assignments.length === 0 ? (
+                      {assignments.length === 0 && visibleExams.length === 0 ? (
                         <div className="p-8 text-center text-xs text-slate-400">
                           Chưa có bài tập nào. Bấm &quot;+ Tạo bài tập&quot; để thêm mới.
                         </div>
                       ) : (
-                        assignments
-                          .filter((assign) => !searchQuery || assign.title.toLowerCase().includes(searchQuery.toLowerCase()))
-                          .map((assign) => {
-                            const isSelected = selectedAssignment?.id === assign.id;
-                            const submittedCount = new Set((submissionsByAssignment[assign.id] ?? []).map((submission) => submission.learnerId)).size;
-                            const totalLearnersCount = Math.max(learners.length, 1);
-
+                        [...visibleExams, ...assignments]
+                          .filter(work => work.title.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+                          .sort((left, right) => {
+                            const leftTime = Date.parse("openAt" in left ? left.openAt : left.createdAt) || 0;
+                            const rightTime = Date.parse("openAt" in right ? right.openAt : right.createdAt) || 0;
+                            return assignmentSort === "newest" ? rightTime - leftTime : leftTime - rightTime;
+                          })
+                          .map(work => {
+                            const exam = "attemptLimit" in work;
+                            const isSelected = selectedWork?.id === work.id;
+                            const submittedCount = new Set((submissionsByAssignment[work.id] ?? []).map(submission => submission.learnerId)).size;
                             return (
-                              <div
-                                key={assign.id}
-                                onClick={() => setSelectedAssignment(assign)}
-                                className={`rounded-xl border text-left cursor-pointer transition ${assignmentListDisplayMode === "grid" ? "flex min-h-36 flex-col items-start justify-between gap-4 p-4" : "flex items-center justify-between gap-3 p-3.5"} ${
+                              <button type="button"
+                                key={work.id}
+                                aria-pressed={isSelected}
+                                onClick={() => { if (exam) setSelectedExamId(work.id); else { setSelectedExamId(""); setSelectedAssignment(work); } }}
+                                className={`w-full rounded-xl border text-left cursor-pointer transition ${assignmentListDisplayMode === "grid" ? "flex min-h-36 flex-col items-start justify-between gap-4 p-4" : "flex items-center justify-between gap-3 p-3.5"} ${
                                   isSelected
                                     ? "border-blue-400 dark:border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 shadow-2xs"
                                     : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 bg-white dark:bg-slate-900"
                                 }`}
                               >
                                 <div className={`flex min-w-0 gap-3 ${assignmentListDisplayMode === "grid" ? "w-full flex-col items-start" : "items-center"}`}>
-                                  {/* Icon đề bài: W xanh hoặc 3 màu */}
+                                  {/* Icon đề bài */}
                                   <div className="size-8 rounded-lg bg-blue-600 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-xs">
                                     W
                                   </div>
                                   <div className="min-w-0">
                                     <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                                      {assign.title}
+                                      {work.title}{work.hidden && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">Đã ẩn</span>}
                                     </strong>
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                                      Trắc nghiệm tách câu
+                                      {exam ? "Trắc nghiệm" : "Tự luận"}
                                     </p>
                                   </div>
                                 </div>
 
                                 <div className={`${assignmentListDisplayMode === "grid" ? "w-full text-left" : "text-right"} shrink-0`}>
                                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                                    {submittedCount}/{totalLearnersCount} đã làm
+                                    {exam ? work.questionIds.length + " câu" : submittedCount + "/" + learners.length + " đã nộp"}
                                   </span>
                                 </div>
-                              </div>
+                              </button>
                             );
                           })
                       )}
                     </div>
                   </div>
 
-                  {/* CỘT 3: PANEL XEM NHANH THÔNG TIN BÀI TẬP & CỤM NÚT CHỨC NĂNG (CHUẨN ẢNH 2) */}
+                  {/* CỘT 3: PANEL XEM NHANH THÔNG TIN BÀI TẬP & CỤM NÚT CHỨC NĂNG */}
                   <div className="w-full lg:w-80 shrink-0 p-5 space-y-5 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col justify-between">
-                    {selectedAssignment ? (
+                    {selectedWork ? (
                       <div className="space-y-4">
-                        {/* Tiêu đề bài tập to */}
-                        <div>
-                          <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">
-                            {selectedAssignment.title}
-                          </h3>
-                        </div>
-
-                        {/* Khối thông số chi tiết của bài tập */}
-                        <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800/80 pt-1">
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="text-slate-500">Số lần làm bài</span>
-                            <span className="font-bold text-slate-900 dark:text-slate-100">1</span>
-                          </div>
-                          <div className="flex items-center justify-between pt-2">
-                            <span className="text-slate-500">Lấy điểm</span>
-                            <span className="font-bold text-slate-900 dark:text-slate-100">Lần đầu tiên</span>
-                          </div>
-                          <div className="flex items-center justify-between pt-2">
-                            <span className="text-slate-500">Loại</span>
-                            <span className="font-bold text-slate-900 dark:text-slate-100 text-right max-w-[160px] truncate">
-                              Trắc nghiệm tách câu được tách tự động
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between pt-2">
-                            <span className="text-slate-500">Ngày tạo</span>
-                            <span className="font-bold text-slate-900 dark:text-slate-100">27 tháng 10</span>
-                          </div>
-                        </div>
-
-                        {/* Icon chevron-down thu gọn */}
-                        <div className="flex justify-center pt-1">
-                          <ChevronDown size={16} className="text-slate-400" />
-                        </div>
-
+                        <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">{selectedWork.title}</h3>
+                        <dl className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-slate-800/80 pt-1">
+                          {workDetails.map(([label, value]) => (
+                            <div key={label} className="flex items-center justify-between gap-3 pt-2">
+                              <dt className="text-slate-500">{label}</dt>
+                              <dd className="text-right font-bold text-slate-900 dark:text-slate-100">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
                         {/* DANH SÁCH NÚT CHỨC NĂNG DỌC (TÊN TRÁI - ICON PHẢI) */}
                         <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <button
                             type="button"
-                            onClick={() => setAssignmentViewMode("detail")}
+                            onClick={openWorkPreview}
                             aria-label="Xem bài tập"
-                            title="Xem bài tập"
+                            title="Xem đề bài tập"
                             className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-xs font-bold transition-colors cursor-pointer"
                           >
                             <span>Xem bài tập</span>
@@ -3172,13 +2952,62 @@ export function InstructorClassWorkspace({
 
                           <button
                             type="button"
-                            onClick={() => handleOpenEditAssignment(selectedAssignment)}
-                            aria-label="Sửa bài tập"
-                            title="Sửa bài tập"
-                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                            onClick={() => {
+                              setAssignmentDetailSubTab("gradebook");
+                              setAssignmentViewMode("detail");
+                            }}
+                            aria-label="Xem chi tiết"
+                            title="Xem bảng điểm cả bài tập"
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <span>Xem chi tiết</span>
+                            <BarChart3 size={16} className="shrink-0" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={openWorkTrial}
+                            aria-label="Làm thử"
+                            title="Làm thử bài tập"
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <span>Làm thử</span>
+                            <Play size={16} className="shrink-0" />
+                          </button>
+
+                          <button
+                            type="button"
+                            aria-label="Chỉnh sửa bài tập"
+                            title="Chỉnh sửa bài tập"
+                            onClick={openWorkEdit}
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
                           >
                             <span>Chỉnh sửa</span>
                             <Edit2 size={16} className="shrink-0" />
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={changingWork}
+                            onClick={() => void changeSelectedWork("visibility")}
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                          >
+                            <span>{selectedWork.hidden ? "Hiện bài tập" : "Ẩn bài tập"}</span>
+                            {selectedWork.hidden ? (
+                              <Eye size={16} className="shrink-0 text-emerald-600" />
+                            ) : (
+                              <EyeOff size={16} className="shrink-0 text-slate-500" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={changingWork}
+                            onClick={() => void changeSelectedWork("delete")}
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                          >
+                            <span>Xóa bài tập</span>
+                            <Trash2 size={16} className="shrink-0" />
                           </button>
                         </div>
                       </div>
@@ -3227,51 +3056,12 @@ export function InstructorClassWorkspace({
                 </button>
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-x-auto shadow-xs">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase font-extrabold text-[10px] border-b border-slate-200 dark:border-slate-800">
-                  <tr>
-                    <th className="px-4 py-3 min-w-44">Học sinh</th>
-                    <th className="px-4 py-3 text-center">Điểm thi</th>
-                    <th className="px-4 py-3 text-center">Điểm bài tập</th>
-                    <th className="px-4 py-3 text-center">Tổng (%)</th>
-                    <th className="px-4 py-3 text-center">Chờ chấm</th>
-                    <th className="px-4 py-3 text-center">Chưa nộp</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {gradebook
-                    .filter((row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((row) => (
-                      <tr key={row.learnerId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 font-bold">
-                            <UserAvatar name={row.learnerName} className="size-6 text-[10px]" />
-                            <span>{row.learnerName}</span>
-                          </div>
-                          <span className="text-slate-500">{row.learnerEmail}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center">{row.examEarned} / {row.examPossible}</td>
-                        <td className="px-4 py-3 text-center">{row.assignmentEarned} / {row.assignmentPossible}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`inline-flex rounded-full px-2 py-0.5 border font-bold ${getScoreColorClass(row.totalPercent, 100)}`}>
-                            {row.totalPercent.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">{row.awaitingGrade}</td>
-                        <td className="px-4 py-3 text-center">{row.notSubmitted}</td>
-                      </tr>
-                    ))}
-                  {gradebook.filter((row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-slate-400">
-                        {searchQuery ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <ClassGradebookTable
+              rows={gradebook.filter(
+                (row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase()),
+              )}
+              emptyMessage={searchQuery ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
+            />
           </div>
         )}
         {/* TAB 7: BÀI GIẢNG (GIAO DIỆN 3 CỘT MASTER-DETAIL CHUẨN ẢNH 1 ĐỒNG BỘ VỚI HỌC SINH + TÍNH NĂNG GIẢNG VIÊN) */}
@@ -3287,22 +3077,24 @@ export function InstructorClassWorkspace({
                   Video bài học chuyên đề, slide trình chiếu và audio ghi âm theo chương mục.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const defaultFolder =
-                    selectedLectureFolder !== "__ALL__"
-                      ? selectedLectureFolder
-                      : lectureFolders[0] || "Bài giảng chung";
-                  setLectureFormFolder(defaultFolder);
-                  setLectureFormVisibility("PUBLISHED");
-                  setAddLectureModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Plus size={14} />
-                <span>Thêm bài giảng</span>
-              </button>
+              {canManageClassContent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultFolder =
+                      customLectureFolders.includes(selectedLectureFolder)
+                        ? selectedLectureFolder
+                        : (customLectureFolders[0] ?? "");
+                    setLectureFormFolder(defaultFolder);
+                    setLectureFormVisibility("PUBLISHED");
+                    setAddLectureModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus size={14} />
+                  <span>Thêm bài giảng</span>
+                </button>
+              )}
             </div>
 
             {/* Khung 3 cột Master-Detail chuẩn Ảnh 1 */}
@@ -3312,14 +3104,16 @@ export function InstructorClassWorkspace({
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
                   <span>Thư mục</span>
                   <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewFolderModal(true)}
-                      className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
-                      title="Tạo thư mục mới"
-                    >
-                      + Tạo
-                    </button>
+                    {canManageClassContent && (
+                      <button
+                        type="button"
+                        onClick={() => setShowNewFolderModal(true)}
+                        className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
+                        title="Tạo thư mục mới"
+                      >
+                        + Tạo
+                      </button>
+                    )}
                     <SlidersHorizontal size={14} className="text-slate-400" />
                   </div>
                 </div>
@@ -3520,63 +3314,67 @@ export function InstructorClassWorkspace({
                         <Play size={15} className="shrink-0" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleToggleResourceVisibility(
-                            activeLectureItem.id,
-                            activeLectureItem.visibility,
-                            activeLectureItem.title,
-                          )
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>
-                          {activeLectureItem.visibility === "HIDDEN"
-                            ? "Hiển thị bài giảng"
-                            : "Ẩn bài giảng"}
-                        </span>
-                        {activeLectureItem.visibility === "HIDDEN" ? (
-                          <Eye size={15} className="shrink-0 text-emerald-600" />
-                        ) : (
-                          <EyeOff size={15} className="shrink-0 text-slate-500" />
-                        )}
-                      </button>
+                      {canManageClassContent && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleToggleResourceVisibility(
+                                activeLectureItem.id,
+                                activeLectureItem.visibility,
+                                activeLectureItem.title,
+                              )
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>
+                              {activeLectureItem.visibility === "HIDDEN"
+                                ? "Hiển thị bài giảng"
+                                : "Ẩn bài giảng"}
+                            </span>
+                            {activeLectureItem.visibility === "HIDDEN" ? (
+                              <Eye size={15} className="shrink-0 text-emerald-600" />
+                            ) : (
+                              <EyeOff size={15} className="shrink-0 text-slate-500" />
+                            )}
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditLecture(activeLectureItem)}
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Chỉnh sửa</span>
-                        <Edit3 size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditLecture(activeLectureItem)}
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Chỉnh sửa</span>
+                            <Edit3 size={15} className="shrink-0" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleOpenMoveItem(
-                            activeLectureItem.id,
-                            activeLectureItem.title,
-                            "LECTURE",
-                          )
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Di chuyển</span>
-                        <FolderInput size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenMoveItem(
+                                activeLectureItem.id,
+                                activeLectureItem.title,
+                                "LECTURE",
+                              )
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Di chuyển</span>
+                            <FolderInput size={15} className="shrink-0" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Xóa</span>
-                        <Trash2 size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeleteLecture(activeLectureItem.id, activeLectureItem.title)
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Xóa</span>
+                            <Trash2 size={15} className="shrink-0" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -3602,22 +3400,24 @@ export function InstructorClassWorkspace({
                   Học liệu số, giáo trình và tài liệu tham khảo phân loại theo thư mục chuyên đề.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const defaultFolder =
-                    selectedMaterialFolder !== "__ALL__"
-                      ? selectedMaterialFolder
-                      : materialFolders[0] || "Tài liệu chung";
-                  setMaterialFormFolder(defaultFolder);
-                  setMaterialFormVisibility("PUBLISHED");
-                  setAddMaterialModalOpen(true);
-                }}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <UploadCloud size={14} />
-                <span>Tải tài liệu</span>
-              </button>
+              {canManageClassContent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defaultFolder =
+                      customMaterialFolders.includes(selectedMaterialFolder)
+                        ? selectedMaterialFolder
+                        : (customMaterialFolders[0] ?? "");
+                    setMaterialFormFolder(defaultFolder);
+                    setMaterialFormVisibility("PUBLISHED");
+                    setAddMaterialModalOpen(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <UploadCloud size={14} />
+                  <span>Tải tài liệu</span>
+                </button>
+              )}
             </div>
 
             {/* Khung 3 cột Master-Detail */}
@@ -3626,13 +3426,15 @@ export function InstructorClassWorkspace({
               <div className="w-full lg:w-56 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-slate-800 p-3.5 space-y-3 bg-slate-50/50 dark:bg-slate-900/40">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
                   <span>Thư mục</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewFolderModal(true)}
-                    className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
-                  >
-                    + Tạo
-                  </button>
+                  {canManageClassContent && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNewFolderModal(true)}
+                      className="text-blue-600 dark:text-blue-400 hover:underline text-[11px] font-bold cursor-pointer"
+                    >
+                      + Tạo
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-1">
@@ -3829,63 +3631,67 @@ export function InstructorClassWorkspace({
                         <Download size={15} className="shrink-0" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleToggleResourceVisibility(
-                            activeMaterialItem.id,
-                            activeMaterialItem.visibility,
-                            activeMaterialItem.title,
-                          )
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>
-                          {activeMaterialItem.visibility === "HIDDEN"
-                            ? "Hiển thị tài liệu"
-                            : "Ẩn tài liệu"}
-                        </span>
-                        {activeMaterialItem.visibility === "HIDDEN" ? (
-                          <Eye size={15} className="shrink-0 text-emerald-600" />
-                        ) : (
-                          <EyeOff size={15} className="shrink-0 text-slate-500" />
-                        )}
-                      </button>
+                      {canManageClassContent && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleToggleResourceVisibility(
+                                activeMaterialItem.id,
+                                activeMaterialItem.visibility,
+                                activeMaterialItem.title,
+                              )
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>
+                              {activeMaterialItem.visibility === "HIDDEN"
+                                ? "Hiển thị tài liệu"
+                                : "Ẩn tài liệu"}
+                            </span>
+                            {activeMaterialItem.visibility === "HIDDEN" ? (
+                              <Eye size={15} className="shrink-0 text-emerald-600" />
+                            ) : (
+                              <EyeOff size={15} className="shrink-0 text-slate-500" />
+                            )}
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditMaterial(activeMaterialItem)}
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Chỉnh sửa</span>
-                        <Edit3 size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditMaterial(activeMaterialItem)}
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Chỉnh sửa</span>
+                            <Edit3 size={15} className="shrink-0" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleOpenMoveItem(
-                            activeMaterialItem.id,
-                            activeMaterialItem.title,
-                            "MATERIAL",
-                          )
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Di chuyển</span>
-                        <FolderInput size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenMoveItem(
+                                activeMaterialItem.id,
+                                activeMaterialItem.title,
+                                "MATERIAL",
+                              )
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Di chuyển</span>
+                            <FolderInput size={15} className="shrink-0" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)
-                        }
-                        className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                      >
-                        <span>Xóa</span>
-                        <Trash2 size={15} className="shrink-0" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeleteMaterial(activeMaterialItem.id, activeMaterialItem.title)
+                            }
+                            className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            <span>Xóa</span>
+                            <Trash2 size={15} className="shrink-0" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -3939,7 +3745,10 @@ export function InstructorClassWorkspace({
               <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-xs font-bold">
                 <button
                   type="button"
-                  onClick={() => setQuestionBankTab("ALL")}
+                  onClick={() => {
+                    setQuestionBankTab("ALL");
+                    resetQuestionPage();
+                  }}
                   className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
                     questionBankTab === "ALL"
                       ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
@@ -3948,13 +3757,16 @@ export function InstructorClassWorkspace({
                 >
                   <span>Tất cả</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold">
-                    {classQuestionStats.total}
+                    {questionSummary.total}
                   </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setQuestionBankTab("MULTIPLE_CHOICE")}
+                  onClick={() => {
+                    setQuestionBankTab("MULTIPLE_CHOICE");
+                    resetQuestionPage();
+                  }}
                   className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
                     questionBankTab === "MULTIPLE_CHOICE"
                       ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
@@ -3963,13 +3775,16 @@ export function InstructorClassWorkspace({
                 >
                   <span>Trắc nghiệm</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
-                    {classQuestionStats.multipleChoice}
+                    {questionSummary.multipleChoice}
                   </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setQuestionBankTab("ESSAY")}
+                  onClick={() => {
+                    setQuestionBankTab("ESSAY");
+                    resetQuestionPage();
+                  }}
                   className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
                     questionBankTab === "ESSAY"
                       ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
@@ -3978,7 +3793,7 @@ export function InstructorClassWorkspace({
                 >
                   <span>Tự luận</span>
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-bold">
-                    {classQuestionStats.essay}
+                    {questionSummary.essay}
                   </span>
                 </button>
               </div>
@@ -3991,14 +3806,20 @@ export function InstructorClassWorkspace({
                     type="text"
                     placeholder="Tìm câu hỏi, nguồn..."
                     value={questionBankSearch}
-                    onChange={(e) => setQuestionBankSearch(e.target.value)}
+                    onChange={(e) => {
+                      setQuestionBankSearch(e.target.value);
+                      resetQuestionPage();
+                    }}
                     className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   />
                 </div>
 
                 <select
                   value={questionBankDifficulty}
-                  onChange={(e) => setQuestionBankDifficulty(e.target.value)}
+                  onChange={(e) => {
+                    setQuestionBankDifficulty(e.target.value);
+                    resetQuestionPage();
+                  }}
                   className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
                 >
                   <option value="ALL">Tất cả độ khó</option>
@@ -4010,12 +3831,29 @@ export function InstructorClassWorkspace({
               </div>
             </div>
 
+            {questionBankError ? (
+              <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/30 p-4 flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-rose-700 dark:text-rose-300">{questionBankError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadClassQuestionBank()}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 cursor-pointer shrink-0"
+                >
+                  Thử lại
+                </button>
+              </div>
+            ) : null}
+
             <div className="space-y-3">
-              {filteredClassQuestions.length === 0 ? (
+              {questionBankLoading && pagedClassQuestions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center">
+                  <p className="text-xs text-slate-500 font-medium">Đang tải ngân hàng câu hỏi...</p>
+                </div>
+              ) : pagedClassQuestions.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center space-y-3">
                   <FileQuestion size={32} className="mx-auto text-slate-400" />
                   <p className="text-xs text-slate-500 font-medium">
-                    {classQuestions.length === 0
+                    {questionSummary.total === 0
                       ? "Chưa có câu hỏi nào trong ngân hàng riêng của lớp."
                       : "Không tìm thấy câu hỏi nào phù hợp với bộ lọc hiện tại."}
                   </p>
@@ -4029,7 +3867,7 @@ export function InstructorClassWorkspace({
                   </button>
                 </div>
               ) : (
-                filteredClassQuestions.map((q) => (
+                pagedClassQuestions.map((q) => (
                   <div
                     key={q.id}
                     className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition"
@@ -4068,59 +3906,25 @@ export function InstructorClassWorkspace({
                       </div>
                     </div>
 
-                    <strong className="block text-xs font-bold leading-relaxed text-slate-800 dark:text-slate-200">
-                      {q.content}
-                    </strong>
-
-                    {/* Danh sách lựa chọn nếu là trắc nghiệm */}
-                    {q.options && q.options.length > 0 && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                        {q.options.map((opt, optIdx) => {
-                          const isCorrect = q.correctAnswers?.includes(optIdx);
-                          const prefix = String.fromCharCode(65 + optIdx);
-                          return (
-                            <div
-                              key={optIdx}
-                              className={`p-2 rounded-xl text-xs flex items-center gap-2 border ${
-                                isCorrect
-                                  ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 font-semibold"
-                                  : "border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400"
-                              }`}
-                            >
-                              <span
-                                className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
-                                  isCorrect
-                                    ? "bg-emerald-500 text-white"
-                                    : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-                                }`}
-                              >
-                                {prefix}
-                              </span>
-                              <span className="truncate">{opt}</span>
-                              {isCorrect && (
-                                <span className="ml-auto text-[10px] font-extrabold text-emerald-600">
-                                  ✓ Đúng
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Lời giải chi tiết nếu có */}
-                    {q.solution && (
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
-                        <span className="font-bold text-slate-700 dark:text-slate-200 block mb-0.5">
-                          💡 Hướng dẫn giải:
-                        </span>
-                        <span>{q.solution}</span>
-                      </div>
-                    )}
+                    <QuestionRenderPreview
+                      content={q.content}
+                      options={q.options}
+                      correctOptionIndexes={q.correctAnswers}
+                      solution={q.solution}
+                    />
                   </div>
                 ))
               )}
             </div>
+
+            <Pagination
+              page={questionDisplayPage}
+              pageSize={questionPageSize}
+              totalItems={questionTotalItems}
+              itemLabel="câu hỏi"
+              onPageChange={setQuestionPage}
+              onPageSizeChange={setQuestionPageSize}
+            />
           </div>
         )}
 
@@ -4442,23 +4246,15 @@ export function InstructorClassWorkspace({
                       onChange={(e) => setLectureFormFolder(e.target.value)}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
                     >
-                      {Array.from(
-                        new Set(
-                          [...lectureFolders, lectureFormFolder, "Bài giảng chung"].filter(Boolean),
-                        ),
-                      ).map((f) => (
+                      {customLectureFolders.length === 0 && (
+                        <option value="">Chưa có thư mục bài giảng</option>
+                      )}
+                      {Array.from(new Set(customLectureFolders.filter(Boolean))).map((f) => (
                         <option key={f} value={f}>
                           📁 {f}
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      placeholder="Hoặc gõ tên thư mục..."
-                      value={lectureFormFolder}
-                      onChange={(e) => setLectureFormFolder(e.target.value)}
-                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                    />
                   </div>
                   <span className="text-[10px] text-slate-400 mt-1 block">
                     Đang lưu vào thư mục: <strong className="text-purple-600 dark:text-purple-400">{lectureFormFolder}</strong>
@@ -4587,11 +4383,9 @@ export function InstructorClassWorkspace({
                   {selectedStudentAttempt.attachments.length > 0 && (
                     <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
                       <h4 className="text-xs font-extrabold uppercase text-slate-500">Tệp đính kèm</h4>
-                      {selectedStudentAttempt.attachments.map((attachment) => (
-                        <div key={attachment.id} className="text-xs">
-                          {attachment.originalName} ({(attachment.sizeBytes / 1024).toFixed(1)} KB)
-                        </div>
-                      ))}
+                      {selectedStudentAttempt.attachments.map((file) => (
+                  <SubmissionFile key={file.id} submissionId={selectedStudentAttempt.id} file={file} showImage />
+                ))}
                     </div>
                   )}
                   {selectedStudentAttempt.rubricScores.length > 0 && (
@@ -4817,7 +4611,7 @@ export function InstructorClassWorkspace({
         </div>
       )}
 
-      {/* Modal làm thử / xem đề dành cho giáo viên */}
+      {/* Modal làm thử đề trắc nghiệm dành cho giáo viên (không lưu lịch sử) */}
       <ExamTakingModal
         open={Boolean(previewExam)}
         onClose={() => setPreviewExam(null)}
@@ -4825,20 +4619,61 @@ export function InstructorClassWorkspace({
         isInstructorPreview={true}
       />
 
-      {previewAssignment && (
-        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="presentation">
-          <section role="dialog" aria-modal="true" aria-labelledby="assignment-preview-title" className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-800">
-              <div><p className="text-xs font-semibold text-sky-600 dark:text-sky-400">Xem thử bài tự luận</p><h2 id="assignment-preview-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{previewAssignment.title}</h2><p className="mt-1 text-sm text-slate-500">Hạn nộp: {new Date(previewAssignment.dueAt).toLocaleString(locale)}</p></div>
-              <button type="button" aria-label="Đóng xem thử bài tự luận" onClick={() => setPreviewAssignment(null)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={19} /></button>
-            </div>
-            {previewAssignment.description && <p className="mt-5 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">{previewAssignment.description}</p>}
-            <div className="mt-5 rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60"><h3 className="font-semibold text-slate-900 dark:text-white">Đề bài</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-300">{previewAssignment.instructions}</p></div>
-            {previewAssignment.sourceMaterial && <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/30"><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tệp đề đính kèm</h3><p className="mt-1 break-all text-sm text-slate-700 dark:text-slate-300">{previewAssignment.sourceMaterial.name}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void handlePreviewMaterial(previewAssignment.sourceMaterial!.id)} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700">Xem tệp</button><button type="button" onClick={() => void handleDownloadMaterial(previewAssignment.sourceMaterial!.id)} className="rounded-lg border border-sky-300 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-200 dark:hover:bg-sky-950">Tải tệp về</button></div></div>}
-            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setPreviewAssignment(null)} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900">Đóng</button></div>
-          </section>
-        </div>
-      )}
+      <ClassExamPreviewModal
+        exam={previewExamContent}
+        classNameLabel={item.name || item.code}
+        roleCode={session.roleCode}
+        onClose={() => setPreviewExamContent(null)}
+        onTryExam={(target) => {
+          setPreviewExam({
+            id: target.id,
+            title: target.title,
+            durationMinutes: target.durationMinutes,
+            totalQuestions: target.questionIds.length,
+            totalScore: target.totalScore,
+            closeAt: target.closeAt,
+            questionScores: target.questionScores,
+          });
+        }}
+        onEditExam={(target) => setEditingClassExam(target)}
+      />
+
+      <ClassAssignmentPreviewModal
+        assignment={previewAssignment}
+        locale={locale}
+        onClose={() => setPreviewAssignment(null)}
+        onPreviewMaterial={(materialId) => void handlePreviewMaterial(materialId)}
+        onDownloadMaterial={(materialId) => void handleDownloadMaterial(materialId)}
+        onTryAssignment={(target) => setTrialAssignment(target)}
+        onEditAssignment={(target) => setEditingAssignment(target)}
+      />
+
+      <ClassAssignmentTrialModal
+        assignment={trialAssignment}
+        locale={locale}
+        onClose={() => setTrialAssignment(null)}
+        onPreviewMaterial={(materialId) => void handlePreviewMaterial(materialId)}
+        onDownloadMaterial={(materialId) => void handleDownloadMaterial(materialId)}
+      />
+
+      <ClassExamEditModal
+        exam={editingClassExam}
+        roleCode={session.roleCode}
+        classCourseId={item.courseId}
+        classEndAt={item.endAt}
+        classQuestions={classQuestions}
+        onClose={() => setEditingClassExam(null)}
+        onSaved={loadClassData}
+      />
+
+      <ClassAssignmentEditModal
+        assignment={editingAssignment}
+        classId={item.id}
+        classEndAt={item.endAt}
+        roleCode={session.roleCode}
+        onClose={() => setEditingAssignment(null)}
+        onSaved={loadClassData}
+      />
 
       {/* =========================================================================
           MODAL CHỈNH SỬA BÀI GIẢNG DÀNH CHO GIẢNG VIÊN
@@ -5016,13 +4851,6 @@ export function InstructorClassWorkspace({
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      placeholder="Hoặc gõ tên thư mục..."
-                      value={editLectureFormFolder}
-                      onChange={(e) => setEditLectureFormFolder(e.target.value)}
-                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                    />
                   </div>
                 </div>
 
@@ -5113,25 +4941,15 @@ export function InstructorClassWorkspace({
                       onChange={(e) => setMaterialFormFolder(e.target.value)}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                     >
-                      {Array.from(
-                        new Set(
-                          [...materialFolders, materialFormFolder, "Tài liệu chung"].filter(
-                            Boolean,
-                          ),
-                        ),
-                      ).map((f) => (
+                      {customMaterialFolders.length === 0 && (
+                        <option value="">Chưa có thư mục tài liệu</option>
+                      )}
+                      {Array.from(new Set(customMaterialFolders.filter(Boolean))).map((f) => (
                         <option key={f} value={f}>
                           📁 {f}
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      placeholder="Hoặc gõ tên thư mục..."
-                      value={materialFormFolder}
-                      onChange={(e) => setMaterialFormFolder(e.target.value)}
-                      className="w-1/2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                    />
                   </div>
                   <span className="text-[10px] text-slate-400 mt-1 block">
                     Đang lưu vào thư mục: <strong className="text-blue-600 dark:text-blue-400">{materialFormFolder}</strong>
@@ -5257,11 +5075,7 @@ export function InstructorClassWorkspace({
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                   >
                     {Array.from(
-                      new Set(
-                        [...materialFolders, editMaterialFormFolder, "Tài liệu chung"].filter(
-                          Boolean,
-                        ),
-                      ),
+                      new Set(materialFolders.filter(Boolean)),
                     ).map((f) => (
                       <option key={f} value={f}>
                         📁 {f}
@@ -5316,116 +5130,6 @@ export function InstructorClassWorkspace({
                 className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer"
               >
                 {materialSaving ? "Đang lưu..." : "Lưu toàn bộ thay đổi"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          MODAL CHỈNH SỬA BÀI TẬP DÀNH CHO GIẢNG VIÊN (ÁP DỤNG TƯƠNG TỰ)
-          ========================================================================= */}
-      {editAssignmentModalOpen && editingAssignment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                Chỉnh sửa bài tập: {editingAssignment.title}
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditAssignmentModalOpen(false);
-                  setEditingAssignment(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Tiêu đề bài tập <span className="text-rose-500">*</span>:
-                </label>
-                <input
-                  type="text"
-                  value={editAssignmentTitle}
-                  onChange={(e) => setEditAssignmentTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
-                />
-              </div>
-
-              <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Điểm tối đa:
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={editAssignmentMaxScore}
-                    onChange={(e) => setEditAssignmentMaxScore(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Hạn nộp bài (Deadline):
-                </label>
-                <input
-                  type="datetime-local"
-                  value={editAssignmentDue}
-                  onChange={(e) => setEditAssignmentDue(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Mô tả bài tập:
-                </label>
-                <textarea
-                  rows={2}
-                  value={editAssignmentDesc}
-                  onChange={(e) => setEditAssignmentDesc(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Hướng dẫn làm bài:
-                </label>
-                <textarea
-                  rows={2}
-                  value={editAssignmentInstructions}
-                  onChange={(e) => setEditAssignmentInstructions(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditAssignmentModalOpen(false);
-                  setEditingAssignment(null);
-                }}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveEditAssignment}
-                disabled={editAssignmentSaving}
-                className="px-5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                {editAssignmentSaving ? "Đang lưu..." : "Lưu bài tập"}
               </button>
             </div>
           </div>
@@ -5578,23 +5282,77 @@ export function InstructorClassWorkspace({
           CÁCH 1: MODAL SOẠN CÂU HỎI THỦ CÔNG
           ========================================================================= */}
       {authoringModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Soạn câu hỏi thủ công"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs"
+        >
           <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Edit3 size={18} className="text-blue-600" />
                 <span>Soạn câu hỏi thủ công</span>
               </h3>
-              <button
-                type="button"
-                onClick={() => setAuthoringModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-pressed={authoringPreview}
+                  onClick={() => setAuthoringPreview((prev) => !prev)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition inline-flex items-center gap-1.5 cursor-pointer ${
+                    authoringPreview
+                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500/70 dark:bg-blue-950/60 dark:text-blue-300"
+                      : "border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  {authoringPreview ? <Edit3 size={13} /> : <Eye size={14} />}
+                  <span>{authoringPreview ? "Quay lại chỉnh sửa" : "Xem giao diện"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthoringModalOpen(false);
+                    setAuthoringPreview(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+              {authoringPreview ? (
+                <div className="space-y-3">
+                  <p className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                    Bản xem trước giao diện sau khi render LaTeX
+                  </p>
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60">
+                        {authoringType === "SINGLE_CHOICE"
+                          ? "Trắc nghiệm một đáp án"
+                          : authoringType === "MULTIPLE_CHOICE"
+                            ? "Trắc nghiệm nhiều đáp án"
+                            : "Tự luận"}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                        {authoringDifficulty === "EASY"
+                          ? "Cơ bản"
+                          : authoringDifficulty === "MEDIUM"
+                            ? "Thông hiểu"
+                            : "Vận dụng cao"}
+                      </span>
+                    </div>
+                    <QuestionRenderPreview
+                      content={authoringContent}
+                      options={authoringType !== "ESSAY" ? authoringOptions : []}
+                      correctOptionIndexes={authoringCorrect}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -5696,13 +5454,18 @@ export function InstructorClassWorkspace({
               <p className="text-xs text-blue-700 dark:text-blue-300">
                 Câu hỏi mới được lưu trong ngân hàng và có thể dùng để tạo đề thi ngay.
               </p>
+                </>
+              )}
             </div>
 
             <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
               <button
                 type="button"
-                onClick={() => setAuthoringModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setAuthoringModalOpen(false);
+                  setAuthoringPreview(false);
+                }}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Hủy
               </button>
@@ -5802,9 +5565,9 @@ export function InstructorClassWorkspace({
                       key={index}
                       className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 space-y-2"
                     >
-                      <strong className="block font-bold text-slate-800 dark:text-slate-200">
+                      <RichText className="font-bold text-slate-800 dark:text-slate-200 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
                         {q.content}
-                      </strong>
+                      </RichText>
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         {q.options.map((opt, optIdx) => {
                           const prefix = String.fromCharCode(65 + optIdx);
@@ -5828,8 +5591,10 @@ export function InstructorClassWorkspace({
                                   : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
                               }`}
                             >
-                              <span className="font-bold">{prefix}.</span>
-                              <span className="truncate">{opt}</span>
+                              <span className="font-bold shrink-0">{prefix}.</span>
+                              <RichText className="min-w-0 flex-1 text-left leading-relaxed [&>p]:my-0 [&_*]:text-inherit">
+                                {opt}
+                              </RichText>
                             </button>
                           );
                         })}
@@ -5996,28 +5761,79 @@ export function InstructorClassWorkspace({
           MODAL: CHỈNH SỬA CÂU HỎI TRONG NGÂN HÀNG CÂU HỎI LỚP
           ========================================================================= */}
       {editingQuestionModalOpen && editingQuestionData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chỉnh sửa câu hỏi ngân hàng lớp"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs"
+        >
           <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Edit3 size={18} className="text-blue-600" />
                 <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
                   Chỉnh sửa câu hỏi ngân hàng lớp
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingQuestionModalOpen(false);
-                  setEditingQuestionData(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-pressed={editingQuestionPreview}
+                  onClick={() => setEditingQuestionPreview((prev) => !prev)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition inline-flex items-center gap-1.5 cursor-pointer ${
+                    editingQuestionPreview
+                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500/70 dark:bg-blue-950/60 dark:text-blue-300"
+                      : "border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  {editingQuestionPreview ? <Edit3 size={13} /> : <Eye size={14} />}
+                  <span>{editingQuestionPreview ? "Quay lại chỉnh sửa" : "Xem giao diện"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingQuestionModalOpen(false);
+                    setEditingQuestionPreview(false);
+                    setEditingQuestionData(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+              {editingQuestionPreview ? (
+                <div className="space-y-3">
+                  <p className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                    Bản xem trước giao diện sau khi render LaTeX
+                  </p>
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60">
+                        {editingQuestionData.type}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                        {editingQuestionData.difficulty}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Nguồn:{" "}
+                        <strong className="text-slate-600 dark:text-slate-300">
+                          {editingQuestionData.source.trim() || "Ngân hàng câu hỏi"}
+                        </strong>
+                      </span>
+                    </div>
+                    <QuestionRenderPreview
+                      content={editingQuestionData.content}
+                      options={editingQuestionData.type !== "Tự luận" ? editingQuestionData.options : []}
+                      correctOptionIndexes={editingQuestionData.correctAnswers}
+                      solution={editingQuestionData.solution}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -6062,6 +5878,7 @@ export function InstructorClassWorkspace({
                   Nội dung câu hỏi <span className="text-rose-500">*</span>:
                 </label>
                 <textarea
+                  aria-label="Nội dung câu hỏi"
                   rows={3}
                   value={editingQuestionData.content}
                   onChange={(e) =>
@@ -6128,6 +5945,7 @@ export function InstructorClassWorkspace({
                             {prefix}
                           </button>
                           <input
+                            aria-label={`Phương án ${prefix}`}
                             type="text"
                             value={opt}
                             onChange={(e) => {
@@ -6169,6 +5987,7 @@ export function InstructorClassWorkspace({
                   Hướng dẫn giải chi tiết / Gợi ý:
                 </label>
                 <textarea
+                  aria-label="Hướng dẫn giải chi tiết / Gợi ý"
                   rows={2}
                   value={editingQuestionData.solution}
                   onChange={(e) =>
@@ -6184,6 +6003,7 @@ export function InstructorClassWorkspace({
                   Nguồn câu hỏi / Xuất xứ đề:
                 </label>
                 <input
+                  aria-label="Nguồn câu hỏi / Xuất xứ đề"
                   type="text"
                   value={editingQuestionData.source}
                   onChange={(e) =>
@@ -6193,6 +6013,8 @@ export function InstructorClassWorkspace({
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
                 />
               </div>
+                </>
+              )}
             </div>
 
             <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
@@ -6200,6 +6022,7 @@ export function InstructorClassWorkspace({
                 type="button"
                 onClick={() => {
                   setEditingQuestionModalOpen(false);
+                  setEditingQuestionPreview(false);
                   setEditingQuestionData(null);
                 }}
                 className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
@@ -6234,7 +6057,7 @@ export function InstructorClassWorkspace({
                     Tạo đề thi / bài tập từ Ngân hàng câu hỏi
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Ngân hàng lớp hiện có {classQuestions.length} câu ({classQuestionStats.multipleChoice} trắc nghiệm, {classQuestionStats.essay} tự luận)
+                    Ngân hàng lớp hiện có {questionSummary.total} câu ({questionSummary.multipleChoice} trắc nghiệm, {questionSummary.essay} tự luận)
                   </p>
                 </div>
               </div>
@@ -6433,7 +6256,9 @@ export function InstructorClassWorkspace({
                                 </span>
                                 <span className="text-[10px] text-slate-400">Nguồn: {q.source}</span>
                               </div>
-                              <p className="font-semibold text-slate-800 dark:text-slate-200">{q.content}</p>
+                              <RichText className="font-semibold text-slate-800 dark:text-slate-200 [&>p]:my-0">
+                                {q.content}
+                              </RichText>
                             </div>
                           </label>
                         );
@@ -6636,9 +6461,9 @@ export function InstructorClassWorkspace({
                               {q.difficulty}
                             </span>
                           </div>
-                          <p className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                          <RichText className="font-semibold text-slate-800 dark:text-slate-200 text-xs [&>p]:my-0">
                             {q.content}
-                          </p>
+                          </RichText>
                         </div>
                       ))}
                     </div>
@@ -6754,7 +6579,7 @@ export function InstructorClassWorkspace({
         </div>
       )}
 
-      {/* Modal Di chuyển Bài giảng / Tài liệu sang lớp khác hoặc Cần phân cấp lại */}
+      {/* Modal Di chuyển Bài giảng / Tài liệu sang lớp và thư mục khác thuộc quyền giảng dạy */}
       {moveItemModalOpen && itemForMove && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
@@ -6763,25 +6588,51 @@ export function InstructorClassWorkspace({
               <span>Di chuyển {itemForMove.kind === "LECTURE" ? "bài giảng" : "tài liệu"}</span>
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Chọn thư mục / lớp đích để chuyển <strong className="text-slate-900 dark:text-slate-100">&quot;{itemForMove.title}&quot;</strong>:
+              Chọn lớp và thư mục đích hợp lệ để chuyển <strong className="text-slate-900 dark:text-slate-100">&quot;{itemForMove.title}&quot;</strong>:
             </p>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Thư mục / Lớp đích:
-              </label>
-              <select
-                value={targetDestinationClassId}
-                onChange={(e) => setTargetDestinationClassId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
-              >
-                <option value="unclassified">📍 Cần phân cấp lại (Chưa phân loại)</option>
-                {allInstructorClasses.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    📁 {cls.name} ({cls.code})
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Lớp đích:
+                </label>
+                <select
+                  value={targetDestinationClassId}
+                  onChange={(e) => setTargetDestinationClassId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  {movableDestinationClasses.length === 0 && (
+                    <option value="">Không có lớp khả dụng</option>
+                  )}
+                  {movableDestinationClasses.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      📁 {cls.name} ({cls.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Thư mục đích:
+                </label>
+                <select
+                  value={targetDestinationFolder}
+                  disabled={loadingDestinationFolders || targetDestinationFolders.length === 0}
+                  onChange={(e) => setTargetDestinationFolder(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  {loadingDestinationFolders && <option value="">Đang tải thư mục...</option>}
+                  {!loadingDestinationFolders && targetDestinationFolders.length === 0 && (
+                    <option value="">Lớp đích chưa có thư mục phù hợp</option>
+                  )}
+                  {targetDestinationFolders.map((folderName) => (
+                    <option key={folderName} value={folderName}>
+                      {folderName}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -6794,8 +6645,9 @@ export function InstructorClassWorkspace({
               </button>
               <button
                 type="button"
+                disabled={!targetDestinationClassId || !targetDestinationFolder}
                 onClick={handleConfirmMoveItem}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs cursor-pointer"
               >
                 Xác nhận di chuyển
               </button>
