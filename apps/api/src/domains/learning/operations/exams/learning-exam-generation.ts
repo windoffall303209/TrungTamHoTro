@@ -1,3 +1,4 @@
+import { submitExamForReview } from "./learning-exam-approval.js";
 import {
   BadRequestException,
   ConflictException,
@@ -78,8 +79,6 @@ export async function getExamGenerationContext(
         courseId: classItem.courseId,
         OR: [
           { class: { instructors: { some: { instructorId: actorId } } } },
-          // Học liệu dùng chung đã phát hành thì mọi học viên đều xem được nên dùng được làm ngữ cảnh.
-          { scope: "SHARED" },
         ],
       },
       orderBy: { updatedAt: "desc" },
@@ -172,8 +171,7 @@ export async function getExamGenerationContext(
       (material.courseId ?? relatedClass?.courseId) === classItem.courseId;
     if (
       !inCourse ||
-      (material.scope !== "SHARED" &&
-        !relatedClass?.instructorIds.includes(actorId)) ||
+      !relatedClass?.instructorIds.includes(actorId) ||
       !stored
     )
       continue;
@@ -298,7 +296,7 @@ export async function createGeneratedExam(
           where: {
             courseId,
             contentHash,
-            status: "DRAFT",
+            status: "PUBLISHED",
             type: question.type,
             difficulty: question.difficulty,
             imageObjectKey: null,
@@ -329,7 +327,7 @@ export async function createGeneratedExam(
             correctAnswers: question.correctAnswers,
             difficulty: question.difficulty,
             tags: question.tags,
-            status: "DRAFT",
+            status: "PUBLISHED",
           },
         });
         questionIds.push(questionId);
@@ -378,7 +376,7 @@ export async function createGeneratedExam(
           },
         },
       });
-      return serviceContext.getDatabaseExam(transaction, exam.id);
+      return submitExamForReview(serviceContext, exam.id, actorId, true, undefined, false, transaction);
     });
   }
   const classItem = serviceContext.findClass(input.classId);
@@ -389,6 +387,7 @@ export async function createGeneratedExam(
     throw new NotFoundException("Không tìm thấy lớp học được phép tạo đề.");
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  const newQuestions: typeof serviceContext.questions = [];
   const questionIds: string[] = [];
   for (const question of normalizedQuestions) {
     const contentHash = serviceContext.questionContentHash(question.content);
@@ -407,11 +406,11 @@ export async function createGeneratedExam(
       continue;
     }
     const questionId = id("question");
-    serviceContext.questions.unshift({
+    newQuestions.push({
       ...question,
       id: questionId,
       familyId: questionId,
-      status: "DRAFT",
+      status: "PUBLISHED",
       version: 1,
     });
     questionIds.push(questionId);
@@ -429,6 +428,13 @@ export async function createGeneratedExam(
     status: "DRAFT",
     version: 1,
   };
+  serviceContext.questions.unshift(...newQuestions);
   serviceContext.exams.unshift(exam);
-  return { ...exam, questionIds: [...exam.questionIds] };
+  try {
+    return await submitExamForReview(serviceContext, exam.id, actorId, true);
+  } catch (error) {
+    serviceContext.exams.splice(serviceContext.exams.indexOf(exam), 1);
+    for (const question of newQuestions) serviceContext.questions.splice(serviceContext.questions.indexOf(question), 1);
+    throw error;
+  }
 }

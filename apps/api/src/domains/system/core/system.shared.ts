@@ -1,28 +1,19 @@
 import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../infrastructure/file-transfer.js";
 
-export type ExamApprovalMode = "AUTO" | "MANUAL";
 
 export interface SystemSettings {
   centerName: string;
   timezone: string;
   locale: string;
-  retentionDays: number;
   maxFileSizeMb: number;
   storageQuotaMb: number;
   allowedMimeTypes: string[];
-  questionApprovalMode: ExamApprovalMode;
   notificationSender: string;
   maintenanceMode: boolean;
   learnerEmailNotificationsEnabled: boolean;
   version: number;
-  effectiveAt: string;
   updatedBy: string;
   updatedAt: string;
-}
-
-export interface SystemSettingRevision extends SystemSettings {
-  id: string;
-  key: string;
 }
 
 export interface StorageOverview {
@@ -83,6 +74,11 @@ export interface AuditFilter {
   limit?: number;
 }
 
+export interface AuditPageFilter extends AuditFilter {
+  page?: number;
+  pageSize?: number;
+}
+
 export interface RestoreRun {
   id: string;
   backupId: string;
@@ -109,100 +105,6 @@ export interface DataExport {
   createdAt: string;
   attempts: number;
   progress: number;
-}
-
-export interface NotificationTemplate {
-  id: string;
-  eventCode: string;
-  locale: string;
-  subject: string;
-  body: string;
-  version: number;
-  status: "DRAFT" | "PUBLISHED";
-  updatedAt: string;
-}
-
-export interface ModerationPolicy {
-  version: number;
-  prohibitedTerms: string[];
-  maxPostsPerMinute: number;
-  action: "FLAG" | "HIDE_PENDING_REVIEW";
-  updatedAt: string;
-}
-
-export interface TemplateTestDelivery {
-  recipient: string;
-  subject: string;
-  body: string;
-  status: "SENT";
-  provider: "resend";
-  providerMessageId: string;
-  sentAt: string;
-}
-
-export interface RetentionPreview {
-  category: string;
-  retentionDays: number;
-  action: "ARCHIVE" | "DELETE";
-  estimatedRows: number;
-  legalHoldRows: number;
-  deletableRows: number;
-  cutoffAt: string;
-}
-
-export interface RetentionPolicyView {
-  id: string;
-  category: string;
-  version: number;
-  retentionDays: number;
-  action: "ARCHIVE" | "DELETE";
-  approvedBy: string;
-  effectiveAt: string;
-  createdAt: string;
-}
-
-export interface RetentionJobView {
-  id: string;
-  policyId: string;
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
-  affectedRows: number;
-  skippedRows: number;
-  requestedBy: string;
-  approvedBy: string;
-  approvedAt?: string;
-  evidence: Record<string, unknown>;
-  createdAt: string;
-  completedAt?: string;
-  attempts: number;
-  progress: number;
-}
-
-export interface LegalHoldView {
-  id: string;
-  category: string;
-  reason: string;
-  active: boolean;
-  createdBy: string;
-  createdAt: string;
-  releasedAt?: string;
-  releasedBy?: string;
-  releaseReason?: string;
-}
-
-export interface SystemAlertView {
-  id: string;
-  fingerprint: string;
-  serviceName: string;
-  severity: "WARNING" | "CRITICAL";
-  status: "OPEN" | "ACKNOWLEDGED" | "MUTED" | "RESOLVED";
-  summary: string;
-  metricValue?: number;
-  threshold?: number;
-  detectedAt: string;
-  acknowledgedBy?: string;
-  mutedUntil?: string;
-  recoveredAt?: string;
-  updatedAt: string;
 }
 
 export interface SnapshotAssetAudit {
@@ -234,30 +136,18 @@ export const templateVariables: Record<string, readonly string[]> = {
   SUPPORT_UPDATED: ["ticketId", "status", "resolution"],
 };
 
-export const retentionCategories = [
-  "AUDIT",
-  "SUPPORT",
-  "LEARNING",
-  "AI_RESULTS",
-] as const;
-
-export type RetentionCategory = (typeof retentionCategories)[number];
-
 /** Tạo cấu hình trung tâm mặc định với các danh sách độc lập cho mỗi lần khởi tạo. */
 export const defaultSettings = (): SystemSettings => ({
   centerName: "Trung tâm hỗ trợ giảng dạy Wind EDU",
   timezone: "Asia/Bangkok",
   locale: "vi-VN",
-  retentionDays: 365,
   maxFileSizeMb: 50,
   storageQuotaMb: 10_240,
   allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
-  questionApprovalMode: "AUTO",
   notificationSender: "Wind EDU",
   maintenanceMode: false,
   learnerEmailNotificationsEnabled: false,
   version: 1,
-  effectiveAt: new Date().toISOString(),
   updatedBy: "system",
   updatedAt: new Date().toISOString(),
 });

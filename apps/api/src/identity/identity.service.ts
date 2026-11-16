@@ -9,7 +9,6 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
 import { isPrismaUniqueConstraintError } from "../infrastructure/prisma-errors.js";
-import { asPrismaJsonRecord } from "../infrastructure/prisma-json.js";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   type PermissionCode,
@@ -24,7 +23,6 @@ import type {
 } from "./identity.dto.js";
 import { hashPassword } from "../auth/password.js";
 import type {
-  IdentityAuditEvent,
   IdentityChangeImpact,
   IdentityRole,
   IdentityUser,
@@ -120,7 +118,6 @@ export class IdentityService {
     },
   ];
 
-  private readonly auditEvents: IdentityAuditEvent[] = [];
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
@@ -212,7 +209,7 @@ export class IdentityService {
   /** Tạo tài khoản chưa xác thực bằng mật khẩu tạm; chỉ vai trò Quản trị hệ thống được cấp vai trò quản trị. */
   async createUser(
     input: CreateUserDto,
-    actorId: string,
+    _actorId: string,
     actorRoleCode: RoleCode,
   ): Promise<IdentityUser> {
     const normalizedUsername = input.username.trim().toLowerCase();
@@ -247,13 +244,6 @@ export class IdentityService {
             },
             include: { roles: { include: { role: true } } },
           });
-          await this.writeDatabaseAudit(
-            transaction,
-            actorId,
-            "USER_CREATED",
-            user.id,
-            `Tạo tài khoản ${user.username}`,
-          );
           return user;
         });
         return this.mapUser(row);
@@ -284,7 +274,6 @@ export class IdentityService {
       updatedAt: timestamp,
     };
     this.users.unshift(user);
-    this.audit(actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.username}`);
     return { ...user };
   }
 
@@ -446,13 +435,6 @@ export class IdentityService {
             data: { consumedAt: new Date() },
           });
         }
-        await this.writeDatabaseAudit(
-          transaction,
-          actorId,
-          "USER_UPDATED",
-          userId,
-          `${currentRole}/${current.status} → ${this.getRoleCode(updated)}/${updated.status}`,
-        );
         return this.mapUser(updated);
       });
     }
@@ -491,19 +473,12 @@ export class IdentityService {
         );
     }
 
-    const before = `${user.roleCode}/${user.status}`;
     if (memoryRoleCodes.length) {
       user.roleCodes = memoryRoleCodes;
       user.roleCode = memoryRoleCodes[0]!;
     }
     if (input.status) user.status = input.status;
     user.updatedAt = now();
-    this.audit(
-      actorId,
-      "USER_UPDATED",
-      user.id,
-      `${before} → ${user.roleCode}/${user.status}`,
-    );
     return { ...user };
   }
 
@@ -526,7 +501,6 @@ export class IdentityService {
   /** Thay thế tập quyền nguyên tử, giữ quyền tự quản trị bắt buộc và tăng version để theo dõi thay đổi. */
   async updateRolePermissions(
     input: UpdateRolePermissionsDto,
-    actorId = "usr-admin",
   ): Promise<IdentityRole> {
     if (
       input.roleCode === "SYSTEM_ADMIN" &&
@@ -568,13 +542,6 @@ export class IdentityService {
           where: { id: role.id },
           data: { version: { increment: 1 } },
         });
-        await this.writeDatabaseAudit(
-          transaction,
-          actorId,
-          "ROLE_PERMISSIONS_UPDATED",
-          role.code,
-          `Cập nhật ${permissionRows.length} quyền, phiên bản ${role.version + 1}`,
-        );
         const updated = await transaction.role.findUniqueOrThrow({
           where: { id: role.id },
           include: { permissions: { include: { permission: true } } },
@@ -587,39 +554,9 @@ export class IdentityService {
     if (!role) throw new NotFoundException("Không tìm thấy vai trò.");
     role.permissions = [...new Set(input.permissions)];
     role.version += 1;
-    this.audit(
-      actorId,
-      "ROLE_PERMISSIONS_UPDATED",
-      role.code,
-      `Cập nhật ${role.permissions.length} quyền, phiên bản ${role.version}`,
-    );
     return { ...role, permissions: [...role.permissions] };
   }
 
-  /** Đọc 200 sự kiện danh tính gần nhất và chuẩn hóa context JSON thành nội dung hiển thị. */
-  async listAuditEvents(): Promise<IdentityAuditEvent[]> {
-    const prisma = this.database();
-    if (prisma) {
-      const rows = await prisma.auditLog.findMany({
-        where: { entityType: "identity" },
-        orderBy: { createdAt: "desc" },
-        take: 200,
-      });
-      return rows.map((row) => {
-        const context = asPrismaJsonRecord(row.context);
-        return {
-          id: row.id.toString(),
-          actorId: row.actorId ?? "system",
-          action: row.action,
-          targetId: row.entityId ?? "unknown",
-          summary:
-            typeof context.summary === "string" ? context.summary : row.action,
-          createdAt: row.createdAt.toISOString(),
-        };
-      });
-    }
-    return this.auditEvents.map((event) => ({ ...event }));
-  }
 
   /** Chỉ chọn Prisma khi ứng dụng được cấu hình kết nối DB; nếu không dùng kho nhớ demo. */
   private database(): PrismaService | undefined {
@@ -724,7 +661,7 @@ export class IdentityService {
     transaction: Prisma.TransactionClient,
     fromUserId: string,
     toUserId: string,
-    reason: string,
+    _reason: string,
     actorId: string,
     impact: IdentityChangeImpact,
   ): Promise<void> {
@@ -810,28 +747,6 @@ export class IdentityService {
           },
         },
       });
-      await transaction.classInstructorHistory.createMany({
-        data: [
-          {
-            id: `class-instructor-history-${randomUUID()}`,
-            classId: classItem.id,
-            instructorId: fromUserId,
-            role: classItem.assignmentRole,
-            action: "REMOVED",
-            reason,
-            actorId,
-          },
-          {
-            id: `class-instructor-history-${randomUUID()}`,
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: classItem.assignmentRole,
-            action: "ASSIGNED",
-            reason,
-            actorId,
-          },
-        ],
-      });
     }
     // Mọi cập nhật thuộc cùng transaction, phải chờ truy vấn trước hoàn tất.
     await transaction.regradeRequest.updateMany({
@@ -855,20 +770,6 @@ export class IdentityService {
         status: { in: ["OPEN", "IN_PROGRESS"] },
       },
       data: { assigneeId: toUserId },
-    });
-    await transaction.auditLog.create({
-      data: {
-        actorId,
-        action: "IDENTITY_WORK_HANDOFF",
-        entityType: "identity",
-        entityId: fromUserId,
-        context: {
-          toUserId,
-          reason,
-          classes: impact.classes.map((item) => item.id),
-          openWork: impact.openWork,
-        },
-      },
     });
   }
 
@@ -922,39 +823,4 @@ export class IdentityService {
     };
   }
 
-  /** Ghi audit vào cùng transaction nghiệp vụ để thay đổi và dấu vết luôn nhất quán. */
-  private async writeDatabaseAudit(
-    transaction: Prisma.TransactionClient,
-    actorId: string,
-    action: string,
-    targetId: string,
-    summary: string,
-  ): Promise<void> {
-    await transaction.auditLog.create({
-      data: {
-        actorId,
-        action,
-        entityType: "identity",
-        entityId: targetId,
-        context: { summary },
-      },
-    });
-  }
-
-  /** Thêm sự kiện audit vào đầu danh sách fallback in-memory. */
-  private audit(
-    actorId: string,
-    action: string,
-    targetId: string,
-    summary: string,
-  ): void {
-    this.auditEvents.unshift({
-      id: randomUUID(),
-      actorId,
-      action,
-      targetId,
-      summary,
-      createdAt: now(),
-    });
-  }
 }

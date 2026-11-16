@@ -55,7 +55,7 @@ suite("Business concurrency on dedicated test database", () => {
     }
     await prisma.notification.deleteMany({ where: { entityType: "CLASS", entityId: classId } });
     await prisma.notification.deleteMany({ where: { id: notificationId } });
-    await prisma.outboxEvent.deleteMany({ where: { id: `notification:${notificationId}` } });
+    await prisma.outboxDelivery.deleteMany({ where: { id: `delivery:email:${notificationId}` } });
     await prisma.supportTicket.deleteMany({ where: { clientRequestId: ticketRequestId } });
     await prisma.learningClass.deleteMany({ where: { id: classId } });
     await moduleRef.close();
@@ -75,13 +75,13 @@ suite("Business concurrency on dedicated test database", () => {
     expect(await prisma.classEnrollment.count({ where: { classId, status: "ACTIVE" } })).toBe(1);
   });
 
-  // Trigger ghi event và delivery cùng transaction với notification để worker có thể retry độc lập.
+  // Trigger ghi trực tiếp delivery cùng transaction với notification để worker có thể retry độc lập.
   it("tạo outbox delivery đúng một lần cho notification đã commit", async () => {
     const recipient = await prisma.user.findFirstOrThrow({ where: { status: "ACTIVE" }, select: { id: true } });
     await prisma.notification.create({ data: { id: notificationId, recipientId: recipient.id, type: "TEST_OUTBOX", title: "Kiểm tra outbox", entityType: "SYSTEM", entityId: notificationId, dedupKey: notificationId } });
-    const event = await prisma.outboxEvent.findUnique({ where: { id: `notification:${notificationId}` }, include: { deliveries: true } });
-    expect(event?.deliveries).toHaveLength(1);
-    expect(event?.deliveries[0]).toMatchObject({ recipientId: recipient.id, channel: "EMAIL", status: "PENDING", attempts: 0 });
+    const deliveries = await prisma.outboxDelivery.findMany({ where: { id: `delivery:email:${notificationId}` } });
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ recipientId: recipient.id, channel: "EMAIL", status: "PENDING", attempts: 0, eventType: "NOTIFICATION_CREATED" });
   });
 
   // Hai request đồng thời với cùng khóa chỉ tạo và trả về một phiếu hỗ trợ.

@@ -11,7 +11,7 @@ import type {
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
-/** Tổng hợp điểm danh, điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
+/** Tổng hợp điểm danh, điểm số, hoàn thành đánh giá và sinh phân loại rủi ro từng học viên. */
 export async function getClassProgress(
   serviceContext: LearningServiceContext,
   classId: string,
@@ -29,16 +29,10 @@ export async function getClassProgress(
       where: { id: classId },
       include: {
         enrollments: { where: { status: "ACTIVE" } },
-        materials: {
-          where: { visibility: "PUBLISHED" },
-          include: {
-            accessLogs: { where: { createdAt: { gte: from, lte: to } } },
-          },
-        },
         exams: {
           where: { openAt: { lte: to }, closeAt: { gte: from } },
           include: {
-            attempts: { where: { submittedAt: { gte: from, lte: to } } },
+            attempts: { where: { submittedAt: { gte: from, lte: to } }, orderBy: { attemptNo: "desc" } },
           },
         },
         assignments: {
@@ -56,13 +50,6 @@ export async function getClassProgress(
       orderBy: { createdAt: "desc" },
     });
     const learners = classItem.enrollments.map(({ learnerId }) => {
-      const accessedMaterialIds = new Set(
-        classItem.materials
-          .filter((material) =>
-            material.accessLogs.some((log) => log.userId === learnerId),
-          )
-          .map((material) => material.id),
-      );
       const attempts = classItem.exams.flatMap((exam) =>
         exam.attempts
           .filter((attempt) => attempt.learnerId === learnerId)
@@ -91,13 +78,11 @@ export async function getClassProgress(
         const learnerAttempts = exam.attempts.filter(
           (attempt) => attempt.learnerId === learnerId,
         );
-        const graded = learnerAttempts.filter(
+        const graded = learnerAttempts.find(
           (attempt) => attempt.status === "GRADED",
         );
-        if (graded.length) {
-          earned += Math.max(
-            ...graded.map((attempt) => Number(attempt.score ?? 0)),
-          );
+        if (graded) {
+          earned += Number(graded.score ?? 0);
           possible += Number(exam.totalScore);
         } else if (exam.status === "CLOSED" || exam.closeAt <= to)
           possible += Number(exam.totalScore);
@@ -113,11 +98,6 @@ export async function getClassProgress(
           possible += Number(assignment.maxScore);
       }
       const activityDates = [
-        ...classItem.materials.flatMap((material) =>
-          material.accessLogs
-            .filter((log) => log.userId === learnerId)
-            .map((log) => log.createdAt),
-        ),
         ...attempts.flatMap((attempt) =>
           attempt.submittedAt ? [attempt.submittedAt] : [],
         ),
@@ -132,10 +112,7 @@ export async function getClassProgress(
         classItem.exams.length + classItem.assignments.length;
       return serviceContext.buildLearnerProgress({
         learnerId,
-        materialCompletionRate: serviceContext.percentage(
-          accessedMaterialIds.size,
-          classItem.materials.length,
-        ),
+        materialCompletionRate: 0,
         assessmentCompletionRate: serviceContext.percentage(
           completedAssessments,
           totalAssessments,
@@ -161,10 +138,6 @@ export async function getClassProgress(
     };
   }
   const classItem = serviceContext.findClass(classId);
-  const materials = serviceContext.materials.filter(
-    (material) =>
-      material.classId === classId && material.visibility === "PUBLISHED",
-  );
   const exams = serviceContext.exams.filter(
     (exam) =>
       exam.classId === classId &&
@@ -172,13 +145,6 @@ export async function getClassProgress(
       new Date(exam.closeAt) >= from,
   );
   const learners = classItem.learnerIds.map((learnerId) => {
-    const accessLogs = serviceContext.materialAccessLogs.filter(
-      (log) =>
-        log.userId === learnerId &&
-        materials.some((material) => material.id === log.materialId) &&
-        new Date(log.createdAt) >= from &&
-        new Date(log.createdAt) <= to,
-    );
     const attempts = serviceContext.attempts.filter(
       (attempt) =>
         attempt.learnerId === learnerId &&
@@ -187,25 +153,23 @@ export async function getClassProgress(
         new Date(attempt.submittedAt) >= from &&
         new Date(attempt.submittedAt) <= to,
     );
+    const latestGraded = exams.map((exam) => attempts.filter((a) => a.examId === exam.id && a.status === "GRADED")
+      .sort((a, b) => (b.attemptNo ?? 0) - (a.attemptNo ?? 0) || b.startedAt.localeCompare(a.startedAt))[0]).filter(a => a !== undefined);
     const activityDates = [
-      ...accessLogs.map((log) => new Date(log.createdAt)),
       ...attempts.flatMap((attempt) =>
         attempt.submittedAt ? [new Date(attempt.submittedAt)] : [],
       ),
     ];
     return serviceContext.buildLearnerProgress({
       learnerId,
-      materialCompletionRate: serviceContext.percentage(
-        new Set(accessLogs.map((log) => log.materialId)).size,
-        materials.length,
-      ),
+      materialCompletionRate: 0,
       assessmentCompletionRate: serviceContext.percentage(
         new Set(attempts.map((attempt) => attempt.examId)).size,
         exams.length,
       ),
-      averageScore: attempts.length
+      averageScore: latestGraded.length
         ? Math.round(
-            (attempts.reduce((sum, attempt) => {
+            (latestGraded.reduce((sum, attempt) => {
               const exam = exams.find(
                 (candidate) => candidate.id === attempt.examId,
               );
@@ -214,7 +178,7 @@ export async function getClassProgress(
                 (exam ? ((attempt.score ?? 0) / exam.totalScore) * 100 : 0)
               );
             }, 0) /
-              attempts.length) *
+              latestGraded.length) *
               100,
           ) / 100
         : 0,

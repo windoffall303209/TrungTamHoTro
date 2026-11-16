@@ -28,6 +28,7 @@ export function mapAssignment(
   }>,
 ): AssignmentView {
   return {
+    hidden: row.hidden,
     id: row.id,
     classId: row.classId,
     classCode: row.class.code,
@@ -42,7 +43,7 @@ export function mapAssignment(
     instructions: row.instructions,
     dueAt: row.dueAt.toISOString(),
     maxScore: Number(row.maxScore),
-    rubric: serviceContext.rubric(row.rubric),
+    rubric: serviceContext.rubric(row.rubric, Number(row.maxScore)),
     status: row.status,
     version: row.version,
     closedAt: row.closedAt?.toISOString(),
@@ -54,6 +55,13 @@ export function mapAssignment(
     createdAt: row.createdAt.toISOString(),
   };
 }
+
+const PREVIEWABLE_ATTACHMENT_MIMES = new Set([
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 /** Chuyển bài nộp và tệp đính kèm sang dữ liệu trả cho giao diện. */
 export function mapSubmission(
@@ -76,7 +84,7 @@ export function mapSubmission(
         sizeBytes: Number(item.sizeBytes),
         createdAt: item.createdAt.toISOString(),
         canPreview:
-          item.mimeType === "application/pdf" ||
+          PREVIEWABLE_ATTACHMENT_MIMES.has(item.mimeType) ||
           item.mimeType.startsWith("image/"),
       })),
     status: row.status,
@@ -86,41 +94,5 @@ export function mapSubmission(
     rubricScores: serviceContext.rubricScores(row.rubricScores),
     feedback: row.feedback ?? undefined,
     gradedAt: row.gradedAt?.toISOString(),
-    gradeHistory: row.gradeChanges?.map((change) => ({
-      id: change.id,
-      action: change.action,
-      submissionRevision: change.submissionRevision,
-      actorId: change.actorId,
-      previousScore:
-        change.previousScore === null
-          ? undefined
-          : Number(change.previousScore),
-      nextScore: Number(change.nextScore),
-      reason: change.reason ?? undefined,
-      createdAt: change.createdAt.toISOString(),
-    })),
-  };
-}
-
-/** Chụp trạng thái bài tập trước thay đổi để lịch sử có thể đối soát độc lập. */
-export function assignmentSnapshot(row: {
-  title: string;
-  description: string;
-  instructions: string;
-  dueAt: Date;
-  maxScore: Prisma.Decimal;
-  rubric: Prisma.JsonValue;
-  status: string;
-  version: number;
-}): Prisma.InputJsonValue {
-  return {
-    title: row.title,
-    description: row.description,
-    instructions: row.instructions,
-    dueAt: row.dueAt.toISOString(),
-    maxScore: Number(row.maxScore),
-    rubric: row.rubric as Prisma.InputJsonValue,
-    status: row.status,
-    version: row.version,
   };
 }

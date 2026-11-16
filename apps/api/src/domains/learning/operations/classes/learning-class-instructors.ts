@@ -94,16 +94,6 @@ export async function assignInstructor(
         update: { role, assignedBy: actorId },
         create: { classId, instructorId, role, assignedBy: actorId },
       });
-      await transaction.classInstructorHistory.create({
-        data: {
-          id: id("instructor-history"),
-          classId,
-          instructorId,
-          role,
-          action: "ASSIGNED",
-          actorId,
-        },
-      });
       await transaction.notification.upsert({
         where: {
           dedupKey: `instructor-assigned:${classId}:${instructorId}:${role}`,
@@ -182,14 +172,6 @@ export async function assignInstructor(
   if (!item.instructorIds.includes(instructorId))
     item.instructorIds.push(instructorId);
   serviceContext.instructorRoles.set(`${classId}:${instructorId}`, role);
-  serviceContext.recordMemberHistory(
-    classId,
-    instructorId,
-    "INSTRUCTOR",
-    "ASSIGNED",
-    actorId,
-    { role },
-  );
   serviceContext.notifications.unshift({
     id: id("notification"),
     recipientId: instructorId,
@@ -262,28 +244,6 @@ export async function transferPrimaryInstructor(
           assignedBy: actorId,
         },
       });
-      await transaction.classInstructorHistory.createMany({
-        data: [
-          {
-            id: id("instructor-history"),
-            classId,
-            instructorId: expectedPrimaryId,
-            role: "CO_INSTRUCTOR",
-            action: "PRIMARY_TRANSFERRED_OUT",
-            reason,
-            actorId,
-          },
-          {
-            id: id("instructor-history"),
-            classId,
-            instructorId: newPrimaryId,
-            role: "PRIMARY",
-            action: "PRIMARY_TRANSFERRED_IN",
-            reason,
-            actorId,
-          },
-        ],
-      });
       for (const recipientId of new Set([expectedPrimaryId, newPrimaryId]))
         await transaction.notification.upsert({
           where: {
@@ -331,33 +291,18 @@ export async function transferPrimaryInstructor(
   if (!item.instructorIds.includes(newPrimaryId))
     item.instructorIds.push(newPrimaryId);
   serviceContext.instructorRoles.set(`${classId}:${newPrimaryId}`, "PRIMARY");
-  serviceContext.recordMemberHistory(
-    classId,
-    expectedPrimaryId,
-    "INSTRUCTOR",
-    "PRIMARY_TRANSFERRED_OUT",
-    actorId,
-    { role: "CO_INSTRUCTOR", reason },
-  );
-  serviceContext.recordMemberHistory(
-    classId,
-    newPrimaryId,
-    "INSTRUCTOR",
-    "PRIMARY_TRANSFERRED_IN",
-    actorId,
-    { role: "PRIMARY", reason },
-  );
   return copyLearningClass(item);
 }
 
-/** Gỡ phân công giảng viên, bảo vệ điều kiện giảng viên chính và lưu lý do lịch sử. */
+/** Gỡ phân công giảng viên và bảo vệ điều kiện giảng viên chính. */
 export async function removeInstructor(
   serviceContext: LearningServiceContext,
   classId: string,
   instructorId: string,
   reason: string,
-  actorId = "usr-manager",
+  _actorId = "usr-manager",
 ): Promise<LearningClass> {
+  void _actorId;
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)
     throw new BadRequestException("Lý do gỡ phân công cần ít nhất 5 ký tự.");
@@ -377,17 +322,6 @@ export async function removeInstructor(
     await prisma.$transaction([
       prisma.classInstructor.delete({
         where: { classId_instructorId: { classId, instructorId } },
-      }),
-      prisma.classInstructorHistory.create({
-        data: {
-          id: id("instructor-history"),
-          classId,
-          instructorId,
-          role: current.role,
-          action: "REMOVED",
-          reason: normalizedReason,
-          actorId,
-        },
       }),
       prisma.notification.upsert({
         where: { dedupKey: `instructor-removed:${classId}:${instructorId}` },
@@ -422,13 +356,5 @@ export async function removeInstructor(
     (value) => value !== instructorId,
   );
   serviceContext.instructorRoles.delete(`${classId}:${instructorId}`);
-  serviceContext.recordMemberHistory(
-    classId,
-    instructorId,
-    "INSTRUCTOR",
-    "REMOVED",
-    actorId,
-    { role, reason: normalizedReason },
-  );
   return copyLearningClass(item);
 }

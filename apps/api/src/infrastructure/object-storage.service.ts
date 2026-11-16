@@ -35,16 +35,6 @@ export class ObjectStorageService {
     if (this.cloudinaryConfigured) cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true });
   }
 
-  /** Trả provider đang được chọn để trang vận hành hiển thị đúng backend lưu trữ. */
-  activeProvider(): "local" | "cloudinary" {
-    return this.provider;
-  }
-
-  /** Xác nhận provider hiện tại có đủ cấu hình để nhận thao tác lưu trữ. */
-  isConfigured(): boolean {
-    return this.provider === "local" || this.cloudinaryConfigured;
-  }
-
   /**
    * Ghi buffer theo object key bất biến và trả checksum SHA-256.
    * Local dùng cờ `wx` để không ghi đè; Cloudinary dùng authenticated raw resource.

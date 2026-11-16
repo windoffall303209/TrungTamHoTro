@@ -30,6 +30,19 @@ function linkMaterial(url: string): {
 }
 
 describe("class lecture links", () => {
+  it("returns hidden lecture metadata without content URLs to administrators", async () => {
+    const service = new LearningService();
+    const data = { ...linkMaterial(links[0]!), visibility: "HIDDEN" as const, folder: "Chương mới" };
+    await expect(service.createMaterial("class-web-01", data)).rejects.toThrow(BadRequestException);
+    await service.classFolders("class-web-01", "usr-instructor", { kind: "lectures", name: data.folder });
+    const created = await service.createMaterial("class-web-01", data);
+    for (const role of ["SYSTEM_ADMIN", "CENTER_MANAGER"]) {
+      const list = await service.searchAccessibleMaterials({ materialId: created.id }, undefined, role);
+      expect(list.items[0]?.tags).toEqual(["LECTURE"]);
+    }
+    const instructorList = await service.searchAccessibleMaterials({ materialId: created.id }, "usr-instructor", "INSTRUCTOR");
+    expect(instructorList.items[0]?.tags).toEqual(data.tags);
+  });
   it.each(links)("creates %s without a binary upload, then edits its URL", async (url) => {
     const service = new LearningService();
     const created = await service.createMaterial("class-web-01", linkMaterial(url));
@@ -50,7 +63,6 @@ describe("class lecture links", () => {
     expect(updated).toMatchObject({ name: "Bài giảng đã sửa", version: 2, sizeBytes: Buffer.byteLength(replacement, "utf8") });
     expect(updated.tags).toContain(`lecture-url:${replacement}`);
     expect(updated.tags).not.toContain(`lecture-url:${url}`);
-    expect((await service.listMaterialVersions(created.id, "INSTRUCTOR")).map((version) => version.version)).toEqual([2, 1]);
   });
 
   it.each([

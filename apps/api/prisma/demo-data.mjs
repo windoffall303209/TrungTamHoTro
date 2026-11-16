@@ -128,7 +128,6 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
 
   const instructorLinks = [];
   const enrollments = [];
-  const enrollmentHistory = [];
   for (const classInfo of classes) {
     const primaryId = instructorIds[classInfo.index % instructorIds.length];
     const coInstructorId = instructorIds[(classInfo.index + 2) % instructorIds.length];
@@ -141,27 +140,33 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
       const learnerId = learnerIds[(classInfo.index * 5 + offset) % learnerIds.length];
       const status = classInfo.status === "CLOSED" ? "COMPLETED" : offset === enrollmentCount - 1 ? "PENDING" : "ACTIVE";
       enrollments.push({ id: `demo-enrollment-${pad(classInfo.index + 1)}-${pad(offset + 1, 3)}`, classId: classInfo.id, learnerId, status, joinedAt: addDays(-45 + offset % 12), source: offset % 4 === 0 ? "IMPORT" : "MANUAL" });
-      enrollmentHistory.push({ id: `demo-enrollment-history-${pad(classInfo.index + 1)}-${pad(offset + 1, 3)}`, classId: classInfo.id, learnerId, action: "ADDED", source: offset % 4 === 0 ? "IMPORT" : "MANUAL", actorId: manager.id, createdAt: addDays(-45 + offset % 12) });
     }
   }
   await createMany(prisma.classInstructor, instructorLinks);
   await createMany(prisma.classEnrollment, enrollments);
-  await createMany(prisma.classEnrollmentHistory, enrollmentHistory);
 
+  const classFolders = [];
   const materials = [];
-  const materialVersions = [];
   for (const classInfo of classes) {
+    classFolders.push(
+      { classId: classInfo.id, kind: "materials", name: "Tài liệu chung" },
+      { classId: classInfo.id, kind: "materials", name: "Tài liệu" },
+      { classId: classInfo.id, kind: "materials", name: "Bài tập tự luận" },
+      { classId: classInfo.id, kind: "lectures", name: "Bài giảng chung" },
+      { classId: classInfo.id, kind: "lectures", name: "Bài giảng" },
+    );
     for (let index = 0; index < 6; index += 1) {
       const id = `demo-material-${pad(classInfo.index + 1)}-${pad(index + 1)}`;
       const version = index % 4 === 0 ? 2 : 1;
       const visibility = index === 4 ? "HIDDEN" : "PUBLISHED";
-      const material = { id, classId: classInfo.id, courseId: classInfo.courseId, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Tài liệu nâng cao"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: `Tuần ${index + 1}`, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, createdAt: addDays(-30 + index) };
+      const folderName = `Tuần ${index + 1}`;
+      classFolders.push({ classId: classInfo.id, kind: "materials", name: folderName });
+      const material = { id, classId: classInfo.id, courseId: classInfo.courseId, ownerId: instructorIds[classInfo.index % instructorIds.length], name: `${pad(index + 1)} — ${["Giáo trình nền tảng", "Bài giảng minh họa", "Phiếu thực hành", "Tài liệu tham khảo", "Bản ghi buổi học", "Tài liệu nâng cao"][index]} — ${classInfo.code}.pdf`, objectKey: `seed/${classInfo.code.toLowerCase()}/material-${pad(index + 1)}.pdf`, mimeType: "application/pdf", sizeBytes: BigInt(1_200_000 + (classInfo.index * 6 + index) * 73_000), checksum: `sha256:demo-${pad(classInfo.index + 1)}-${pad(index + 1)}`, folder: folderName, tags: [classInfo.courseCode.toLowerCase(), `tuần-${index + 1}`], version, visibility, scope: "CLASS", createdAt: addDays(-30 + index) };
       materials.push(material);
-      for (let materialVersion = 1; materialVersion <= version; materialVersion += 1) materialVersions.push({ id: `${id}-v${materialVersion}`, materialId: id, version: materialVersion, name: material.name, objectKey: `${material.objectKey}.v${materialVersion}`, mimeType: material.mimeType, sizeBytes: material.sizeBytes, checksum: `${material.checksum}-v${materialVersion}`, folder: material.folder, tags: material.tags, visibility, createdBy: material.ownerId, createdAt: addDays(-31 + materialVersion) });
     }
   }
+  await createMany(prisma.classFolder, classFolders);
   await createMany(prisma.material, materials);
-  await createMany(prisma.materialVersion, materialVersions);
 
   const questions = [];
   for (const [courseIndex, course] of courses.entries()) {
@@ -191,7 +196,6 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
 
   const attempts = [];
   const answers = [];
-  const gradeHistory = [];
   for (const exam of exams.filter((item) => item.status !== "DRAFT")) {
     const classInfo = classes.find((item) => item.id === exam.classId);
     const activeLearners = enrollments.filter((item) => item.classId === classInfo.id && item.status !== "PENDING").slice(0, 18);
@@ -202,12 +206,10 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
       const score = status === "GRADED" ? 5 + (learnerIndex % 6) : null;
       attempts.push({ id, examId: exam.id, learnerId: enrollment.learnerId, attemptNo: 1, status, score, feedback: status === "GRADED" ? (score >= 8 ? "Nắm chắc kiến thức và trình bày tốt." : "Cần xem lại các nội dung trọng tâm.") : null, startedAt: addDays(-3, 1 + learnerIndex % 8), submittedAt: status === "IN_PROGRESS" ? null : addDays(-3, 2 + learnerIndex % 8), gradePublishedAt: status === "GRADED" ? addDays(-2) : null });
       if (status !== "IN_PROGRESS") for (const [answerIndex, examQuestion] of assignedQuestions.entries()) answers.push({ attemptId: id, questionId: examQuestion.questionId, answerData: { selected: answerIndex < (score ?? 6) ? "Phương án B" : "Phương án A" }, score: answerIndex < (score ?? 6) ? 1 : 0 });
-      if (status === "GRADED") gradeHistory.push({ id: `${id}-grade-1`, attemptId: id, graderId: instructorIds[classInfo.index % instructorIds.length], previousScore: null, nextScore: score, reason: "Chấm điểm dữ liệu thử nghiệm theo đáp án và rubric.", createdAt: addDays(-2) });
     }
   }
   await createMany(prisma.examAttempt, attempts);
   await createMany(prisma.attemptAnswer, answers);
-  await createMany(prisma.gradeHistory, gradeHistory);
 
   const assignments = [];
   const submissions = [];

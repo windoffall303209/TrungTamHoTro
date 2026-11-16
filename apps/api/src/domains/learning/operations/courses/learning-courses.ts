@@ -3,6 +3,11 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
+import type { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import { id, now } from "../../core/learning.shared.js";
 import { isPrismaUniqueConstraintError } from "../../../../infrastructure/prisma-errors.js";
 import type {
@@ -10,6 +15,15 @@ import type {
   LearningCourse,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+
+export interface CoursePageFilters {
+  query?: string;
+  grade?: number;
+  subject?: string;
+  status?: LearningCourse["status"];
+  page?: number;
+  pageSize?: number;
+}
 
 /** Liệt kê khóa học từ DB hoặc trả bản sao dữ liệu nhớ để tránh mutation ngoài service. */
 export async function listCourses(
@@ -26,6 +40,84 @@ export async function listCourses(
     ...item,
     outcomes: [...item.outcomes],
   }));
+}
+
+/** Trả về một trang danh mục khóa học kèm tổng số bản ghi được lọc trực tiếp từ DB. */
+export async function listCoursesPage(
+  serviceContext: LearningServiceContext,
+  filters: CoursePageFilters = {},
+): Promise<PaginatedResult<LearningCourse>> {
+  const query = filters.query?.trim();
+  const subject = filters.subject?.trim();
+  if ((query && query.length > 255) || (subject && subject.length > 255)) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 20;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const where: Prisma.CourseWhereInput = {};
+    if (filters.grade !== undefined) where.grade = filters.grade;
+    if (subject) where.subject = subject;
+    if (filters.status) where.status = filters.status;
+    if (query) {
+      where.OR = [
+        { code: { contains: query, mode: "insensitive" } },
+        { name: { contains: query, mode: "insensitive" } },
+        { description: { contains: query, mode: "insensitive" } },
+      ];
+    }
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const total = await transaction.course.count({ where });
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        const rows =
+          total === 0
+            ? []
+            : await transaction.course.findMany({
+                where,
+                orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+                skip: (safePage - 1) * pageSize,
+                take: pageSize,
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) => serviceContext.mapCourse(row)),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const normalizedQuery = query?.toLowerCase() ?? "";
+  const filtered = serviceContext.courses
+    .filter(
+      (item) =>
+        (filters.grade === undefined || item.grade === filters.grade) &&
+        (!subject || item.subject === subject) &&
+        (!filters.status || item.status === filters.status) &&
+        (!normalizedQuery ||
+          `${item.code} ${item.name} ${item.description}`
+            .toLowerCase()
+            .includes(normalizedQuery)),
+    )
+    .map((item) => ({
+      ...item,
+      outcomes: [...item.outcomes],
+    }));
+  return paginateArray(filtered, page, pageSize);
 }
 
 /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */

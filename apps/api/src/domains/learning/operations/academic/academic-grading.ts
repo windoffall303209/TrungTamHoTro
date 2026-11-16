@@ -8,6 +8,8 @@ import { randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
 import {
   AssignmentSubmissionView,
+  GradebookAssessmentCell,
+  GradebookAssessmentColumn,
   GradebookRow,
   GradingQueueGroup,
 } from "../../academic/academic.shared.js";
@@ -41,7 +43,7 @@ export async function gradeSubmission(
   const correction = submission.status === "GRADED";
   if (correction && !correctionReason?.trim())
     throw new BadRequestException("Sửa điểm đã công bố phải ghi rõ lý do.");
-  const rubric = serviceContext.rubric(submission.assignment.rubric);
+  const rubric = serviceContext.rubric(submission.assignment.rubric, Number(submission.assignment.maxScore));
   if (
     rubricScores.length !== rubric.length ||
     new Set(rubricScores.map((item) => item.criterionId)).size !== rubric.length
@@ -80,23 +82,6 @@ export async function gradeSubmission(
       throw new ConflictException(
         "Bài nộp hoặc điểm vừa thay đổi ở nơi khác. Hãy tải lại trước khi lưu.",
       );
-    const gradeChangeId = `assignment-grade-${randomUUID()}`;
-    await transaction.assignmentGradeChange.create({
-      data: {
-        id: gradeChangeId,
-        submissionId,
-        submissionRevision: submission.revision,
-        actorId: session.user.id,
-        action: correction ? "CORRECTED" : "GRADED",
-        previousScore: submission.score,
-        nextScore: total,
-        previousRubric: submission.rubricScores ?? undefined,
-        nextRubric: rubricScores,
-        previousFeedback: submission.feedback,
-        nextFeedback: feedback.trim(),
-        reason: correctionReason?.trim(),
-      },
-    });
     const updated = await transaction.assignmentSubmission.findUniqueOrThrow({
       where: { id: submissionId },
       include: {
@@ -105,7 +90,6 @@ export async function gradeSubmission(
           where: { removedAt: null },
           orderBy: { createdAt: "asc" },
         },
-        gradeChanges: { orderBy: { createdAt: "desc" } },
       },
     });
     await transaction.notification.create({
@@ -118,7 +102,7 @@ export async function gradeSubmission(
           : `Đã chấm bài: ${submission.assignment.title}`,
         entityType: "ASSIGNMENT",
         entityId: submission.assignmentId,
-        dedupKey: `assignment-grade:${gradeChangeId}:${submission.learnerId}`,
+        dedupKey: `assignment-grade:${submissionId}:${randomUUID()}`,
       },
     });
     return updated;
@@ -126,7 +110,7 @@ export async function gradeSubmission(
   return serviceContext.mapSubmission(row);
 }
 
-/** Tổng hợp điểm thi và bài tập đã chấm thành tỷ lệ chung cho từng học viên. */
+/** Tổng hợp điểm thi (lấy điểm cao nhất nhiều lượt) và bài tập đã chấm cho từng học viên. */
 export async function gradebook(
   serviceContext: AcademicServiceContext,
   classId: string,
@@ -155,18 +139,55 @@ export async function gradebook(
       enrollments: {
         where: { status: "ACTIVE" },
         include: { learner: { select: { displayName: true, email: true } } },
+        orderBy: { learner: { displayName: "asc" } },
       },
       exams: {
-        where: { status: { in: ["PUBLISHED", "CLOSED"] } },
-        include: { attempts: true },
+        where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } },
+        include: { attempts: { orderBy: { attemptNo: "desc" } } },
       },
       assignments: {
-        where: { status: { in: ["PUBLISHED", "CLOSED"] } },
+        where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } },
         include: { submissions: true },
       },
     },
   });
   if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+  const now = new Date();
+  const orderedWorks = [
+    ...classItem.exams.map((exam) => ({
+      id: exam.id,
+      kind: "EXAM" as const,
+      title: exam.title,
+      maxScore: Number(exam.totalScore),
+      dueAt: exam.closeAt.toISOString(),
+      sortTime: exam.openAt.getTime(),
+      exam,
+      assignment: null,
+    })),
+    ...classItem.assignments.map((assignment) => ({
+      id: assignment.id,
+      kind: "ASSIGNMENT" as const,
+      title: assignment.title,
+      maxScore: Number(assignment.maxScore),
+      dueAt: assignment.dueAt.toISOString(),
+      sortTime: assignment.createdAt.getTime(),
+      exam: null,
+      assignment,
+    })),
+  ].sort(
+    (left, right) =>
+      left.sortTime - right.sortTime ||
+      left.title.localeCompare(right.title, "vi") ||
+      left.id.localeCompare(right.id),
+  );
+  const assessments: GradebookAssessmentColumn[] = orderedWorks.map((work) => ({
+    id: work.id,
+    kind: work.kind,
+    title: work.title,
+    maxScore: work.maxScore,
+    dueAt: work.dueAt,
+  }));
+
   return classItem.enrollments.map(({ learnerId, learner }) => {
     let examEarned = 0;
     let examPossible = 0;
@@ -174,45 +195,120 @@ export async function gradebook(
     let assignmentPossible = 0;
     let awaitingGrade = 0;
     let notSubmitted = 0;
-    for (const exam of classItem.exams) {
-      const attempts = exam.attempts.filter(
-        (attempt) => attempt.learnerId === learnerId,
-      );
-      const graded = attempts.filter((attempt) => attempt.status === "GRADED");
-      if (graded.length) {
-        examPossible += Number(exam.totalScore);
-        examEarned += Math.max(
-          ...graded.map((attempt) => Number(attempt.score ?? 0)),
+    const cells: GradebookAssessmentCell[] = [];
+
+    for (const work of orderedWorks) {
+      if (work.kind === "EXAM" && work.exam) {
+        const exam = work.exam;
+        const attempts = exam.attempts.filter(
+          (attempt) => attempt.learnerId === learnerId,
         );
-      } else if (
-        attempts.some(
-          (attempt) =>
-            attempt.status === "SUBMITTED" || attempt.status === "IN_PROGRESS",
-        )
-      )
-        awaitingGrade += 1;
-      else if (exam.status === "CLOSED" || exam.closeAt <= new Date()) {
-        examPossible += Number(exam.totalScore);
-        notSubmitted += 1;
+        const gradedAttempts = attempts.filter(
+          (attempt) => attempt.status === "GRADED" && attempt.score !== null,
+        );
+        const highestAttempt = gradedAttempts.reduce<
+          (typeof gradedAttempts)[number] | undefined
+        >(
+          (best, current) =>
+            !best || Number(current.score ?? 0) > Number(best.score ?? 0)
+              ? current
+              : best,
+          undefined,
+        );
+        if (highestAttempt) {
+          const score = Number(highestAttempt.score ?? 0);
+          examPossible += Number(exam.totalScore);
+          examEarned += score;
+          cells.push({
+            assessmentId: exam.id,
+            kind: "EXAM",
+            score,
+            maxScore: Number(exam.totalScore),
+            status: "GRADED",
+            attemptCount: attempts.length,
+          });
+        } else if (attempts.some((attempt) => attempt.status === "SUBMITTED")) {
+          awaitingGrade += 1;
+          cells.push({
+            assessmentId: exam.id,
+            kind: "EXAM",
+            score: null,
+            maxScore: Number(exam.totalScore),
+            status: "AWAITING_GRADE",
+            attemptCount: attempts.length,
+          });
+        } else if (attempts.some((attempt) => attempt.status === "IN_PROGRESS")) {
+          awaitingGrade += 1;
+          cells.push({
+            assessmentId: exam.id,
+            kind: "EXAM",
+            score: null,
+            maxScore: Number(exam.totalScore),
+            status: "IN_PROGRESS",
+            attemptCount: attempts.length,
+          });
+        } else {
+          if (exam.status === "CLOSED" || exam.closeAt <= now) {
+            examPossible += Number(exam.totalScore);
+            notSubmitted += 1;
+          }
+          cells.push({
+            assessmentId: exam.id,
+            kind: "EXAM",
+            score: null,
+            maxScore: Number(exam.totalScore),
+            status: "NOT_SUBMITTED",
+            attemptCount: 0,
+          });
+        }
+      } else if (work.assignment) {
+        const assignment = work.assignment;
+        const submission = assignment.submissions.find(
+          (item) => item.learnerId === learnerId,
+        );
+        if (submission?.status === "GRADED") {
+          const score = Number(submission.score ?? 0);
+          assignmentPossible += Number(assignment.maxScore);
+          assignmentEarned += score;
+          cells.push({
+            assessmentId: assignment.id,
+            kind: "ASSIGNMENT",
+            score,
+            maxScore: Number(assignment.maxScore),
+            status: "GRADED",
+            attemptCount: 1,
+          });
+        } else if (submission) {
+          awaitingGrade += 1;
+          cells.push({
+            assessmentId: assignment.id,
+            kind: "ASSIGNMENT",
+            score: null,
+            maxScore: Number(assignment.maxScore),
+            status: "AWAITING_GRADE",
+            attemptCount: 1,
+          });
+        } else {
+          if (assignment.status === "CLOSED" || assignment.dueAt <= now) {
+            assignmentPossible += Number(assignment.maxScore);
+            notSubmitted += 1;
+          }
+          cells.push({
+            assessmentId: assignment.id,
+            kind: "ASSIGNMENT",
+            score: null,
+            maxScore: Number(assignment.maxScore),
+            status: "NOT_SUBMITTED",
+            attemptCount: 0,
+          });
+        }
       }
     }
-    for (const assignment of classItem.assignments) {
-      const submission = assignment.submissions.find(
-        (item) => item.learnerId === learnerId,
-      );
-      if (submission?.status === "GRADED") {
-        assignmentPossible += Number(assignment.maxScore);
-        assignmentEarned += Number(submission.score ?? 0);
-      } else if (submission) awaitingGrade += 1;
-      else if (
-        assignment.status === "CLOSED" ||
-        assignment.dueAt <= new Date()
-      ) {
-        assignmentPossible += Number(assignment.maxScore);
-        notSubmitted += 1;
-      }
-    }
+
     const possible = examPossible + assignmentPossible;
+    const totalPercent = possible
+      ? Math.round(((examEarned + assignmentEarned) / possible) * 10_000) / 100
+      : 0;
     return {
       learnerId,
       learnerName: learner.displayName,
@@ -221,12 +317,14 @@ export async function gradebook(
       examPossible,
       assignmentEarned,
       assignmentPossible,
-      totalPercent: possible
-        ? Math.round(((examEarned + assignmentEarned) / possible) * 10_000) /
-          100
-        : 0,
+      totalPercent,
+      averageScore: possible
+        ? Math.round(((examEarned + assignmentEarned) / possible) * 1000) / 100
+        : null,
       awaitingGrade,
       notSubmitted,
+      assessments,
+      cells,
     };
   });
 }

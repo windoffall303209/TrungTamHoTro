@@ -16,7 +16,7 @@ export async function startAttempt(
       include: { exam: true },
     });
     if (
-      active &&
+      active && !active.exam.hidden &&
       serviceContext.attemptDeadline(
         active.startedAt,
         active.exam.durationMinutes,
@@ -36,7 +36,8 @@ export async function startAttempt(
         },
       });
       if (!exam) throw new NotFoundException("Không tìm thấy đề.");
-      if (exam.status !== "PUBLISHED")
+      if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
+    if (exam.status !== "PUBLISHED")
         throw new BadRequestException("Đề chưa được phát hành.");
       if (!exam.class.enrollments.length)
         throw new NotFoundException("Học viên không thuộc lớp được giao đề.");
@@ -67,6 +68,7 @@ export async function startAttempt(
     });
   }
   const exam = serviceContext.findExam(examId);
+  if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
   if (exam.status !== "PUBLISHED")
     throw new BadRequestException("Đề chưa được phát hành.");
   const timestamp = new Date();
@@ -94,6 +96,7 @@ export async function startAttempt(
     throw new BadRequestException("Đã hết số lần làm bài.");
   const item: ExamAttempt = {
     id: id("attempt"),
+    attemptNo: attempts.length + 1,
     examId,
     learnerId,
     answers: {},
@@ -117,7 +120,7 @@ export async function saveAnswer(
     return prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
       const attempt = await transaction.examAttempt.findFirst({
-        where: { id: attemptId, learnerId },
+        where: { id: attemptId, learnerId, exam: { hidden: false } },
         include: { exam: true },
       });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
@@ -156,6 +159,7 @@ export async function saveAnswer(
   if (item.status !== "IN_PROGRESS")
     throw new BadRequestException("Bài làm đã khóa.");
   const exam = serviceContext.findExam(item.examId);
+  if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
   if (
     serviceContext.attemptDeadline(
       new Date(item.startedAt),
@@ -189,7 +193,7 @@ export async function submitAttempt(
     return prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
       const attempt = await transaction.examAttempt.findFirst({
-        where: { id: attemptId, learnerId },
+        where: { id: attemptId, learnerId, exam: { hidden: false } },
         include: {
           answers: true,
           exam: { include: { questions: { include: { question: true } } } },
@@ -261,6 +265,7 @@ export async function submitAttempt(
   if (item.status !== "IN_PROGRESS")
     return { ...item, answers: { ...item.answers } };
   const exam = serviceContext.findExam(item.examId);
+  if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
   let objectiveScore = 0;
   let requiresManualGrade = false;
   exam.questionIds.forEach((questionId) => {
@@ -303,7 +308,7 @@ export async function reconcileExpiredAttempts(
   const prisma = serviceContext.database();
   if (prisma) {
     const candidates = await prisma.examAttempt.findMany({
-      where: { status: "IN_PROGRESS" },
+      where: { status: "IN_PROGRESS", exam: { hidden: false } },
       include: { exam: true },
       orderBy: { startedAt: "asc" },
       take: 500,
@@ -331,7 +336,7 @@ export async function reconcileExpiredAttempts(
     .filter((attempt) => {
       const exam = serviceContext.findExam(attempt.examId);
       return (
-        attempt.status === "IN_PROGRESS" &&
+        !exam.hidden && attempt.status === "IN_PROGRESS" &&
         serviceContext.attemptDeadline(
           new Date(attempt.startedAt),
           exam.durationMinutes,
@@ -364,7 +369,7 @@ export async function listLearnerResults(
   const prisma = serviceContext.database();
   if (prisma) {
     const rows = await prisma.examAttempt.findMany({
-      where: { learnerId, status: "GRADED", gradePublishedAt: { not: null } },
+      where: { learnerId, exam: { hidden: false }, status: "GRADED", gradePublishedAt: { not: null } },
       include: {
         answers: true,
         exam: {
@@ -381,9 +386,10 @@ export async function listLearnerResults(
           take: 1,
         },
       },
-      orderBy: { gradePublishedAt: "desc" },
+      distinct: ["examId"],
+      orderBy: [{ examId: "asc" }, { attemptNo: "desc" }],
     });
-    return rows.map((row) => ({
+    return rows.sort((a, b) => b.gradePublishedAt!.getTime() - a.gradePublishedAt!.getTime()).map((row) => ({
       attempt: serviceContext.mapAttempt(row),
       exam: {
         id: row.exam.id,
@@ -410,12 +416,17 @@ export async function listLearnerResults(
         : undefined,
     }));
   }
-  return serviceContext.attempts
+  const latestByExam = new Map<string, ExamAttempt>();
+  for (const attempt of serviceContext.attempts) {
+    if (attempt.learnerId !== learnerId || attempt.status !== "GRADED" || !attempt.gradePublishedAt) continue;
+    const current = latestByExam.get(attempt.examId);
+    if (!current || (attempt.attemptNo ?? 0) > (current.attemptNo ?? 0) ||
+        (attempt.attemptNo === current.attemptNo && attempt.startedAt >= current.startedAt)) latestByExam.set(attempt.examId, attempt);
+  }
+  return [...latestByExam.values()]
     .filter(
       (attempt) =>
-        attempt.learnerId === learnerId &&
-        attempt.status === "GRADED" &&
-        attempt.gradePublishedAt,
+        !serviceContext.findExam(attempt.examId).hidden,
     )
     .sort((left, right) =>
       (right.gradePublishedAt ?? "").localeCompare(left.gradePublishedAt ?? ""),

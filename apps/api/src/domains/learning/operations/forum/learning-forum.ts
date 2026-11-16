@@ -3,9 +3,92 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
+import { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import { id, now } from "../../core/learning.shared.js";
 import type { ForumPost, ForumTopic } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+
+export interface ForumTopicPageFilters {
+  classId?: string;
+  query?: string;
+  pinnedOnly?: boolean;
+  mineOnly?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ForumPostPageResult extends PaginatedResult<ForumPost> {
+  totalPosts: number;
+}
+
+/** Tạo biểu thức Prisma giới hạn chủ đề diễn đàn theo vai trò và quan hệ lớp. */
+function buildTopicRoleWhere(
+  role: string,
+  actorId: string,
+): Prisma.ForumTopicWhereInput | undefined {
+  if (role === "LEARNER") {
+    return {
+      status: "PUBLISHED",
+      class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } },
+    };
+  }
+  if (role === "INSTRUCTOR") {
+    return { class: { instructors: { some: { instructorId: actorId } } } };
+  }
+  return undefined;
+}
+
+/** Kiểm tra chủ đề có thuộc phạm vi lớp của người dùng trong bộ nhớ fallback hay không. */
+function canAccessMemoryTopic(
+  serviceContext: LearningServiceContext,
+  item: ForumTopic,
+  role: string,
+  actorId: string,
+): boolean {
+  const classItem = serviceContext.classes.find(
+    (candidate) => candidate.id === item.classId,
+  );
+  if (role === "LEARNER") {
+    return item.status === "VISIBLE" && Boolean(classItem?.learnerIds.includes(actorId));
+  }
+  if (role === "INSTRUCTOR") {
+    return Boolean(classItem?.instructorIds.includes(actorId));
+  }
+  return true;
+}
+
+/** Kiểm tra quyền đọc một chủ đề cụ thể trước khi đọc danh sách bài viết của chủ đề đó. */
+async function assertTopicReadAccess(
+  serviceContext: LearningServiceContext,
+  topicId: string,
+  role: string,
+  actorId: string,
+): Promise<void> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const topic = await prisma.forumTopic.findUnique({
+      where: { id: topicId },
+      include: {
+        class: { include: { enrollments: true, instructors: true } },
+      },
+    });
+    if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
+    if (role === "LEARNER" && topic.status !== "PUBLISHED") {
+      throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
+    }
+    serviceContext.assertForumClassAccess(topic.class, role, actorId);
+    return;
+  }
+  const topic = serviceContext.findTopic(topicId);
+  if (role === "LEARNER" && topic.status !== "VISIBLE") {
+    throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
+  }
+  serviceContext.assertMemoryForumClassAccess(topic.classId, role, actorId);
+}
 
 /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
 export async function listTopics(
@@ -16,37 +99,113 @@ export async function listTopics(
   const prisma = serviceContext.database();
   if (prisma) {
     const rows = await prisma.forumTopic.findMany({
-      where:
-        role === "LEARNER"
-          ? {
-              status: "PUBLISHED",
-              class: {
-                enrollments: {
-                  some: { learnerId: actorId, status: "ACTIVE" },
-                },
-              },
-            }
-          : role === "INSTRUCTOR"
-            ? { class: { instructors: { some: { instructorId: actorId } } } }
-            : undefined,
+      where: buildTopicRoleWhere(role, actorId),
       orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
     });
     return rows.map((row) => serviceContext.mapTopic(row));
   }
   return serviceContext.topics
-    .filter((item) => {
-      const classItem = serviceContext.classes.find(
-        (candidate) => candidate.id === item.classId,
-      );
-      if (role === "LEARNER")
-        return (
-          item.status === "VISIBLE" && classItem?.learnerIds.includes(actorId)
-        );
-      if (role === "INSTRUCTOR")
-        return classItem?.instructorIds.includes(actorId);
-      return true;
-    })
+    .filter((item) => canAccessMemoryTopic(serviceContext, item, role, actorId))
     .map((item) => ({ ...item, tags: [...item.tags] }));
+}
+
+/** Phân trang chủ đề diễn đàn từ DB kèm lọc lớp, ghim, bài của tôi và tìm kiếm cả tiêu đề, nội dung lẫn tags. */
+export async function listTopicsPage(
+  serviceContext: LearningServiceContext,
+  role = "LEARNER",
+  actorId = serviceContext.userIdForRole(role),
+  filters: ForumTopicPageFilters = {},
+): Promise<PaginatedResult<ForumTopic>> {
+  const query = filters.query?.trim();
+  const classId = filters.classId?.trim();
+  if ((query && query.length > 255) || (classId && classId.length > 255)) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 10;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const conditions: Prisma.Sql[] = [];
+    if (role === "LEARNER") {
+      conditions.push(
+        Prisma.sql`ft.status::text = 'PUBLISHED' AND EXISTS (SELECT 1 FROM class_enrollments e WHERE e.class_id = ft.class_id AND e.learner_id = ${actorId} AND e.status = 'ACTIVE')`,
+      );
+    } else if (role === "INSTRUCTOR") {
+      conditions.push(
+        Prisma.sql`EXISTS (SELECT 1 FROM class_instructors i WHERE i.class_id = ft.class_id AND i.instructor_id = ${actorId})`,
+      );
+    }
+    if (classId) conditions.push(Prisma.sql`ft.class_id = ${classId}`);
+    if (filters.pinnedOnly) conditions.push(Prisma.sql`ft.is_pinned = TRUE`);
+    if (filters.mineOnly) conditions.push(Prisma.sql`ft.author_id = ${actorId}`);
+    if (query) {
+      const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
+      const tags = Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(ft.tags) = 'array' THEN ft.tags ELSE '[]'::jsonb END)`;
+      conditions.push(
+        Prisma.sql`(ft.title ILIKE ${pattern} OR ft.body ILIKE ${pattern} OR EXISTS (SELECT 1 FROM ${tags} AS tg(value) WHERE tg.value ILIKE ${pattern}))`,
+      );
+    }
+    const where = conditions.length
+      ? Prisma.join(conditions, " AND ")
+      : Prisma.sql`TRUE`;
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const counts = await transaction.$queryRaw<{ count: bigint }[]>(
+          Prisma.sql`SELECT COUNT(*) AS count FROM forum_topics ft WHERE ${where}`,
+        );
+        const total = Number(counts[0]?.count ?? 0n);
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        if (total === 0) {
+          return { rows: [], total: 0, safePage, totalPages };
+        }
+        const offset = (safePage - 1) * pageSize;
+        const ids = await transaction.$queryRaw<{ id: string }[]>(
+          Prisma.sql`SELECT ft.id FROM forum_topics ft WHERE ${where} ORDER BY ft.is_pinned DESC, ft.created_at DESC, ft.id ASC LIMIT ${pageSize} OFFSET ${offset}`,
+        );
+        const rows =
+          ids.length === 0
+            ? []
+            : await transaction.forumTopic.findMany({
+                where: { id: { in: ids.map((item) => item.id) } },
+                orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) => serviceContext.mapTopic(row)),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const normalizedQuery = query?.toLowerCase() ?? "";
+  const filtered = serviceContext.topics
+    .filter(
+      (item) =>
+        canAccessMemoryTopic(serviceContext, item, role, actorId) &&
+        (!classId || item.classId === classId) &&
+        (!filters.pinnedOnly || item.isPinned) &&
+        (!filters.mineOnly || item.authorId === actorId) &&
+        (!normalizedQuery ||
+          item.title.toLowerCase().includes(normalizedQuery) ||
+          item.body.toLowerCase().includes(normalizedQuery) ||
+          item.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery))),
+    )
+    .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.createdAt.localeCompare(a.createdAt))
+    .map((item) => ({ ...item, tags: [...item.tags] }));
+  return paginateArray(filtered, page, pageSize);
 }
 
 /** Kiểm tra thành viên/chính sách nội dung rồi tạo chủ đề và thông báo thành viên lớp. */
@@ -217,20 +376,9 @@ export async function listPosts(
   role = "LEARNER",
   actorId = serviceContext.userIdForRole(role),
 ): Promise<ForumPost[]> {
+  await assertTopicReadAccess(serviceContext, topicId, role, actorId);
   const prisma = serviceContext.database();
   if (prisma) {
-    const topic = await prisma.forumTopic.findUnique({
-      where: { id: topicId },
-      include: {
-        class: { include: { enrollments: true, instructors: true } },
-      },
-    });
-    if (!topic) throw new NotFoundException("Không tìm thấy chủ đề.");
-    if (role === "LEARNER" && topic.status !== "PUBLISHED")
-      throw new NotFoundException(
-        "Không tìm thấy chủ đề trong lớp đã ghi danh.",
-      );
-    serviceContext.assertForumClassAccess(topic.class, role, actorId);
     const rows = await prisma.forumPost.findMany({
       where: { topicId },
       include: { attachments: true, mentions: true },
@@ -238,10 +386,6 @@ export async function listPosts(
     });
     return rows.map((row) => serviceContext.mapPost(row));
   }
-  const topic = serviceContext.findTopic(topicId);
-  if (role === "LEARNER" && topic.status !== "VISIBLE")
-    throw new NotFoundException("Không tìm thấy chủ đề trong lớp đã ghi danh.");
-  serviceContext.assertMemoryForumClassAccess(topic.classId, role, actorId);
   return serviceContext.posts
     .filter((item) => item.topicId === topicId)
     .map((item) => ({
@@ -251,6 +395,109 @@ export async function listPosts(
       mentionedUserIds:
         item.status === "HIDDEN" ? [] : [...item.mentionedUserIds],
     }));
+}
+
+/** Phân trang bình luận gốc của chủ đề và kèm đầy đủ phản hồi con của từng gốc đang xem. */
+export async function listPostsPage(
+  serviceContext: LearningServiceContext,
+  topicId: string,
+  role = "LEARNER",
+  actorId = serviceContext.userIdForRole(role),
+  filters: { page?: number; pageSize?: number } = {},
+): Promise<ForumPostPageResult> {
+  await assertTopicReadAccess(serviceContext, topicId, role, actorId);
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 15;
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const { combined, totalRoots, totalPosts, safePage, totalPages } =
+      await prisma.$transaction(
+        async (transaction) => {
+          const [totalRoots, totalPosts] = await Promise.all([
+            transaction.forumPost.count({ where: { topicId, parentId: null } }),
+            transaction.forumPost.count({ where: { topicId } }),
+          ]);
+          const totalPages = Math.max(1, Math.ceil(totalRoots / pageSize));
+          const safePage = Math.min(page, totalPages);
+          if (totalRoots === 0) {
+            return {
+              combined: [],
+              totalRoots: 0,
+              totalPosts,
+              safePage,
+              totalPages,
+            };
+          }
+          const roots = await transaction.forumPost.findMany({
+            where: { topicId, parentId: null },
+            include: { attachments: true, mentions: true },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            skip: (safePage - 1) * pageSize,
+            take: pageSize,
+          });
+          const rootIds = roots.map((item) => item.id);
+          const level1 = rootIds.length
+            ? await transaction.forumPost.findMany({
+                where: { topicId, parentId: { in: rootIds } },
+                include: { attachments: true, mentions: true },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              })
+            : [];
+          const level1Ids = level1.map((item) => item.id);
+          const level2 = level1Ids.length
+            ? await transaction.forumPost.findMany({
+                where: { topicId, parentId: { in: level1Ids } },
+                include: { attachments: true, mentions: true },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              })
+            : [];
+          return {
+            combined: [...roots, ...level1, ...level2],
+            totalRoots,
+            totalPosts,
+            safePage,
+            totalPages,
+          };
+        },
+        { isolationLevel: "RepeatableRead" },
+      );
+    return {
+      items: combined.map((row) => serviceContext.mapPost(row)),
+      total: totalRoots,
+      totalPosts,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const allPosts = serviceContext.posts
+    .filter((item) => item.topicId === topicId)
+    .map((item) => ({
+      ...item,
+      body: item.status === "HIDDEN" ? "[Nội dung đã bị ẩn]" : item.body,
+      attachmentIds: item.status === "HIDDEN" ? [] : [...item.attachmentIds],
+      mentionedUserIds:
+        item.status === "HIDDEN" ? [] : [...item.mentionedUserIds],
+    }));
+  const roots = allPosts.filter((item) => !item.parentId);
+  const pagedRoots = paginateArray(roots, page, pageSize);
+  const rootIdSet = new Set(pagedRoots.items.map((item) => item.id));
+  const level1 = allPosts.filter((item) => item.parentId && rootIdSet.has(item.parentId));
+  const level1IdSet = new Set(level1.map((item) => item.id));
+  const level2 = allPosts.filter((item) => item.parentId && level1IdSet.has(item.parentId));
+  return {
+    ...pagedRoots,
+    items: [...pagedRoots.items, ...level1, ...level2],
+    totalPosts: allPosts.length,
+  };
 }
 
 /** Validate nội dung, chủ đề chưa khóa, parent/tệp/mention hợp lệ rồi tạo post và thông báo. */

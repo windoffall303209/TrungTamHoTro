@@ -7,7 +7,7 @@ import { snapshotAssetAudit } from "../../src/domains/system/operations/storage/
 import { processQueuedExport } from "../../src/domains/system/operations/workers/system-worker.js";
 
 type SnapshotDatabase = Record<
-  "learningClass" | "courseVersion" | "material" | "materialVersion" |
+  "learningClass" | "courseVersion" | "material" |
   "assignmentSubmissionAttachment" | "question" | "chatMessageAttachment" | "supportAttachment",
   { findMany: ReturnType<typeof vi.fn> }
 >;
@@ -18,10 +18,9 @@ function snapshotDatabase(): SnapshotDatabase {
     learningClass: { findMany: vi.fn().mockResolvedValue([{ id: "class-1", courseId: "course-1", courseVersion: 3 }]) },
     courseVersion: { findMany: vi.fn().mockResolvedValue([{ courseId: "course-1", version: 3 }]) },
     material: { findMany: vi.fn().mockResolvedValue([{ id: "material-1", objectKey: "shared" }]) },
-    materialVersion: { findMany: vi.fn().mockResolvedValue([{ id: "version-1", objectKey: "shared" }]) },
     assignmentSubmissionAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "attachment-1", objectKey: "broken" }]) },
     question: { findMany: vi.fn().mockResolvedValue([]) },
-    chatMessageAttachment: { findMany: vi.fn().mockResolvedValue([]) },
+    chatMessageAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "chat-1", objectKey: "shared" }]) },
     supportAttachment: { findMany: vi.fn().mockResolvedValue([]) },
   };
 }
@@ -48,7 +47,7 @@ describe("Đối soát object theo stream", () => {
     expect(result.referencedObjectCount).toBe(3);
     expect(result.uniqueObjectCount).toBe(2);
     expect(result.sharedObjects).toEqual([{
-      objectKey: "shared", references: ["material:material-1", "material-version:version-1"],
+      objectKey: "shared", references: ["material:material-1", "chat-attachment:chat-1"],
     }]);
     expect(result.missingObjects).toEqual([{
       objectKey: "broken", references: ["assignment-attachment:attachment-1"],
@@ -64,7 +63,7 @@ describe("Đối soát object theo stream", () => {
       objectKey: "shared",
     }));
     prisma.material.findMany.mockResolvedValue(sharedMaterials);
-    prisma.materialVersion.findMany.mockResolvedValue([]);
+    prisma.chatMessageAttachment.findMany.mockResolvedValue([]);
     prisma.assignmentSubmissionAttachment.findMany.mockResolvedValue([]);
     const openReadStream = vi.fn().mockResolvedValue(Readable.from([Buffer.from("shared file")]));
     const context = {

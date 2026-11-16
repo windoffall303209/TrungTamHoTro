@@ -227,6 +227,18 @@ describe("AI provider configuration and image scanning", () => {
     expect(result.questions[0]?.correctAnswers).toEqual(["4"]);
   });
 
+  it("giữ nguồn đáp án và yêu cầu kiểm tra khi bảng đáp án khác phương án được đánh dấu", async () => {
+    const service = new AiProviderService(undefined, config);
+    const provider = await service.configure({ provider: "GEMINI", model: "gemini-2.5-flash", apiKey: "gemini-secret-1234", enabled: true }, "usr-admin");
+    const item = { type: "SINGLE_CHOICE", content: "Hai cộng hai bằng mấy?", options: ["Ba", "Bốn"], explicitKeys: ["B"], correctAnswers: ["Bốn"], answerSource: "Bảng đáp án trang 2" };
+    const text = JSON.stringify({ questions: [item, { ...item, markedKeys: ["A"] }] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }))));
+    const result = await service.scanImage({ providerId: provider.id, fileName: "de.pdf", mimeType: "application/pdf", buffer: Buffer.from("fixture") });
+    expect(result.questions[0]).toMatchObject({ correctAnswers: ["Bốn"], answerSource: "Bảng đáp án trang 2" });
+    expect(result.questions[1]?.correctAnswers).toEqual([]);
+    expect(result.questions[1]?.warnings.some((message) => message.includes("mâu thuẫn"))).toBe(true);
+  });
+
   it("requires HTTPS for remote custom endpoints", async () => {
     const service = new AiProviderService(undefined, config);
     await expect(service.configure({ provider: "CUSTOM", name: "Unsafe", model: "vision", baseUrl: "http://example.com/v1/chat/completions", apiKey: "custom-secret" }, "usr-admin")).rejects.toThrow("HTTPS");

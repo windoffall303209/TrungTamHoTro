@@ -1,22 +1,23 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Req, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, HttpCode, Param, Patch, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { parseExamPageQuery, type ExamPage } from "../operations/exams/learning-exam-page.js";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { MaterialUploadInterceptor } from "../../../infrastructure/material-upload.interceptor.js";
 import { readFileHead } from "../../../infrastructure/file-streams.js";
-import type { Request } from "express";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, ReplaceMaterialEditorsDto, ReviewQuestionDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
-import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type UploadedMaterialFile } from "../core/learning.service.js";
-import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, GradeHistoryRecord, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, MaterialVersionSnapshot, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
+import { ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type MaterialSummaryBucket, type QuestionSummary, type UploadedMaterialFile } from "../core/learning.service.js";
+import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
+import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiQuestionStatusDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "../core/learning.dto.js";
-import { EditExamQuestionDto, EditStudyDraftDto, PublishQuestionDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
+import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -27,6 +28,26 @@ export class ContentController {
   /** Chặn mọi thao tác tạo, sửa, xuất bản và AI trên câu hỏi/đề thi đối với vai trò chỉ xem. */
   private assertInstructorMutation(session: AuthenticatedSession): void {
     if (session.roleCode !== "INSTRUCTOR") throw new ForbiddenException("Chỉ giảng viên được thao tác câu hỏi và đề thi.");
+  }
+
+  /** Liệt kê thư mục một cấp của lớp học (bao gồm thư mục rỗng) cho người có quyền xem lớp. */
+  @Get("classes/:classId/folders") @RequirePermissions("material:view")
+  publicFolders(@Param("classId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
+    return this.learning.classFolders(id, session.user.id, undefined, session.roleCode);
+  }
+
+  /** Liệt kê danh sách thư mục một cấp của lớp giảng viên phụ trách, bao gồm thư mục rỗng. */
+  @Get("instructor/classes/:classId/folders") @RequirePermissions("material:manage")
+  folders(@Param("classId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
+    this.assertInstructorMutation(session);
+    return this.learning.classFolders(id, session.user.id, undefined, session.roleCode);
+  }
+
+  /** Tạo mới thư mục một cấp trong lớp học được phân công. */
+  @Post("instructor/classes/:classId/folders") @RequirePermissions("material:manage")
+  createFolder(@Param("classId") id: string, @Body() input: ClassFolderDto, @CurrentSession() session: AuthenticatedSession): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
+    this.assertInstructorMutation(session);
+    return this.learning.classFolders(id, session.user.id, input, session.roleCode);
   }
 
   @Get("instructor/materials/:materialId/ai-questions") @RequirePermissions("material:manage")
@@ -91,6 +112,16 @@ export class ContentController {
   /** Trả về chính sách tệp đã áp dụng khi máy chủ nhận học liệu. */
   getMaterialUploadPolicy(): Promise<{ maxFileSizeMb: number; allowedMimeTypes: string[] }> { return this.learning.getMaterialUploadPolicy(); }
 
+  @Get(["learner/materials/summary", "materials/summary"]) @RequirePermissions("material:view")
+  /** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung để hiển thị cây điều hướng. */
+  getMaterialSummary(
+    @CurrentSession() session: AuthenticatedSession,
+    @Query("classId") rawClassId?: string,
+  ): Promise<MaterialSummaryBucket[]> {
+    const classId = parseOptionalQueryString(rawClassId, "classId", 255);
+    return this.learning.getMaterialSummary(session.user.id, session.roleCode, classId);
+  }
+
   @Get(["learner/materials/search", "materials/search"]) @RequirePermissions("material:view")
   /** Tìm học liệu học viên được truy cập với bộ lọc và phân trang đã chuẩn hóa trong service. */
   searchMaterials(
@@ -102,21 +133,44 @@ export class ContentController {
     @Query("visibility") visibility?: string,
     @Query("aiOnly") aiOnly?: string,
     @Query("folder") folder?: string,
+    @Query("folderExact") folderExact?: string,
+    @Query("kind") rawKind?: string,
     @Query("mimeType") mimeType?: string,
     @Query("tag") tag?: string,
     @Query("page") rawPage?: string,
     @Query("pageSize") rawPageSize?: string,
   ): Promise<MaterialSearchResult> {
-    return this.learning.searchAccessibleMaterials({ query, classId, courseId, scope, visibility, aiOnly: aiOnly === "true", folder, mimeType, tag, page: Number(rawPage), pageSize: Number(rawPageSize) }, session.user.id, session.roleCode);
+    const normalizedKind = parseOptionalQueryString(rawKind, "kind", 32)?.toLowerCase();
+    if (normalizedKind && normalizedKind !== "materials" && normalizedKind !== "lectures") {
+      throw new BadRequestException("Tham số kind không hợp lệ.");
+    }
+    return this.learning.searchAccessibleMaterials(
+      {
+        query,
+        classId,
+        courseId,
+        scope,
+        visibility,
+        aiOnly: aiOnly === "true",
+        folder,
+        folderExact: folderExact === "true",
+        kind: normalizedKind as "materials" | "lectures" | undefined,
+        mimeType,
+        tag,
+        page: Number(rawPage),
+        pageSize: Number(rawPageSize),
+      },
+      session.user.id,
+      session.roleCode,
+    );
   }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
   /** Tạo metadata học liệu không kèm tệp cho lớp giảng viên. */
-  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(classId, input, undefined, session.user.id, session.roleCode); }
-
-  @Post("instructor/materials") @RequirePermissions("material:manage")
-  /** Tạo metadata học liệu không kèm tệp cho kho dùng chung hoặc chưa phân loại. */
-  createDirectMaterial(@Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.createMaterial(null, input, undefined, session.user.id, session.roleCode); }
+  createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> {
+    this.assertInstructorMutation(session);
+    return this.learning.createMaterial(classId, input, undefined, session.user.id, session.roleCode);
+  }
 
   @Post("instructor/classes/:classId/material-uploads") @RequirePermissions("material:manage")
   @UseInterceptors(MaterialUploadInterceptor)
@@ -127,6 +181,7 @@ export class ContentController {
     @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
+    this.assertInstructorMutation(session);
     if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
     const originalName = normalizeMultipartFileName(file.originalname);
     const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) };
@@ -141,78 +196,33 @@ export class ContentController {
     }, upload, session.user.id, session.roleCode);
   }
 
-  @Get("materials/:materialId/versions") @RequirePermissions("material:view")
-  /** Liệt kê lịch sử phiên bản học liệu sau khi kiểm tra quyền xem. */
-  listMaterialVersions(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<MaterialVersionSnapshot[]> { return this.learning.listMaterialVersions(materialId, session.roleCode, session.user.id); }
-
-  @Get("materials/:materialId/versions/:version/access") @RequirePermissions("material:view")
-  /** Phát URL ký ngắn hạn để xem hoặc tải một phiên bản cũ. */
-  getMaterialVersionAccess(@Param("materialId") materialId: string, @Param("version") version: string, @CurrentSession() session: AuthenticatedSession, @Query("action") rawAction = "DOWNLOAD"): Promise<{ url: string; expiresAt: string }> {
-    return this.learning.createMaterialVersionAccess(materialId, Number(version), session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
-  }
-
-  @Get("materials/:materialId/versions/:version/download") @RequirePermissions("material:view")
-  /** Xác minh chữ ký truy cập phiên bản rồi stream tệp với Content-Disposition phù hợp. */
-  async downloadMaterialVersion(@Param("materialId") materialId: string, @Param("version") version: string, @Query("expires") expires: string, @Query("signature") signature: string, @Query("action") rawAction: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
-    const download = await this.learning.readMaterialVersionDownloadStream(materialId, Number(version), Number(expires), signature ?? "", session.roleCode, rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD", session.user.id);
-    return new StreamableFile(download.stream, { type: download.mimeType, disposition: fileContentDisposition(rawAction === "PREVIEW" ? "inline" : "attachment", download.fileName), length: download.size });
-  }
-
-  @Post("instructor/materials/:materialId/versions") @RequirePermissions("material:manage")
+  @Put("instructor/materials/:materialId/file") @RequirePermissions("material:manage")
   @UseInterceptors(MaterialUploadInterceptor)
-  /** Tải tệp thay thế để tạo phiên bản học liệu mới, không ghi đè lịch sử cũ. */
-  async uploadMaterialVersion(
+  /** Tải tệp mới thay thế trực tiếp cho học liệu hiện tại và xóa ngay tệp cũ. */
+  async replaceMaterialFile(
     @Param("materialId") materialId: string,
     @Body() input: UploadMaterialDto,
     @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
   ): Promise<LearningMaterial> {
-    if (!file) throw new BadRequestException("Cần chọn tệp cho phiên bản mới.");
-    return this.learning.replaceMaterialVersion(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) }, session.user.id);
+    this.assertInstructorMutation(session);
+    if (!file) throw new BadRequestException("Cần chọn tệp thay thế.");
+    return this.learning.replaceMaterialFile(materialId, { folder: input.folder, tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean) }, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) }, session.user.id);
   }
-
-  @Post("instructor/courses/:courseId/material-uploads") @RequirePermissions("material:manage")
-  @UseInterceptors(MaterialUploadInterceptor)
-  /** Tải học liệu dùng chung theo môn; giảng viên không cần dạy lớp nào của môn đó. */
-  async uploadCourseMaterial(
-    @Param("courseId") courseId: string,
-    @Body() input: UploadMaterialDto,
-    @CurrentSession() session: AuthenticatedSession,
-    @UploadedFile() file?: { originalname: string; mimetype: string; size: number; path: string },
-  ): Promise<LearningMaterial> {
-    if (!file) throw new BadRequestException("Cần chọn một tệp học liệu.");
-    const originalName = normalizeMultipartFileName(file.originalname);
-    const upload: UploadedMaterialFile = { originalName, mimeType: file.mimetype, size: file.size, path: file.path, buffer: await readFileHead(file.path) };
-    return this.learning.createMaterial(null, {
-      name: originalName,
-      mimeType: file.mimetype,
-      sizeBytes: file.size,
-      folder: input.folder,
-      tags: input.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-      courseId,
-      visibility: input.visibility,
-    }, upload, session.user.id, session.roleCode);
-  }
-
-  @Get("instructor/materials/:materialId/editors") @RequirePermissions("material:manage")
-  /** Xem các giảng viên được người tải lên cấp quyền sửa học liệu. */
-  listMaterialEditors(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<LearningService["listMaterialEditors"]> { return this.learning.listMaterialEditors(materialId, session.user.id); }
-
-  @Put("instructor/materials/:materialId/editors") @RequirePermissions("material:manage")
-  /** Người tải lên cấp hoặc thu hồi quyền sửa học liệu cho giảng viên khác. */
-  replaceMaterialEditors(@Param("materialId") materialId: string, @Body() input: ReplaceMaterialEditorsDto, @CurrentSession() session: AuthenticatedSession): ReturnType<LearningService["replaceMaterialEditors"]> { return this.learning.replaceMaterialEditors(materialId, input.userIds, session.user.id); }
-
-  @Get("instructor/material-editor-candidates") @RequirePermissions("material:manage")
-  /** Giảng viên đang hoạt động có thể được cấp quyền sửa học liệu. */
-  listMaterialEditorCandidates(@CurrentSession() session: AuthenticatedSession): ReturnType<LearningService["listMaterialEditorCandidates"]> { return this.learning.listMaterialEditorCandidates(session.user.id); }
 
   @Patch("instructor/materials/:materialId") @RequirePermissions("material:manage")
   /** Cập nhật metadata/khả năng hiển thị của học liệu. */
-  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> { return this.learning.updateMaterial(materialId, input, session.user.id, session.roleCode); }
+  updateMaterial(@Param("materialId") materialId: string, @Body() input: UpdateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> {
+    this.assertInstructorMutation(session);
+    return this.learning.updateMaterial(materialId, input, session.user.id, session.roleCode);
+  }
 
   @Delete("instructor/materials/:materialId") @RequirePermissions("material:manage") @HttpCode(204)
-  /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
-  deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> { return this.learning.deleteMaterial(materialId, session.user.id, session.roleCode); }
+  /** Xóa hẳn học liệu cùng tệp lưu trữ theo phân công giảng dạy của lớp. */
+  deleteMaterial(@Param("materialId") materialId: string, @CurrentSession() session: AuthenticatedSession): Promise<void> {
+    this.assertInstructorMutation(session);
+    return this.learning.deleteMaterial(materialId, session.user.id, session.roleCode);
+  }
 
   @Get("materials/:materialId/access") @RequirePermissions("material:view")
   /** Phát URL ký ngắn hạn cho phiên bản học liệu hiện tại. */
@@ -226,25 +236,30 @@ export class ContentController {
   }
 
   @Get("materials/:materialId/download") @RequirePermissions("material:view")
-  /** Xác minh quyền/chữ ký, ghi dấu vết truy cập rồi stream học liệu hiện tại. */
+  /** Xác minh quyền/chữ ký rồi stream học liệu hiện tại. */
   async downloadMaterial(
     @Param("materialId") materialId: string,
     @Query("expires") expires: string,
     @Query("signature") signature: string,
     @Query("action") rawAction: string,
     @CurrentSession() session: AuthenticatedSession,
-    @Req() request: Request,
   ): Promise<StreamableFile> {
     const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, {
-      ipAddress: request.ip,
-      userAgent: request.header("user-agent"),
-    }, session.user.id);
+    const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, session.user.id);
     return new StreamableFile(download.stream, {
       type: download.mimeType,
       disposition: fileContentDisposition(action === "PREVIEW" ? "inline" : "attachment", download.fileName),
       length: download.size,
     });
+  }
+
+  @Get("materials/:materialId/preview-content") @RequirePermissions("material:view")
+  /** Trích xuất nội dung xem trước an toàn (DOCX/DOC/TXT) cho tệp đề hoặc học liệu. */
+  previewMaterialContent(
+    @Param("materialId") materialId: string,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<AttachmentDocumentPreview> {
+    return this.learning.readMaterialPreviewContent(materialId, session.roleCode, session.user.id);
   }
 
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
@@ -268,6 +283,42 @@ export class ContentController {
       difficulty: difficulty ? Number(difficulty) : undefined,
       tag,
       status: normalizedStatus as LearningQuestion["status"] | undefined,
+    });
+  }
+
+  @Get("instructor/question-bank/questions/summary") @RequirePermissions("question:view")
+  /** Trả thống kê nhanh số lượng câu hỏi (tổng, trắc nghiệm, tự luận) theo khóa học. */
+  getQuestionSummary(@Query("courseId") rawCourseId?: string): Promise<QuestionSummary> {
+    return this.learning.getQuestionSummary(parseOptionalQueryString(rawCourseId, "courseId", 191));
+  }
+
+  @Get("instructor/question-bank/questions/page") @RequirePermissions("question:view")
+  /** Phân trang ngân hàng câu hỏi trực tiếp từ DB bằng CTE phiên bản mới nhất mỗi family. */
+  listQuestionsPage(@Query() raw: Record<string, unknown>): Promise<PaginatedResult<LearningQuestion>> {
+    const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    const query = parseOptionalQueryString(raw.query, "query", 255);
+    const courseId = parseOptionalQueryString(raw.courseId, "courseId", 191);
+    const type = parseOptionalQueryString(raw.type, "type", 64);
+    const rawTypeGroup = parseOptionalQueryString(raw.typeGroup, "typeGroup", 32)?.toUpperCase();
+    if (rawTypeGroup && rawTypeGroup !== "OBJECTIVE" && rawTypeGroup !== "ESSAY") {
+      throw new BadRequestException("Tham số typeGroup không hợp lệ.");
+    }
+    const tag = parseOptionalQueryString(raw.tag, "tag", 191);
+    const difficulty = parseOptionalQueryInt(raw.difficulty, "difficulty", 1, 3);
+    const normalizedStatus = parseOptionalQueryString(raw.status, "status", 64)?.toUpperCase();
+    if (normalizedStatus && normalizedStatus !== "DRAFT" && normalizedStatus !== "PENDING_REVIEW" && normalizedStatus !== "PUBLISHED") {
+      throw new BadRequestException("Trạng thái câu hỏi phải là DRAFT, PENDING_REVIEW hoặc PUBLISHED.");
+    }
+    return this.learning.listQuestionsPage({
+      query,
+      courseId,
+      type,
+      typeGroup: rawTypeGroup as "OBJECTIVE" | "ESSAY" | undefined,
+      difficulty,
+      tag,
+      status: normalizedStatus as LearningQuestion["status"] | undefined,
+      page,
+      pageSize,
     });
   }
 
@@ -301,17 +352,6 @@ export class ContentController {
   async readQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
     const image = await this.learning.readQuestionImage(questionId, session.roleCode, session.user.id);
     return new StreamableFile(image.buffer, { type: image.mimeType, disposition: fileContentDisposition("inline", image.fileName), length: image.buffer.length });
-  }
-
-  @Post("instructor/question-bank/questions/:questionId/publish") @RequirePermissions("question:manage")
-  /** Gửi câu hỏi vào quy trình duyệt hoặc xuất bản ngay theo cấu hình. */
-  publishQuestion(@Param("questionId") questionId: string, @Body() input: PublishQuestionDto = {}, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.publishQuestion(questionId, session.user.id, input.immediate); }
-
-  @Post("admin/question-bank/questions/:questionId/review") @RequirePermissions("system:configure")
-  /** Cho quản trị duyệt hoặc từ chối câu hỏi khi chế độ duyệt tay được bật. */
-  reviewQuestion(@Param("questionId") questionId: string, @Body() input: ReviewQuestionDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> {
-    if (session.roleCode !== "SYSTEM_ADMIN") throw new ForbiddenException("Chỉ quản trị hệ thống được duyệt câu hỏi.");
-    return this.learning.reviewQuestion(questionId, input.decision, input.reviewNote, session.user.id);
   }
 
   @Post("instructor/question-bank/questions/import") @RequirePermissions("question:manage")
@@ -513,7 +553,4 @@ export class ContentController {
   /** Chấm hoặc sửa điểm lượt thi và ghi lý do hiệu chỉnh vào lịch sử. */
   gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id, input.questionScores); }
 
-  @Get("instructor/exam-attempts/:attemptId/grade-history") @RequirePermissions("exam:manage")
-  /** Trả lịch sử các lần chấm/sửa điểm sau khi kiểm tra quyền giảng viên. */
-  listGradeHistory(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<GradeHistoryRecord[]> { return this.learning.listGradeHistory(attemptId, session.user.id); }
 }

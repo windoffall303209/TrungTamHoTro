@@ -17,6 +17,7 @@ import {
   Matches,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
@@ -24,6 +25,11 @@ import { OmitType } from "@nestjs/swagger";
 import type { LearningQuestion } from "./learning.types.js";
 
 /** Từ khóa tùy chọn để tìm đoạn trong tài liệu đã được kiểm tra quyền. */
+export class ClassFolderDto {
+  @IsIn(["lectures", "materials", "assignments"]) kind!: string;
+  @IsString() @MinLength(1) @MaxLength(255) name!: string;
+}
+
 export class MaterialAiContextDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(1000) query?: string;
 }
@@ -94,9 +100,6 @@ export class SubmitExamDto {
 }
 
 /** Xác định việc công bố câu hỏi có thuộc luồng tạo nội dung đã xác nhận hay không. */
-export class PublishQuestionDto {
-  @IsOptional() @IsBoolean() immediate?: boolean;
-}
 
 /** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */
 export class CreateCourseDto {
@@ -195,8 +198,7 @@ export class CreateMaterialDto {
   @IsInt() @Min(1) sizeBytes!: number;
   @IsString() folder!: string;
   @IsArray() @IsString({ each: true }) tags!: string[];
-  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
-  @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
   @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
 }
 
@@ -204,23 +206,18 @@ export class CreateMaterialDto {
 export class UploadMaterialDto {
   @IsString() folder!: string;
   @IsOptional() @IsString() tags = "";
-  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
   @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
 }
 
 export class UpdateMaterialDto {
   @IsOptional() @IsString() name?: string;
-  @IsOptional() @IsString() classId?: string | null;
+  @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() folder?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
-  @IsOptional() @IsIn(["SHARED", "CLASS"]) scope?: "SHARED" | "CLASS";
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
   // Cài đặt hiển thị hoặc ẩn học liệu.
   @IsOptional() @IsIn(["PUBLISHED", "HIDDEN", "DRAFT"]) visibility?: "PUBLISHED" | "HIDDEN" | "DRAFT";
-}
-
-/** Danh sách giảng viên được người tải lên cấp quyền sửa học liệu. */
-export class ReplaceMaterialEditorsDto {
-  @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) userIds!: string[];
 }
 
 /** Nội dung câu hỏi đa môn, hỗ trợ rich text/LaTeX, đáp án, độ khó và ảnh tùy chọn. */
@@ -287,16 +284,6 @@ export class CreateExamDto {
   @ValidateNested({ each: true })
   @Type(() => ExamScoreAllocationDto)
   scoreAllocations?: ExamScoreAllocationDto[];
-}
-
-export class ReviewExamDto {
-  @IsIn(["APPROVE", "RETURN"]) decision!: "APPROVE" | "RETURN";
-  @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
-}
-
-export class ReviewQuestionDto {
-  @IsIn(["APPROVE", "RETURN"]) decision!: "APPROVE" | "RETURN";
-  @IsOptional() @IsString() @MaxLength(1000) reviewNote?: string;
 }
 
 /** Đáp án tạm thời của một câu trong lượt thi đang làm. */
@@ -425,38 +412,47 @@ export class HideForumPostDto {
   @IsString() @MinLength(5) @MaxLength(500) reason!: string;
 }
 
-export class CreateReportDto {
-  @IsIn(["TOPIC", "POST"]) targetType!: "TOPIC" | "POST";
-  @IsString() targetId!: string;
-  @IsString() @MinLength(2) reason!: string;
-  @IsString() @MinLength(3) details!: string;
-}
-
-export class ResolveReportDto {
-  @IsIn(["HIDE_CONTENT", "KEEP_CONTENT", "ESCALATE_ADMIN"]) action!:
-    | "HIDE_CONTENT"
-    | "KEEP_CONTENT"
-    | "ESCALATE_ADMIN";
-  @IsString() @MinLength(3) resolution!: string;
-}
-
-export class AppealReportDto {
-  @IsString() @MinLength(10) reason!: string;
-}
-
-/** Dữ liệu lên lịch buổi học trực tuyến và nhà cung cấp phòng họp. */
+/** Dữ liệu lên lịch buổi học trực tuyến và gắn liên kết Google Meet. */
 export class CreateSessionDto {
-  @IsString() @MinLength(3) title!: string;
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(3, { message: "Tên buổi học cần ít nhất 3 ký tự." })
+  @MaxLength(255)
+  title!: string;
+
   @IsDateString() startsAt!: string;
+
   @IsDateString() endsAt!: string;
-  @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!:
-    | "GOOGLE_MEET"
-    | "ZOOM"
-    | "JITSI";
+
+  @IsOptional()
+  @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"])
+  provider: "GOOGLE_MEET" | "ZOOM" | "JITSI" = "GOOGLE_MEET";
+
+  @ValidateIf(
+    (object: CreateSessionDto) =>
+      object.meetingUrl !== undefined ||
+      !object.provider ||
+      object.provider === "GOOGLE_MEET",
+  )
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString({ message: "Vui lòng nhập link Google Meet." })
+  @IsNotEmpty({ message: "Vui lòng nhập link Google Meet." })
+  @MaxLength(1000)
+  meetingUrl?: string;
 }
 
 export class UpdateSessionDto extends CreateSessionDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(5, { message: "Lý do đổi lịch cần ít nhất 5 ký tự." })
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class CancelSessionDto {
@@ -470,17 +466,6 @@ export class TransitionSessionDto {
     | "CANCELLED";
 }
 
-/** Điều chỉnh điểm danh thủ công kèm lý do để phục vụ audit. */
-export class UpdateAttendanceDto {
-  @IsString() learnerId!: string;
-  @IsIn(["PRESENT", "LATE", "ABSENT", "EXCUSED"]) status!:
-    | "PRESENT"
-    | "LATE"
-    | "ABSENT"
-    | "EXCUSED";
-  @IsInt() @Min(0) attendedMinutes!: number;
-  @IsString() @MinLength(3) adjustmentReason!: string;
-}
 
 export class AttachRecordingDto {
   @IsUrl({ require_tld: false }) recordingUrl!: string;
@@ -490,34 +475,6 @@ export class CompleteRecordingDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(3650) retentionDays =
     90;
   @IsOptional() @IsString() @MinLength(5) @MaxLength(500) errorMessage?: string;
-}
-export class CreateAttendanceAppealDto {
-  @IsString() @MinLength(10) reason!: string;
-}
-
-export class ProviderAttendanceRowDto {
-  @IsString() @MinLength(1) @MaxLength(191) providerParticipantId!: string;
-  @IsString() @MinLength(1) learnerId!: string;
-  @IsDateString() joinedAt!: string;
-  @IsDateString() leftAt!: string;
-}
-
-export class SyncAttendanceDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(500)
-  @ValidateNested({ each: true })
-  @Type(() => ProviderAttendanceRowDto)
-  records!: ProviderAttendanceRowDto[];
-}
-
-export class ResolveAttendanceAppealDto {
-  @IsIn(["APPROVE", "REJECT"]) decision!: "APPROVE" | "REJECT";
-  @IsString() @MinLength(5) resolution!: string;
-  @IsOptional()
-  @IsIn(["PRESENT", "LATE", "ABSENT", "EXCUSED"])
-  status?: "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
-  @IsOptional() @IsInt() @Min(0) attendedMinutes?: number;
 }
 
 /** Bộ ngưỡng lọc dùng khi tổng hợp tiến độ lớp và phát hiện học viên cần hỗ trợ. */
@@ -555,16 +512,6 @@ export class UpdateProgressInterventionDto {
 export class TransferProgressInterventionDto {
   @IsString() @IsNotEmpty() assigneeId!: string;
   @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
-}
-
-export class RunOperationalReportDto {
-  @IsDateString() from!: string;
-  @IsDateString() to!: string;
-}
-
-export class CreateReportExportDto {
-  @IsString() @IsNotEmpty() reportRunId!: string;
-  @IsIn(["CSV"]) format!: "CSV";
 }
 
 /** Nội dung phiếu hỗ trợ và mức ưu tiên do người dùng gửi. */

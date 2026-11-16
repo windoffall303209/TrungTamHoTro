@@ -25,7 +25,7 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated PostgreSQL test 
     const owner = await prisma.user.findFirstOrThrow({ where: { status: "ACTIVE" } });
     ownerId = owner.id;
     const source = { name: "Study test.pdf", objectKey: `study-test/${materialId}.pdf`, mimeType: "application/pdf", sizeBytes: 1, folder: "Test", tags: [] };
-    await prisma.material.create({ data: { id: materialId, classId: courseClass.id, courseId: courseClass.courseId, ownerId, ...source, versions: { create: { ...source, version: 1, visibility: "DRAFT", createdBy: ownerId } } } });
+    await prisma.material.create({ data: { id: materialId, classId: courseClass.id, courseId: courseClass.courseId, ownerId, ...source } });
   });
 
   // Xóa đúng tài liệu fixture cùng bản nháp cascade; giữ nguyên mọi dữ liệu seed và học liệu khác.

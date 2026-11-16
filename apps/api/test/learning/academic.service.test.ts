@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
+import { LearningService } from "../../src/domains/learning/core/learning.service.js";
 import { AcademicService } from "../../src/domains/learning/academic/academic.service.js";
 import { AntivirusService } from "../../src/infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../src/infrastructure/object-storage.service.js";
@@ -51,6 +52,7 @@ const administrator: AuthenticatedSession = {
 
 describe("AcademicService", () => {
   let service: AcademicService;
+  let learning: LearningService;
   let prisma: PrismaService;
   let assignmentId = "";
   let attachmentAssignmentId = "";
@@ -82,6 +84,7 @@ describe("AcademicService", () => {
       })
       .compile();
     service = module.get(AcademicService);
+    learning = module.get(LearningService);
     prisma = module.get(PrismaService);
     expect(
       await prisma.learningClass.findUnique({ where: { id: "class-web-01" } }),
@@ -115,6 +118,45 @@ describe("AcademicService", () => {
       await prisma.assignment.deleteMany({ where: { id: assignmentId } });
   });
 
+  it("persists empty class folders and rejects a folder from the wrong section", async () => {
+    const name = "Thư mục kiểm thử " + suffix;
+    const classId = "class-web-01";
+    try {
+      await learning.classFolders(classId, instructor.user.id, { kind: "lectures", name });
+      expect((await learning.classFolders(classId, instructor.user.id)).lectures).toContain(name);
+      expect(await prisma.classFolder.count({ where: { classId, kind: "lectures", name } })).toBe(1);
+      await expect(learning.createMaterial(classId, { name: "Bài đọc", folder: name, mimeType: "application/pdf", sizeBytes: 1, tags: ["MATERIAL"] })).rejects.toThrow("Thư mục");
+    } finally {
+      await prisma.classFolder.deleteMany({ where: { classId, name } });
+    }
+  });
+
+  it("keeps the source material hidden when creating or publishing an assignment", async () => {
+    const materialId = "hidden-source-" + suffix;
+    const material = await prisma.material.create({ data: {
+      id: materialId, classId: "class-web-01", courseId: "course-web", ownerId: instructor.user.id,
+      name: "Đề gốc", mimeType: "application/pdf", sizeBytes: 1, objectKey: materialId,
+      folder: "Tài liệu chung", tags: [], scope: "CLASS", visibility: "HIDDEN",
+    } });
+    try {
+      const assignment = await service.createAssignment("class-web-01", {
+        title: "Bài tập có tài liệu gốc", description: "Kiểm tra tài liệu gốc.", instructions: "Nộp bài viết.",
+        dueAt: new Date(Date.now() + 3600000).toISOString(), maxScore: 10,
+        rubric: [{ title: "Nội dung", description: "Đúng yêu cầu", maxPoints: 10 }], sourceMaterialId: material.id,
+      }, instructor);
+      try {
+        await service.publishAssignment(assignment.id, instructor);
+        expect((await service.listAssignments(learner)).find(row => row.id === assignment.id)?.sourceMaterial).toBeUndefined();
+        expect(await prisma.material.findUniqueOrThrow({ where: { id: materialId } })).toMatchObject({ visibility: "HIDDEN", version: material.version });
+      } finally {
+        await prisma.notification.deleteMany({ where: { entityId: assignment.id } });
+        await prisma.assignment.delete({ where: { id: assignment.id } });
+      }
+    } finally {
+      await prisma.material.delete({ where: { id: materialId } });
+    }
+  });
+
   it("chạy xuyên suốt tạo, xuất bản, nộp và chấm bài bằng rubric", async () => {
     const assignment = await service.createAssignment(
       "class-web-01",
@@ -136,6 +178,13 @@ describe("AcademicService", () => {
       instructor,
     );
     assignmentId = assignment.id;
+    const hidden = await service.changeVisibility(assignment.id, true, assignment.version, instructor);
+    expect((await service.listAssignments(learner)).some(row => row.id === assignment.id)).toBe(false);
+    expect((await service.listAssignments(administrator)).find(row => row.id === assignment.id)).toMatchObject({ hidden: true, instructions: "", rubric: [] });
+    await expect(service.submitAssignment(assignment.id, "Nộp bài", learner)).rejects.toThrow();
+    await expect(service.changeVisibility(assignment.id, false, assignment.version, instructor)).rejects.toThrow();
+    await service.changeVisibility(assignment.id, false, hidden.version, instructor);
+    expect((await service.listAssignments(learner)).some(row => row.id === assignment.id)).toBe(true);
     expect(assignment.status).toBe("PUBLISHED");
     expect(
       (await service.publishAssignment(assignment.id, instructor)).status,
@@ -377,7 +426,7 @@ describe("AcademicService", () => {
     expect(closed.status).toBe("CLOSED");
   });
 
-  it("yêu cầu lý do khi sửa điểm đã công bố và lưu lịch sử chấm", async () => {
+  it("yêu cầu lý do khi sửa điểm đã công bố và trả điểm mới nhất", async () => {
     const submission = await prisma.assignmentSubmission.findUniqueOrThrow({
       where: {
         assignmentId_learnerId: { assignmentId, learnerId: learner.user.id },
@@ -408,8 +457,9 @@ describe("AcademicService", () => {
       "Chấm lại sau khi đối chiếu rubric.",
       instructor,
     );
-    expect(corrected.gradeHistory?.[0]?.action).toBe("CORRECTED");
-    expect(corrected.gradeHistory?.[0]?.reason).toContain("đối chiếu");
+    expect(corrected.score).toBe(rubricScores.reduce((sum, entry) => sum + entry.score, 0));
+    expect(corrected.feedback).toBe("Điều chỉnh điểm theo đối soát.");
+    expect(corrected).not.toHaveProperty("gradeHistory");
   });
 
   it("không cho quản trị hệ thống thực hiện nghiệp vụ học thuật của giảng viên", async () => {

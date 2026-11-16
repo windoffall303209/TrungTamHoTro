@@ -10,7 +10,6 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 /** Các quan hệ cần đọc cùng học liệu để xác thực quyền lớp và người biên tập. */
 export const MATERIAL_READ_RELATIONS = {
   class: { include: { enrollments: true, instructors: true } },
-  editors: { select: { userId: true } },
 } as const;
 
 /** Ánh xạ vai trò sang tài khoản seed tương ứng chỉ cho fallback/demo. */
@@ -43,68 +42,49 @@ export function canManageSupport(role: string): boolean {
   return role === "SYSTEM_ADMIN" || role === "CENTER_MANAGER";
 }
 
-/** Học liệu chung đã phát hành và không bị cách ly: mọi học viên đọc được, không cần thuộc lớp. */
-function isSharedForLearners(material: {
-  scope?: string;
-  visibility: string;
-  quarantinedAt?: Date | string | null;
-  classId?: string | null;
-}): boolean {
-  return (
-    !material.classId &&
-    material.scope === "SHARED" &&
-    material.visibility === "PUBLISHED" &&
-    !material.quarantinedAt
-  );
-}
-
-/** Chỉ người tải lên và người được người đó cấp quyền mới sửa được học liệu. */
+/** Chỉ giảng viên chính và đồng giảng viên đang được phân công trong class_instructors của đúng lớp mới có quyền sửa học liệu. */
 export function canEditMaterial(
-  material: { ownerId: string; editors?: Array<{ userId: string }>; editorIds?: string[] },
+  material: {
+    class?: { instructors?: Array<{ instructorId: string; role?: string }> } | null;
+  },
   actorId: string,
-  actorRole?: string,
 ): boolean {
-  return (
-    actorRole === "SYSTEM_ADMIN" ||
-    actorRole === "CENTER_MANAGER" ||
-    material.ownerId === actorId ||
-    Boolean(material.editors?.some((item) => item.userId === actorId)) ||
-    Boolean(material.editorIds?.includes(actorId))
+  return Boolean(
+    material.class?.instructors?.some(
+      (item) =>
+        item.instructorId === actorId &&
+        (item.role === undefined || item.role === "PRIMARY" || item.role === "CO_INSTRUCTOR"),
+    ),
   );
 }
 
 /** Kiểm tra quyền đọc học liệu theo vai trò; nơi gọi tự kiểm tra học liệu đã phát hành với học viên. */
 export function assertMaterialReadAccess(
   material: {
-    ownerId: string;
-    scope?: string;
     visibility: string;
     quarantinedAt?: Date | string | null;
     classId?: string | null;
-    editors?: Array<{ userId: string }>;
     class: {
       enrollments: Array<{ learnerId: string; status: string }>;
-      instructors: Array<{ instructorId: string }>;
+      instructors: Array<{ instructorId: string; role?: string }>;
     } | null;
   },
   role: string,
   actorId: string,
 ): void {
   if (role === "LEARNER") {
+    if (material.visibility !== "PUBLISHED" || material.quarantinedAt) throw new NotFoundException("Không tìm thấy học liệu.");
     if (
-      isSharedForLearners(material) ||
-      (material.scope !== "SHARED" &&
-        material.class?.enrollments.some(
-          (item) => item.learnerId === actorId && item.status === "ACTIVE",
-        ))
+      material.class?.enrollments.some(
+        (item) => item.learnerId === actorId && item.status === "ACTIVE",
+      )
     )
       return;
     throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
   }
   if (
     role === "INSTRUCTOR" &&
-    !canEditMaterial(material, actorId) &&
-    !material.class?.instructors.some((item) => item.instructorId === actorId)
+    !canEditMaterial(material, actorId)
   )
     throw new NotFoundException(
       "Giảng viên không được phân công vào lớp chứa học liệu này.",
@@ -122,13 +102,13 @@ export function assertMemoryMaterialReadAccess(
     ? serviceContext.classes.find((item) => item.id === material.classId)
     : undefined;
   if (role === "LEARNER") {
-    if (isSharedForLearners(material) || classItem?.learnerIds.includes(actorId))
+    if (material.visibility !== "PUBLISHED" || material.quarantinedAt) throw new NotFoundException("Không tìm thấy học liệu.");
+    if (classItem?.learnerIds.includes(actorId))
       return;
     throw new NotFoundException("Học viên không thuộc lớp chứa học liệu này.");
   }
   if (
     role === "INSTRUCTOR" &&
-    !canEditMaterial(material, actorId) &&
     !classItem?.instructorIds.includes(actorId)
   )
     throw new NotFoundException(

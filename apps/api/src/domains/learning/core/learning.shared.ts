@@ -4,7 +4,6 @@ import type { ExamSourceFile } from "../../system/ai/ai-provider.service.js";
 import type {
   LearningClass,
   LearningMaterial,
-  MaterialVersionSnapshot,
 } from "./learning.types.js";
 
 /** Lấy thời điểm hiện tại theo định dạng ISO để lưu và trả về nhất quán. */
@@ -65,17 +64,25 @@ export interface MaterialSearchResult {
   totalPages: number;
 }
 
+export interface MaterialSummaryBucket {
+  classId: string;
+  folder: string;
+  kind: "materials" | "lectures";
+  count: number;
+}
+
+export interface QuestionSummary {
+  total: number;
+  multipleChoice: number;
+  essay: number;
+}
+
 export interface ExamGenerationContext {
   courseId: string;
   courseName: string;
   courseDescription: string;
   sourceFiles: ExamSourceFile[];
 }
-
-export type MemoryMaterialVersion = MaterialVersionSnapshot & {
-  objectKey?: string;
-  checksum?: string;
-};
 
 export type MemoryQuestionImage = {
   objectKey: string;

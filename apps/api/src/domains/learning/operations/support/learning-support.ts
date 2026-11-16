@@ -5,6 +5,11 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
+import type { Prisma } from "../../../../generated/prisma/client.js";
+import {
+  paginateArray,
+  type PaginatedResult,
+} from "../../../../common/pagination.js";
 import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
 import {
   id,
@@ -45,6 +50,14 @@ function assertTicketTransition(
     );
 }
 
+export interface SupportTicketPageFilters {
+  status?: SupportTicket["status"];
+  category?: string;
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 /** Liệt kê tất cả phiếu cho nhân sự hỗ trợ hoặc chỉ phiếu của người gửi. */
 export async function listTickets(
   serviceContext: LearningServiceContext,
@@ -67,6 +80,93 @@ export async function listTickets(
       ...item,
       attachments: item.attachments.map((attachment) => ({ ...attachment })),
     }));
+}
+
+/** Phân trang danh sách phiếu hỗ trợ theo vai trò, trạng thái và từ khóa trực tiếp ở DB. */
+export async function listTicketsPage(
+  serviceContext: LearningServiceContext,
+  role: string,
+  actorId = serviceContext.userIdForRole(role),
+  filters: SupportTicketPageFilters = {},
+): Promise<PaginatedResult<SupportTicket>> {
+  const query = filters.query?.trim();
+  const category = filters.category?.trim();
+  if ((query && query.length > 255) || (category && category.length > 100)) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 10;
+  const canManage = serviceContext.canManageSupport(role);
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const andConditions: Prisma.SupportTicketWhereInput[] = [];
+    if (!canManage) andConditions.push({ reporterId: actorId });
+    if (filters.status) andConditions.push({ status: filters.status });
+    if (category) andConditions.push({ category });
+    if (query) {
+      andConditions.push({
+        OR: [
+          { category: { contains: query, mode: "insensitive" } },
+          { description: { contains: query, mode: "insensitive" } },
+          { contextId: { contains: query, mode: "insensitive" } },
+          { resolution: { contains: query, mode: "insensitive" } },
+        ],
+      });
+    }
+    const where: Prisma.SupportTicketWhereInput | undefined =
+      andConditions.length > 0 ? { AND: andConditions } : undefined;
+    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+      async (transaction) => {
+        const total = await transaction.supportTicket.count({ where });
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        const rows =
+          total === 0
+            ? []
+            : await transaction.supportTicket.findMany({
+                where,
+                include: { attachments: true },
+                orderBy: [{ status: "asc" }, { createdAt: "desc" }, { id: "asc" }],
+                skip: (safePage - 1) * pageSize,
+                take: pageSize,
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return {
+      items: rows.map((row) => serviceContext.mapTicket(row)),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+    };
+  }
+  const normalizedQuery = query?.toLowerCase() ?? "";
+  const filtered = serviceContext.tickets
+    .filter(
+      (item) =>
+        (canManage || item.reporterId === actorId) &&
+        (!filters.status || item.status === filters.status) &&
+        (!category || item.category === category) &&
+        (!normalizedQuery ||
+          `${item.category} ${item.description} ${item.contextId ?? ""} ${item.resolution ?? ""}`
+            .toLowerCase()
+            .includes(normalizedQuery)),
+    )
+    .map((item) => ({
+      ...item,
+      attachments: item.attachments.map((attachment) => ({ ...attachment })),
+    }));
+  return paginateArray(filtered, page, pageSize);
 }
 
 /** Validate nội dung, chống phiếu trùng đang mở và tạo SLA theo mức độ nghiêm trọng. */

@@ -1,11 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { AcademicServiceContext } from "./academic.context.js";
-import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, ClassAnnouncementView, GradebookRow, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
+import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, AttachmentDocumentPreview, ClassAnnouncementView, GradebookRow, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
 import {
   type GradingAnswerSource,
   type GradingDocumentReader,
@@ -53,7 +54,6 @@ export class AcademicService {
       requireTeachingAccess: (...args) => owner.requireTeachingAccess(...args),
       mapAssignment: (...args) => owner.mapAssignment(...args),
       mapSubmission: (...args) => owner.mapSubmission(...args),
-      assignmentSnapshot: (...args) => owner.assignmentSnapshot(...args),
       validateAssignmentFiles: (...args) =>
         owner.validateAssignmentFiles(...args),
       rubric: (...args) => owner.rubric(...args),
@@ -73,7 +73,64 @@ export class AcademicService {
     );
   }
 
-  /** Kiểm tra quyền dạy, đối chiếu tổng rubric và tạo bài tập ở trạng thái nháp. */
+  /** Phân trang danh sách bài tập trực tiếp trên DB theo lớp, trạng thái và từ khóa. */
+  async listAssignmentsPage(
+    session: AuthenticatedSession,
+    filters: assignments_ops.AssignmentPageFilters = {},
+  ): Promise<PaginatedResult<AssignmentView>> {
+    return await assignments_ops.listAssignmentsPage(
+      this.operationContext,
+      session,
+      filters,
+    );
+  }
+
+  /** Kiểm tra quyền giảng viên với lớp chứa bài tập hoặc đề thi tương ứng. */
+  private async requireWorkAccess(kind: "EXAM" | "ASSIGNMENT", id: string, session: AuthenticatedSession): Promise<void> {
+    const query = { where: { id }, select: { classId: true } };
+    const row = kind === "EXAM" ? await this.prisma.exam.findUnique(query) : await this.prisma.assignment.findUnique(query);
+    if (!row) throw new NotFoundException("Không tìm thấy bài tập.");
+    await this.requireTeachingAccess(row.classId, session, true);
+  }
+
+  /** Thay đổi trạng thái ẩn/hiện bài tập độc lập với ngày công bố và hạn đóng. */
+  async changeVisibility(
+    id: string,
+    hidden: boolean,
+    expectedVersion: number,
+    session: AuthenticatedSession,
+    kind: "EXAM" | "ASSIGNMENT" = "ASSIGNMENT",
+  ): Promise<{ hidden: boolean; version: number }> {
+    await this.requireWorkAccess(kind, id, session);
+    return this.prisma.$transaction(async tx => {
+      const query = { where: { id, version: expectedVersion }, data: { hidden, version: { increment: 1 } } };
+      const changed = kind === "EXAM" ? await tx.exam.updateMany(query) : await tx.assignment.updateMany(query);
+      if (!changed.count) throw new ConflictException("Bài tập đã thay đổi. Hãy tải lại trước khi lưu.");
+      if (hidden) await tx.notification.deleteMany({ where: { entityType: kind, entityId: id } });
+      return { hidden, version: expectedVersion + 1 };
+    });
+  }
+
+  /** Xóa bài tập hoặc đề thi đã chọn cùng tệp nộp liên quan khỏi lưu trữ. */
+  async deleteClassWork(kind: "EXAM" | "ASSIGNMENT", id: string, version: number, session: AuthenticatedSession): Promise<void> {
+    await this.requireWorkAccess(kind, id, session);
+    const files = await this.prisma.$transaction(async tx => {
+      if (kind === "ASSIGNMENT") await tx.$queryRaw`SELECT id FROM assignments WHERE id = ${id} FOR UPDATE`;
+      const attachments = kind === "ASSIGNMENT" ? await tx.assignmentSubmissionAttachment.findMany({
+        where: { submission: { assignmentId: id } }, select: { objectKey: true },
+      }) : [];
+      const query = { where: { id, version } };
+      const deleted = kind === "EXAM" ? await tx.exam.deleteMany(query) : await tx.assignment.deleteMany(query);
+      if (!deleted.count) throw new ConflictException("Bài tập đã thay đổi. Hãy tải lại trước khi xóa.");
+      await tx.notification.deleteMany({ where: { entityType: kind, entityId: id } });
+      return attachments;
+    });
+    for (const { objectKey } of files) {
+      await this.objectStorage.remove(objectKey).catch(() => Logger.warn("Không dọn được tệp bài nộp " + objectKey, "AcademicService"));
+    }
+  }
+
+  /** Tạo bài tập tự luận mới đã công bố trong lớp được phân công. */
   async createAssignment(
     classId: string,
     input: {
@@ -83,6 +140,7 @@ export class AcademicService {
       dueAt: string;
       maxScore: number;
       rubric: Array<{ title: string; description: string; maxPoints: number }>;
+      hidden?: boolean;
       sourceMaterialId?: string;
     },
     session: AuthenticatedSession,
@@ -106,6 +164,7 @@ export class AcademicService {
       maxScore: number;
       rubric: Array<{ title: string; description: string; maxPoints: number }>;
       expectedVersion: number;
+      hidden?: boolean;
       sourceMaterialId?: string;
     },
     session: AuthenticatedSession,
@@ -171,6 +230,7 @@ export class AcademicService {
     session: AuthenticatedSession,
     files: UploadedAssignmentFile[] = [],
     expectedRevision?: number,
+    keepAttachmentIds?: string[],
   ): Promise<AssignmentSubmissionView> {
     return await submissions_ops.submitAssignment(
       this.operationContext,
@@ -179,6 +239,7 @@ export class AcademicService {
       session,
       files,
       expectedRevision,
+      keepAttachmentIds,
     );
   }
 
@@ -231,6 +292,20 @@ export class AcademicService {
       attachmentId,
       session,
       expectedRevision,
+    );
+  }
+
+  /** Chuyển tệp bài nộp (DOCX/DOC/TXT) sang nội dung xem trước an toàn sau khi xác thực quyền. */
+  async previewSubmissionAttachment(
+    submissionId: string,
+    attachmentId: string,
+    session: AuthenticatedSession,
+  ): Promise<AttachmentDocumentPreview> {
+    return await submissions_ops.previewSubmissionAttachment(
+      this.operationContext,
+      submissionId,
+      attachmentId,
+      session,
     );
   }
 
@@ -395,19 +470,6 @@ export class AcademicService {
     return mapping_ops.mapSubmission(this.operationContext, row);
   }
 
-  /** Chụp trạng thái bài tập trước thay đổi để lịch sử có thể đối soát độc lập. */
-  private assignmentSnapshot(row: {
-    title: string;
-    description: string;
-    instructions: string;
-    dueAt: Date;
-    maxScore: Prisma.Decimal;
-    rubric: Prisma.JsonValue;
-    status: string;
-    version: number;
-  }): Prisma.InputJsonValue {
-    return mapping_ops.assignmentSnapshot(row);
-  }
 
   /** Giới hạn số lượng, kích thước, MIME và magic bytes của tệp bài nộp. */
   private validateAssignmentFiles(files: UploadedAssignmentFile[]): void {
@@ -415,8 +477,8 @@ export class AcademicService {
   }
 
   /** Thu hẹp JSON rubric đã lưu về cấu trúc tiêu chí ứng dụng sử dụng. */
-  private rubric(value: Prisma.JsonValue): RubricCriterion[] {
-    return files_ops.rubric(value);
+  private rubric(value: Prisma.JsonValue, maxScore?: number): RubricCriterion[] {
+    return files_ops.rubric(value, maxScore);
   }
 
   /** Thu hẹp JSON điểm rubric, trả mảng rỗng khi dữ liệu không phải danh sách. */

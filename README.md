@@ -6,7 +6,7 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 
 ## Tổ chức mã nguồn
 
-- Backend giữ controller và lớp service làm điểm vào ổn định. Với học tập, học vụ và hệ thống, phần xử lý nằm trong `operations/`, chia theo nghiệp vụ như ghi danh, phân công giảng viên, phiên bản học liệu, duyệt đề và retention. Sửa quy tắc tại file nghiệp vụ tương ứng thay vì thêm tiếp vào service lớn.
+- Backend giữ controller và lớp service làm điểm vào ổn định. Với học tập, học vụ và hệ thống, phần xử lý nằm trong `operations/`, chia theo nghiệp vụ như ghi danh, phân công giảng viên, quản lý học liệu và chấm điểm. Sửa quy tắc tại file nghiệp vụ tương ứng thay vì thêm tiếp vào service lớn.
 - Các file `*.context.ts` mô tả phụ thuộc và trạng thái nội bộ bằng kiểu tĩnh; service sở hữu trạng thái và cung cấp truy cập tới cùng một phiên bản. Các file `*.shared.ts` chứa kiểu, hằng số và hàm thuần dùng chung trong miền. Các lời gọi nội bộ vẫn đi qua service để giữ hành vi và điểm chặn kiểm thử hiện có.
 - API đối soát AI có DTO, service và controller riêng; `ai-grading-operations.ts` chỉ giữ đường import tương thích.
 - Bảy màn hình lớn nằm tại `apps/web/src/features/`: `exams`, `academic`, `operations`, `settings`, `teaching`, `messages`, `class-detail`. `page.tsx` chỉ trỏ tới màn hình; `*-screen.tsx` lắp ghép giao diện, `use-*-model.tsx` quản lý trạng thái/tải dữ liệu/hành động, `*-dialog.tsx` xử lý giao diện hộp thoại theo nghiệp vụ và `*.shared.tsx` chứa phần dùng chung trong tính năng.
@@ -18,10 +18,9 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 
 ### Cập nhật bảo mật và kiểm thử
 
-- Trước khi khởi động bản cập nhật này trên database ứng dụng, chạy `pnpm db:deploy`. Migration `20260915130000_retention_verified_approval` bổ sung thời điểm duyệt; các job retention cũ chưa có dấu duyệt mới sẽ phải được duyệt lại.
-- Retention dùng hai tài khoản khác nhau: tạo yêu cầu tại `POST /system/retention-jobs` với `policyId`, rồi tài khoản thứ hai gọi `POST /system/retention-jobs/:jobId/approve`. Không truyền tên người duyệt từ client. Các đường dẫn này nằm dưới prefix/version API đã cấu hình.
+- Trước khi khởi động bản cập nhật này trên database ứng dụng, chạy `pnpm db:deploy`.
 - `GET /admin/users` trả `{ items, total, active, locked, page, pageSize }`, không còn trả mảng trực tiếp. Query `page` từ 1–10000, `pageSize` từ 1–50, `query` tối đa 200 ký tự; tìm kiếm không phân biệt hoa thường.
-- Tải học liệu kiểm tra checksum trên tệp tạm trước khi stream; tối đa 4 lượt đồng thời mỗi tiến trình, 500 MiB mỗi tệp. Máy chạy API cần đủ dung lượng tạm. Archive retention mới dùng JSONL v3 và checksum từng tệp; archive v2 vẫn được kiểm chứng tương thích.
+- Tải học liệu kiểm tra checksum trên tệp tạm trước khi stream; tối đa 4 lượt đồng thời mỗi tiến trình, 500 MiB mỗi tệp. Máy chạy API cần đủ dung lượng tạm.
 - Test API và Playwright dùng `WIND_TEST_DB_NAME` (mặc định `trung_tam_giang_day_test`), bắt buộc hậu tố `_test`. Chuẩn bị riêng bằng `pnpm --filter @wind-of-fall/api db:test:prepare`; không dùng dữ liệu thật trong database test. Playwright khởi động server riêng ở cổng 3300/4400 và không tái sử dụng server có sẵn.
 
 ### Khóa học, lớp và học liệu
@@ -30,35 +29,34 @@ Backend áp dụng quyền theo vai trò, quan hệ với lớp và trạng thá
 - Phân công giảng viên chính/đồng giảng viên, bàn giao trách nhiệm và kiểm tra trùng lịch thực tế.
 - Ghi danh thủ công hoặc hàng loạt, giới hạn sĩ số, ghi danh muộn và gỡ/ghi danh lại an toàn.
 - Không gian lớp tập trung: tổng quan, học tập, đánh giá, thành viên và trao đổi.
-- Kho tài liệu tổ chức theo khóa học, môn học và lớp; có phiên bản, kiểm duyệt, ẩn, cách ly và thu hồi.
+- Kho tài liệu tổ chức theo khóa học, môn học và lớp; hỗ trợ kiểm duyệt, ẩn, cách ly và thu hồi.
 - Tệp được kiểm tra MIME, kích thước, checksum và quyền trước khi tải; liên kết tải có thời hạn.
 
 ### Bài tập, đề thi và kết quả
 
-- Bài tập có lịch sử chỉnh sửa, công bố, gia hạn, đóng bài, rubric và nhiều lần nộp.
-- Bài nộp hỗ trợ nội dung trực tiếp và tối đa 5 tệp; chấm lần đầu được phân biệt với sửa điểm đã công bố.
+- Bài tập hỗ trợ công bố, gia hạn, đóng bài, rubric và nhiều lần nộp. Hệ thống lưu bài nộp hiện hành.
+- Bài nộp hỗ trợ nội dung trực tiếp và tối đa 5 tệp; điểm và nhận xét mới nhất được lưu trên bài nộp.
 - Ngân hàng câu hỏi hỗ trợ một đáp án, nhiều đáp án, đúng/sai, điền ngắn và tự luận.
 - Câu hỏi và ảnh được phiên bản hóa; đề nháp có thể sửa trực tiếp nội dung, lựa chọn, đáp án và điểm từng câu.
-- Quy trình đề thi: nháp → gửi duyệt → duyệt/trả lại → phát hành → làm bài → chấm → công bố kết quả.
+- Đề được phát hành để học viên làm bài; bảng điểm lấy lượt đã chấm mới nhất theo thứ tự làm bài.
 - Học viên được tự động lưu đáp án, tự động nộp theo đồng hồ server và không tạo lượt nộp trùng.
-- Kết quả, gradebook, báo cáo tiến độ, lịch sử sửa điểm và phúc khảo sử dụng cùng quy tắc nghiệp vụ.
+- Kết quả, gradebook, báo cáo tiến độ và phúc khảo sử dụng cùng quy tắc nghiệp vụ.
 
 ### Chat, diễn đàn và thông báo
 
 - Danh bạ theo lớp, tìm người dùng có hoặc không dấu và mở đúng hội thoại trong tối đa hai thao tác.
 - Một hội thoại riêng duy nhất cho mỗi cặp người dùng; chat lớp tự đồng bộ membership và chuyển chỉ đọc khi lớp đóng.
-- Tin nhắn realtime qua SSE, cursor pagination, unread, read receipt, reply, mention, tìm kiếm, mute, report và block.
+- Tin nhắn realtime qua SSE, cursor pagination, unread, read receipt, reply, mention, tìm kiếm, mute.
 - Gửi văn bản, ảnh và tệp có idempotency; composer dùng Enter để gửi và Shift+Enter để xuống dòng.
 - Preview ảnh trực tiếp, nhóm tin theo mốc 30 phút và chỉ hiện thao tác trả lời khi hover/focus.
 - Thẻ ngữ cảnh bài học/bài nộp luôn kiểm tra lại quyền của người nhận trước khi trả dữ liệu.
-- Diễn đàn hỗ trợ ghim, khóa, chỉnh sửa, ẩn, báo cáo, nhận xử lý, chuyển cấp, kháng nghị và khôi phục.
+- Diễn đàn hỗ trợ ghim, khóa, chỉnh sửa, ẩn nội dung.
 - Thông báo có deep link đúng đối tượng, click-outside để đóng và đồng bộ trạng thái đã đọc.
 
-### Lớp trực tuyến, điểm danh và hỗ trợ
+### Lớp trực tuyến và hỗ trợ
 
 - Lập lịch và thay đổi buổi học có kiểm tra cửa sổ thời gian và múi giờ.
 - Jitsi hoạt động trực tiếp; Google Meet và Zoom chỉ được bật sau khi có OAuth/webhook production hợp lệ.
-- Điểm danh theo các khoảng tham dự, đồng bộ provider, khóa kỳ điểm danh và xử lý yêu cầu điều chỉnh.
 - Bản ghi chỉ cấp URL sau cổng kiểm tra trạng thái, thời hạn và quyền hiện tại.
 - Phiếu hỗ trợ có SLA, người xử lý, trao đổi, tệp bằng chứng, kết quả và xác nhận đóng của người gửi.
 - Can thiệp học tập hỗ trợ giao việc, nhận việc, bàn giao, hoàn tất hoặc hủy kèm kết quả/lý do.
@@ -92,7 +90,6 @@ Các tác vụ sinh đề, OCR, hỏi đáp, bộ ôn tập và chấm bài dùn
 - Tài khoản nhiều vai trò, ma trận quyền, impact preview và bàn giao công việc trước khi đổi quyền.
 - Tài khoản do quản trị hệ thống hoặc quản lý trung tâm cấp (quản lý không cấp được vai trò quản trị); xác minh email, phiên server-side, CSRF, TOTP MFA và mã khôi phục.
 - Báo cáo, export tệp thật, backup, restore drill/operational và background worker có lease/retry.
-- Retention theo policy/version, archive checksum, kiểm tra khả năng phục hồi và cơ chế phê duyệt bốn mắt.
 - Legal hold có vòng đời tạo, xem và giải tỏa; danh mục `AI_RESULTS` quản lý kết quả AI đã hoàn tất.
 - Audit log, health overview, metrics, outbox, cảnh báo và hàng đợi đối soát AI metadata-only.
 
@@ -130,7 +127,7 @@ TestDoAn/
 │   │   │   ├── learning/       # Khóa học, lớp, học liệu, khảo thí, chat, báo cáo
 │   │   │   │   └── operations/ # Use case theo nghiệp vụ, giữ transaction/CAS/idempotency
 │   │   │   └── system/         # Cấu hình, AI provider và vận hành hệ thống
-│   │   │       └── operations/ # Audit, backup, export, retention và worker
+│   │   │       └── operations/ # Audit, backup, export và worker
 │   │   ├── src/infrastructure/ # Email, storage, backup, outbox và antivirus
 │   │   └── src/observability/  # Metrics và telemetry
 │   └── web/

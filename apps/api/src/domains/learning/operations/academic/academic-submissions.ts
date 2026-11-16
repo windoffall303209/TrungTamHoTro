@@ -3,16 +3,18 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  Logger,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
-import type { Prisma } from "../../../../generated/prisma/client.js";
 import { validateGradingDefinition } from "../../../system/ai/ai-grading-suggestion.js";
 import {
   AssignmentSubmissionView,
+  AttachmentDocumentPreview,
   RubricCriterion,
   UploadedAssignmentFile,
 } from "../../academic/academic.shared.js";
+import { buildDocumentPreview } from "./academic-document-preview.js";
 import {
   combineGradingSources,
   decodeGradingText,
@@ -23,7 +25,51 @@ import {
 } from "../../ai/ai-grading-source.js";
 import type { AcademicServiceContext } from "../../academic/academic.context.js";
 
-/** Quét/lưu tệp trước khi upsert bài nộp và dọn object mới nếu transaction thất bại. */
+import type { Prisma } from "../../../../generated/prisma/client.js";
+
+// Khóa các bản ghi bài tập, lớp học và ghi danh hợp lệ trước khi cập nhật bài nộp.
+async function lockOpenAssignment(
+  transaction: Prisma.TransactionClient,
+  assignmentId: string,
+  learnerId: string,
+): Promise<void> {
+  const [assignment] = await transaction.$queryRaw<{ id: string }[]>`
+    SELECT a.id FROM assignments a
+    JOIN learning_classes c ON c.id = a.class_id
+    JOIN class_enrollments e ON e.class_id = c.id AND e.learner_id = ${learnerId}
+    WHERE a.id = ${assignmentId} AND NOT a.hidden AND a.status = 'PUBLISHED'
+      AND c.status <> 'CLOSED' AND e.status = 'ACTIVE'
+    FOR SHARE OF a, c, e
+  `;
+  if (!assignment) throw new NotFoundException("Không tìm thấy bài tập đang mở trong lớp của bạn.");
+}
+
+// Xóa tệp cũ khỏi storage sau khi transaction đã cam kết; giữ đánh dấu lỗi nếu storage từ chối để audit xử lý lại.
+async function cleanupRemovedAttachments(
+  serviceContext: AcademicServiceContext,
+  attachments: Array<{ id: string; objectKey: string }>,
+): Promise<void> {
+  for (const attachment of attachments) {
+    try {
+      await serviceContext.objectStorage.remove(attachment.objectKey);
+      await serviceContext.prisma.assignmentSubmissionAttachment.deleteMany({
+        where: { id: attachment.id, removedAt: { not: null } },
+      });
+    } catch (error) {
+      await serviceContext.prisma.assignmentSubmissionAttachment.updateMany({
+        where: { id: attachment.id, removedAt: { not: null } },
+        data: {
+          removalError:
+            error instanceof Error
+              ? error.message.slice(0, 2000)
+              : "Không xóa được object; cần retry.",
+        },
+      });
+    }
+  }
+}
+
+/** Quét/lưu tệp trước khi upsert bài nộp và xử lý an toàn tệp cũ cùng gợi ý AI cũ khi nộp lại. */
 export async function submitAssignment(
   serviceContext: AcademicServiceContext,
   assignmentId: string,
@@ -31,6 +77,7 @@ export async function submitAssignment(
   session: AuthenticatedSession,
   files: UploadedAssignmentFile[] = [],
   expectedRevision?: number,
+  keepAttachmentIds?: string[],
 ): Promise<AssignmentSubmissionView> {
   if (session.roleCode !== "LEARNER")
     throw new ForbiddenException("Chỉ học viên được nộp bài.");
@@ -49,6 +96,7 @@ export async function submitAssignment(
   });
   if (
     !assignment ||
+    assignment.hidden ||
     !assignment.class.enrollments.length ||
     assignment.class.status === "CLOSED" ||
     assignment.status !== "PUBLISHED"
@@ -74,14 +122,26 @@ export async function submitAssignment(
     throw new ConflictException(
       "Bài nộp chưa tồn tại nhưng phiên bản gửi lên không hợp lệ.",
     );
-  if ((existing?.attachments.length ?? 0) + files.length > 5)
+
+  const activeAttachments = existing?.attachments ?? [];
+  let keptAttachments = activeAttachments;
+  let removedAttachments: typeof activeAttachments = [];
+  if (keepAttachmentIds !== undefined) {
+    const activeIds = new Set(activeAttachments.map((file) => file.id));
+    if (keepAttachmentIds.some((id) => !activeIds.has(id))) {
+      throw new BadRequestException("Tệp đính kèm cần giữ lại không hợp lệ.");
+    }
+    const keptSet = new Set(keepAttachmentIds);
+    keptAttachments = activeAttachments.filter((file) => keptSet.has(file.id));
+    removedAttachments = activeAttachments.filter(
+      (file) => !keptSet.has(file.id),
+    );
+  }
+
+  if (keptAttachments.length + files.length > 5)
     throw new BadRequestException("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
   const normalizedContent = (content ?? existing?.content ?? "").trim();
-  if (
-    !normalizedContent &&
-    !(existing?.attachments.length ?? 0) &&
-    !files.length
-  )
+  if (!normalizedContent && !keptAttachments.length && !files.length)
     throw new BadRequestException(
       "Cần nhập nội dung hoặc đính kèm ít nhất một tệp.",
     );
@@ -89,6 +149,7 @@ export async function submitAssignment(
   const stored: Array<
     UploadedAssignmentFile & { objectKey: string; checksum: string }
   > = [];
+  let row;
   try {
     for (const file of files) {
       const scan = await serviceContext.antivirus.scan(file.buffer);
@@ -102,8 +163,9 @@ export async function submitAssignment(
       );
       stored.push({ ...file, ...saved });
     }
-    const row = await serviceContext.prisma.$transaction(
+    row = await serviceContext.prisma.$transaction(
       async (transaction) => {
+        await lockOpenAssignment(transaction, assignmentId, session.user.id);
         const submittedAt = new Date();
         let submission;
         if (existing) {
@@ -123,6 +185,23 @@ export async function submitAssignment(
             throw new ConflictException(
               "Bài nộp vừa thay đổi hoặc đã được chấm. Hãy tải lại.",
             );
+          if (removedAttachments.length) {
+            await transaction.assignmentSubmissionAttachment.updateMany({
+              where: {
+                id: { in: removedAttachments.map((file) => file.id) },
+                submissionId: existing.id,
+                removedAt: null,
+              },
+              data: {
+                removedAt: submittedAt,
+                removedById: session.user.id,
+                removalError: null,
+              },
+            });
+          }
+          await transaction.aiGradingSuggestion.deleteMany({
+            where: { submissionId: existing.id },
+          });
           submission = await transaction.assignmentSubmission.findUniqueOrThrow(
             { where: { id: existing.id } },
           );
@@ -150,44 +229,30 @@ export async function submitAssignment(
               checksum: file.checksum,
             })),
           });
-        const complete =
-          await transaction.assignmentSubmission.findUniqueOrThrow({
-            where: { id: submission.id },
-            include: {
-              learner: { select: { displayName: true, email: true } },
-              attachments: {
-                where: { removedAt: null },
-                orderBy: { createdAt: "asc" },
-              },
+        return await transaction.assignmentSubmission.findUniqueOrThrow({
+          where: { id: submission.id },
+          include: {
+            learner: { select: { displayName: true, email: true } },
+            attachments: {
+              where: { removedAt: null },
+              orderBy: { createdAt: "asc" },
             },
-          });
-        await transaction.assignmentSubmissionRevision.create({
-          data: {
-            id: `submission-revision-${randomUUID()}`,
-            submissionId: complete.id,
-            revision: complete.revision,
-            content: complete.content,
-            attachments: complete.attachments.map((file) => ({
-              id: file.id,
-              objectKey: file.objectKey,
-              originalName: file.originalName,
-              mimeType: file.mimeType,
-              sizeBytes: file.sizeBytes.toString(),
-              checksum: file.checksum,
-            })) as unknown as Prisma.InputJsonValue,
-            submittedAt: complete.submittedAt,
           },
         });
-        return complete;
       },
     );
-    return serviceContext.mapSubmission(row);
   } catch (error) {
     await Promise.allSettled(
       stored.map((file) => serviceContext.objectStorage.remove(file.objectKey)),
     );
     throw error;
   }
+  try {
+    await cleanupRemovedAttachments(serviceContext, removedAttachments);
+  } catch (error) {
+    Logger.error(error, "SubmissionAttachmentCleanup");
+  }
+  return serviceContext.mapSubmission(row);
 }
 
 /** Bổ sung tệp bằng cách dùng lại luồng submit và giữ nội dung hiện có. */
@@ -213,7 +278,7 @@ export async function addSubmissionAttachments(
   );
 }
 
-/** Kiểm tra chủ sở hữu, xóa bản ghi tệp rồi dọn object khỏi storage. */
+/** Kiểm tra chủ sở hữu, đánh dấu xóa và dọn tệp cùng gợi ý AI cũ khi bài còn ở trạng thái nộp. */
 export async function removeSubmissionAttachment(
   serviceContext: AcademicServiceContext,
   submissionId: string,
@@ -233,6 +298,7 @@ export async function removeSubmissionAttachment(
     });
   if (!submission || submission.learnerId !== session.user.id)
     throw new NotFoundException("Không tìm thấy bài nộp của bạn.");
+  if (submission.assignment.hidden) throw new NotFoundException("Không tìm thấy bài tập.");
   if (submission.assignment.class.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   if (submission.status === "GRADED")
@@ -252,6 +318,7 @@ export async function removeSubmissionAttachment(
       "Bài nộp đã thay đổi ở nơi khác. Hãy tải lại trước khi xóa tệp.",
     );
   const row = await serviceContext.prisma.$transaction(async (transaction) => {
+    await lockOpenAssignment(transaction, submission.assignmentId, session.user.id);
     const changed = await transaction.assignmentSubmission.updateMany({
       where: {
         id: submissionId,
@@ -272,7 +339,10 @@ export async function removeSubmissionAttachment(
         removalError: null,
       },
     });
-    const complete = await transaction.assignmentSubmission.findUniqueOrThrow({
+    await transaction.aiGradingSuggestion.deleteMany({
+      where: { submissionId },
+    });
+    return await transaction.assignmentSubmission.findUniqueOrThrow({
       where: { id: submissionId },
       include: {
         learner: { select: { displayName: true, email: true } },
@@ -282,38 +352,8 @@ export async function removeSubmissionAttachment(
         },
       },
     });
-    await transaction.assignmentSubmissionRevision.create({
-      data: {
-        id: `submission-revision-${randomUUID()}`,
-        submissionId,
-        revision: complete.revision,
-        content: complete.content,
-        attachments: complete.attachments.map((file) => ({
-          id: file.id,
-          objectKey: file.objectKey,
-          originalName: file.originalName,
-          mimeType: file.mimeType,
-          sizeBytes: file.sizeBytes.toString(),
-          checksum: file.checksum,
-        })) as unknown as Prisma.InputJsonValue,
-        submittedAt: complete.submittedAt,
-      },
-    });
-    return complete;
   });
-  try {
-    await serviceContext.objectStorage.remove(attachment.objectKey);
-  } catch (error) {
-    await serviceContext.prisma.assignmentSubmissionAttachment.update({
-      where: { id: attachmentId },
-      data: {
-        removalError:
-          error instanceof Error
-            ? error.message.slice(0, 2000)
-            : "Không xóa được object; cần retry.",
-      },
-    });
-  }
+  await cleanupRemovedAttachments(serviceContext, [attachment]);
   return serviceContext.mapSubmission(row);
 }
 
@@ -343,7 +383,7 @@ export async function readSubmissionAttachment(
     });
   if (!attachment) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
   if (session.roleCode === "LEARNER") {
-    if (attachment.submission.learnerId !== session.user.id)
+    if (attachment.submission.assignment.hidden || attachment.submission.learnerId !== session.user.id)
       throw new NotFoundException("Không tìm thấy tệp đính kèm.");
   } else {
     await serviceContext.requireTeachingAccess(
@@ -374,7 +414,7 @@ export async function readSubmissionAttachment(
     });
   if (!current) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
   if (session.roleCode === "LEARNER") {
-    if (current.submission.learnerId !== session.user.id)
+    if (current.submission.assignment.hidden || current.submission.learnerId !== session.user.id)
       throw new NotFoundException("Không tìm thấy tệp đính kèm.");
   } else
     await serviceContext.requireTeachingAccess(
@@ -425,7 +465,6 @@ export async function listSubmissions(
         where: { removedAt: null },
         orderBy: { createdAt: "asc" },
       },
-      gradeChanges: { orderBy: { createdAt: "desc" } },
     },
     orderBy: { submittedAt: "asc" },
   });
@@ -491,7 +530,7 @@ export async function gradingAiContext(
       submission.assignment.instructions,
     ].join("\n\n"),
     answer: submission.content,
-    rubric: serviceContext.rubric(submission.assignment.rubric),
+    rubric: serviceContext.rubric(submission.assignment.rubric, Number(submission.assignment.maxScore)),
   };
   validateGradingDefinition({
     instructions: base.instructions,
@@ -630,7 +669,7 @@ export async function gradingAiContext(
       current.assignment.description,
       current.assignment.instructions,
     ].join("\n\n") === base.instructions &&
-    JSON.stringify(serviceContext.rubric(current.assignment.rubric)) ===
+    JSON.stringify(serviceContext.rubric(current.assignment.rubric, Number(current.assignment.maxScore))) ===
       JSON.stringify(base.rubric);
   if (
     current.revision !== submission.revision ||
@@ -642,4 +681,20 @@ export async function gradingAiContext(
       "Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.",
     );
   return { ...base, answer, sources };
+}
+
+/** Đọc và chuyển đổi nội dung tệp đính kèm bài nộp sang bản xem trước an toàn (DOCX/DOC/TXT). */
+export async function previewSubmissionAttachment(
+  serviceContext: AcademicServiceContext,
+  submissionId: string,
+  attachmentId: string,
+  session: AuthenticatedSession,
+): Promise<AttachmentDocumentPreview> {
+  const file = await readSubmissionAttachment(
+    serviceContext,
+    submissionId,
+    attachmentId,
+    session,
+  );
+  return await buildDocumentPreview(file);
 }

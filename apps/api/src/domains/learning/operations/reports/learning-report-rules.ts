@@ -69,11 +69,7 @@ export function buildLearnerProgress(
     reasons.push(
       `Điểm trung bình ${input.averageScore}% thấp hơn ngưỡng ${input.thresholds.scoreBelow}%.`,
     );
-  const overallCompletion =
-    Math.round(
-      ((input.materialCompletionRate + input.assessmentCompletionRate) / 2) *
-        100,
-    ) / 100;
+  const overallCompletion = input.assessmentCompletionRate;
   if (overallCompletion < input.thresholds.completionBelow)
     reasons.push(
       `Tiến độ tổng hợp ${overallCompletion}% thấp hơn ngưỡng ${input.thresholds.completionBelow}%.`,

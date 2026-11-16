@@ -187,7 +187,7 @@ export async function claimRegrade(
   return { ...request };
 }
 
-/** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì sửa điểm qua cùng cơ chế lịch sử chấm. */
+/** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì cập nhật điểm hiện hành. */
 export async function resolveRegrade(
   serviceContext: LearningServiceContext,
   requestId: string,

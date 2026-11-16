@@ -17,6 +17,7 @@ export function mapExam(row: ExamWithQuestions): LearningExam {
   return {
     id: row.id,
     classId: row.classId,
+    hidden: row.hidden,
     title: row.title,
     questionIds: row.questions.map(({ questionId }) => questionId),
     durationMinutes: row.durationMinutes,
@@ -48,6 +49,7 @@ export function mapAttempt(
   return {
     id: row.id,
     examId: row.examId,
+    attemptNo: row.attemptNo,
     learnerId: row.learnerId,
     answers: Object.fromEntries(
       row.answers.map((answer) => [

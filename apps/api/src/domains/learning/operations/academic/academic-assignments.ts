@@ -4,17 +4,25 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { PaginatedResult } from "../../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { AssignmentView, RubricCriterion } from "../../academic/academic.shared.js";
 import type { AcademicServiceContext } from "../../academic/academic.context.js";
 
-/** Công bố tệp đề và lưu phiên bản học liệu trong cùng giao dịch với bài tập. */
-async function publishSourceMaterial(
+export interface AssignmentPageFilters {
+  classId?: string;
+  status?: "DRAFT" | "PUBLISHED" | "CLOSED";
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** Kiểm tra tệp đề trong giao dịch tạo hoặc cập nhật bài tập. */
+async function checkSourceMaterial(
   transaction: Prisma.TransactionClient,
   materialId: string | null | undefined,
   classId: string,
-  actorId: string,
 ): Promise<void> {
   if (!materialId) return;
   const material = await transaction.material.findFirst({
@@ -22,28 +30,59 @@ async function publishSourceMaterial(
   });
   if (!material)
     throw new ConflictException("Tệp đề bài không còn khả dụng. Hãy kiểm tra học liệu trước khi phát hành.");
-  if (material.visibility !== "PUBLISHED") {
-    const publishedMaterial = await transaction.material.update({
-      where: { id: material.id },
-      data: { visibility: "PUBLISHED", version: { increment: 1 } },
-    });
-    await transaction.materialVersion.create({
-      data: {
-        id: `material-version-${randomUUID()}`,
-        materialId: publishedMaterial.id,
-        version: publishedMaterial.version,
-        name: publishedMaterial.name,
-        objectKey: publishedMaterial.objectKey,
-        mimeType: publishedMaterial.mimeType,
-        sizeBytes: publishedMaterial.sizeBytes,
-        checksum: publishedMaterial.checksum,
-        folder: publishedMaterial.folder,
-        tags: publishedMaterial.tags as Prisma.InputJsonValue,
-        visibility: publishedMaterial.visibility,
-        createdBy: actorId,
-      },
+
+}
+
+/** Xây dựng bộ lọc Prisma kiểm tra quyền lớp và trạng thái hiển thị bài tập theo vai trò. */
+function buildAssignmentWhere(
+  session: AuthenticatedSession,
+  classIds: readonly string[],
+  filters: { classId?: string; status?: "DRAFT" | "PUBLISHED" | "CLOSED"; query?: string },
+): Prisma.AssignmentWhereInput {
+  const andConditions: Prisma.AssignmentWhereInput[] = [
+    { classId: filters.classId ?? { in: [...classIds] } },
+  ];
+  if (session.roleCode === "LEARNER") {
+    andConditions.push({ hidden: false, status: { in: ["PUBLISHED", "CLOSED"] } });
+  }
+  if (filters.status) {
+    andConditions.push({ status: filters.status });
+  }
+  const query = filters.query?.trim();
+  if (query) {
+    andConditions.push({
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { description: { contains: query, mode: "insensitive" } },
+      ],
     });
   }
+  return { AND: andConditions };
+}
+
+/** Ẩn trường nội bộ hoặc tệp đề chưa phát hành khi trả bài tập cho học viên. */
+function redactAssignmentForRole(
+  serviceContext: AcademicServiceContext,
+  row: Parameters<AcademicServiceContext["mapAssignment"]>[0] & {
+    sourceMaterial?: { visibility: string } | null;
+    submissions: Array<Parameters<AcademicServiceContext["mapAssignment"]>[1]>;
+  },
+  roleCode: string,
+): AssignmentView {
+  const view = serviceContext.mapAssignment(row, row.submissions[0]);
+  if (roleCode === "INSTRUCTOR") return view;
+  if (row.sourceMaterial?.visibility !== "PUBLISHED") delete view.sourceMaterial;
+  if (row.hidden) {
+    return {
+      ...view,
+      description: "",
+      instructions: "",
+      rubric: [],
+      sourceMaterial: undefined,
+      submission: undefined,
+    };
+  }
+  return view;
 }
 
 /** Lọc bài tập theo lớp truy cập được và chỉ gắn bài nộp của chính học viên. */
@@ -58,15 +97,10 @@ export async function listAssignments(
       "Không tìm thấy lớp học trong phạm vi truy cập.",
     );
   const rows = await serviceContext.prisma.assignment.findMany({
-    where: {
-      classId: classId ?? { in: classIds },
-      ...(session.roleCode === "LEARNER"
-        ? { status: { in: ["PUBLISHED", "CLOSED"] } }
-        : {}),
-    },
+    where: buildAssignmentWhere(session, classIds, { classId }),
     include: {
       class: { select: { code: true } },
-      sourceMaterial: { select: { id: true, name: true, mimeType: true, sizeBytes: true } },
+      sourceMaterial: { select: { visibility: true, id: true, name: true, mimeType: true, sizeBytes: true } },
       submissions: {
         where: { learnerId: session.user.id },
         include: {
@@ -78,8 +112,87 @@ export async function listAssignments(
     orderBy: { dueAt: "asc" },
   });
   return rows.map((row) =>
-    serviceContext.mapAssignment(row, row.submissions[0]),
+    redactAssignmentForRole(serviceContext, row, session.roleCode),
   );
+}
+
+/** Phân trang danh sách bài tập trực tiếp trên PostgreSQL theo phạm vi lớp truy cập được. */
+export async function listAssignmentsPage(
+  serviceContext: AcademicServiceContext,
+  session: AuthenticatedSession,
+  filters: AssignmentPageFilters = {},
+): Promise<PaginatedResult<AssignmentView>> {
+  const query = filters.query?.trim();
+  const classId = filters.classId?.trim();
+  if ((query && query.length > 255) || (classId && classId.length > 191)) {
+    throw new BadRequestException("Search filters must not exceed 255 characters.");
+  }
+  const classIds = await serviceContext.accessibleClassIds(session);
+  if (classId && !classIds.includes(classId)) {
+    throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
+  }
+  const page =
+    Number.isSafeInteger(filters.page) &&
+    (filters.page ?? 0) > 0 &&
+    (filters.page ?? 0) <= 100_000
+      ? (filters.page as number)
+      : 1;
+  const pageSize =
+    Number.isInteger(filters.pageSize) && (filters.pageSize ?? 0) > 0
+      ? Math.min(filters.pageSize as number, 100)
+      : 10;
+  const where = buildAssignmentWhere(session, classIds, {
+    classId,
+    status: filters.status,
+    query,
+  });
+  const { rows, total, safePage, totalPages } =
+    await serviceContext.prisma.$transaction(
+      async (transaction) => {
+        const total = await transaction.assignment.count({ where });
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(page, totalPages);
+        const rows =
+          total === 0
+            ? []
+            : await transaction.assignment.findMany({
+                where,
+                include: {
+                  class: { select: { code: true } },
+                  sourceMaterial: {
+                    select: {
+                      visibility: true,
+                      id: true,
+                      name: true,
+                      mimeType: true,
+                      sizeBytes: true,
+                    },
+                  },
+                  submissions: {
+                    where: { learnerId: session.user.id },
+                    include: {
+                      learner: { select: { displayName: true, email: true } },
+                      attachments: { orderBy: { createdAt: "asc" } },
+                    },
+                  },
+                },
+                orderBy: [{ dueAt: "asc" }, { id: "asc" }],
+                skip: (safePage - 1) * pageSize,
+                take: pageSize,
+              });
+        return { rows, total, safePage, totalPages };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  return {
+    items: rows.map((row) =>
+      redactAssignmentForRole(serviceContext, row, session.roleCode),
+    ),
+    total,
+    page: safePage,
+    pageSize,
+    totalPages,
+  };
 }
 
 /** Kiểm tra quyền dạy, công bố tệp đính kèm và tạo bài tập đã phát hành. */
@@ -93,6 +206,7 @@ export async function createAssignment(
     dueAt: string;
     maxScore: number;
     rubric: Array<{ title: string; description: string; maxPoints: number }>;
+    hidden?: boolean;
     sourceMaterialId?: string;
   },
   session: AuthenticatedSession,
@@ -126,13 +240,14 @@ export async function createAssignment(
     maxPoints: item.maxPoints,
   }));
   const row = await serviceContext.prisma.$transaction(async (transaction) => {
-    await publishSourceMaterial(transaction, input.sourceMaterialId, classId, session.user.id);
+    await checkSourceMaterial(transaction, input.sourceMaterialId, classId);
     return transaction.assignment.create({
       data: {
         id: `assignment-${randomUUID()}`,
         classId,
         createdById: session.user.id,
         sourceMaterialId: input.sourceMaterialId,
+        hidden: input.hidden,
         title: input.title.trim(),
         description: input.description.trim(),
         instructions: input.instructions.trim(),
@@ -168,6 +283,7 @@ export async function updateAssignment(
     maxScore: number;
     rubric: Array<{ title: string; description: string; maxPoints: number }>;
     expectedVersion: number;
+    hidden?: boolean;
     sourceMaterialId?: string;
   },
   session: AuthenticatedSession,
@@ -197,7 +313,7 @@ export async function updateAssignment(
     throw new BadRequestException(
       "Tổng điểm rubric phải bằng điểm tối đa của bài tập.",
     );
-  const previousRubric = serviceContext.rubric(current.rubric);
+  const previousRubric = serviceContext.rubric(current.rubric, Number(current.maxScore));
   const rubric: RubricCriterion[] = input.rubric.map((item, index) => ({
     id: previousRubric[index]?.id ?? `criterion-${randomUUID()}`,
     title: item.title.trim(),
@@ -212,6 +328,7 @@ export async function updateAssignment(
         version: input.expectedVersion,
       },
       data: {
+        hidden: input.hidden,
         title: input.title.trim(),
         description: input.description.trim(),
         instructions: input.instructions.trim(),
@@ -226,6 +343,7 @@ export async function updateAssignment(
       throw new ConflictException(
         "Bài tập đã thay đổi ở nơi khác. Hãy tải lại trước khi lưu.",
       );
+    if (input.hidden) await transaction.notification.deleteMany({ where: { entityType: "ASSIGNMENT", entityId: assignmentId } });
     const updated = await transaction.assignment.findUniqueOrThrow({
       where: { id: assignmentId },
       include: {
@@ -300,7 +418,7 @@ export async function extendAssignment(
       where: { classId: current.classId, status: "ACTIVE" },
       select: { learnerId: true },
     });
-    if (learners.length)
+    if (!updated.hidden && learners.length)
       await transaction.notification.createMany({
         data: learners.map(({ learnerId }) => ({
           id: `notification-${randomUUID()}`,
@@ -393,7 +511,7 @@ export async function publishAssignment(
       "Hạn nộp không còn hợp lệ để xuất bản bài tập.",
     );
   const row = await serviceContext.prisma.$transaction(async (transaction) => {
-    await publishSourceMaterial(transaction, current.sourceMaterialId, current.classId, session.user.id);
+    await checkSourceMaterial(transaction, current.sourceMaterialId, current.classId);
     const changed = await transaction.assignment.updateMany({
       where: { id: assignmentId, status: { in: ["DRAFT", "PUBLISHED"] }, version: current.version },
       data: { status: "PUBLISHED", version: { increment: 1 } },
@@ -419,7 +537,7 @@ export async function publishAssignment(
       where: { classId: current.classId, status: "ACTIVE" },
       select: { learnerId: true },
     });
-    if (learners.length)
+    if (!updated.hidden && learners.length)
       await transaction.notification.createMany({
         data: learners.map(({ learnerId }) => ({
           id: `notification-${randomUUID()}`,

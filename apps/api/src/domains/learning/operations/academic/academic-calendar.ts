@@ -18,8 +18,8 @@ export async function calendar(
     where: { id: classId ?? { in: classIds } },
     include: {
       sessions: { where: { status: { not: "CANCELLED" } } },
-      exams: { where: { status: { in: ["PUBLISHED", "CLOSED"] } } },
-      assignments: { where: { status: { in: ["PUBLISHED", "CLOSED"] } } },
+      exams: { where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } } },
+      assignments: { where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } } },
     },
   });
   const events: AcademicCalendarEvent[] = [];

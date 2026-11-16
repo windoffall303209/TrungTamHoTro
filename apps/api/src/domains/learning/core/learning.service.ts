@@ -1,5 +1,7 @@
+import * as folderOps from "../operations/materials/class-folders.js";
 import { Injectable, Optional } from "@nestjs/common";
 import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/exams/learning-exam-page.js";
+import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -16,11 +18,11 @@ import {
 import type { ScannedQuestionDraft } from "../../system/ai/ai-provider.service.js";
 import {
   SystemService,
-  type ExamApprovalMode,
 } from "../../system/core/system.service.js";
 import type { LearningServiceContext } from "./learning.context.js";
-import { AttemptWithAnswers, ClassWithMembers, ExamGenerationContext, ExamWithQuestions, ForumPostWithRelations, MaterialAccessAction, MaterialDownload, MaterialSearchResult, MemoryMaterialVersion, MemoryQuestionImage, now, SupportTicketWithAttachments, UploadedMaterialFile } from "./learning.shared.js";
-import type { ClassCapabilities, ClassClosureReadiness, ClassMemberHistory, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, GradeHistoryRecord, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, MaterialVersionSnapshot, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
+import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
+import { type AttemptWithAnswers, type ClassWithMembers, type ExamGenerationContext, type ExamWithQuestions, type ForumPostWithRelations, type MaterialAccessAction, type MaterialDownload, type MaterialSearchResult, type MaterialSummaryBucket, type MemoryQuestionImage, now, type QuestionSummary, type SupportTicketWithAttachments, type UploadedMaterialFile } from "./learning.shared.js";
+import type { ClassCapabilities, ClassClosureReadiness, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 import * as access_ops from "../operations/access/learning-access.js";
 import * as analytics_ops from "../operations/analytics/learning-analytics.js";
 import * as attempts_ops from "../operations/exams/learning-attempts.js";
@@ -42,14 +44,11 @@ import * as file_rules_ops from "../operations/materials/learning-file-rules.js"
 import * as forum_rules_ops from "../operations/forum/learning-forum-rules.js";
 import * as forum_ops from "../operations/forum/learning-forum.js";
 import * as grading_ops from "../operations/grading/learning-grading.js";
-import * as history_ops from "../operations/history/learning-history.js";
 import * as live_sessions_ops from "../operations/live/learning-live-sessions.js";
 import * as lookups_ops from "../operations/support/learning-lookups.js";
 import * as mapping_ops from "../operations/mapping/learning-mapping.js";
 import * as material_downloads_ops from "../operations/materials/learning-material-downloads.js";
-import * as material_versions_ops from "../operations/materials/learning-material-versions.js";
 import * as materials_ops from "../operations/materials/learning-materials.js";
-import * as material_editors_ops from "../operations/materials/learning-material-editors.js";
 import * as moderation_ops from "../operations/moderation/learning-moderation.js";
 import * as progress_ops from "../operations/progress/learning-progress.js";
 import * as providers_ops from "../operations/support/learning-providers.js";
@@ -64,6 +63,7 @@ import * as session_mapping_ops from "../operations/mapping/learning-session-map
 import * as storage_ops from "../operations/storage/learning-storage.js";
 import * as support_ops from "../operations/support/learning-support.js";
 export * from "./learning.shared.js";
+export type { ForumPostPageResult } from "../operations/forum/learning-forum.js";
 
 @Injectable()
 /** Điều phối toàn bộ nghiệp vụ đào tạo, có đường chạy Prisma và fallback in-memory cho môi trường demo. */
@@ -133,6 +133,10 @@ export class LearningService {
     },
   ];
 
+  private readonly folderRegistry = new Map<string, Set<string>>([
+    [JSON.stringify(["class-web-01", "materials"]), new Set(["Tài liệu chung", "Tài liệu", "Bài tập tự luận", "Tuần 1", "Tuần 2"])],
+    [JSON.stringify(["class-web-01", "lectures"]), new Set(["Bài giảng chung", "Bài giảng"])],
+  ]);
   private readonly materials: LearningMaterial[] = [
     {
       id: "mat-web-intro",
@@ -163,16 +167,6 @@ export class LearningService {
       createdAt: now(),
     },
   ];
-
-  private readonly materialVersions: MemoryMaterialVersion[] =
-    this.materials.map((item) => ({
-      ...item,
-      id: `material-version-${item.id}-${item.version}`,
-      materialId: item.id,
-      createdBy: "usr-instructor",
-      objectKey: undefined,
-      checksum: undefined,
-    }));
 
   private readonly questions: LearningQuestion[] = [
     {
@@ -223,7 +217,6 @@ export class LearningService {
 
   private readonly attempts: ExamAttempt[] = [];
 
-  private readonly gradeHistory: GradeHistoryRecord[] = [];
 
   private readonly regradeRequests: RegradeRequest[] = [];
 
@@ -287,20 +280,11 @@ export class LearningService {
     { objectKey: string; checksum: string }
   >();
 
-  private readonly materialAccessLogs: Array<{
-    materialId: string;
-    userId: string;
-    action: MaterialAccessAction;
-    createdAt: string;
-  }> = [];
-
   private readonly progressInterventions: ProgressIntervention[] = [];
 
   private readonly instructorRoles = new Map<string, InstructorRole>([
     ["class-web-01:usr-instructor", "PRIMARY"],
   ]);
-
-  private readonly classMemberHistory: ClassMemberHistory[] = [];
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
@@ -327,11 +311,9 @@ export class LearningService {
       get classes(): LearningServiceContext["classes"] {
         return owner.classes;
       },
+      folderRegistry: owner.folderRegistry,
       get materials(): LearningServiceContext["materials"] {
         return owner.materials;
-      },
-      get materialVersions(): LearningServiceContext["materialVersions"] {
-        return owner.materialVersions;
       },
       get questions(): LearningServiceContext["questions"] {
         return owner.questions;
@@ -344,9 +326,6 @@ export class LearningService {
       },
       get attempts(): LearningServiceContext["attempts"] {
         return owner.attempts;
-      },
-      get gradeHistory(): LearningServiceContext["gradeHistory"] {
-        return owner.gradeHistory;
       },
       get regradeRequests(): LearningServiceContext["regradeRequests"] {
         return owner.regradeRequests;
@@ -375,17 +354,11 @@ export class LearningService {
       get materialFiles(): LearningServiceContext["materialFiles"] {
         return owner.materialFiles;
       },
-      get materialAccessLogs(): LearningServiceContext["materialAccessLogs"] {
-        return owner.materialAccessLogs;
-      },
       get progressInterventions(): LearningServiceContext["progressInterventions"] {
         return owner.progressInterventions;
       },
       get instructorRoles(): LearningServiceContext["instructorRoles"] {
         return owner.instructorRoles;
-      },
-      get classMemberHistory(): LearningServiceContext["classMemberHistory"] {
-        return owner.classMemberHistory;
       },
       get prisma(): LearningServiceContext["prisma"] {
         return owner.prisma;
@@ -407,12 +380,11 @@ export class LearningService {
         owner.getClassClosureReadiness(...args),
       databaseClassClosureReadiness: (...args) =>
         owner.databaseClassClosureReadiness(...args),
+      getMaterialSummary: (...args) => owner.getMaterialSummary(...args),
       searchAccessibleMaterials: (...args) =>
         owner.searchAccessibleMaterials(...args),
       resolveMaterialDownload: (...args) =>
         owner.resolveMaterialDownload(...args),
-      resolveMaterialVersionDownload: (...args) =>
-        owner.resolveMaterialVersionDownload(...args),
       createQuestion: (...args) => owner.createQuestion(...args),
       submitAttempt: (...args) => owner.submitAttempt(...args),
       listLearnerResults: (...args) => owner.listLearnerResults(...args),
@@ -421,14 +393,11 @@ export class LearningService {
       markNotificationRead: (...args) => owner.markNotificationRead(...args),
       isRecordingAvailable: (...args) => owner.isRecordingAvailable(...args),
       database: (...args) => owner.database(...args),
-      getQuestionApprovalMode: (...args) =>
-        owner.getQuestionApprovalMode(...args),
       mapCourse: (...args) => owner.mapCourse(...args),
       mapClass: (...args) => owner.mapClass(...args),
       mapMaterial: (...args) => owner.mapMaterial(...args),
       mapQuestion: (...args) => owner.mapQuestion(...args),
       getExamAnalytics: (...args) => owner.getExamAnalytics(...args),
-      mapMaterialVersion: (...args) => owner.mapMaterialVersion(...args),
       cloneQuestion: (...args) => owner.cloneQuestion(...args),
       latestQuestionVersions: (...args) =>
         owner.latestQuestionVersions(...args),
@@ -456,7 +425,6 @@ export class LearningService {
       percentage: (...args) => owner.percentage(...args),
       latestDate: (...args) => owner.latestDate(...args),
       buildLearnerProgress: (...args) => owner.buildLearnerProgress(...args),
-      recordMemberHistory: (...args) => owner.recordMemberHistory(...args),
       buildProviderUrls: (...args) => owner.buildProviderUrls(...args),
       seededOrder: (...args) => owner.seededOrder(...args),
       resolveExamScoreAllocations: (...args) =>
@@ -523,9 +491,17 @@ export class LearningService {
     return await courses_ops.listCourses(this.operationContext);
   }
 
+  /** Phân trang danh mục khóa học kèm tổng số bản ghi được lọc trực tiếp từ DB. */
+  async listCoursesPage(
+    filters: courses_ops.CoursePageFilters = {},
+  ): Promise<PaginatedResult<LearningCourse>> {
+    return await courses_ops.listCoursesPage(this.operationContext, filters);
+  }
+
   /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
   async createCourse(
-    input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes">,
+    input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
+      Partial<Pick<LearningCourse, "grade" | "subject">>,
     actorId = "usr-manager",
   ): Promise<LearningCourse> {
     return await courses_ops.createCourse(
@@ -591,6 +567,20 @@ export class LearningService {
     return await classes_ops.listClasses(this.operationContext, role, actorId);
   }
 
+  /** Phân trang danh sách lớp học theo vai trò và bộ lọc trực tiếp ở DB. */
+  async listClassesPage(
+    role: string,
+    actorId = this.userIdForRole(role),
+    filters: classes_ops.ClassPageFilters = {},
+  ): Promise<PaginatedResult<LearningClass>> {
+    return await classes_ops.listClassesPage(
+      this.operationContext,
+      role,
+      actorId,
+      filters,
+    );
+  }
+
   /** Tính capability tại máy chủ từ quyền phiên, quan hệ lớp và trạng thái thay vì tên vai trò đơn lẻ. */
   async getClassCapabilities(
     classId: string,
@@ -609,7 +599,7 @@ export class LearningService {
       LearningClass,
       "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
     > &
-      Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment">>,
+      Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
     actorId = "usr-manager",
   ): Promise<LearningClass> {
     return await classes_ops.createClass(this.operationContext, input, actorId);
@@ -658,7 +648,7 @@ export class LearningService {
     );
   }
 
-  /** Gỡ phân công giảng viên, bảo vệ điều kiện giảng viên chính và lưu lý do lịch sử. */
+  /** Gỡ phân công giảng viên và bảo vệ điều kiện giảng viên chính. */
   async removeInstructor(
     classId: string,
     instructorId: string,
@@ -702,7 +692,7 @@ export class LearningService {
     );
   }
 
-  /** Hủy ghi danh theo kiểu lưu lịch sử, thay vì xóa mất dấu vết thành viên. */
+  /** Hủy ghi danh và ghi nhận lý do trực tiếp trên bản ghi ghi danh lớp. */
   async removeEnrollment(
     classId: string,
     learnerId: string,
@@ -790,7 +780,17 @@ export class LearningService {
     );
   }
 
-  /** Trả một trang có giới hạn cho client dùng mảng cũ; API tìm kiếm cung cấp thêm tổng số kết quả. */
+  /** Đọc hoặc tạo thư mục trong lớp được phân công. */
+  async classFolders(
+    classId: string,
+    actorId: string,
+    input?: { kind: string; name: string },
+    actorRole = "INSTRUCTOR",
+  ): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
+    return folderOps.classFolders(this.operationContext, classId, actorId, input, actorRole);
+  }
+
+  /** Liệt kê danh sách học liệu hiển thị theo phạm vi quyền của vai trò hiện tại. */
   async listMaterials(
     role: string,
     query?: string,
@@ -808,39 +808,17 @@ export class LearningService {
     );
   }
 
-  /** Liệt kê giảng viên được người tải lên cấp quyền sửa học liệu. */
-  async listMaterialEditors(
-    materialId: string,
-    actorId: string,
-  ): ReturnType<typeof material_editors_ops.listMaterialEditors> {
-    return await material_editors_ops.listMaterialEditors(
-      this.operationContext,
-      materialId,
-      actorId,
-    );
-  }
-
-  /** Người tải lên cấp hoặc thu hồi quyền sửa học liệu cho giảng viên khác. */
-  async replaceMaterialEditors(
-    materialId: string,
-    userIds: string[],
-    actorId: string,
-  ): ReturnType<typeof material_editors_ops.replaceMaterialEditors> {
-    return await material_editors_ops.replaceMaterialEditors(
-      this.operationContext,
-      materialId,
-      userIds,
-      actorId,
-    );
-  }
-
-  /** Giảng viên đang hoạt động có thể được cấp quyền sửa học liệu. */
-  async listMaterialEditorCandidates(
-    actorId: string,
-  ): ReturnType<typeof material_editors_ops.listMaterialEditorCandidates> {
-    return await material_editors_ops.listMaterialEditorCandidates(
+  /** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung. */
+  async getMaterialSummary(
+    actorId = "usr-learner",
+    role = "LEARNER",
+    classId?: string,
+  ): Promise<MaterialSummaryBucket[]> {
+    return await materials_ops.getMaterialSummary(
       this.operationContext,
       actorId,
+      role,
+      classId,
     );
   }
 
@@ -855,6 +833,8 @@ export class LearningService {
       visibility?: string;
       aiOnly?: boolean;
       folder?: string;
+      folderExact?: boolean;
+      kind?: "materials" | "lectures";
       mimeType?: string;
       tag?: string;
       page?: number;
@@ -933,6 +913,20 @@ export class LearningService {
     );
   }
 
+  /** Xác thực quyền và trích xuất nội dung xem trước (DOCX/DOC/TXT) cho học liệu. */
+  async readMaterialPreviewContent(
+    materialId: string,
+    role: string,
+    actorId = this.userIdForRole(role),
+  ): Promise<AttachmentDocumentPreview> {
+    return await material_downloads_ops.readMaterialPreviewContent(
+      this.operationContext,
+      materialId,
+      role,
+      actorId,
+    );
+  }
+
   /** Xác minh chữ ký/quyền và lấy vị trí object, không nạp toàn bộ nội dung vào RAM. */
   private async resolveMaterialDownload(
     materialId: string,
@@ -940,7 +934,6 @@ export class LearningService {
     signature: string,
     role: string,
     action: MaterialAccessAction = "DOWNLOAD",
-    context: { ipAddress?: string; userAgent?: string } = {},
     actorId = this.userIdForRole(role),
   ): Promise<{
     fileName: string;
@@ -955,7 +948,6 @@ export class LearningService {
       signature,
       role,
       action,
-      context,
       actorId,
     );
   }
@@ -1015,98 +1007,14 @@ export class LearningService {
     );
   }
 
-  /** Liệt kê lịch sử phiên bản sau khi kiểm tra quyền truy cập học liệu cha. */
-  async listMaterialVersions(
-    materialId: string,
-    role: string,
-    actorId = this.userIdForRole(role),
-  ): Promise<MaterialVersionSnapshot[]> {
-    return await material_versions_ops.listMaterialVersions(
-      this.operationContext,
-      materialId,
-      role,
-      actorId,
-    );
-  }
-
-  /** Phát URL ký cho một version cụ thể và ràng buộc chữ ký với hành động xem/tải. */
-  async createMaterialVersionAccess(
-    materialId: string,
-    version: number,
-    role: string,
-    action: MaterialAccessAction = "DOWNLOAD",
-    actorId = this.userIdForRole(role),
-  ): Promise<{ url: string; expiresAt: string }> {
-    return await material_versions_ops.createMaterialVersionAccess(
-      this.operationContext,
-      materialId,
-      version,
-      role,
-      action,
-      actorId,
-    );
-  }
-
-  /** Giữ API đọc bộ đệm cho tác vụ nội bộ và kiểm thử với xác minh checksum. */
-  async readMaterialVersionDownload(
-    ...args: Parameters<LearningService["resolveMaterialVersionDownload"]>
-  ): Promise<MaterialDownload> {
-    return await material_versions_ops.readMaterialVersionDownload(
-      this.operationContext,
-      ...args,
-    );
-  }
-
-  /** Chuẩn bị luồng đã kiểm chứng với bộ nhớ giới hạn cho HTTP download. */
-  async readMaterialVersionDownloadStream(
-    ...args: Parameters<LearningService["resolveMaterialVersionDownload"]>
-  ): Promise<{
-    stream: ReturnType<typeof createReadStream>;
-    size: number;
-    fileName: string;
-    mimeType: string;
-  }> {
-    return await material_versions_ops.readMaterialVersionDownloadStream(
-      this.operationContext,
-      ...args,
-    );
-  }
-
-  /** Xác minh quyền/chữ ký phiên bản và lấy metadata của object được phép truy cập. */
-  private async resolveMaterialVersionDownload(
-    materialId: string,
-    version: number,
-    expires: number,
-    signature: string,
-    role: string,
-    action: MaterialAccessAction = "DOWNLOAD",
-    actorId = this.userIdForRole(role),
-  ): Promise<{
-    fileName: string;
-    mimeType: string;
-    objectKey: string;
-    checksum?: string;
-  }> {
-    return await material_versions_ops.resolveMaterialVersionDownload(
-      this.operationContext,
-      materialId,
-      version,
-      expires,
-      signature,
-      role,
-      action,
-      actorId,
-    );
-  }
-
-  /** Quét và lưu tệp mới, tăng version nguyên tử, giữ snapshot cũ và dọn object khi lỗi. */
-  async replaceMaterialVersion(
+  /** Quét và thay trực tiếp tệp hiện tại của học liệu, xóa ngay tệp cũ sau khi lưu xong. */
+  async replaceMaterialFile(
     materialId: string,
     input: Pick<LearningMaterial, "folder" | "tags">,
     upload: UploadedMaterialFile,
     actorId = "usr-instructor",
   ): Promise<LearningMaterial> {
-    return await material_versions_ops.replaceMaterialVersion(
+    return await materials_ops.replaceMaterialFile(
       this.operationContext,
       materialId,
       input,
@@ -1117,18 +1025,27 @@ export class LearningService {
 
   /** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
   async listQuestions(
-    filters:
-      | string
-      | {
-          query?: string;
-          courseId?: string;
-          type?: string;
-          difficulty?: number;
-          tag?: string;
-          status?: LearningQuestion["status"];
-        } = {},
+    filters: string | questions_ops.QuestionListFilters = {},
   ): Promise<LearningQuestion[]> {
     return await questions_ops.listQuestions(this.operationContext, filters);
+  }
+
+  /** Phân trang phiên bản mới nhất mỗi family câu hỏi trực tiếp bằng SQL CTE. */
+  async listQuestionsPage(
+    filters: questions_ops.QuestionPageFilters = {},
+  ): Promise<PaginatedResult<LearningQuestion>> {
+    return await questions_ops.listQuestionsPage(
+      this.operationContext,
+      filters,
+    );
+  }
+
+  /** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận theo từng khóa học. */
+  async getQuestionSummary(courseId?: string): Promise<QuestionSummary> {
+    return await questions_ops.getQuestionSummary(
+      this.operationContext,
+      courseId,
+    );
   }
 
   /** Validate nội dung/đáp án, tạo family câu hỏi và chọn trạng thái theo chế độ duyệt cấu hình. */
@@ -1188,36 +1105,6 @@ export class LearningService {
       questionId,
       role,
       actorId,
-    );
-  }
-
-  /** Xuất bản ngay hoặc chuyển PENDING_REVIEW tùy chế độ phê duyệt câu hỏi. */
-  async publishQuestion(
-    questionId: string,
-    actorId = "usr-instructor",
-    immediate = false,
-  ): Promise<LearningQuestion> {
-    return await questions_ops.publishQuestion(
-      this.operationContext,
-      questionId,
-      actorId,
-      immediate,
-    );
-  }
-
-  /** Áp dụng quyết định duyệt tay, bắt buộc ghi chú khi trả lại và lưu audit. */
-  async reviewQuestion(
-    questionId: string,
-    decision: "APPROVE" | "RETURN",
-    rawNote?: string,
-    reviewerId = "usr-admin",
-  ): Promise<LearningQuestion> {
-    return await questions_ops.reviewQuestion(
-      this.operationContext,
-      questionId,
-      decision,
-      rawNote,
-      reviewerId,
     );
   }
 
@@ -1477,7 +1364,7 @@ export class LearningService {
     );
   }
 
-  /** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì sửa điểm qua cùng cơ chế lịch sử chấm. */
+  /** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì cập nhật điểm hiện hành. */
   async resolveRegrade(
     requestId: string,
     input: {
@@ -1579,7 +1466,7 @@ export class LearningService {
     );
   }
 
-  /** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và lưu grade history. */
+  /** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và cập nhật điểm hiện hành. */
   async gradeAttempt(
     attemptId: string,
     score: number,
@@ -1599,17 +1486,6 @@ export class LearningService {
     );
   }
 
-  /** Kiểm tra phạm vi giảng dạy rồi trả lịch sử các lần thay đổi điểm. */
-  async listGradeHistory(
-    attemptId: string,
-    actorId = "usr-instructor",
-  ): Promise<GradeHistoryRecord[]> {
-    return await grading_ops.listGradeHistory(
-      this.operationContext,
-      attemptId,
-      actorId,
-    );
-  }
 
   /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
   async listTopics(
@@ -1617,6 +1493,20 @@ export class LearningService {
     actorId = this.userIdForRole(role),
   ): Promise<ForumTopic[]> {
     return await forum_ops.listTopics(this.operationContext, role, actorId);
+  }
+
+  /** Phân trang chủ đề diễn đàn trực tiếp từ DB kèm bộ lọc lớp, ghim, bài của tôi và từ khóa. */
+  async listTopicsPage(
+    role = "LEARNER",
+    actorId = this.userIdForRole(role),
+    filters: forum_ops.ForumTopicPageFilters = {},
+  ): Promise<PaginatedResult<ForumTopic>> {
+    return await forum_ops.listTopicsPage(
+      this.operationContext,
+      role,
+      actorId,
+      filters,
+    );
   }
 
   /** Kiểm tra thành viên/chính sách nội dung rồi tạo chủ đề và thông báo thành viên lớp. */
@@ -1660,6 +1550,22 @@ export class LearningService {
       topicId,
       role,
       actorId,
+    );
+  }
+
+  /** Phân trang bình luận gốc của chủ đề kèm đầy đủ phản hồi thuộc từng gốc đó. */
+  async listPostsPage(
+    topicId: string,
+    role = "LEARNER",
+    actorId = this.userIdForRole(role),
+    filters: { page?: number; pageSize?: number } = {},
+  ): Promise<forum_ops.ForumPostPageResult> {
+    return await forum_ops.listPostsPage(
+      this.operationContext,
+      topicId,
+      role,
+      actorId,
+      filters,
     );
   }
 
@@ -1739,10 +1645,26 @@ export class LearningService {
     );
   }
 
-  /** Validate lịch/quyền lớp, cấp phòng từ provider có fallback rồi thông báo thành viên. */
+  /** Phân trang buổi học trực tuyến theo lớp, trạng thái và khoảng thời gian trên DB. */
+  async listSessionsPage(
+    role = "LEARNER",
+    actorId = this.userIdForRole(role),
+    filters: live_sessions_ops.LiveSessionPageFilters = {},
+  ): Promise<PaginatedResult<LiveSession>> {
+    return await live_sessions_ops.listSessionsPage(
+      this.operationContext,
+      role,
+      actorId,
+      filters,
+    );
+  }
+
+  /** Validate lịch/quyền lớp, lưu link Google Meet hoặc cấp phòng từ provider có fallback rồi thông báo thành viên. */
   async createSession(
     classId: string,
-    input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider">,
+    input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
+      meetingUrl?: string;
+    },
     actorId = "usr-instructor",
     actorRole = "INSTRUCTOR",
   ): Promise<LiveSession> {
@@ -1755,19 +1677,22 @@ export class LearningService {
     );
   }
 
-  /** Cập nhật lịch/provider trước khi buổi học diễn ra và lưu lý do audit. */
+  /** Cập nhật lịch và liên kết phòng họp trước khi buổi học diễn ra và lưu lý do audit. */
   async updateSession(
     sessionId: string,
     input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
       reason: string;
+      meetingUrl?: string;
     },
     actorId = "usr-manager",
+    actorRole = "CENTER_MANAGER",
   ): Promise<LiveSession> {
     return await live_sessions_ops.updateSession(
       this.operationContext,
       sessionId,
       input,
       actorId,
+      actorRole,
     );
   }
 
@@ -1776,12 +1701,14 @@ export class LearningService {
     sessionId: string,
     reason: string,
     actorId = "usr-manager",
+    actorRole = "CENTER_MANAGER",
   ): Promise<LiveSession> {
     return await live_sessions_ops.cancelSession(
       this.operationContext,
       sessionId,
       reason,
       actorId,
+      actorRole,
     );
   }
 
@@ -1799,15 +1726,17 @@ export class LearningService {
     );
   }
 
-  /** Xác minh ghi danh/cửa sổ tham dự, mở bản ghi attendance và trả URL người học. */
+  /** Xác minh ghi danh/quyền lớp/cửa sổ tham dự và trả URL phòng họp hợp lệ. */
   async joinSession(
     sessionId: string,
-    learnerId = "usr-learner",
+    actorId = "usr-learner",
+    actorRole = "LEARNER",
   ): Promise<{ attendeeUrl: string; joinedAt: string }> {
     return await live_sessions_ops.joinSession(
       this.operationContext,
       sessionId,
-      learnerId,
+      actorId,
+      actorRole,
     );
   }
 
@@ -1899,6 +1828,20 @@ export class LearningService {
     actorId = this.userIdForRole(role),
   ): Promise<SupportTicket[]> {
     return await support_ops.listTickets(this.operationContext, role, actorId);
+  }
+
+  /** Phân trang danh sách phiếu hỗ trợ theo vai trò, trạng thái và từ khóa. */
+  async listTicketsPage(
+    role: string,
+    actorId = this.userIdForRole(role),
+    filters: support_ops.SupportTicketPageFilters = {},
+  ): Promise<PaginatedResult<SupportTicket>> {
+    return await support_ops.listTicketsPage(
+      this.operationContext,
+      role,
+      actorId,
+      filters,
+    );
   }
 
   /** Validate nội dung, chống phiếu trùng đang mở và tạo SLA theo mức độ nghiêm trọng. */
@@ -2103,10 +2046,6 @@ export class LearningService {
     return mapping_ops.database(this.operationContext);
   }
 
-  /** Đọc chế độ duyệt câu hỏi dùng chung kiểu AUTO/MANUAL với đề thi. */
-  private async getQuestionApprovalMode(): Promise<ExamApprovalMode> {
-    return await mapping_ops.getQuestionApprovalMode(this.operationContext);
-  }
 
   /** Ánh xạ Course Prisma, bao gồm JSON outcomes, sang hợp đồng API. */
   private mapCourse(
@@ -2156,13 +2095,6 @@ export class LearningService {
       input,
       actorId,
     );
-  }
-
-  /** Ánh xạ snapshot tệp học liệu sang thông tin version hiển thị. */
-  private mapMaterialVersion(
-    row: Prisma.MaterialVersionGetPayload<Record<string, never>>,
-  ): MaterialVersionSnapshot {
-    return question_rules_ops.mapMaterialVersion(this.operationContext, row);
   }
 
   /** Sao chép sâu các mảng câu hỏi in-memory để caller không sửa state nội bộ. */
@@ -2318,26 +2250,6 @@ export class LearningService {
     },
   ): LearnerProgress {
     return report_rules_ops.buildLearnerProgress(input);
-  }
-
-  /** Thêm dấu vết thay đổi thành viên lớp vào lịch sử in-memory. */
-  private recordMemberHistory(
-    classId: string,
-    memberId: string,
-    memberType: ClassMemberHistory["memberType"],
-    action: string,
-    actorId: string,
-    detail: { role?: InstructorRole; source?: string; reason?: string },
-  ): void {
-    return history_ops.recordMemberHistory(
-      this.operationContext,
-      classId,
-      memberId,
-      memberType,
-      action,
-      actorId,
-      detail,
-    );
   }
 
   /** Dựng URL chủ phòng/người học cho provider demo bằng token phòng ngẫu nhiên. */

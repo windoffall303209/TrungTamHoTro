@@ -43,7 +43,7 @@ export async function listExamPage(context: LearningServiceContext, role: string
   }
   const where: Prisma.ExamWhereInput = {
     classId: query.classId,
-    ...(learner ? { status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
+    ...(learner ? { hidden: false, status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
       : role === "INSTRUCTOR" ? { class: { instructors: { some: { instructorId: actorId } } } } : {}),
   };
   return database.$transaction(async (transaction) => {
