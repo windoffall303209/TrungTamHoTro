@@ -3,12 +3,27 @@ import { describe, expect, it, vi } from "vitest";
 import { AiGradingDocumentReader } from "../../src/domains/learning/ai/ai-grading-document-reader.js";
 import { AiDocumentExtractionStore } from "../../src/domains/learning/ai/ai-document-extraction-store.js";
 import { GRADING_DOCX_MIME, type VerifiedGradingAttachment } from "../../src/domains/learning/ai/ai-grading-source.js";
+import { validateDocxArchive } from "../../src/infrastructure/validate-docx-archive.js";
 import type { AiProviderService } from "../../src/domains/system/ai/ai-provider.service.js";
 import { extractionDatabase } from "./ai-document-extraction.fixture.js";
 import { docxFixture } from "./docx.fixture.js";
 
 const buffer = Buffer.from("synthetic PDF bytes");
 const file = { attachmentId: "attachment", buffer, fileName: "answer.pdf", mimeType: "application/pdf", checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}`, submissionRevision: 1 };
+
+/** Ghi đè kích thước giải nén khai báo trong header ZIP để mô phỏng tệp nén giả mạo metadata. */
+function spoofZipUncompressedSize(source: Buffer, forgedSize: number): Buffer {
+  const clone = Buffer.from(source);
+  for (let offset = 0; offset <= clone.length - 30; offset += 1) {
+    const signature = clone.readUInt32LE(offset);
+    if (signature === 0x04034b50 && clone.readUInt32LE(offset + 22) > 1024) {
+      clone.writeUInt32LE(forgedSize, offset + 22);
+    } else if (signature === 0x02014b50 && offset <= clone.length - 46 && clone.readUInt32LE(offset + 24) > 1024) {
+      clone.writeUInt32LE(forgedSize, offset + 24);
+    }
+  }
+  return clone;
+}
 
 /** Gắn buffer kiểm thử với cùng hợp đồng mã kiểm tra của luồng tải tệp đã xác minh. */
 function docxFile(value: Buffer): VerifiedGradingAttachment {
@@ -45,6 +60,9 @@ describe("private grading OCR reader", () => {
     await expect(reader.read("submission", "teacher", docxFile(corrupt))).rejects.toMatchObject({ status: 400 });
     const large = await docxFixture(`<w:p><w:r><w:t>${"x".repeat(8 * 1024 * 1024 + 1)}</w:t></w:r></w:p>`);
     await expect(reader.read("submission", "teacher", docxFile(large))).rejects.toThrow("giải nén vượt giới hạn an toàn");
+    const spoofed = spoofZipUncompressedSize(large, 128);
+    await expect(validateDocxArchive(spoofed)).rejects.toThrow("giải nén vượt giới hạn an toàn");
+    await expect(reader.read("submission", "teacher", docxFile(spoofed))).rejects.toThrow("giải nén vượt giới hạn an toàn");
     expect(ai.resolveTask).not.toHaveBeenCalled();
     expect(ai.extractDocumentPages).not.toHaveBeenCalled();
   });
