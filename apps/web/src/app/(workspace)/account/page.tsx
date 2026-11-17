@@ -736,7 +736,7 @@ function AccountContent() {
             />
             <div className="min-w-0 flex-1 text-center sm:text-left">
               <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Ảnh đại diện</h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-600">
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                 Hỗ trợ định dạng PNG, JPEG hoặc WebP; dung lượng tối đa 3 MB.
               </p>
               <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
@@ -826,8 +826,8 @@ function AccountContent() {
               <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 {profile.emailVerifiedAt ? (
                   <>
-                    <MailCheck size={14} className="text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Đã xác minh</span>
+                    <MailCheck size={14} className="text-emerald-700 dark:text-emerald-400" />
+                    <span className="text-emerald-700 dark:text-emerald-400 font-semibold">Đã xác minh</span>
                   </>
                 ) : (
                   <span>Chưa xác minh</span>
@@ -904,7 +904,7 @@ function AccountContent() {
               </div>
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Đổi mật khẩu</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   Sau khi đổi mật khẩu, các phiên đăng nhập khác sẽ được đóng để bảo vệ tài khoản.
                 </p>
               </div>
@@ -1023,7 +1023,7 @@ function AccountContent() {
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     Xác thực hai bước (2FA)
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     Bảo vệ tài khoản bằng mã bảo mật 6 số từ Google Authenticator hoặc ứng dụng TOTP.
                   </p>
                 </div>
@@ -1242,7 +1242,7 @@ function AccountContent() {
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                     {t("Thiết bị đăng nhập")} ({sessions.length})
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                     Kiểm tra và quản lý các thiết bị đang đăng nhập vào tài khoản của bạn.
                   </p>
                 </div>
@@ -1280,7 +1280,7 @@ function AccountContent() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-600 mt-0.5">
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                           IP: {item.ipAddress} · Hoạt động {new Date(item.lastSeenAt).toLocaleString(activeLocale())}
                         </p>
                       </div>

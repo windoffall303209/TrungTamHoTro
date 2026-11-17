@@ -849,18 +849,20 @@ export function InstructorMaterialsView() {
         {/* Header: Breadcrumb Khối → Môn → Lớp → Thư mục → Tệp + Nút tạo thư mục & tải tệp */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <nav aria-label="Điều hướng học liệu" className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedGradeId(null);
-                setSelectedSubjectId(null);
-                setSelectedClassId(null);
-                setSelectedFolder(null);
-              }}
-              className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 cursor-pointer"
-            >
-              Học liệu
-            </button>
+            <h1 className="m-0 flex items-center text-base sm:text-lg font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGradeId(null);
+                  setSelectedSubjectId(null);
+                  setSelectedClassId(null);
+                  setSelectedFolder(null);
+                }}
+                className="text-slate-900 dark:text-slate-100 hover:text-blue-600 cursor-pointer"
+              >
+                Học liệu
+              </button>
+            </h1>
 
             {currentGrade && (
               <>

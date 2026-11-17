@@ -75,14 +75,15 @@ test("phục hồi bản nháp sau chuyển trang/tải lại và tạo đề th
   page,
 }) => {
   await loginAsSeed(page, "instructor");
-  await gotoWorkspace(page, "/exams");
-  await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
+  await gotoWorkspace(page, "/exams?create=manual");
+  await expect(
+    page.getByRole("dialog", { name: "Tạo đề thủ công" }),
+  ).toBeVisible();
   const title = `Kiểm thử phục hồi ${Date.now()}`;
   await page.getByRole("textbox", { name: "Tên đề", exact: true }).fill(title);
   await gotoWorkspace(page, "/academic");
   await page.reload();
-  await gotoWorkspace(page, "/exams");
-  await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
+  await gotoWorkspace(page, "/exams?create=manual");
   await expect(
     page.getByRole("textbox", { name: "Tên đề", exact: true }),
   ).toHaveValue(title);
@@ -136,7 +137,7 @@ test("phục hồi bản nháp sau chuyển trang/tải lại và tạo đề th
   await expect(
     page.getByRole("dialog", { name: "Tạo đề thủ công" }),
   ).not.toBeVisible();
-  await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
+  await gotoWorkspace(page, "/exams?create=manual");
   await expect(
     page.getByRole("textbox", { name: "Tên đề", exact: true }),
   ).toHaveValue("");

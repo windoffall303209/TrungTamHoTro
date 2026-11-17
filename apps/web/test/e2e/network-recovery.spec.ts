@@ -20,15 +20,14 @@ test("lỗi tải đề có thông báo và thử lại lấy được dữ li�
 
 test("mất cookie phiên không làm mất bản nháp sau đăng nhập lại", async ({ page, context }) => {
   await loginAsSeed(page, "instructor");
-  await gotoWorkspace(page, "/exams");
-  await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
+  await gotoWorkspace(page, "/exams?create=manual");
+  await expect(page.getByRole("dialog", { name: "Tạo đề thủ công" })).toBeVisible();
   await page.getByRole("textbox", { name: "Tên đề", exact: true }).fill("Đề sau hết phiên");
   await context.clearCookies();
   await gotoWorkspace(page, "/exams");
   await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
   await loginAsSeed(page, "instructor");
-  await gotoWorkspace(page, "/exams");
-  await page.getByRole("button", { name: "Tạo thủ công", exact: true }).click();
+  await gotoWorkspace(page, "/exams?create=manual");
   await expect(page.getByRole("textbox", { name: "Tên đề", exact: true })).toHaveValue("Đề sau hết phiên");
 });
 
@@ -42,5 +41,5 @@ test("giới hạn tần suất kiểm tra phiên không chuyển nhầm về đ
   await expect(page).toHaveURL(/\/exams$/);
   await page.unroute("**/api/v1/auth/session");
   await page.getByRole("button", { name: "Thử lại", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Tạo thủ công", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Đề thi & kết quả" })).toBeVisible();
 });
