@@ -299,4 +299,32 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
       confirmSpy.mockRestore();
     }
   });
+
+  it("chỉ tải đề thi khi mở tab Bài tập và tải bảng điểm khi mở tab Bảng điểm", async () => {
+    window.history.replaceState({}, "", "/");
+    setupApiMock();
+    render(<InstructorClassWorkspace item={classItem} course={null} />);
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        `/instructor/classes/${classItem.id}/learners`,
+        expect.anything(),
+      ),
+    );
+    expect(request.mock.calls.some(([url]) => String(url).startsWith("/exams/page?"))).toBe(false);
+    expect(request.mock.calls.some(([url]) => String(url) === `/academic/classes/${classItem.id}/gradebook`)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Bài tập/ }));
+    expect(await screen.findByRole("button", { name: /Đề kiểm tra chương một/ })).toBeVisible();
+    expect(request.mock.calls.some(([url]) => String(url).startsWith("/exams/page?"))).toBe(true);
+    expect(request.mock.calls.some(([url]) => String(url) === `/academic/classes/${classItem.id}/gradebook`)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Bảng điểm/ }));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        `/academic/classes/${classItem.id}/gradebook`,
+        expect.anything(),
+      ),
+    );
+  });
 });

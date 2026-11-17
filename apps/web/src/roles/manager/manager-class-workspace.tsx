@@ -255,7 +255,11 @@ export function ManagerClassWorkspace({
       roleCode: session.roleCode, signal: controller.signal,
     }).then(rows => {
       if (!controller.signal.aborted) setClassAssignments(rows);
-    }), loadClassExams(currentClass.id, session.roleCode, controller.signal).then(rows => {
+    }), loadClassExams(currentClass.id, session.roleCode, controller.signal, {
+      onProgress: rows => {
+        if (!controller.signal.aborted) setClassExams(rows);
+      },
+    }).then(rows => {
       if (!controller.signal.aborted) setClassExams(rows);
     })];
     void Promise.allSettled(requests).then(results => {

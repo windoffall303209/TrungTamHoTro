@@ -658,15 +658,71 @@ export function InstructorClassWorkspace({
   const [allAvailableInstructors, setAllAvailableInstructors] = useState<DirectoryUser[]>([]);
   const classDataRequestRef = useRef(0);
   const classDataControllerRef = useRef<AbortController | null>(null);
+  const examsLoadedClassRef = useRef<string | null>(null);
+  const examsRequestRef = useRef(0);
+  const examsControllerRef = useRef<AbortController | null>(null);
+  const gradebookLoadedClassRef = useRef<string | null>(null);
+  const gradebookRequestRef = useRef(0);
+  const gradebookControllerRef = useRef<AbortController | null>(null);
 
-  /** Tải dữ liệu toàn diện của lớp học từ cơ sở dữ liệu vật lý */
+  /** Tải toàn bộ đề thi của lớp theo chế độ lười cho tab Bài tập và cập nhật ngay sau trang đầu. */
+  const loadClassExamsTab = useCallback(async (force = false) => {
+    if (!force && examsLoadedClassRef.current === item.id) return;
+    const requestId = ++examsRequestRef.current;
+    examsControllerRef.current?.abort();
+    const controller = new AbortController();
+    examsControllerRef.current = controller;
+    try {
+      const rows = await loadClassExams(item.id, session.roleCode, controller.signal, {
+        onProgress: (partial) => {
+          if (requestId === examsRequestRef.current && !controller.signal.aborted) {
+            setClassExams(partial);
+          }
+        },
+      });
+      if (requestId !== examsRequestRef.current || controller.signal.aborted) return;
+      examsLoadedClassRef.current = item.id;
+      setClassExams(rows);
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn("Không tải được đề thi của lớp:", error);
+      if (requestId === examsRequestRef.current && !controller.signal.aborted) {
+        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
+      }
+    }
+  }, [item.id, session.roleCode, notify]);
+
+  /** Tải bảng điểm của lớp chỉ khi giảng viên mở tab Bảng điểm. */
+  const loadClassGradebookTab = useCallback(async (force = false) => {
+    if (!force && gradebookLoadedClassRef.current === item.id) return;
+    const requestId = ++gradebookRequestRef.current;
+    gradebookControllerRef.current?.abort();
+    const controller = new AbortController();
+    gradebookControllerRef.current = controller;
+    try {
+      const rows = await apiRequest<GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
+        roleCode: session.roleCode,
+        signal: controller.signal,
+      });
+      if (requestId !== gradebookRequestRef.current || controller.signal.aborted) return;
+      gradebookLoadedClassRef.current = item.id;
+      setGradebook(rows);
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn("Không tải được bảng điểm của lớp:", error);
+      if (requestId === gradebookRequestRef.current && !controller.signal.aborted) {
+        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
+      }
+    }
+  }, [item.id, session.roleCode, notify]);
+
+  /** Tải dữ liệu cốt lõi của lớp học từ cơ sở dữ liệu vật lý */
   const loadClassData = useCallback(async () => {
     const requestId = ++classDataRequestRef.current;
     classDataControllerRef.current?.abort();
     const controller = new AbortController();
     classDataControllerRef.current = controller;
+    gradebookLoadedClassRef.current = null;
     try {
-      const [learnersResult, assignmentsResult, materialsResult, gradebookResult, examsResult] =
+      const [learnersResult, assignmentsResult, materialsResult] =
         await Promise.allSettled([
           apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
             roleCode: session.roleCode,
@@ -680,20 +736,13 @@ export function InstructorClassWorkspace({
             roleCode: session.roleCode,
             signal: controller.signal,
           }),
-          apiRequest<GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
-            roleCode: session.roleCode,
-            signal: controller.signal,
-          }),
-          loadClassExams(item.id, session.roleCode, controller.signal),
         ]);
 
       if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
       const failedSources = [
-        ["đề thi", examsResult],
         ["học viên", learnersResult],
         ["bài tập", assignmentsResult],
         ["tài liệu", materialsResult],
-        ["bảng điểm", gradebookResult],
       ] as const;
       for (const [source, result] of failedSources) {
         if (result.status === "rejected") console.warn(`Không tải được ${source} của lớp:`, result.reason);
@@ -701,9 +750,7 @@ export function InstructorClassWorkspace({
       if (failedSources.some(([, result]) => result.status === "rejected")) {
         notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
       }
-      if (examsResult.status === "fulfilled") setClassExams(examsResult.value);
       if (learnersResult.status === "fulfilled") setLearners(learnersResult.value);
-      if (gradebookResult.status === "fulfilled") setGradebook(gradebookResult.value);
       // API is authoritative; legacy local entries may contain fabricated IDs or stale publication states.
       if (assignmentsResult.status === "fulfilled") setAssignments(assignmentsResult.value);
 
@@ -751,6 +798,29 @@ export function InstructorClassWorkspace({
     void loadClassData();
     return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
   }, [loadClassData]);
+
+  useEffect(() => {
+    setClassExams([]);
+    setGradebook([]);
+  }, [item.id]);
+
+  useEffect(() => {
+    if (activeTab !== "assignments") return;
+    void loadClassExamsTab();
+    return () => {
+      examsRequestRef.current += 1;
+      examsControllerRef.current?.abort();
+    };
+  }, [activeTab, loadClassExamsTab]);
+
+  useEffect(() => {
+    if (activeTab !== "gradebook") return;
+    void loadClassGradebookTab();
+    return () => {
+      gradebookRequestRef.current += 1;
+      gradebookControllerRef.current?.abort();
+    };
+  }, [activeTab, loadClassGradebookTab]);
 
   /** Tải thống kê và một trang câu hỏi của ngân hàng lớp từ API phân trang trên DB. */
   const loadClassQuestionBank = useCallback(async () => {
@@ -4643,7 +4713,9 @@ export function InstructorClassWorkspace({
         classEndAt={item.endAt}
         classQuestions={classQuestions}
         onClose={() => setEditingClassExam(null)}
-        onSaved={loadClassData}
+        onSaved={async () => {
+          await Promise.all([loadClassData(), loadClassExamsTab(true)]);
+        }}
       />
 
       <ClassAssignmentEditModal
