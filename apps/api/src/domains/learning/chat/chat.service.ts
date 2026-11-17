@@ -7,7 +7,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
-import type { Prisma } from "../../../generated/prisma/client.js";
+import { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type {
@@ -282,12 +282,19 @@ export class ChatService {
     const conversation = await this.prisma.chatConversation.upsert({
       where: { classId },
       update: {},
+      select: { id: true },
       create: {
         id: `conversation-${randomUUID()}`,
         type: "CLASS",
         classId,
         createdById: session.user.id,
       },
+    }).catch(async (error: unknown) => {
+      // Hai phiên có thể cùng tạo hội thoại đầu tiên của lớp trước khi thấy bản ghi của nhau.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+      const existing = await this.prisma.chatConversation.findUnique({ where: { classId }, select: { id: true } });
+      if (!existing) throw error;
+      return existing;
     });
     await this.syncClassMembers(conversation.id, classId);
     return this.mapConversation(
