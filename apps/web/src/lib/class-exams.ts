@@ -1,74 +1,67 @@
+import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "./api-client";
 import type { RoleCode } from "./app-types";
 import type { Exam } from "./learning-types";
 
-export interface LoadClassExamsOptions {
-  /** Gọi lại ngay sau trang đầu và sau mỗi đợt tải song song để hiển thị sớm sau 1 RTT. */
-  onProgress?: (exams: Exam[]) => void;
-  /** Số request trang tối đa chạy song song cho các trang còn lại (mặc định 4). */
-  concurrency?: number;
-}
-
-interface ExamPageResponse {
+interface ExamPage {
   items: Exam[];
   total: number;
   pageSize: number;
   page: number;
 }
 
-/** Tải một trang đề thi của lớp từ API phân trang giới hạn. */
-async function fetchExamPage(classId: string, page: number, roleCode: RoleCode, signal: AbortSignal): Promise<ExamPageResponse> {
-  const query = new URLSearchParams({ classId, page: String(page), pageSize: "100" });
-  return apiRequest<ExamPageResponse>("/exams/page?" + query, { roleCode, signal });
+/** Lấy đúng một trang đề theo lớp, từ khóa và thứ tự của người dùng. */
+function fetchClassExamPage(classId: string, roleCode: RoleCode, signal: AbortSignal, page: number, pageSize: number, search: string, sort: "newest" | "oldest", focusId?: string) {
+  const query = new URLSearchParams({ classId, page: String(page), pageSize: String(pageSize) });
+  if (search) query.set("search", search);
+  if (sort === "oldest") query.set("sort", sort);
+  if (focusId) query.set("focusId", focusId);
+  return apiRequest<ExamPage>("/exams/page?" + query, { roleCode, signal });
 }
 
-/** Gộp các đề thuộc đúng lớp vào map đích theo thứ tự ổn định. */
-function appendClassExams(target: Map<string, Exam>, classId: string, items: Exam[]): void {
-  for (const exam of items) {
-    if (exam.classId === classId) target.set(exam.id, exam);
-  }
-}
+/** Điều khiển phân trang theo tab, hủy kết quả cũ và trì hoãn truy vấn khi đang nhập từ khóa. */
+export function useClassExamPage(classId: string, role: RoleCode, active: boolean, search: string, sort: "newest" | "oldest", onError: () => void) {
+  const [rows, setRows] = useState<Exam[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
+  const [revision, setRevision] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const term = search.trim();
+  const scope = JSON.stringify([classId, role, term, sort, pageSize]);
+  const [cursor, setCursor] = useState({ scope, page: 1 });
+  const focusRef = useRef<string | undefined>(undefined);
+  const page = cursor.scope === scope ? cursor.page : 1;
+  const errorRef = useRef(onError);
+  useEffect(() => { errorRef.current = onError; }, [onError]);
 
-/** Tải toàn bộ đề của lớp với phản hồi trang đầu sau 1 RTT và tải song song có giới hạn các trang còn lại. */
-export async function loadClassExams(
-  classId: string,
-  roleCode: RoleCode,
-  signal: AbortSignal,
-  options?: LoadClassExamsOptions,
-): Promise<Exam[]> {
-  const exams = new Map<string, Exam>();
-  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 4));
-  const firstPage = await fetchExamPage(classId, 1, roleCode, signal);
-  if (signal.aborted) return [];
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    setLoading(true);
+    // Tải trang yêu cầu và bỏ kết quả nếu người dùng đã đổi lớp hoặc bộ lọc.
+    const loadPage = () => {
+      fetchClassExamPage(classId, role, controller.signal, page, pageSize, term, sort, focusRef.current)
+        .then(result => {
+          if (controller.signal.aborted) return;
+          focusRef.current = undefined;
+          setRows(result.items.filter(exam => exam.classId === classId));
+          setTotal(result.total);
+          setCursor(current => current.scope === scope && current.page === result.page ? current : { scope, page: result.page });
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          if (!focusRef.current) setRows([]);
+          setTotal(0);
+          errorRef.current();
+        })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    };
+    const timer = term ? setTimeout(loadPage, 200) : undefined;
+    if (!term) loadPage();
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [active, classId, role, page, pageSize, term, sort, revision, scope]);
 
-  appendClassExams(exams, classId, firstPage.items);
-  if (options?.onProgress && !signal.aborted) {
-    options.onProgress([...exams.values()]);
-  }
-
-  const effectivePageSize = Math.max(1, firstPage.pageSize || 100);
-  const totalPages = Math.ceil(firstPage.total / effectivePageSize);
-  if (!firstPage.items.length || firstPage.page * effectivePageSize >= firstPage.total || totalPages <= 1) {
-    return [...exams.values()];
-  }
-
-  for (let startPage = 2; startPage <= totalPages; startPage += concurrency) {
-    if (signal.aborted) break;
-    const batchPages: number[] = [];
-    for (let page = startPage; page < startPage + concurrency && page <= totalPages; page++) {
-      batchPages.push(page);
-    }
-    const responses = await Promise.all(
-      batchPages.map((page) => fetchExamPage(classId, page, roleCode, signal)),
-    );
-    if (signal.aborted) break;
-    for (const response of responses) {
-      appendClassExams(exams, classId, response.items);
-    }
-    if (options?.onProgress && !signal.aborted) {
-      options.onProgress([...exams.values()]);
-    }
-  }
-
-  return [...exams.values()];
+  return { rows, setRows, total, page, pageSize, loading, setPageSize,
+    setPage: (value: number) => setCursor({ scope, page: value }),
+    refresh: (focusId?: string) => { focusRef.current = focusId; setRevision(value => value + 1); } };
 }

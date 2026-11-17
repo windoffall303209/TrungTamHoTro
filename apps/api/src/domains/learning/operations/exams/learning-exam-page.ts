@@ -4,7 +4,7 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 import type { LearningExam, LearnerExamSummary } from "../../core/learning.types.js";
 import { listExams, listLearnerExamSummaries } from "./learning-exams.js";
 
-export interface ExamPageQuery { page: number; pageSize: number; classId?: string; focusId?: string }
+export interface ExamPageQuery { page: number; pageSize: number; classId?: string; focusId?: string; search?: string; sort?: "oldest" | "newest" }
 export interface ExamPage { items: Array<LearningExam | LearnerExamSummary>; total: number; page: number; pageSize: number }
 
 /** Chuẩn hóa query phân trang, từ chối số không nguyên, mảng và giá trị vượt giới hạn. */
@@ -18,31 +18,34 @@ export function parseExamPageQuery(raw: Record<string, unknown>): ExamPageQuery 
     return Number(value);
   };
   /** Giữ định danh nguyên vẹn và từ chối kiểu dữ liệu hoặc độ dài không hợp lệ. */
-  const identifier = (key: string): string | undefined => {
+  const identifier = (key: string, maxLength = 191): string | undefined => {
     const value = raw[key];
     if (value === undefined || value === "") return undefined;
-    if (typeof value !== "string" || value.length > 191 || value.trim() !== value)
+    if (typeof value !== "string" || value.length > maxLength || value.trim() !== value)
       throw new BadRequestException(`Tham số ${key} không hợp lệ.`);
     return value;
   };
-  return { page: numeric("page", 1, 100_000), pageSize: numeric("pageSize", 20, 100), classId: identifier("classId"), focusId: identifier("focusId") };
+  if (raw.sort !== undefined && raw.sort !== "oldest" && raw.sort !== "newest") throw new BadRequestException("Thứ tự sắp xếp không hợp lệ.");
+  return { page: numeric("page", 1, 100_000), pageSize: numeric("pageSize", 20, 100), classId: identifier("classId"), focusId: identifier("focusId"), search: identifier("search", 255), sort: raw.sort };
 }
 
 /** Lấy một trang đề trong đúng phạm vi vai trò; học viên chỉ đọc count và trạng thái lượt đang làm. */
 export async function listExamPage(context: LearningServiceContext, role: string, actorId: string, query: ExamPageQuery): Promise<ExamPage> {
   if (!["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(role)) throw new ForbiddenException();
   const learner = role === "LEARNER";
+  const ascending = query.sort === "oldest";
   const database = context.database();
   if (!database) {
     const all = learner ? await listLearnerExamSummaries(context, query.classId, actorId) : await listExams(context, role, actorId);
-    const visible = all.filter((item) => !query.classId || item.classId === query.classId)
-      .sort((a, b) => b.openAt.localeCompare(a.openAt) || b.id.localeCompare(a.id));
+    const visible = all.filter((item) => (!query.classId || item.classId === query.classId) && (!query.search || item.title.toLowerCase().includes(query.search.toLowerCase())))
+      .sort((a, b) => (ascending ? 1 : -1) * (a.openAt.localeCompare(b.openAt) || a.id.localeCompare(b.id)));
     const index = query.focusId ? visible.findIndex((item) => item.id === query.focusId) : -1;
     const page = index >= 0 ? Math.floor(index / query.pageSize) + 1 : Math.min(query.page, Math.max(1, Math.ceil(visible.length / query.pageSize)));
     return { items: visible.slice((page - 1) * query.pageSize, page * query.pageSize), total: visible.length, page, pageSize: query.pageSize };
   }
   const where: Prisma.ExamWhereInput = {
     classId: query.classId,
+    title: query.search ? { contains: query.search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } : undefined,
     ...(learner ? { hidden: false, status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
       : role === "INSTRUCTOR" ? { class: { instructors: { some: { instructorId: actorId } } } } : {}),
   };
@@ -52,11 +55,12 @@ export async function listExamPage(context: LearningServiceContext, role: string
     if (query.focusId) {
       const focus = await transaction.exam.findFirst({ where: { ...where, id: query.focusId }, select: { id: true, openAt: true } });
       if (focus) {
-        const before = await transaction.exam.count({ where: { AND: [where, { OR: [{ openAt: { gt: focus.openAt } }, { openAt: focus.openAt, id: { gt: focus.id } }] }] } });
+        const before = await transaction.exam.count({ where: { AND: [where, { OR: [{ openAt: ascending ? { lt: focus.openAt } : { gt: focus.openAt } }, { openAt: focus.openAt, id: ascending ? { lt: focus.id } : { gt: focus.id } }] }] } });
         page = Math.floor(before / query.pageSize) + 1;
       }
     }
-    const window = { where, skip: (page - 1) * query.pageSize, take: query.pageSize, orderBy: [{ openAt: "desc" as const }, { id: "desc" as const }] };
+    const direction: Prisma.SortOrder = ascending ? "asc" : "desc";
+    const window = { where, skip: (page - 1) * query.pageSize, take: query.pageSize, orderBy: [{ openAt: direction }, { id: direction }] };
     if (learner) {
       const rows = await transaction.exam.findMany({ ...window, include: {
         _count: { select: { questions: true, attempts: { where: { learnerId: actorId } } } },

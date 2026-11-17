@@ -1,114 +1,55 @@
-import { describe, expect, it, vi } from "vitest";
-import type { Exam } from "@/lib/learning-types";
-import { loadClassExams } from "@/lib/class-exams";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
+import { useClassExamPage } from "@/lib/class-exams";
 
-const { mockApiRequest } = vi.hoisted(() => ({
-  mockApiRequest: vi.fn(),
-}));
+const { request } = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock("@/lib/api-client", () => ({ apiRequest: request }));
+beforeEach(() => { request.mockReset(); });
 
-vi.mock("@/lib/api-client", () => ({
-  apiRequest: mockApiRequest,
-}));
-
-// Tạo đề thi giả lập phục vụ kiểm thử tải phân trang song song.
-function makeExam(index: number, classId = "class-1"): Exam {
-  return {
-    id: `exam-${index}`,
-    classId,
-    title: `Đề thi số ${index}`,
-    questionIds: ["q-1"],
-    totalScore: 10,
-    durationMinutes: 15,
-    attemptLimit: 1,
-    openAt: "2026-01-01T00:00:00Z",
-    closeAt: "2026-12-31T23:59:59Z",
-    status: "PUBLISHED",
-    hidden: false,
-    version: 1,
-  };
-}
-
-// Tạo danh sách gồm nhiều phần tử giả lập cho một trang API.
-function makePageItems(startIndex: number, count: number): Exam[] {
-  return Array.from({ length: count }, (_, offset) => makeExam(startIndex + offset));
-}
-
-describe("loadClassExams", () => {
-  it("gọi onProgress ngay sau trang đầu tiên (1 RTT) trước khi các trang sau hoàn tất", async () => {
-    mockApiRequest.mockReset();
-    let releasePage2!: (value: { items: Exam[]; total: number; pageSize: number; page: number }) => void;
-    const page2Promise = new Promise<{ items: Exam[]; total: number; pageSize: number; page: number }>((resolve) => {
-      releasePage2 = resolve;
-    });
-
-    mockApiRequest.mockImplementation(async (url: string) => {
-      const page = Number(new URLSearchParams(url.split("?")[1]).get("page"));
-      if (page === 1) {
-        return { items: makePageItems(1, 100), total: 101, pageSize: 100, page: 1 };
-      }
-      return page2Promise;
-    });
-
-    const controller = new AbortController();
-    const progressSnapshots: number[] = [];
-    const loadPromise = loadClassExams("class-1", "INSTRUCTOR", controller.signal, {
-      onProgress: (exams) => progressSnapshots.push(exams.length),
-    });
-
-    await vi.waitFor(() => {
-      expect(progressSnapshots).toEqual([100]);
-    });
-
-    releasePage2({ items: [makeExam(101)], total: 101, pageSize: 100, page: 2 });
-    const allExams = await loadPromise;
-    expect(allExams).toHaveLength(101);
-    expect(progressSnapshots).toEqual([100, 101]);
+it("chỉ lấy trang yêu cầu trong lớp 501 đề và tìm trên toàn lớp", async () => {
+  request.mockImplementation(async (url: string) => {
+    const query = new URLSearchParams(url.split("?")[1]);
+    const page = Number(query.get("page"));
+    return { page, pageSize: 20, total: query.has("search") ? 1 : 501,
+      items: [{ id: query.get("search") ?? String(page), classId: "c1" }, { id: "other", classId: "c2" }] };
   });
+  const { result, rerender } = renderHook(({ search, active }) => useClassExamPage("c1", "INSTRUCTOR", active, search, "newest", vi.fn()),
+    { initialProps: { search: "", active: false } });
+  expect(request).not.toHaveBeenCalled();
+  rerender({ search: "", active: true });
+  await waitFor(() => expect(result.current.rows.map(row => row.id)).toEqual(["1"]));
+  expect(result.current.total).toBe(501);
+  expect(request).toHaveBeenCalledTimes(1);
+  act(() => result.current.setPage(2));
+  await waitFor(() => expect(result.current.rows[0]?.id).toBe("2"));
+  rerender({ search: "Đề 501", active: true });
+  await waitFor(() => expect(result.current.rows[0]?.id).toBe("Đề 501"));
+  expect(result.current.page).toBe(1);
+  expect(result.current.total).toBe(1);
+  expect(request).toHaveBeenCalledTimes(3);
+});
 
-  it("tải song song có giới hạn concurrency đối với lớp có 501 đề (6 trang)", async () => {
-    mockApiRequest.mockReset();
-    let inFlight = 0;
-    let maxInFlight = 0;
+it("bỏ kết quả cũ đến sau khi đã chuyển lớp", async () => {
+  let finishOld!: (data: unknown) => void;
+  request.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }));
+  request.mockResolvedValueOnce({ items: [{ id: "new", classId: "c2" }], total: 1, page: 1 });
+  const { result, rerender } = renderHook(({ id }) => useClassExamPage(id, "INSTRUCTOR", true, "", "newest", vi.fn()), { initialProps: { id: "c1" } });
+  const signal = request.mock.calls[0]![1].signal as AbortSignal;
+  rerender({ id: "c2" });
+  await waitFor(() => expect(result.current.rows[0]?.id).toBe("new"));
+  expect(signal.aborted).toBe(true);
+  await act(async () => { finishOld({ items: [{ id: "old", classId: "c1" }], total: 10, page: 1 }); });
+  expect(result.current.total).toBe(1);
+  expect(result.current.rows[0]?.id).toBe("new");
+});
 
-    mockApiRequest.mockImplementation(async (url: string) => {
-      const page = Number(new URLSearchParams(url.split("?")[1]).get("page"));
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await Promise.resolve();
-      inFlight -= 1;
-      const count = page === 6 ? 1 : 100;
-      return {
-        items: makePageItems((page - 1) * 100 + 1, count),
-        total: 501,
-        pageSize: 100,
-        page,
-      };
-    });
-
-    const controller = new AbortController();
-    const exams = await loadClassExams("class-1", "INSTRUCTOR", controller.signal, { concurrency: 4 });
-    expect(exams).toHaveLength(501);
-    expect(mockApiRequest).toHaveBeenCalledTimes(6);
-    expect(maxInFlight).toBeGreaterThan(1);
-    expect(maxInFlight).toBeLessThanOrEqual(4);
-  });
-
-  it("dừng tải các đợt tiếp theo khi AbortSignal bị hủy", async () => {
-    mockApiRequest.mockReset();
-    const controller = new AbortController();
-
-    mockApiRequest.mockImplementation(async (url: string) => {
-      const page = Number(new URLSearchParams(url.split("?")[1]).get("page"));
-      if (page === 1) {
-        return { items: makePageItems(1, 100), total: 650, pageSize: 100, page: 1 };
-      }
-      controller.abort();
-      return { items: makePageItems((page - 1) * 100 + 1, 100), total: 650, pageSize: 100, page };
-    });
-
-    const exams = await loadClassExams("class-1", "INSTRUCTOR", controller.signal, { concurrency: 2 });
-    expect(exams).toHaveLength(100);
-    // Chỉ gọi trang 1 + batch đầu tiên (trang 2, 3), không gọi sang batch trang 4..7.
-    expect(mockApiRequest).toHaveBeenCalledTimes(3);
-  });
+it("phục hồi trang đề khi tải lại sau lỗi API", async () => {
+  const onError = vi.fn();
+  request.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ items: [], total: 0, page: 1 });
+  const { result } = renderHook(() => useClassExamPage("c1", "INSTRUCTOR", true, "", "oldest", onError));
+  await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+  act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(request.mock.calls[1]?.[0]).toContain("sort=oldest");
 });

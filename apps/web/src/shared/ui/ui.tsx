@@ -196,6 +196,7 @@ export function Pagination({
   onPageSizeChange,
   itemLabel = "mục",
   className = "",
+  compact = false,
 }: {
   totalItems: number;
   page: number;
@@ -204,6 +205,7 @@ export function Pagination({
   onPageSizeChange: (pageSize: number) => void;
   itemLabel?: string;
   className?: string;
+  compact?: boolean;
 }) {
   const { t, locale } = useI18n();
   const isEn = locale === "en-US";
@@ -216,9 +218,9 @@ export function Pagination({
   return (
     <nav
       aria-label={isEn ? `Pagination for ${t(itemLabel)}` : `Phân trang ${itemLabel}`}
-      className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-center relative ${className}`}
+      className={`mt-5 flex flex-col gap-3 border-t border-slate-200 dark:border-slate-800 pt-4 relative ${compact ? "" : "sm:flex-row sm:items-center sm:justify-center"} ${className}`}
     >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 sm:absolute sm:left-0">
+      <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 ${compact ? "" : "sm:absolute sm:left-0"}`}>
         <span aria-live="polite">
           {isEn ? (
             <>

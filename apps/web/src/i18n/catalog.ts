@@ -1221,6 +1221,7 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Phản hồi tìm kiếm học liệu không hợp lệ.": "Invalid material search response.",
   "Tham số kind không hợp lệ.": "Invalid kind parameter.",
   "Tham số status không hợp lệ.": "Invalid status parameter.",
+  "Thứ tự sắp xếp không hợp lệ.": "Invalid sort order.",
   "Chỉ giảng viên mới được xem danh sách học viên lớp phụ trách.": "Only instructors may view learners in their assigned classes.",
   "Chỉ giảng viên mới được xem danh sách lớp giảng dạy.": "Only instructors may view their teaching class list.",
   "Chỉ học viên mới được xem danh sách lớp đã ghi danh.": "Only learners may view their enrolled class list.",
