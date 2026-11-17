@@ -1,32 +1,50 @@
 import { BadRequestException } from "@nestjs/common";
 import mammoth from "mammoth";
+import sanitizeHtml from "sanitize-html";
 import { validateDocxArchive } from "../../../../infrastructure/validate-docx-archive.js";
 import type { AttachmentDocumentPreview } from "../../academic/academic.shared.js";
 
 const PREVIEW_TEXT_LIMIT = 200_000;
 const ALLOWED_HTML_IMG_SRC = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+$/i;
 const ALLOWED_LINK_HREF = /^(?:https?:\/\/|mailto:|#)/i;
-const BLOCKED_TAGS = /<(script|style|iframe|object|embed|svg|form|meta|link|base|noscript)\b[\s\S]*?<\/\1>|<(script|style|iframe|object|embed|svg|form|meta|link|base|noscript|input|button|textarea|select)\b[^>]*\/?>/gi;
-const EVENT_ATTRS = /\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
-const RAW_ATTR_SRC_OR_HREF = /\s+(src|href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
-
-/** Làm sạch HTML sinh ra từ tài liệu văn phòng để hiển thị trực tiếp trên UI mà không dính XSS. */
+/** Giữ định dạng văn bản, liên kết an toàn và ảnh raster nhúng trong bản xem trước. */
 export function sanitizePreviewHtml(rawHtml: string): string {
-  const withoutBlocked = rawHtml.replace(BLOCKED_TAGS, "");
-  const withoutEvents = withoutBlocked.replace(EVENT_ATTRS, "");
-  return withoutEvents.replace(
-    RAW_ATTR_SRC_OR_HREF,
-    (_full, attrName: string, dblQuoted: string | undefined, sglQuoted: string | undefined) => {
-      const value = (dblQuoted ?? sglQuoted ?? "").trim();
-      const lowerAttr = attrName.toLowerCase();
-      if (lowerAttr === "src") {
-        if (!ALLOWED_HTML_IMG_SRC.test(value)) return "";
-        return ` src="${value.replace(/"/g, "&quot;")}"`;
-      }
-      if (!ALLOWED_LINK_HREF.test(value)) return "";
-      return ` href="${value.replace(/"/g, "&quot;")}" target="_blank" rel="noopener noreferrer"`;
+  return sanitizeHtml(rawHtml, {
+    allowedTags: [
+      "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i",
+      "u", "s", "del", "sup", "sub", "ol", "ul", "li", "blockquote", "pre", "code",
+      "table", "thead", "tbody", "tfoot", "tr", "th", "td", "a", "img",
+    ],
+    allowedAttributes: {
+      a: ["href", "target", "rel", "id"],
+      img: ["src", "alt"],
+      th: ["colspan", "rowspan"],
+      td: ["colspan", "rowspan"],
+      ol: ["start"],
+      li: ["id"],
     },
-  );
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesByTag: { img: ["data"] },
+    allowProtocolRelative: false,
+    transformTags: {
+      li: (tagName, attrs) => ({
+        tagName,
+        attribs: attrs.id ? { id: `doc-preview-${attrs.id}` } : attrs,
+      }),
+      a: (tagName, attrs) => {
+        const attribs: Record<string, string> = {};
+        if (attrs.id) attribs.id = `doc-preview-${attrs.id}`;
+        if (attrs.href && ALLOWED_LINK_HREF.test(attrs.href)) {
+          attribs.href = attrs.href.startsWith("#") ? `#doc-preview-${attrs.href.slice(1)}` : attrs.href;
+          attribs.target = "_blank";
+          attribs.rel = "noopener noreferrer";
+        }
+        return { tagName, attribs };
+      },
+    },
+    exclusiveFilter: (frame) =>
+      frame.tag === "img" && !ALLOWED_HTML_IMG_SRC.test(frame.attribs.src ?? ""),
+  });
 }
 
 /** Giải mã văn bản thuần từ tệp TXT với fallback UTF-8 an toàn, bỏ ký tự điều khiển nhiễu. */
@@ -118,7 +136,7 @@ export async function buildDocumentPreview(file: {
   ) {
     await validateDocxArchive(file.buffer);
     try {
-      const result = await mammoth.convertToHtml({ buffer: file.buffer });
+      const result = await mammoth.convertToHtml({ buffer: file.buffer }, { includeEmbeddedStyleMap: false });
       return {
         kind: "html",
         fileName: file.fileName,
