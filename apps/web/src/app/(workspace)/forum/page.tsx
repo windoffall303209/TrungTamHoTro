@@ -579,9 +579,9 @@ export default function ForumPage() {
 
             {/* Tiêu đề & Nội dung đầy đủ */}
             <div>
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                 {selected.title}
-              </h1>
+              </h2>
               <div className="mt-3 text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-line">
                 {selected.body}
               </div>
