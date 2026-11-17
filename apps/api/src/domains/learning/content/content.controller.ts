@@ -526,31 +526,43 @@ export class ContentController {
   @Get("instructor/regrade-requests") @RequirePermissions("exam:manage")
   /** Liệt kê hàng đợi phúc khảo thuộc các lớp giảng viên phụ trách. */
   listRegradeRequests(@CurrentSession() session: AuthenticatedSession, @Query("status") status?: RegradeRequest["status"]): Promise<RegradeRequest[]> {
+    this.assertInstructorMutation(session);
     return this.learning.listRegradeRequests(session.user.id, status);
   }
 
   @Post("instructor/regrade-requests/:requestId/claim") @RequirePermissions("exam:manage")
   /** Nhận xử lý độc quyền một yêu cầu phúc khảo đang mở. */
   claimRegrade(@Param("requestId") requestId: string, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    this.assertInstructorMutation(session);
     return this.learning.claimRegrade(requestId, session.user.id);
   }
 
   @Patch("instructor/regrade-requests/:requestId/resolve") @RequirePermissions("exam:manage")
   /** Chấp thuận hoặc từ chối phúc khảo, đồng bộ điểm và lịch sử khi chấp thuận. */
   resolveRegrade(@Param("requestId") requestId: string, @Body() input: ResolveRegradeDto, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    this.assertInstructorMutation(session);
     return this.learning.resolveRegrade(requestId, input, session.user.id);
   }
 
   @Get("instructor/exam-attempts") @RequirePermissions("exam:manage")
   /** Liệt kê lượt thi trong các lớp giảng viên phụ trách, có thể lọc theo đề. */
-  listAttempts(@CurrentSession() session: AuthenticatedSession, @Query("examId") examId?: string): Promise<ExamAttempt[]> { return this.learning.listAttempts(examId, session.user.id); }
+  listAttempts(@CurrentSession() session: AuthenticatedSession, @Query("examId") examId?: string): Promise<ExamAttempt[]> {
+    this.assertInstructorMutation(session);
+    return this.learning.listAttempts(examId, session.user.id);
+  }
 
   @Get("instructor/exam-attempts/:attemptId/review") @RequirePermissions("exam:manage")
   /** Trả đề, đáp án và điểm từng câu để giảng viên chấm trong đúng phạm vi lớp. */
-  reviewAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttemptReview> { return this.learning.getAttemptReview(attemptId, session.user.id); }
+  reviewAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttemptReview> {
+    this.assertInstructorMutation(session);
+    return this.learning.getAttemptReview(attemptId, session.user.id);
+  }
 
   @Patch("instructor/exam-attempts/:attemptId/grade") @RequirePermissions("exam:manage")
   /** Chấm hoặc sửa điểm lượt thi và ghi lý do hiệu chỉnh vào lịch sử. */
-  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id, input.questionScores); }
+  gradeAttempt(@Param("attemptId") attemptId: string, @Body() input: GradeAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> {
+    this.assertInstructorMutation(session);
+    return this.learning.gradeAttempt(attemptId, input.score, input.feedback, input.correctionReason, session.user.id, input.questionScores);
+  }
 
 }

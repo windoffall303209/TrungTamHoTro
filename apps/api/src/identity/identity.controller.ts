@@ -49,7 +49,7 @@ export class IdentityController {
     @Body() input: CreateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.createUser(input, session.roleCode);
+    return this.identityService.createUser(input, session.roleCode, session.user.id);
   }
 
   @Get("users/:userId/change-impact")
@@ -88,11 +88,15 @@ export class IdentityController {
   updateRolePermissions(
     @Param("roleCode") roleCode: UpdateRolePermissionsDto["roleCode"],
     @Body() input: UpdatePermissionsBodyDto,
+    @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityRole> {
-    return this.identityService.updateRolePermissions({
-      roleCode,
-      permissions: input.permissions,
-    });
+    return this.identityService.updateRolePermissions(
+      {
+        roleCode,
+        permissions: input.permissions,
+      },
+      session.user.id,
+    );
   }
 
 }

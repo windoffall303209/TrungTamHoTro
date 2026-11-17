@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import { id, now } from "../../core/learning.shared.js";
@@ -16,7 +17,12 @@ export async function getClassProgress(
   serviceContext: LearningServiceContext,
   classId: string,
   input: { from?: string; to?: string } & Partial<RiskThresholds>,
+  actorId = "usr-manager",
+  actorRole = "CENTER_MANAGER",
 ): Promise<ClassProgressReport> {
+  if (!["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR"].includes(actorRole)) {
+    throw new ForbiddenException("Không có quyền xem báo cáo tiến độ lớp học.");
+  }
   const { from, to } = serviceContext.reportingPeriod(input.from, input.to);
   const thresholds: RiskThresholds = {
     scoreBelow: input.scoreBelow ?? 50,
@@ -25,8 +31,13 @@ export async function getClassProgress(
   serviceContext.validateRiskThresholds(thresholds);
   const prisma = serviceContext.database();
   if (prisma) {
-    const classItem = await prisma.learningClass.findUnique({
-      where: { id: classId },
+    const classItem = await prisma.learningClass.findFirst({
+      where: {
+        id: classId,
+        ...(actorRole === "INSTRUCTOR"
+          ? { instructors: { some: { instructorId: actorId } } }
+          : {}),
+      },
       include: {
         enrollments: { where: { status: "ACTIVE" } },
         exams: {
@@ -138,6 +149,9 @@ export async function getClassProgress(
     };
   }
   const classItem = serviceContext.findClass(classId);
+  if (actorRole === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId)) {
+    throw new NotFoundException("Không tìm thấy lớp học.");
+  }
   const exams = serviceContext.exams.filter(
     (exam) =>
       exam.classId === classId &&
@@ -211,7 +225,11 @@ export async function createProgressIntervention(
     "learnerId" | "title" | "notes" | "dueAt"
   > & { assigneeId: string },
   createdById = "usr-manager",
+  actorRole = "CENTER_MANAGER",
 ): Promise<ProgressIntervention> {
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
+    throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép tạo hành động hỗ trợ.");
+  }
   const dueAt = new Date(input.dueAt);
   if (Number.isNaN(dueAt.getTime()) || dueAt <= new Date())
     throw new BadRequestException("Hạn hành động hỗ trợ phải ở tương lai.");
@@ -473,7 +491,11 @@ export async function transferProgressIntervention(
   assigneeId: string,
   rawReason: string,
   actorId = "usr-manager",
+  actorRole = "CENTER_MANAGER",
 ): Promise<ProgressIntervention> {
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
+    throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép bàn giao hành động hỗ trợ.");
+  }
   const reason = rawReason.trim();
   if (reason.length < 5)
     throw new BadRequestException("Lý do bàn giao cần ít nhất 5 ký tự.");

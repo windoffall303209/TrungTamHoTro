@@ -1970,11 +1970,15 @@ export class LearningService {
   async getClassProgress(
     classId: string,
     input: { from?: string; to?: string } & Partial<RiskThresholds>,
+    actorId = "usr-manager",
+    actorRole = "CENTER_MANAGER",
   ): Promise<ClassProgressReport> {
     return await progress_ops.getClassProgress(
       this.operationContext,
       classId,
       input,
+      actorId,
+      actorRole,
     );
   }
 
@@ -1986,12 +1990,14 @@ export class LearningService {
       "learnerId" | "title" | "notes" | "dueAt"
     > & { assigneeId: string },
     createdById = "usr-manager",
+    actorRole = "CENTER_MANAGER",
   ): Promise<ProgressIntervention> {
     return await progress_ops.createProgressIntervention(
       this.operationContext,
       classId,
       input,
       createdById,
+      actorRole,
     );
   }
 
@@ -2031,6 +2037,7 @@ export class LearningService {
     assigneeId: string,
     rawReason: string,
     actorId = "usr-manager",
+    actorRole = "CENTER_MANAGER",
   ): Promise<ProgressIntervention> {
     return await progress_ops.transferProgressIntervention(
       this.operationContext,
@@ -2038,6 +2045,7 @@ export class LearningService {
       assigneeId,
       rawReason,
       actorId,
+      actorRole,
     );
   }
 

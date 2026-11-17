@@ -192,18 +192,32 @@ export async function gradeAttempt(
           },
         });
       }
-      return serviceContext.mapAttempt(
-        await transaction.examAttempt.update({
-          where: { id: attemptId },
-          data: {
+      const updatedAttempt = await transaction.examAttempt.update({
+        where: { id: attemptId },
+        data: {
+          score: nextScore,
+          feedback: feedback.trim(),
+          status: "GRADED",
+          gradePublishedAt: new Date(),
+        },
+        include: { answers: true },
+      });
+      await transaction.auditLog.create({
+        data: {
+          actorId: graderId,
+          action: isFirstPublishedGrade ? "EXAM_ATTEMPT_GRADED" : "EXAM_GRADE_CORRECTED",
+          entityType: "exam_attempt",
+          entityId: attemptId,
+          context: {
+            examId: attempt.examId,
+            learnerId: attempt.learnerId,
+            previousScore: attempt.score !== null ? Number(attempt.score) : null,
             score: nextScore,
-            feedback: feedback.trim(),
-            status: "GRADED",
-            gradePublishedAt: new Date(),
+            reason,
           },
-          include: { answers: true },
-        }),
-      );
+        },
+      });
+      return serviceContext.mapAttempt(updatedAttempt);
     });
   }
   const item = serviceContext.findAttempt(attemptId);

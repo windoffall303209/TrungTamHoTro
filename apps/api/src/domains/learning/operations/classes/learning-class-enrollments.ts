@@ -16,9 +16,8 @@ export async function enrollLearner(
   serviceContext: LearningServiceContext,
   classId: string,
   learnerId: string,
-  _actorId = "usr-manager",
+  actorId = "usr-manager",
 ): Promise<LearningClass> {
-  void _actorId;
   const prisma = serviceContext.database();
   if (prisma) {
     await serviceContext.requireUserRole(
@@ -67,6 +66,15 @@ export async function enrollLearner(
             entityType: "CLASS",
             entityId: classId,
             dedupKey: `class-enrolled:${classId}:${learnerId}`,
+          },
+        });
+        await transaction.auditLog.create({
+          data: {
+            actorId,
+            action: "CLASS_ENROLLMENT_ADDED",
+            entityType: "learning_class",
+            entityId: classId,
+            context: { learnerId },
           },
         });
         return serviceContext.getDatabaseClass(transaction, classId);
@@ -151,9 +159,8 @@ export async function removeEnrollment(
   classId: string,
   learnerId: string,
   reason: string,
-  _actorId = "usr-manager",
+  actorId = "usr-manager",
 ): Promise<LearningClass> {
-  void _actorId;
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)
     throw new BadRequestException("Lý do gỡ học viên cần ít nhất 5 ký tự.");
@@ -184,6 +191,15 @@ export async function removeEnrollment(
           entityType: "CLASS",
           entityId: classId,
           dedupKey: `enrollment-removed:${classId}:${learnerId}`,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          actorId,
+          action: "CLASS_ENROLLMENT_REMOVED",
+          entityType: "learning_class",
+          entityId: classId,
+          context: { learnerId, reason: normalizedReason },
         },
       }),
     ]);

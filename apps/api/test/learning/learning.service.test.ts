@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
@@ -824,6 +825,31 @@ describe("LearningService", () => {
         "usr-manager",
       ),
     ).rejects.toThrow("giảng viên");
+    await expect(
+      service.getClassProgress("class-web-01", {}, "usr-outside", "INSTRUCTOR"),
+    ).rejects.toThrow(NotFoundException);
+    await expect(
+      service.createProgressIntervention(
+        "class-web-01",
+        {
+          learnerId: "usr-learner",
+          assigneeId: "usr-instructor",
+          title: "Giảng viên không được tự tạo",
+          dueAt: "2027-02-10T10:00:00.000Z",
+        },
+        "usr-instructor",
+        "INSTRUCTOR",
+      ),
+    ).rejects.toThrow(ForbiddenException);
+    await expect(
+      service.transferProgressIntervention(
+        intervention.id,
+        "usr-instructor",
+        "Không đủ thẩm quyền bàn giao",
+        "usr-instructor",
+        "INSTRUCTOR",
+      ),
+    ).rejects.toThrow(ForbiddenException);
   });
 
   it("lưu bytes, cấp liên kết có chữ ký và kiểm tra checksum khi tải học liệu", async () => {

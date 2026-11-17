@@ -113,6 +113,15 @@ export async function assignInstructor(
           dedupKey: `instructor-assigned:${classId}:${instructorId}:${role}`,
         },
       });
+      await transaction.auditLog.create({
+        data: {
+          actorId,
+          action: "CLASS_INSTRUCTOR_ASSIGNED",
+          entityType: "learning_class",
+          entityId: classId,
+          context: { instructorId, role },
+        },
+      });
     });
     return serviceContext.getDatabaseClass(prisma, classId);
   }
@@ -300,9 +309,8 @@ export async function removeInstructor(
   classId: string,
   instructorId: string,
   reason: string,
-  _actorId = "usr-manager",
+  actorId = "usr-manager",
 ): Promise<LearningClass> {
-  void _actorId;
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)
     throw new BadRequestException("Lý do gỡ phân công cần ít nhất 5 ký tự.");
@@ -334,6 +342,15 @@ export async function removeInstructor(
           entityType: "CLASS",
           entityId: classId,
           dedupKey: `instructor-removed:${classId}:${instructorId}`,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          actorId,
+          action: "CLASS_INSTRUCTOR_REMOVED",
+          entityType: "learning_class",
+          entityId: classId,
+          context: { instructorId, reason: normalizedReason },
         },
       }),
     ]);

@@ -210,6 +210,7 @@ export class IdentityService {
   async createUser(
     input: CreateUserDto,
     actorRoleCode: RoleCode,
+    actorId?: string,
   ): Promise<IdentityUser> {
     const normalizedUsername = input.username.trim().toLowerCase();
     const roleCodes = [...new Set(input.roleCodes?.length ? input.roleCodes : [input.roleCode])];
@@ -242,6 +243,19 @@ export class IdentityService {
               },
             },
             include: { roles: { include: { role: true } } },
+          });
+          await transaction.auditLog.create({
+            data: {
+              actorId: actorId ?? null,
+              action: "USER_CREATED",
+              entityType: "user",
+              entityId: user.id,
+              context: {
+                username: user.username,
+                roleCodes,
+                status: user.status,
+              },
+            },
           });
           return user;
         });
@@ -433,6 +447,22 @@ export class IdentityService {
             data: { consumedAt: new Date() },
           });
         }
+        await transaction.auditLog.create({
+          data: {
+            actorId,
+            action: "USER_UPDATED",
+            entityType: "user",
+            entityId: userId,
+            context: {
+              previousStatus: current.status,
+              status: updated.status,
+              previousRoles: current.roles.map(({ role }) => role.code),
+              roleCodes: updated.roles.map(({ role }) => role.code),
+              handoffUserId: input.handoffUserId ?? null,
+              handoffReason: input.handoffReason?.trim() ?? null,
+            },
+          },
+        });
         return this.mapUser(updated);
       });
     }
@@ -499,6 +529,7 @@ export class IdentityService {
   /** Thay thế tập quyền nguyên tử, giữ quyền tự quản trị bắt buộc và tăng version để theo dõi thay đổi. */
   async updateRolePermissions(
     input: UpdateRolePermissionsDto,
+    actorId?: string,
   ): Promise<IdentityRole> {
     if (
       input.roleCode === "SYSTEM_ADMIN" &&
@@ -543,6 +574,19 @@ export class IdentityService {
         const updated = await transaction.role.findUniqueOrThrow({
           where: { id: role.id },
           include: { permissions: { include: { permission: true } } },
+        });
+        await transaction.auditLog.create({
+          data: {
+            actorId: actorId ?? null,
+            action: "ROLE_PERMISSIONS_UPDATED",
+            entityType: "role",
+            entityId: role.id,
+            context: {
+              roleCode: role.code,
+              version: updated.version,
+              permissions: uniquePermissions,
+            },
+          },
         });
         return this.mapRole(updated);
       });
