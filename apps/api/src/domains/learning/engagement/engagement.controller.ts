@@ -256,12 +256,12 @@ export class EngagementController {
   }
 
   @Get("manager/classes/:classId/progress") @RequirePermissions("report:view")
-  /** Tính tiến độ lớp và phân nhóm rủi ro theo các ngưỡng query. */
-  getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input); }
+  /** Tính tiến độ lớp và phân nhóm rủi ro theo các ngưỡng query, ràng buộc lớp phụ trách nếu là giảng viên. */
+  getClassProgress(@Param("classId") classId: string, @Query() input: ProgressQueryDto, @CurrentSession() session: AuthenticatedSession): Promise<ClassProgressReport> { return this.learning.getClassProgress(classId, input, session.user.id, session.roleCode); }
 
   @Post("manager/classes/:classId/progress/interventions") @RequirePermissions("report:view")
   /** Tạo biện pháp hỗ trợ cho học viên được phát hiện cần can thiệp. */
-  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input, session.user.id); }
+  createProgressIntervention(@Param("classId") classId: string, @Body() input: CreateProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.createProgressIntervention(classId, input, session.user.id, session.roleCode); }
 
   @Get("progress/interventions/mine") @RequirePermissions("report:view")
   /** Liệt kê các hành động hỗ trợ mà người dùng hiện tại đang chịu trách nhiệm. */
@@ -273,5 +273,5 @@ export class EngagementController {
 
   @Patch("manager/progress/interventions/:interventionId/transfer") @RequirePermissions("report:view")
   /** Bàn giao hành động hỗ trợ đang mở cho giảng viên khác trong cùng lớp. */
-  transferProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: TransferProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.transferProgressIntervention(interventionId, input.assigneeId, input.reason, session.user.id); }
+  transferProgressIntervention(@Param("interventionId") interventionId: string, @Body() input: TransferProgressInterventionDto, @CurrentSession() session: AuthenticatedSession): Promise<ProgressIntervention> { return this.learning.transferProgressIntervention(interventionId, input.assigneeId, input.reason, session.user.id, session.roleCode); }
 }

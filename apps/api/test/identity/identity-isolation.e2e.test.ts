@@ -176,6 +176,95 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
     expect(adminTickets).toEqual(expect.arrayContaining(ticketIds));
   });
 
+  it("chặn vượt quyền tiến độ lớp, phân giới vai trò khóa học/chấm thi và ghi audit danh tính", async () => {
+    const adminCookie = cookies.get("admin") ?? "";
+    const managerCookie = cookies.get("manager") ?? "";
+    const instructorACookie = cookies.get("instructorA") ?? "";
+    const instructorBCookie = cookies.get("instructorB") ?? "";
+    const learnerACookie = cookies.get("learnerA") ?? "";
+
+    // Kiểm tra tiến độ lớp & biện pháp hỗ trợ theo 4 vai trò và ranh giới lớp.
+    expect((await request(learnerACookie, `/manager/classes/${ids.classA}/progress`)).status).toBe(403);
+    expect((await request(instructorBCookie, `/manager/classes/${ids.classA}/progress`)).status).toBe(404);
+    expect((await request(instructorACookie, `/manager/classes/${ids.classA}/progress`)).status).toBe(200);
+    expect((await request(managerCookie, `/manager/classes/${ids.classA}/progress`)).status).toBe(200);
+
+    const futureDueAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    expect(
+      (
+        await request(instructorACookie, `/manager/classes/${ids.classA}/progress/interventions`, {
+          method: "POST",
+          body: {
+            learnerId: ids.learnerA,
+            assigneeId: ids.instructorA,
+            title: "Can thiệp vượt quyền",
+            dueAt: futureDueAt,
+          },
+        })
+      ).status,
+    ).toBe(403);
+
+    const createdIntervention = await request(managerCookie, `/manager/classes/${ids.classA}/progress/interventions`, {
+      method: "POST",
+      body: {
+        learnerId: ids.learnerA,
+        assigneeId: ids.instructorA,
+        title: "Hỗ trợ tiến độ E2E",
+        dueAt: futureDueAt,
+      },
+    });
+    expect(createdIntervention.status).toBe(201);
+    const interventionId = (createdIntervention.body as ApiEnvelope<ApiItem>).data.id;
+    expect(
+      (
+        await request(instructorACookie, `/manager/progress/interventions/${interventionId}/transfer`, {
+          method: "PATCH",
+          body: { assigneeId: ids.instructorB, reason: "Thử bàn giao trái quyền" },
+        })
+      ).status,
+    ).toBe(403);
+
+    // Chặn quản lý gọi route chuyên biệt giảng viên và tách /instructor/classes khỏi /learner/classes.
+    expect((await request(managerCookie, "/instructor/exam-attempts")).status).toBe(403);
+    expect((await request(managerCookie, "/instructor/regrade-requests")).status).toBe(403);
+    expect((await request(managerCookie, "/instructor/classes")).status).toBe(403);
+    expect((await request(learnerACookie, "/instructor/classes")).status).toBe(403);
+    expect((await request(instructorACookie, "/learner/classes")).status).toBe(403);
+
+    // Ghi audit đầy đủ khi quản trị viên tạo và khóa tài khoản.
+    const createdUserRes = await request(adminCookie, "/admin/users", {
+      method: "POST",
+      body: {
+        username: `audit-u-${fixtureSuffix}`,
+        roleCode: "LEARNER",
+        initialPassword: "TempAudit-2026!",
+      },
+    });
+    expect(createdUserRes.status).toBe(201);
+    const createdUserId = (createdUserRes.body as ApiEnvelope<ApiItem>).data.id;
+    try {
+      const impactRes = await request(adminCookie, `/admin/users/${createdUserId}/change-impact?status=LOCKED`);
+      expect(impactRes.status).toBe(200);
+      const impactToken = (impactRes.body as ApiEnvelope<{ token: string }>).data.token;
+      const lockRes = await request(adminCookie, `/admin/users/${createdUserId}`, {
+        method: "PATCH",
+        body: { status: "LOCKED", impactToken },
+      });
+      expect(lockRes.status).toBe(200);
+
+      const audits = await prisma.auditLog.findMany({
+        where: { entityType: "user", entityId: createdUserId },
+        orderBy: { id: "asc" },
+      });
+      expect(audits.map((row) => row.action)).toEqual(expect.arrayContaining(["USER_CREATED", "USER_UPDATED"]));
+      expect(audits.every((row) => row.actorId === ids.admin)).toBe(true);
+      expect(JSON.stringify(audits.map((row) => row.context))).not.toContain("TempAudit-2026!");
+    } finally {
+      await prisma.auditLog.deleteMany({ where: { entityType: "user", entityId: createdUserId } });
+      await prisma.user.deleteMany({ where: { id: createdUserId } });
+    }
+  });
+
   /** Đăng nhập tài khoản kiểm thử và xác nhận cookie cùng mã CSRF hợp lệ. */
   async function login(username: string): Promise<{ cookie: string; csrfToken: string }> {
     const response = await fetch(`${baseUrl}/auth/login`, {
@@ -299,6 +388,8 @@ async function createFixture(prisma: PrismaService): Promise<void> {
 
 /** Xóa đúng dữ liệu của bộ kiểm thử theo thứ tự quan hệ, giữ nguyên dữ liệu có sẵn. */
 async function cleanupFixture(prisma: PrismaService): Promise<void> {
+  await prisma.progressIntervention.deleteMany({ where: { classId: { in: classIds } } });
+  await prisma.notification.deleteMany({ where: { recipientId: { in: userIds } } });
   await prisma.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
   await prisma.learningClass.deleteMany({ where: { id: { in: classIds } } });
   await prisma.course.deleteMany({ where: { id: { in: courseIds } } });

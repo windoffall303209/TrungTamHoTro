@@ -555,6 +555,7 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { mfaEnabledAt: null, mfaSecretEncrypted: null } }),
       this.prisma.accountToken.update({ where: { id: challenge.id }, data: { consumedAt: new Date() } }),
+      this.prisma.auditLog.create({ data: { actorId: userId, action: "MFA_DISABLED", entityType: "user", entityId: userId } }),
     ]);
     return { disabled: true };
   }

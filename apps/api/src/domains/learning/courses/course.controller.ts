@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
@@ -83,15 +83,24 @@ export class CourseController {
 
   @Get("instructor/classes") @RequirePermissions("class:view")
   /** Liệt kê riêng các lớp giảng viên hiện tại được phân công. */
-  listInstructorClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses("INSTRUCTOR", session.user.id); }
+  listInstructorClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> {
+    if (session.roleCode !== "INSTRUCTOR") throw new ForbiddenException("Chỉ giảng viên mới được xem danh sách lớp giảng dạy.");
+    return this.learning.listClasses("INSTRUCTOR", session.user.id);
+  }
 
   @Get("instructor/classes/:classId/learners") @RequirePermissions("session:manage")
   /** Trả danh sách học viên của lớp sau khi xác minh giảng viên phụ trách. */
-  listInstructorClassLearners(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<DirectoryUser[]> { return this.learning.listInstructorClassLearners(classId, session.user.id); }
+  listInstructorClassLearners(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<DirectoryUser[]> {
+    if (session.roleCode !== "INSTRUCTOR") throw new ForbiddenException("Chỉ giảng viên mới được xem danh sách học viên lớp phụ trách.");
+    return this.learning.listInstructorClassLearners(classId, session.user.id);
+  }
 
   @Get("learner/classes") @RequirePermissions("class:view")
   /** Liệt kê các lớp học viên hiện tại đã ghi danh. */
-  listLearnerClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> { return this.learning.listClasses("LEARNER", session.user.id); }
+  listLearnerClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> {
+    if (session.roleCode !== "LEARNER") throw new ForbiddenException("Chỉ học viên mới được xem danh sách lớp đã ghi danh.");
+    return this.learning.listClasses("LEARNER", session.user.id);
+  }
 
   @Get("classes/:classId/capabilities") @RequirePermissions("class:view")
   /** Trả ma trận thao tác theo quyền thực tế, quan hệ lớp và trạng thái hiện tại. */
