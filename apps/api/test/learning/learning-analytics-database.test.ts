@@ -78,4 +78,59 @@ describe("database-backed exam analytics", () => {
       stat.responseCount === 800 && stat.correctRate === 100,
     )).toBe(true);
   });
+
+  it("skips querying examQuestion and attemptAnswer for open exams while computing closed exams granularly", async () => {
+    const openExam = {
+      id: "exam-open",
+      classId: "class",
+      title: "Open exam",
+      totalScore: 10,
+      closeAt: new Date("2100-01-01"),
+      attempts: [{ id: "att-open-1", score: 8 }],
+    };
+    const closedExam = {
+      id: "exam-closed",
+      classId: "class",
+      title: "Closed exam",
+      totalScore: 10,
+      closeAt: new Date("2025-01-01"),
+      attempts: [{ id: "att-closed-1", score: 10 }],
+    };
+    const examFindMany = vi.fn().mockResolvedValue([openExam]);
+    const examQuestionFindMany = vi.fn().mockResolvedValue([
+      { examId: "exam-closed", question: { id: "q-closed", difficulty: 1, correctAnswers: ["yes"] } },
+    ]);
+    const attemptAnswerFindMany = vi.fn().mockResolvedValue([
+      { attemptId: "att-closed-1", questionId: "q-closed", answerData: ["yes"] },
+    ]);
+    const granularContext = {
+      reportingPeriod: () => ({ from: new Date("2020-01-01"), to: new Date("2030-01-01") }),
+      database: () => ({
+        exam: { findMany: examFindMany },
+        examQuestion: { findMany: examQuestionFindMany },
+        attemptAnswer: { findMany: attemptAnswerFindMany },
+      }),
+      toStringArray: (value: unknown) => value as string[],
+    } as unknown as LearningServiceContext;
+
+    const openOnly = await getExamAnalytics(granularContext, { examId: "exam-open" });
+    expect(openOnly.exams[0]).toMatchObject({ sampleSize: 1, averagePercentage: 80, questionStatsAvailable: false, questionStats: [] });
+    expect(examQuestionFindMany).not.toHaveBeenCalled();
+    expect(attemptAnswerFindMany).not.toHaveBeenCalled();
+
+    examFindMany.mockResolvedValueOnce([openExam, closedExam]);
+    const mixed = await getExamAnalytics(granularContext, { classId: "class" });
+    expect(examQuestionFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { examId: { in: ["exam-closed"] } },
+    }));
+    expect(attemptAnswerFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { attemptId: { in: ["att-closed-1"] } },
+    }));
+    expect(mixed.exams[0]).toMatchObject({ examId: "exam-open", questionStatsAvailable: false, questionStats: [] });
+    expect(mixed.exams[1]).toMatchObject({
+      examId: "exam-closed",
+      questionStatsAvailable: true,
+      questionStats: [{ questionId: "q-closed", difficulty: 1, responseCount: 1, correctRate: 100 }],
+    });
+  });
 });
