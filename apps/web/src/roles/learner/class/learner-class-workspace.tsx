@@ -1107,9 +1107,9 @@ export function LearnerClassWorkspace({
 
             {/* Thông tin lớp học */}
             <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
                 {item.name || item.code}
-              </h2>
+              </h1>
               <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                 Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
               </p>
@@ -1186,7 +1186,7 @@ export function LearnerClassWorkspace({
             <section className="space-y-4" aria-label="Bảng điểm lớp học">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Bảng điểm tổng hợp ({item.name})</h1>
+                  <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Bảng điểm tổng hợp ({item.name})</h2>
                   <p className="text-xs text-slate-500">Điểm thi, điểm bài tập và trạng thái chấm bài của lớp. Chế độ chỉ xem.</p>
                 </div>
                 <div className="relative">

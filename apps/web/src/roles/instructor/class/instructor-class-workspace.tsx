@@ -2400,9 +2400,9 @@ export function InstructorClassWorkspace({
 
             {/* Thông tin lớp học */}
             <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
+              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
                 {item.name || item.code}
-              </h2>
+              </h1>
               <p className="text-[11px] text-slate-500 font-medium mt-0.5">
                 Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
               </p>
@@ -2519,9 +2519,9 @@ export function InstructorClassWorkspace({
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                   Thành viên lớp học ({learners.length} học sinh)
-                </h1>
+                </h2>
                 <p className="text-xs text-slate-500">Danh sách học sinh và giáo viên phụ trách trong lớp</p>
               </div>
               <div className="relative w-64">
@@ -2610,9 +2610,9 @@ export function InstructorClassWorkspace({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                   Vai trò & Phân quyền giảng dạy
-                </h1>
+                </h2>
                 <p className="text-xs text-slate-500">
                   Thêm đồng giáo viên hoặc trợ giảng để cùng chấm bài và quản lý lớp học
                 </p>
@@ -3029,9 +3029,9 @@ export function InstructorClassWorkspace({
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                   Bảng điểm tổng hợp ({item.name})
-                </h1>
+                </h2>
                 <p className="text-xs text-slate-500">
                   Điểm thi, điểm bài tập và trạng thái chấm bài được tổng hợp từ hệ thống.
                 </p>
@@ -3689,9 +3689,9 @@ export function InstructorClassWorkspace({
           <div className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                   Ngân hàng câu hỏi riêng lớp {item.name}
-                </h1>
+                </h2>
                 <p className="text-xs text-slate-500">
                   Tổng hợp tất cả câu hỏi được tách tự động từ bài tập và đề kiểm tra trong lớp này
                 </p>
@@ -3914,9 +3914,9 @@ export function InstructorClassWorkspace({
         {activeTab === "settings" && (
           <div className="space-y-4">
             <div>
-              <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
                 Cài đặt lớp học ({item.name})
-              </h1>
+              </h2>
               <p className="text-xs text-slate-500">
                 Điều chỉnh thông tin hiển thị, quy tắc bài tập và cấu hình thảo luận của lớp
               </p>

@@ -5,6 +5,7 @@ import { activeLocale } from "@/i18n/runtime";
 import { Archive, ArrowRight, BookOpen, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -343,6 +344,7 @@ export default function CoursesPage() {
       notify(error instanceof Error ? error.message : "Không kích hoạt được.", "error");
     }
   };
+  if (!allowed) return <AccessDenied />;
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
       <PageHeader
