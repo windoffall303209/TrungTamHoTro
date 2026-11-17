@@ -1,4 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
+import type { Prisma } from "../../../../generated/prisma/client.js";
 import { now } from "../../core/learning.shared.js";
 import type { ExamAnalytics } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
@@ -30,6 +31,73 @@ function summarizeGradedPercentages(
   };
 }
 
+interface AnalyticsQuestionItem {
+  id: string;
+  difficulty: number;
+  correctAnswers: Prisma.JsonValue;
+}
+
+interface AnalyticsAttemptAnswer {
+  questionId: string;
+  answerData: Prisma.JsonValue;
+}
+
+interface AnalyticsAttemptRow {
+  id?: string;
+  score: unknown;
+  answers?: AnalyticsAttemptAnswer[];
+}
+
+interface AnalyticsExamRow {
+  id: string;
+  classId: string;
+  title: string;
+  totalScore: unknown;
+  closeAt: Date;
+  questions?: Array<{ question: AnalyticsQuestionItem }>;
+  attempts: AnalyticsAttemptRow[];
+}
+
+/** Tính thống kê từng câu hỏi sau khi đề đã đóng dựa trên danh sách câu hỏi và bài làm đã nạp. */
+function computeExamQuestionStats(
+  serviceContext: LearningServiceContext,
+  questions: Array<{ question: AnalyticsQuestionItem }>,
+  attempts: Array<{ answers: AnalyticsAttemptAnswer[] }>,
+): ExamAnalytics["exams"][number]["questionStats"] {
+  const answersByAttempt = attempts.map((attempt) => {
+    const answers = new Map<string, AnalyticsAttemptAnswer>();
+    for (const answer of attempt.answers) {
+      // Giữ câu trả lời đầu tiên giống cách tìm bằng Array.find trước đây.
+      if (!answers.has(answer.questionId)) answers.set(answer.questionId, answer);
+    }
+    return answers;
+  });
+  return questions.map(({ question }) => {
+    const answers = answersByAttempt
+      .map((attemptAnswers) => attemptAnswers.get(question.id))
+      .filter((answer): answer is AnalyticsAttemptAnswer => Boolean(answer));
+    const correct = serviceContext
+      .toStringArray(question.correctAnswers)
+      .sort()
+      .join("\u0000");
+    const correctCount = answers.filter(
+      (answer) =>
+        serviceContext
+          .toStringArray(answer.answerData)
+          .sort()
+          .join("\u0000") === correct,
+    ).length;
+    return {
+      questionId: question.id,
+      difficulty: question.difficulty,
+      responseCount: answers.length,
+      correctRate: answers.length
+        ? Math.round((correctCount / answers.length) * 10_000) / 100
+        : 0,
+    };
+  });
+}
+
 /** Phân tích phân bố điểm, tỷ lệ hoàn thành và hiệu suất câu hỏi trong phạm vi giảng viên. */
 export async function getExamAnalytics(
   serviceContext: LearningServiceContext,
@@ -46,29 +114,90 @@ export async function getExamAnalytics(
   };
   const prisma = serviceContext.database();
   if (prisma) {
-    const rows = await prisma.exam.findMany({
-      where: {
-        id: input.examId || undefined,
-        classId: input.classId || undefined,
-        openAt: { lte: to },
-        closeAt: { gte: from },
-        class: { instructors: { some: { instructorId: actorId } } },
-      },
-      include: {
-        questions: {
-          include: { question: true },
-          orderBy: { position: "asc" },
-        },
-        attempts: {
-          where: {
-            submittedAt: { gte: from, lte: to },
-            status: { in: ["SUBMITTED", "GRADED"] },
+    const currentTimestamp = new Date();
+    const whereClause = {
+      id: input.examId || undefined,
+      classId: input.classId || undefined,
+      openAt: { lte: to },
+      closeAt: { gte: from },
+      class: { instructors: { some: { instructorId: actorId } } },
+    };
+    const attemptWhereClause = {
+      submittedAt: { gte: from, lte: to },
+      status: { in: ["SUBMITTED", "GRADED"] as Array<"SUBMITTED" | "GRADED"> },
+    };
+    const hasGranularDelegates =
+      typeof (prisma as unknown as { examQuestion?: { findMany?: unknown } }).examQuestion?.findMany === "function" &&
+      typeof (prisma as unknown as { attemptAnswer?: { findMany?: unknown } }).attemptAnswer?.findMany === "function";
+
+    const rows: AnalyticsExamRow[] = hasGranularDelegates
+      ? await prisma.exam.findMany({
+          where: whereClause,
+          select: {
+            id: true,
+            classId: true,
+            title: true,
+            totalScore: true,
+            closeAt: true,
+            attempts: {
+              where: attemptWhereClause,
+              select: { id: true, score: true },
+            },
           },
-          include: { answers: true },
-        },
-      },
-      orderBy: { openAt: "desc" },
-    });
+          orderBy: { openAt: "desc" },
+        })
+      : await prisma.exam.findMany({
+          where: whereClause,
+          include: {
+            questions: {
+              include: { question: true },
+              orderBy: { position: "asc" },
+            },
+            attempts: {
+              where: attemptWhereClause,
+              include: { answers: true },
+            },
+          },
+          orderBy: { openAt: "desc" },
+        });
+
+    const closedExams = rows.filter((exam) => currentTimestamp > exam.closeAt);
+    const questionsByExamId = new Map<string, Array<{ question: AnalyticsQuestionItem }>>();
+    const answersByAttemptId = new Map<string, AnalyticsAttemptAnswer[]>();
+
+    if (hasGranularDelegates && closedExams.length > 0) {
+      const closedExamIds = closedExams.map((exam) => exam.id);
+      const closedAttemptIds = closedExams.flatMap((exam) =>
+        exam.attempts.map((attempt) => attempt.id).filter((id): id is string => Boolean(id)),
+      );
+      const [examQuestions, attemptAnswers] = await Promise.all([
+        prisma.examQuestion.findMany({
+          where: { examId: { in: closedExamIds } },
+          orderBy: { position: "asc" },
+          select: {
+            examId: true,
+            question: { select: { id: true, difficulty: true, correctAnswers: true } },
+          },
+        }),
+        closedAttemptIds.length > 0
+          ? prisma.attemptAnswer.findMany({
+              where: { attemptId: { in: closedAttemptIds } },
+              select: { attemptId: true, questionId: true, answerData: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      for (const row of examQuestions) {
+        const list = questionsByExamId.get(row.examId);
+        if (list) list.push({ question: row.question });
+        else questionsByExamId.set(row.examId, [{ question: row.question }]);
+      }
+      for (const row of attemptAnswers) {
+        const list = answersByAttemptId.get(row.attemptId);
+        if (list) list.push({ questionId: row.questionId, answerData: row.answerData });
+        else answersByAttemptId.set(row.attemptId, [{ questionId: row.questionId, answerData: row.answerData }]);
+      }
+    }
+
     return {
       generatedAt: now(),
       filters: input,
@@ -80,42 +209,19 @@ export async function getExamAnalytics(
         const percentages = graded.map(
           (attempt) => (Number(attempt.score) / Number(exam.totalScore)) * 100,
         );
-        const questionStatsAvailable = new Date() > exam.closeAt;
-        const answersByAttempt = questionStatsAvailable
-          ? exam.attempts.map((attempt) => {
-              const answers = new Map<string, (typeof attempt.answers)[number]>();
-              for (const answer of attempt.answers) {
-                // Giữ câu trả lời đầu tiên giống cách tìm bằng Array.find trước đây.
-                if (!answers.has(answer.questionId)) answers.set(answer.questionId, answer);
-              }
-              return answers;
-            })
+        const questionStatsAvailable = currentTimestamp > exam.closeAt;
+        const examQuestions = questionStatsAvailable
+          ? (hasGranularDelegates ? (questionsByExamId.get(exam.id) ?? []) : (exam.questions ?? []))
+          : [];
+        const attemptAnswersList = questionStatsAvailable
+          ? exam.attempts.map((attempt) => ({
+              answers: hasGranularDelegates && attempt.id
+                ? (answersByAttemptId.get(attempt.id) ?? [])
+                : (attempt.answers ?? []),
+            }))
           : [];
         const questionStats = questionStatsAvailable
-          ? exam.questions.map(({ question }) => {
-              const answers = answersByAttempt
-                .map((attemptAnswers) => attemptAnswers.get(question.id))
-                .filter((answer) => Boolean(answer));
-              const correct = serviceContext
-                .toStringArray(question.correctAnswers)
-                .sort()
-                .join("\u0000");
-              const correctCount = answers.filter(
-                (answer) =>
-                  serviceContext
-                    .toStringArray(answer!.answerData)
-                    .sort()
-                    .join("\u0000") === correct,
-              ).length;
-              return {
-                questionId: question.id,
-                difficulty: question.difficulty,
-                responseCount: answers.length,
-                correctRate: answers.length
-                  ? Math.round((correctCount / answers.length) * 10_000) / 100
-                  : 0,
-              };
-            })
+          ? computeExamQuestionStats(serviceContext, examQuestions, attemptAnswersList)
           : [];
         return {
           examId: exam.id,
