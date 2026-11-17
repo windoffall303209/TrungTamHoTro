@@ -25,13 +25,7 @@ CREATE INDEX operational_jobs_kind_status_available_at_idx ON operational_jobs(k
 CREATE INDEX operational_jobs_kind_created_at_idx ON operational_jobs(kind,created_at);
 CREATE INDEX operational_jobs_kind_status_expires_at_idx ON operational_jobs(kind,status,expires_at);
 CREATE INDEX operational_jobs_backup_id_idx ON operational_jobs(backup_id);
-DROP TABLE report_runs, report_exports, attendance_appeals, attendance_intervals, attendance_records, content_reports, moderation_actions, moderation_policies, chat_message_reports, exam_approvals, assignment_changes, notification_templates, file_reviews;
+DROP TABLE report_runs, report_exports, attendance_appeals, attendance_intervals, attendance_records, content_reports, moderation_actions, moderation_policies, chat_message_reports, exam_approvals, assignment_changes, notification_templates;
 ALTER TABLE live_sessions DROP COLUMN attendance_locked_by_id, DROP COLUMN attendance_locked_at;
-ALTER TABLE assignments ALTER COLUMN status SET DEFAULT 'PUBLISHED';
-ALTER TABLE materials ALTER COLUMN visibility SET DEFAULT 'PUBLISHED';
-ALTER TABLE material_versions ALTER COLUMN visibility SET DEFAULT 'PUBLISHED';
 UPDATE exams SET status = 'DRAFT' WHERE status = 'PENDING_REVIEW';
-UPDATE materials SET visibility = 'PUBLISHED' WHERE visibility = 'DRAFT';
-UPDATE material_versions SET visibility = 'PUBLISHED' WHERE visibility = 'DRAFT';
-UPDATE assignments SET status = 'PUBLISHED' WHERE status = 'DRAFT';
 COMMIT;
