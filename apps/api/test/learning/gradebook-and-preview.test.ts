@@ -16,8 +16,9 @@ import {
 } from "../../src/domains/learning/operations/academic/academic-document-preview.js";
 
 /** Tạo một tệp DOCX tối thiểu hợp lệ trong bộ nhớ để kiểm thử trình trích xuất xem trước. */
-async function createMinimalDocxBuffer(paragraphText: string): Promise<Buffer> {
+async function createMinimalDocxBuffer(paragraphText: string, styleMap?: string): Promise<Buffer> {
   const zip = new JSZip();
+  if (styleMap) zip.file("mammoth/style-map", styleMap);
   zip.file(
     "[Content_Types].xml",
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
@@ -44,6 +45,25 @@ describe("Xem trước tài liệu bài nộp (DOCX / DOC / TXT & XSS sanitize)"
     expect(clean).not.toContain("javascript:");
     expect(clean).not.toContain("https://evil.test");
     expect(clean).toContain("data:image/png;base64,iVBORw0KGgo=");
+  });
+
+  it.each([
+    "p => img[srcset='https://example.invalid/pixel 1x']:fresh",
+    "p => a[style='position:fixed;inset:0'][href='https://example.invalid/']:fresh",
+  ])("bỏ style map do tệp DOCX cung cấp: %s", async (styleMap) => {
+    const preview = await buildDocumentPreview({
+      buffer: await createMinimalDocxBuffer("Noi dung", styleMap),
+      fileName: "style.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    expect(preview.html).toBe("<p>Noi dung</p>");
+  });
+
+  it("lọc thuộc tính ngoài danh sách cho phép và giữ bảng, liên kết và định dạng hợp lệ", () => {
+    const html = sanitizePreviewHtml('<table><tr><td colspan="2"><strong>A</strong></td></tr></table><img srcset="https://example.invalid/pixel"><a href="https://example.org" style="position:fixed" ping="https://example.invalid">B</a>');
+    expect(html).toContain('<td colspan="2"><strong>A</strong></td>');
+    expect(html).toContain('<a href="https://example.org" target="_blank" rel="noopener noreferrer">B</a>');
+    expect(html).not.toMatch(/srcset|example\.invalid|style=|ping=|<img/);
   });
 
   it("chuyển DOCX hợp lệ thành HTML an toàn và trích xuất được TXT / DOC cũ", async () => {
