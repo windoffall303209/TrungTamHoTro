@@ -10,7 +10,7 @@ describe("Giới hạn query phân trang đề", () => {
     expect(parseExamPageQuery({ page: "100000", pageSize: "100" })).toMatchObject({ page: 100000, pageSize: 100 });
   });
   it.each([{ page: "0" }, { page: "-1" }, { page: "1.5" }, { page: ["1"] }, { page: "Infinity" },
-    { pageSize: "101" }, { pageSize: "" }, { classId: ["class-1"] }, { focusId: "a".repeat(192) }])("từ chối query lỗi %j", (query) => {
+    { pageSize: "101" }, { pageSize: "" }, { classId: ["class-1"] }, { focusId: "a".repeat(192) }, { sort: "random" }, { search: ["x"] }])("từ chối query lỗi %j", (query) => {
     expect(() => parseExamPageQuery(query)).toThrow();
   });
 });
@@ -37,6 +37,12 @@ describe.skipIf(!enabled)("Phân trang đề trên PostgreSQL test", () => {
     const focus = await service.listExamPage("INSTRUCTOR", "usr-instructor", { page: 1, pageSize: 2, focusId: second.items[0]!.id });
     expect(focus.page).toBe(2);
     expect(focus.items.map((item) => item.id)).toEqual(second.items.map((item) => item.id));
+    const target = second.items[0]!;
+    const filtered = await service.listExamPage("INSTRUCTOR", "usr-instructor", {
+      page: 1, pageSize: 1, search: target.title.toLowerCase(), sort: "oldest", focusId: target.id,
+    });
+    expect(filtered.items[0]?.id).toBe(target.id);
+    expect(filtered.total).toBe(all.filter(row => row.title.toLowerCase().includes(target.title.toLowerCase())).length);
   });
   it("học viên giữ count và trạng thái nhưng không tải danh sách câu hỏi", async () => {
     const all = await service.listLearnerExamSummaries(undefined, "usr-learner");

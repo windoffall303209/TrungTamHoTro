@@ -38,12 +38,11 @@ import { hasPermission } from "@/lib/access-control";
 import { useI18n } from "@/providers/i18n-provider";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { loadClassExams } from "@/lib/class-exams";
+import { useClassExamPage } from "@/lib/class-exams";
 import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import type {
   Assignment,
-  Exam,
   ClassClosureReadiness,
   ClassRoster,
   Course,
@@ -218,6 +217,8 @@ export function ManagerClassWorkspace({
   // Trạng thái học liệu & bài giảng thật tải từ máy chủ
   const [classMaterials, setClassMaterials] = useState<Material[]>([]);
   const [materialsLoading, setMaterialsLoading] = useState(false);
+  const loadedMaterialsFor = useRef<{ classId: string; roleCode: string } | null>(null);
+  const needsMaterials = activeTab === "materials" || activeTab === "lectures";
 
   // Trạng thái tab Bài giảng (chuẩn giao diện học sinh)
   const [selectedLectureFolder, setSelectedLectureFolder] = useState<string>("__ALL__");
@@ -240,7 +241,9 @@ export function ManagerClassWorkspace({
     });
   }, [item]);
 
-  const [classExams, setClassExams] = useState<Exam[]>([]);
+  const examPage = useClassExamPage(currentClass.id, session.roleCode, activeTab === "assignments", assignmentSearch, "newest",
+    () => notifyRef.current("Không tải được đầy đủ bài tập của lớp.", "error"));
+  const classExams = examPage.rows;
   const [classAssignments, setClassAssignments] = useState<Assignment[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
 
@@ -250,30 +253,27 @@ export function ManagerClassWorkspace({
     const controller = new AbortController();
     setClassAssignments([]);
     setAssignmentsLoading(true);
-    setClassExams([]);
-    const requests = [apiRequest<Assignment[]>("/academic/assignments?classId=" + encodeURIComponent(currentClass.id), {
+    void apiRequest<Assignment[]>("/academic/assignments?classId=" + encodeURIComponent(currentClass.id), {
       roleCode: session.roleCode, signal: controller.signal,
     }).then(rows => {
       if (!controller.signal.aborted) setClassAssignments(rows);
-    }), loadClassExams(currentClass.id, session.roleCode, controller.signal, {
-      onProgress: rows => {
-        if (!controller.signal.aborted) setClassExams(rows);
-      },
-    }).then(rows => {
-      if (!controller.signal.aborted) setClassExams(rows);
-    })];
-    void Promise.allSettled(requests).then(results => {
-      if (!controller.signal.aborted && results.some(result => result.status === "rejected")) notifyRef.current("Không tải được đầy đủ bài tập của lớp.", "error");
+    }).catch(() => {
+      if (!controller.signal.aborted) notifyRef.current("Không tải được đầy đủ bài tập của lớp.", "error");
     }).finally(() => {
       if (!controller.signal.aborted) setAssignmentsLoading(false);
     });
     return () => controller.abort();
   }, [activeTab, currentClass.id, session.roleCode]);
 
-  // Nạp toàn bộ học liệu của lớp để quản trị viên thấy cả tài liệu hiển thị và đã ẩn.
+  // Hai tab học liệu dùng chung danh sách đã tải thành công cho lớp và vai trò hiện tại.
   useEffect(() => {
+    if (!needsMaterials) return;
+    const loaded = loadedMaterialsFor.current;
+    if (loaded?.classId === currentClass.id && loaded.roleCode === session.roleCode) return;
+    loadedMaterialsFor.current = null;
     const controller = new AbortController();
     let active = true;
+    setClassMaterials([]);
     setMaterialsLoading(true);
     loadClassMaterials<Material>(currentClass.id, {
       roleCode: session.roleCode,
@@ -281,6 +281,7 @@ export function ManagerClassWorkspace({
     })
       .then((materials) => {
         if (!active) return;
+        loadedMaterialsFor.current = { classId: currentClass.id, roleCode: session.roleCode };
         setClassMaterials(
           materials.filter((material) => isMaterialForClass(material, currentClass.id)),
         );
@@ -301,7 +302,7 @@ export function ManagerClassWorkspace({
       active = false;
       controller.abort();
     };
-  }, [currentClass.id, currentClass.courseId, session.roleCode]);
+  }, [needsMaterials, currentClass.id, session.roleCode]);
 
   // Mở xem trước học liệu hoặc liên kết bài giảng; chặn quản trị viên mở mục đang ẩn.
   const handlePreviewMaterial = async (
@@ -1003,9 +1004,14 @@ export function ManagerClassWorkspace({
               status: exam.hidden ? "Đã ẩn" : { DRAFT: "Bản nháp", PENDING_REVIEW: "Chờ duyệt", PUBLISHED: "Đã phát hành", CLOSED: "Đã kết thúc" }[exam.status],
               hidden: Boolean(exam.hidden), description: "", instructions: exam.questionIds.length + " câu · " + exam.durationMinutes + " phút",
             }))];
-            const { folders, counts, filtered, active: activeAsg } = buildManagerFolderView(
+            const { counts, filtered, active: activeAsg } = buildManagerFolderView(
               rawAssignments, selectedAssignmentFolder, assignmentSearch, selectedAssignmentId,
             );
+
+            const matchingAssignments = classAssignments.filter(row => row.title.toLowerCase().includes(assignmentSearch.trim().toLowerCase())).length;
+            if (counts.has("Bài tập chung")) counts.set("Bài tập chung", matchingAssignments);
+            if (examPage.total || selectedAssignmentFolder === "Đề thi") counts.set("Đề thi", examPage.total);
+            const folders = Array.from(counts.keys());
 
             return (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
@@ -1027,7 +1033,7 @@ export function ManagerClassWorkspace({
                   <ManagerFolderSidebar
                     title="Thư mục"
                     allLabel="Tất cả bài tập"
-                    totalCount={rawAssignments.length}
+                    totalCount={matchingAssignments + examPage.total}
                     folders={folders}
                     counts={counts}
                     selectedFolder={selectedAssignmentFolder}
@@ -1044,7 +1050,7 @@ export function ManagerClassWorkspace({
                       {filtered.length === 0 ? (
                         <div className="py-12 text-center space-y-2">
                           <Folder size={32} className="mx-auto text-slate-300 dark:text-slate-600" />
-                          <p className="text-xs text-slate-400">{assignmentsLoading ? "Đang tải bài tập…" : "Không có bài tập nào trong thư mục này"}</p>
+                          <p className="text-xs text-slate-400">{assignmentsLoading || examPage.loading ? "Đang tải bài tập…" : "Không có bài tập nào trong thư mục này"}</p>
                         </div>
                       ) : (
                         filtered.map((assign) => {
@@ -1088,6 +1094,10 @@ export function ManagerClassWorkspace({
                         })
                       )}
                     </div>
+                    {selectedAssignmentFolder !== "Bài tập chung" && examPage.total > examPage.pageSize && (
+                      <Pagination compact totalItems={examPage.total} page={examPage.page} pageSize={examPage.pageSize}
+                        onPageChange={examPage.setPage} onPageSizeChange={examPage.setPageSize} itemLabel="đề thi" />
+                    )}
                   </div>
 
                   {/* CỘT 3: CHI TIẾT BÀI TẬP DÀNH CHO QUẢN TRỊ (~320px) */}

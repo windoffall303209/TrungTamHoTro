@@ -188,9 +188,10 @@ beforeEach(() => {
 describe("ManagerClassWorkspace visibility controls", () => {
   it("hiển thị tài liệu đã ẩn với nhãn Đã ẩn và khóa nút Xem trước, Tải xuống với quản lý", async () => {
     render(<ManagerWorkspaceHarness />);
-    await waitFor(() => expect(mockLoadClassMaterials).toHaveBeenCalledWith("cls-1", expect.objectContaining({ roleCode: "CENTER_MANAGER" })));
+    expect(mockLoadClassMaterials).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Tài liệu" }));
+    await waitFor(() => expect(mockLoadClassMaterials).toHaveBeenCalledWith("cls-1", expect.objectContaining({ roleCode: "CENTER_MANAGER" })));
 
     expect((await screen.findAllByText("Đề cương công khai.pdf")).length).toBeGreaterThan(0);
     expect(screen.getByText("Đáp án đang ẩn.pdf")).toBeInTheDocument();
@@ -210,7 +211,7 @@ describe("ManagerClassWorkspace visibility controls", () => {
 
   it("không còn ô Tóm tắt nội dung ở tab Bài giảng và khóa Xem bài giảng khi mục đã ẩn", async () => {
     render(<ManagerWorkspaceHarness />);
-    await waitFor(() => expect(mockLoadClassMaterials).toHaveBeenCalledTimes(1));
+    expect(mockLoadClassMaterials).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Bài giảng" }));
 
@@ -224,5 +225,9 @@ describe("ManagerClassWorkspace visibility controls", () => {
       screen.getByText("Bài giảng đang ở trạng thái đã ẩn nên quản trị viên không thể xem hoặc tải xuống."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Xem bài giảng" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Tổng quan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tài liệu" }));
+    expect(screen.getByText("Đáp án đang ẩn.pdf")).toBeInTheDocument();
+    expect(mockLoadClassMaterials).toHaveBeenCalledTimes(1);
   });
 });

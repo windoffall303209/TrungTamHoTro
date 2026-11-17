@@ -71,7 +71,7 @@ import type {
   Question,
   QuestionImportResult,
 } from "@/lib/learning-types";
-import { loadClassExams } from "@/lib/class-exams";
+import { useClassExamPage } from "@/lib/class-exams";
 import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/exam-question-selection";
@@ -202,9 +202,7 @@ export function InstructorClassWorkspace({
 
   // Dữ liệu lớp học
   const [learners, setLearners] = useState<DirectoryUser[]>([]);
-  const [classExams, setClassExams] = useState<Exam[]>([]);
   const [selectedExamId, setSelectedExamId] = useState("");
-  const visibleExams = classExams.filter(exam => exam.classId === item.id);
   const [assignments, setAssignments] = useState<AssignmentPreview[]>([]);
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<Record<string, AssignmentSubmission[]>>({});
@@ -227,6 +225,11 @@ export function InstructorClassWorkspace({
   const [assignmentStudentSearch, setAssignmentStudentSearch] = useState("");
   const [assignmentListDisplayMode, setAssignmentListDisplayMode] = useState<"list" | "grid">("list");
   const [assignmentSort, setAssignmentSort] = useState<"newest" | "oldest">("newest");
+
+  const examPage = useClassExamPage(item.id, session.roleCode, activeTab === "assignments", searchQuery, assignmentSort,
+    () => notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error"));
+  const visibleExams = examPage.rows.filter(exam => exam.classId === item.id);
+  const setClassExams = examPage.setRows;
 
   // Bài tập được chọn ở Cột 3
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentPreview | null>(null);
@@ -658,38 +661,9 @@ export function InstructorClassWorkspace({
   const [allAvailableInstructors, setAllAvailableInstructors] = useState<DirectoryUser[]>([]);
   const classDataRequestRef = useRef(0);
   const classDataControllerRef = useRef<AbortController | null>(null);
-  const examsLoadedClassRef = useRef<string | null>(null);
-  const examsRequestRef = useRef(0);
-  const examsControllerRef = useRef<AbortController | null>(null);
   const gradebookLoadedClassRef = useRef<string | null>(null);
   const gradebookRequestRef = useRef(0);
   const gradebookControllerRef = useRef<AbortController | null>(null);
-
-  /** Tải toàn bộ đề thi của lớp theo chế độ lười cho tab Bài tập và cập nhật ngay sau trang đầu. */
-  const loadClassExamsTab = useCallback(async (force = false) => {
-    if (!force && examsLoadedClassRef.current === item.id) return;
-    const requestId = ++examsRequestRef.current;
-    examsControllerRef.current?.abort();
-    const controller = new AbortController();
-    examsControllerRef.current = controller;
-    try {
-      const rows = await loadClassExams(item.id, session.roleCode, controller.signal, {
-        onProgress: (partial) => {
-          if (requestId === examsRequestRef.current && !controller.signal.aborted) {
-            setClassExams(partial);
-          }
-        },
-      });
-      if (requestId !== examsRequestRef.current || controller.signal.aborted) return;
-      examsLoadedClassRef.current = item.id;
-      setClassExams(rows);
-    } catch (error) {
-      if (!controller.signal.aborted) console.warn("Không tải được đề thi của lớp:", error);
-      if (requestId === examsRequestRef.current && !controller.signal.aborted) {
-        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
-      }
-    }
-  }, [item.id, session.roleCode, notify]);
 
   /** Tải bảng điểm của lớp chỉ khi giảng viên mở tab Bảng điểm. */
   const loadClassGradebookTab = useCallback(async (force = false) => {
@@ -800,18 +774,8 @@ export function InstructorClassWorkspace({
   }, [loadClassData]);
 
   useEffect(() => {
-    setClassExams([]);
     setGradebook([]);
   }, [item.id]);
-
-  useEffect(() => {
-    if (activeTab !== "assignments") return;
-    void loadClassExamsTab();
-    return () => {
-      examsRequestRef.current += 1;
-      examsControllerRef.current?.abort();
-    };
-  }, [activeTab, loadClassExamsTab]);
 
   useEffect(() => {
     if (activeTab !== "gradebook") return;
@@ -1083,6 +1047,7 @@ export function InstructorClassWorkspace({
   const selectCreatedExam = (exam: Exam) => {
     setClassExams(previous => [exam, ...previous.filter(row => row.id !== exam.id)]);
     setSelectedExamId(exam.id);
+    examPage.refresh(exam.id);
     setSearchQuery("");
     setSelectedFolder("__ALL__");
     setAssignmentViewMode("list");
@@ -1661,6 +1626,7 @@ export function InstructorClassWorkspace({
         await apiRequest(path, { method: "DELETE", roleCode: session.roleCode, body: JSON.stringify({ expectedVersion: work.version }) });
         if (isExam) {
           setClassExams(rows => rows.filter(row => row.id !== work.id));
+          examPage.refresh();
           setSelectedExamId(current => current === work.id ? "" : current);
         } else {
           setAssignments(rows => rows.filter(row => row.id !== work.id));
@@ -2993,6 +2959,10 @@ export function InstructorClassWorkspace({
                           })
                       )}
                     </div>
+                    {examPage.total > examPage.pageSize && (
+                      <Pagination compact totalItems={examPage.total} page={examPage.page} pageSize={examPage.pageSize}
+                        onPageChange={examPage.setPage} onPageSizeChange={examPage.setPageSize} itemLabel="đề thi" />
+                    )}
                   </div>
 
                   {/* CỘT 3: PANEL XEM NHANH THÔNG TIN BÀI TẬP & CỤM NÚT CHỨC NĂNG */}
@@ -4714,7 +4684,8 @@ export function InstructorClassWorkspace({
         classQuestions={classQuestions}
         onClose={() => setEditingClassExam(null)}
         onSaved={async () => {
-          await Promise.all([loadClassData(), loadClassExamsTab(true)]);
+          examPage.refresh();
+          await loadClassData();
         }}
       />
 
