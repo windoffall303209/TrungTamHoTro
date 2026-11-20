@@ -131,6 +131,36 @@ describe("ChatService listConversations", () => {
     });
   });
 
+  it("gộp lượt đồng bộ thành viên đồng thời và bỏ qua trong cửa sổ TTL, thử lại ngay khi lỗi", async () => {
+    vi.useFakeTimers();
+    try {
+      const service = new ChatService({} as PrismaService, {} as ObjectStorageService, {} as AntivirusService);
+      const internals = service as unknown as {
+        syncClassMembers: (conversationId: string, classId: string) => Promise<void>;
+        syncClassMembersThrottled: (conversationId: string, classId: string) => Promise<void>;
+      };
+      const sync = vi.spyOn(internals, "syncClassMembers").mockResolvedValue();
+
+      await Promise.all([
+        internals.syncClassMembersThrottled("conversation-1", "class-1"),
+        internals.syncClassMembersThrottled("conversation-1", "class-1"),
+      ]);
+      expect(sync).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await internals.syncClassMembersThrottled("conversation-1", "class-1");
+      expect(sync).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(6_000);
+      sync.mockRejectedValueOnce(new Error("db down"));
+      await expect(internals.syncClassMembersThrottled("conversation-1", "class-1")).rejects.toThrow("db down");
+      await internals.syncClassMembersThrottled("conversation-1", "class-1");
+      expect(sync).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("không truy vấn bảng tin nhắn khi người dùng chưa có hội thoại", async () => {
     const groupBy = vi.fn();
     const prisma = {

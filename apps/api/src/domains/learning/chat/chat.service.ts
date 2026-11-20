@@ -67,7 +67,10 @@ export interface UploadedChatFile {
 @Injectable()
 /** Quản lý danh bạ và hội thoại theo quan hệ lớp, không mở rộng phạm vi từ dữ liệu hồ sơ riêng tư. */
 export class ChatService {
+  private static readonly CLASS_SYNC_TTL_MS = 15_000;
   private readonly activeViewers = new Map<string, Map<symbol, number>>();
+  // Mốc đồng bộ gần nhất và lượt đồng bộ đang chạy của từng hội thoại lớp, dùng cho đường đọc lặp lại.
+  private readonly classSyncState = new Map<string, { syncedAt: number; pending?: Promise<void> }>();
   constructor(
     private readonly prisma: PrismaService,
     private readonly objectStorage: ObjectStorageService,
@@ -319,7 +322,7 @@ export class ChatService {
       await Promise.all(
         classMemberships.slice(offset, offset + 8).map(async (membership) => {
           if (membership.conversation.classId)
-            await this.syncClassMembers(
+            await this.syncClassMembersThrottled(
               membership.conversationId,
               membership.conversation.classId,
             );
@@ -910,10 +913,36 @@ export class ChatService {
     });
   }
 
-  /** Nạp membership cùng trạng thái lớp và đồng bộ trước khi cấp quyền. */
+  /**
+   * Đồng bộ membership lớp cho đường đọc lặp lại (poll SSE, danh sách hội thoại).
+   * Gộp các lượt gọi đồng thời và bỏ qua nếu vừa đồng bộ trong CLASS_SYNC_TTL_MS, nên một lớp 500 học viên
+   * không bị nạp lại mỗi 2 giây cho từng kết nối. Thao tác ghi vẫn gọi syncClassMembers trực tiếp.
+   */
+  private async syncClassMembersThrottled(conversationId: string, classId: string): Promise<void> {
+    const state = this.classSyncState.get(conversationId);
+    if (state?.pending) return state.pending;
+    if (state && Date.now() - state.syncedAt < ChatService.CLASS_SYNC_TTL_MS) return;
+    const pending = this.syncClassMembers(conversationId, classId).then(
+      () => { this.classSyncState.set(conversationId, { syncedAt: Date.now() }); },
+      (error: unknown) => {
+        // Lỗi không được ghi nhận là đã đồng bộ để lượt sau thử lại ngay.
+        if (state) this.classSyncState.set(conversationId, state);
+        else this.classSyncState.delete(conversationId);
+        throw error;
+      },
+    );
+    this.classSyncState.set(conversationId, { syncedAt: state?.syncedAt ?? 0, pending });
+    return pending;
+  }
+
+  /**
+   * Nạp membership cùng trạng thái lớp và đồng bộ trước khi cấp quyền.
+   * `throttledSync` chỉ dùng cho đường đọc lặp lại; mọi thao tác ghi luôn đồng bộ mới nhất.
+   */
   private async resolveMembership(
     conversationId: string,
     userId: string,
+    throttledSync = false,
   ): Promise<ConversationMembershipRow> {
     const conversation = await this.prisma.chatConversation.findUnique({
       where: { id: conversationId },
@@ -921,7 +950,9 @@ export class ChatService {
     });
     if (!conversation) throw new NotFoundException("Không tìm thấy hội thoại.");
     if (conversation.classId)
-      await this.syncClassMembers(conversationId, conversation.classId);
+      await (throttledSync
+        ? this.syncClassMembersThrottled(conversationId, conversation.classId)
+        : this.syncClassMembers(conversationId, conversation.classId));
     const membership = await this.prisma.chatConversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId } },
       include: { conversation: { include: { class: true } } },
@@ -963,7 +994,8 @@ export class ChatService {
     actorId: string,
     cursor: ChatStreamCursor,
   ): Promise<ChatMessageView[]> {
-    const membership = await this.resolveMembership(conversationId, actorId);
+    // Nhịp poll 2 giây dùng đồng bộ có TTL; người bị gỡ khỏi lớp mất quyền đọc tin mới sau tối đa CLASS_SYNC_TTL_MS.
+    const membership = await this.resolveMembership(conversationId, actorId, true);
     const rows = await this.prisma.chatMessage.findMany({
       where: {
         conversationId,
