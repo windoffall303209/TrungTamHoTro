@@ -4,10 +4,30 @@ import { promisify } from "node:util";
 const scrypt = promisify(nodeScrypt);
 const KEY_LENGTH = 64;
 
+// scrypt chạy trên threadpool libuv dùng chung với fs/zlib/dns; chỉ cho băm chiếm tối đa một nửa số luồng.
+const THREADPOOL_SIZE = Number(process.env.UV_THREADPOOL_SIZE) || 4;
+const MAX_CONCURRENT_HASHES = Math.max(1, Math.floor(THREADPOOL_SIZE / 2));
+let activeHashes = 0;
+const waitingHashes: Array<() => void> = [];
+
+/** Chạy một phép băm khi còn slot, xếp hàng FIFO khi đã đủ MAX_CONCURRENT_HASHES tác vụ đồng thời. */
+async function withHashSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeHashes >= MAX_CONCURRENT_HASHES) await new Promise<void>((resolve) => waitingHashes.push(resolve));
+  else activeHashes += 1;
+  try {
+    return await task();
+  } finally {
+    // Chuyển slot thẳng cho tác vụ đang chờ để không tác vụ mới nào chen ngang hàng đợi.
+    const next = waitingHashes.shift();
+    if (next) next();
+    else activeHashes -= 1;
+  }
+}
+
 /** Băm mật khẩu bằng scrypt với salt riêng và lưu kèm phiên bản thuật toán. */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
-  const derived = await scrypt(password, salt, KEY_LENGTH) as Buffer;
+  const derived = await withHashSlot(() => scrypt(password, salt, KEY_LENGTH) as Promise<Buffer>);
   return `scrypt:${salt}:${derived.toString("hex")}`;
 }
 
@@ -17,6 +37,6 @@ export async function verifyPassword(password: string, storedHash: string | null
   const [algorithm, salt, encoded] = storedHash.split(":");
   if (algorithm !== "scrypt" || !salt || !encoded || encoded.length !== KEY_LENGTH * 2) return false;
   const expected = Buffer.from(encoded, "hex");
-  const actual = await scrypt(password, salt, KEY_LENGTH) as Buffer;
+  const actual = await withHashSlot(() => scrypt(password, salt, KEY_LENGTH) as Promise<Buffer>);
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }

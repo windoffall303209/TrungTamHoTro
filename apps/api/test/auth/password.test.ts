@@ -10,6 +10,12 @@ describe("mật khẩu xác thực", () => {
     await expect(verifyPassword("sai-mat-khau", first)).resolves.toBe(false);
   });
 
+  it("xếp hàng các lượt băm đồng thời mà vẫn trả đúng kết quả cho từng lượt", async () => {
+    const stored = await hashPassword("WindEdu@2026!");
+    const results = await Promise.all(Array.from({ length: 12 }, (_, index) => verifyPassword(index % 2 ? "WindEdu@2026!" : "sai", stored)));
+    expect(results).toEqual(Array.from({ length: 12 }, (_, index) => index % 2 === 1));
+  });
+
   it("từ chối định dạng hash cũ hoặc bị hỏng", async () => {
     await expect(verifyPassword("WindEdu@2026!", "not-a-valid-hash")).resolves.toBe(false);
   });
