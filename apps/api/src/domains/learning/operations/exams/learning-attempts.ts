@@ -211,6 +211,9 @@ export async function submitAttempt(
         return serviceContext.getDatabaseAttempt(transaction, attemptId);
       let score = 0;
       let requiresManualGrade = false;
+      const answersByQuestion = new Map(attempt.answers.map((item) => [item.questionId, item]));
+      const scoredQuestionIds: string[] = [];
+      const scoredValues: number[] = [];
       for (const examQuestion of attempt.exam.questions) {
         const requiresManualAnswer = ["SHORT_ANSWER", "ESSAY"].includes(
           examQuestion.question.type,
@@ -219,9 +222,7 @@ export async function submitAttempt(
           requiresManualGrade = true;
           continue;
         }
-        const answer = attempt.answers.find(
-          (item) => item.questionId === examQuestion.questionId,
-        );
+        const answer = answersByQuestion.get(examQuestion.questionId);
         const submitted = serviceContext.toStringArray(
           answer?.answerData ?? [],
         );
@@ -231,17 +232,18 @@ export async function submitAttempt(
         );
         const awarded = isCorrect ? Number(examQuestion.score) : 0;
         score += awarded;
-        if (answer)
-          await transaction.attemptAnswer.update({
-            where: {
-              attemptId_questionId: {
-                attemptId,
-                questionId: examQuestion.questionId,
-              },
-            },
-            data: { score: awarded },
-          });
+        if (answer) {
+          scoredQuestionIds.push(examQuestion.questionId);
+          scoredValues.push(awarded);
+        }
       }
+      // Ghi điểm mọi câu khách quan bằng một lệnh thay vì N lệnh tuần tự giữ khóa transaction.
+      if (scoredQuestionIds.length)
+        await transaction.$executeRaw`
+          UPDATE attempt_answers AS answer
+          SET score = scored.score, updated_at = NOW()
+          FROM unnest(${scoredQuestionIds}::text[], ${scoredValues}::numeric[]) AS scored(question_id, score)
+          WHERE answer.attempt_id = ${attemptId} AND answer.question_id = scored.question_id`;
       const updated = await transaction.examAttempt.update({
         where: { id: attemptId },
         data: {
