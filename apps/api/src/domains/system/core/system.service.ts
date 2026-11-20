@@ -38,7 +38,11 @@ export * from "./system.shared.js";
 @Injectable()
 /** Quản lý cấu hình và vận hành hệ thống, đồng thời hỗ trợ fallback in-memory khi DB bị tắt. */
 export class SystemService {
+  private static readonly MAINTENANCE_CACHE_MS = 5_000;
+
   private settings: SystemSettings = defaultSettings();
+
+  private maintenanceCache?: { value: boolean; expiresAt: number };
 
   private integrations: IntegrationConfig[] = [
     "GOOGLE_MEET",
@@ -176,16 +180,31 @@ export class SystemService {
     return await settings_ops.getSettings(this.operationContext);
   }
 
+  /**
+   * Trả cờ bảo trì cho guard chạy trên mọi mutation với cache ngắn trong tiến trình.
+   * Cập nhật cài đặt trên cùng tiến trình xóa cache ngay; tiến trình khác thấy thay đổi sau tối đa MAINTENANCE_CACHE_MS.
+   */
+  async isMaintenanceMode(): Promise<boolean> {
+    if (this.maintenanceCache && this.maintenanceCache.expiresAt > Date.now()) return this.maintenanceCache.value;
+    const value = (await this.getSettings()).maintenanceMode;
+    this.maintenanceCache = { value, expiresAt: Date.now() + SystemService.MAINTENANCE_CACHE_MS };
+    return value;
+  }
+
   /** Hợp nhất cấu hình, kiểm tra quota/múi giờ, lưu trực tiếp vào system_settings và ghi audit. */
   async updateSettings(
     input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>,
     actorId = "usr-admin",
   ): Promise<SystemSettings> {
-    return await settings_ops.updateSettings(
-      this.operationContext,
-      input,
-      actorId,
-    );
+    try {
+      return await settings_ops.updateSettings(
+        this.operationContext,
+        input,
+        actorId,
+      );
+    } finally {
+      this.maintenanceCache = undefined;
+    }
   }
 
   /** Liệt kê provider phòng học đã cấu hình và trạng thái health. */

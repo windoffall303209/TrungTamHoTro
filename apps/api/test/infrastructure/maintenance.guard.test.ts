@@ -1,5 +1,5 @@
 import { ServiceUnavailableException, type ExecutionContext } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MaintenanceGuard } from "../../src/domains/system/operations/maintenance.guard.js";
 import { SystemService } from "../../src/domains/system/core/system.service.js";
 
@@ -29,5 +29,19 @@ describe("MaintenanceGuard", () => {
     await expect(guard.canActivate(requestContext("POST", "/api/v1/auth/login"))).resolves.toBe(true);
     await expect(guard.canActivate(requestContext("POST", "/api/v1/academic/exams"))).rejects.toThrow(ServiceUnavailableException);
     await expect(guard.canActivate(requestContext("POST", "/api/v1/health-fake"))).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it("đọc cờ bảo trì một lần trong cửa sổ cache và áp dụng ngay khi tắt bảo trì", async () => {
+    const system = new SystemService();
+    const guard = new MaintenanceGuard(system);
+    const getSettings = vi.spyOn(system, "getSettings");
+    await guard.canActivate(requestContext("POST", "/academic/exams"));
+    await guard.canActivate(requestContext("POST", "/academic/exams"));
+    expect(getSettings).toHaveBeenCalledOnce();
+
+    await system.updateSettings({ maintenanceMode: true }, "usr-admin");
+    await expect(guard.canActivate(requestContext("POST", "/academic/exams"))).rejects.toThrow(ServiceUnavailableException);
+    await system.updateSettings({ maintenanceMode: false }, "usr-admin");
+    await expect(guard.canActivate(requestContext("POST", "/academic/exams"))).resolves.toBe(true);
   });
 });

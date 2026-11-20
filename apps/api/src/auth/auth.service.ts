@@ -602,16 +602,25 @@ export class AuthService {
     return Promise.resolve(`v2.${createHmac("sha256", this.encryptionSecret).update(`wind-edu:csrf:v2:${sessionId}`).digest("base64url")}`);
   }
 
-  /** Xác nhận CSRF token thuộc đúng phiên cookie và so sánh theo constant-time. */
-  async validateCsrf(sessionToken: string, csrfToken: string | undefined): Promise<boolean> {
+  /**
+   * Xác nhận CSRF token thuộc đúng phiên cookie và so sánh theo constant-time.
+   * Khi guard trước đã khôi phục phiên từ cùng cookie, token v2 được kiểm bằng HMAC theo sessionId mà không đọc DB lần hai.
+   */
+  async validateCsrf(sessionToken: string, csrfToken: string | undefined, resolvedSessionId?: string): Promise<boolean> {
     if (!csrfToken) return false;
+    if (resolvedSessionId && csrfToken.startsWith("v2.")) return this.matchesHash(this.hashToken(await this.issueCsrf(resolvedSessionId)), csrfToken);
     const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { id: true, csrfTokenHash: true, revokedAt: true, expiresAt: true } });
     if (!row || row.revokedAt || row.expiresAt <= new Date()) return false;
     // Giữ tương thích token ngẫu nhiên cũ đến khi phiên hết hạn, không ghi đè bản băm của chúng.
     const expectedHash = csrfToken.startsWith("v2.") ? this.hashToken(await this.issueCsrf(row.id)) : row.csrfTokenHash;
     if (!expectedHash) return false;
+    return this.matchesHash(expectedHash, csrfToken);
+  }
+
+  /** So sánh constant-time bản băm kỳ vọng với bản băm của token người dùng gửi lên. */
+  private matchesHash(expectedHash: string, token: string): boolean {
     const expected = Buffer.from(expectedHash, "hex");
-    const actual = Buffer.from(this.hashToken(csrfToken), "hex");
+    const actual = Buffer.from(this.hashToken(token), "hex");
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
 

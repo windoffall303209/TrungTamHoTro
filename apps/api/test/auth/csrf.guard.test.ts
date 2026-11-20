@@ -48,6 +48,15 @@ describe("CsrfGuard", () => {
     const validateCsrf = vi.fn(() => Promise.resolve(true));
     const protectedAuth = { readToken: vi.fn(() => "session-token"), validateCsrf } as unknown as AuthService;
     await expect(new CsrfGuard(protectedAuth, configured).canActivate(context(privateMutation))).resolves.toBe(true);
-    expect(validateCsrf).toHaveBeenCalledWith("session-token", "csrf-token");
+    expect(validateCsrf).toHaveBeenCalledWith("session-token", "csrf-token", undefined);
+  });
+
+  it("chuyển sessionId đã được PermissionGuard khôi phục để không đọc lại auth_sessions", async () => {
+    const header = vi.fn((name: string) => name === "cookie" ? "wind_edu_session=session-token" : name === "x-csrf-token" ? "v2.csrf" : undefined);
+    const validateCsrf = vi.fn(() => Promise.resolve(true));
+    const auth = { readToken: vi.fn(() => "session-token"), validateCsrf } as unknown as AuthService;
+    const request = { method: "POST", path: "/api/v1/academic/exams", header, auth: { sessionId: "session-1" } } as unknown as Request;
+    await expect(new CsrfGuard(auth, config()).canActivate(context(request))).resolves.toBe(true);
+    expect(validateCsrf).toHaveBeenCalledWith("session-token", "v2.csrf", "session-1");
   });
 });

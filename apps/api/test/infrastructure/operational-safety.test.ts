@@ -87,4 +87,17 @@ describe("CSRF nhiều tab", () => {
     expect(await service.validateCsrf("cookie", token)).toBe(false);
     expect(update).not.toHaveBeenCalled();
   });
+
+  it("dùng sessionId đã khôi phục cho token v2 mà không đọc lại DB, còn token cũ vẫn đối chiếu DB", async () => {
+    const row = { id: "session-a", csrfTokenHash: createHash("sha256").update("legacy").digest("hex"), revokedAt: null, expiresAt: new Date(Date.now() + 60_000) };
+    const findUnique = vi.fn().mockResolvedValue(row);
+    const config = new ConfigService<Environment, true>({ AUTH_ENCRYPTION_SECRET: "a".repeat(64), WEB_ORIGIN: "http://localhost:3000" });
+    const service = new AuthService({ authSession: { findUnique } } as unknown as PrismaService, {} as EmailDeliveryService, {} as ObjectStorageService, config);
+    const token = await service.issueCsrf("session-a");
+    expect(await service.validateCsrf("cookie", token, "session-a")).toBe(true);
+    expect(await service.validateCsrf("cookie", await service.issueCsrf("session-b"), "session-a")).toBe(false);
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(await service.validateCsrf("cookie", "legacy", "session-a")).toBe(true);
+    expect(findUnique).toHaveBeenCalledOnce();
+  });
 });

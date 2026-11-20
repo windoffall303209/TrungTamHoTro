@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import type { Request } from "express";
 import type { Environment } from "../config/environment.js";
 import { AuthService } from "./auth.service.js";
+import type { RequestWithRole } from "./permission.guard.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const PUBLIC_MUTATIONS = new Set([
@@ -30,7 +31,9 @@ export class CsrfGuard implements CanActivate {
     // Request không dùng cookie phiên không mang quyền của người dùng nên không cần kiểm tra CSRF tại đây.
     const token = this.auth.readToken(request.header("cookie") ?? undefined);
     if (!token) return true;
-    if (!(await this.auth.validateCsrf(token, request.header("x-csrf-token") ?? undefined))) {
+    // PermissionGuard đã khôi phục phiên từ cùng cookie thì dùng lại sessionId, tránh truy vấn auth_sessions lần hai.
+    const resolvedSessionId = (request as Partial<RequestWithRole>).auth?.sessionId;
+    if (!(await this.auth.validateCsrf(token, request.header("x-csrf-token") ?? undefined, resolvedSessionId))) {
       throw new ForbiddenException("Yêu cầu bảo mật đã hết hạn. Hãy tải lại trang và thử lại.");
     }
     return true;

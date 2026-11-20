@@ -29,7 +29,7 @@ export class MaintenanceGuard implements CanActivate {
       path.startsWith("/system/")
     )
       return true;
-    if (!(await this.system.getSettings()).maintenanceMode) return true;
+    if (!(await this.system.isMaintenanceMode())) return true;
     throw new ServiceUnavailableException({
       statusCode: 503,
       code: "MAINTENANCE_MODE",
