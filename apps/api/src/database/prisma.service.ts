@@ -11,8 +11,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
   private readonly logger = new Logger(PrismaService.name);
   private readonly connectOnStart: boolean;
 
-  /** Khởi tạo connection pool từ cấu hình đã xác thực và ghi nhớ chế độ kết nối sớm. */
+  /**
+   * Khởi tạo connection pool từ cấu hình đã xác thực và ghi nhớ chế độ kết nối sớm.
+   * Pool có trần chờ kết nối và statement_timeout để request không treo vô hạn khi DB quá tải.
+   */
   constructor(config: ConfigService<Environment, true>) {
+    const statementTimeout = config.get("DB_STATEMENT_TIMEOUT_MS", { infer: true });
     const adapter = new PrismaPg({
       connectionString: buildDatabaseUrl({
         DB_HOST: config.get("DB_HOST", { infer: true }),
@@ -21,7 +25,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
         DB_PASSWORD: config.get("DB_PASSWORD", { infer: true }),
         DB_NAME: config.get("DB_NAME", { infer: true }),
       }),
-      max: 10,
+      max: config.get("DB_POOL_MAX", { infer: true }),
+      connectionTimeoutMillis: config.get("DB_POOL_CONNECTION_TIMEOUT_MS", { infer: true }),
+      idleTimeoutMillis: 30_000,
+      // 0 giữ hành vi mặc định của PostgreSQL (không giới hạn) cho môi trường cần chạy tác vụ dài.
+      ...(statementTimeout > 0 ? { statement_timeout: statementTimeout } : {}),
     });
     super({ adapter });
     this.connectOnStart = config.get("DATABASE_CONNECT_ON_START", { infer: true });
