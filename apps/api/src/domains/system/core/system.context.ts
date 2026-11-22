@@ -65,6 +65,7 @@ export interface SystemServiceContext {
   mapIntegration(
     row: Prisma.IntegrationProviderGetPayload<Record<string, never>>,
   ): IntegrationConfig;
+  encryptionSecret(): string;
   mapBackup(row: Prisma.OperationalJobGetPayload<Record<string, never>>): BackupRun;
   mapRestore(
     row: Prisma.OperationalJobGetPayload<Record<string, never>>,

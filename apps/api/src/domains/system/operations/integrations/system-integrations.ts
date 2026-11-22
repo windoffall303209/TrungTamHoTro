@@ -4,6 +4,8 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { assertPublicHttpsUrl } from "../../../../infrastructure/safe-provider-fetch.js";
+import { encryptSecret } from "../../../../infrastructure/secret-vault.js";
 import { IntegrationConfig } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
@@ -73,7 +75,7 @@ export async function updateIntegration(
   return structuredClone(item);
 }
 
-/** Tạo/cập nhật cấu hình provider bằng tham chiếu credential, không lưu secret thô. */
+/** Tạo/cập nhật cấu hình provider; tham chiếu credential được mã hóa bằng SecretVault, webhook phải là HTTPS công khai. */
 export async function configureIntegration(
   serviceContext: SystemServiceContext,
   input: {
@@ -88,16 +90,20 @@ export async function configureIntegration(
     throw new BadRequestException(
       "Provider này cần tham chiếu credential trong kho bí mật.",
     );
-  if (input.webhookUrl && !/^https:\/\//i.test(input.webhookUrl))
-    throw new BadRequestException("Webhook phải sử dụng HTTPS.");
+  // Chặn SSRF: webhook chỉ được trỏ tới host công khai qua HTTPS (không localhost, IP nội bộ hay metadata cloud).
+  const webhookUrl = input.webhookUrl?.trim()
+    ? assertPublicHttpsUrl(input.webhookUrl, "Webhook phải sử dụng HTTPS và trỏ tới máy chủ công khai.")
+    : null;
   const prisma = serviceContext.database();
   if (prisma) {
+    // Admin có thể dán nhầm secret thật vào ô tham chiếu, nên giá trị luôn được mã hóa trước khi lưu DB.
+    const credentialRef = credentialReference ? await encryptSecret(credentialReference, serviceContext.encryptionSecret()) : null;
     return prisma.$transaction(async (transaction) => {
       const row = await transaction.integrationProvider.upsert({
         where: { provider: input.provider },
         update: {
-          credentialRef: credentialReference,
-          webhookUrl: input.webhookUrl?.trim() || null,
+          credentialRef,
+          webhookUrl,
           isDefault: false,
           healthStatus: "UNKNOWN",
           enabled: false,
@@ -105,8 +111,8 @@ export async function configureIntegration(
         create: {
           id: `integration-${randomUUID()}`,
           provider: input.provider,
-          credentialRef: credentialReference,
-          webhookUrl: input.webhookUrl?.trim() || null,
+          credentialRef,
+          webhookUrl,
         },
       });
       await serviceContext.logDatabase(
@@ -131,7 +137,7 @@ export async function configureIntegration(
       healthStatus: "UNKNOWN",
       maskedCredential:
         input.provider === "JITSI" ? "Không yêu cầu" : "••••••••",
-      webhookConfigured: Boolean(input.webhookUrl),
+      webhookConfigured: Boolean(webhookUrl),
       updatedAt: new Date().toISOString(),
     };
     serviceContext.integrations.push(item);
@@ -141,7 +147,7 @@ export async function configureIntegration(
     isDefault: false,
     healthStatus: "UNKNOWN",
     maskedCredential: input.provider === "JITSI" ? "Không yêu cầu" : "••••••••",
-    webhookConfigured: Boolean(input.webhookUrl),
+    webhookConfigured: Boolean(webhookUrl),
     lastCheckedAt: undefined,
     updatedAt: new Date().toISOString(),
   });

@@ -184,7 +184,9 @@ export class EngagementController {
   createRecordingAccess(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.createRecordingAccess(sessionId, session.user.id); }
 
   @Get("learner/sessions/:sessionId/recording") @RequirePermissions("session:view")
-  /** Xác minh chữ ký/hạn của liên kết trước khi trả URL bản ghi thực. */
+  @Header("Cache-Control", "no-store")
+  @Header("Referrer-Policy", "no-referrer")
+  /** Xác minh chữ ký/hạn của liên kết trước khi trả URL bản ghi thực; không cho cache hay rò qua Referer. */
   resolveRecordingAccess(@Param("sessionId") sessionId: string, @Query("expires") expires: string, @Query("signature") signature: string, @CurrentSession() session: AuthenticatedSession): Promise<object> {
     return this.learning.resolveRecordingAccess(sessionId, Number(expires), signature ?? "", session.user.id);
   }

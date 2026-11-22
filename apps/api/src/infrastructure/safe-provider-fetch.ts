@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { lookup } from "node:dns";
 import type { LookupFunction } from "node:net";
 import ipaddr from "ipaddr.js";
@@ -28,6 +29,26 @@ export function assertSafeProviderUrl(value: string): void {
   if (ipaddr.isValid(hostname) && !isPublicIp(hostname)) {
     throw new Error("Endpoint AI không được trỏ đến IP nội bộ hoặc dành riêng.");
   }
+}
+
+/**
+ * Chuẩn hóa URL do người dùng cấu hình (webhook tích hợp, bản ghi buổi học): chỉ nhận HTTPS tới host công khai,
+ * không chứa thông tin đăng nhập, không trỏ mạng nội bộ/cloud metadata; lỗi trả 400 kèm thông điệp nghiệp vụ.
+ */
+export function assertPublicHttpsUrl(value: string, message: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new BadRequestException(message);
+  }
+  if (url.protocol !== "https:") throw new BadRequestException(message);
+  try {
+    assertSafeProviderUrl(url.toString());
+  } catch {
+    throw new BadRequestException(message);
+  }
+  return url.toString();
 }
 
 // Kiểm tra IP thực được DNS trả về tại thời điểm kết nối để chặn DNS rebinding.

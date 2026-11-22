@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Liên kết bản ghi phải dùng HTTPS và trỏ tới máy chủ công khai.": "The recording link must use HTTPS and point to a public server.",
+  "Webhook phải sử dụng HTTPS và trỏ tới máy chủ công khai.": "The webhook must use HTTPS and point to a public server.",
   "Học liệu dạng tệp phải được tải lên kèm nội dung.": "File materials must be uploaded together with their content.",
   "Bản xem trước DOCX quá lớn. Hãy tải xuống để mở bằng Microsoft Word.": "The DOCX preview is too large. Download the file to open it in Microsoft Word.",
   "Tệp DOCX chứa khai báo XML không an toàn.": "The DOCX file contains unsafe XML declarations.",

@@ -145,14 +145,20 @@ function buildSessionRoleWhere(
   throw new ForbiddenException(SESSION_ACCESS_DENIED);
 }
 
-/** Ẩn thông tin điều khiển host khi trả buổi học cho vai trò học viên. */
+/**
+ * Ẩn dữ liệu nhạy cảm khi trả danh sách buổi học: học viên không nhận link host, link phòng (chỉ lấy qua API join có
+ * kiểm tra khung giờ -15/+30 phút) hay URL bản ghi (chỉ lấy qua liên kết ký ngắn hạn); bản ghi đã hết hạn lưu giữ
+ * không còn trả URL gốc cho bất kỳ vai trò nào.
+ */
 function redactSessionForRole(
   mapped: LiveSession,
   role: string,
 ): LiveSession {
+  const expired = Boolean(mapped.recordingExpiresAt && new Date(mapped.recordingExpiresAt) <= new Date());
+  const visible = expired ? { ...mapped, recordingUrl: undefined } : mapped;
   return role === "INSTRUCTOR" || isManagerRole(role)
-    ? mapped
-    : { ...mapped, hostUrl: "", recordingUrl: undefined };
+    ? visible
+    : { ...visible, hostUrl: "", attendeeUrl: "", recordingUrl: undefined };
 }
 
 /** Kiểm tra thành viên lớp trên kho nhớ fallback cho danh sách buổi học. */

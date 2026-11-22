@@ -1,4 +1,6 @@
 import { Injectable, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Environment } from "../../../config/environment.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import type { Prisma } from "../../../generated/prisma/client.js";
@@ -96,6 +98,7 @@ export class SystemService {
     @Optional() private readonly emailDelivery?: EmailDeliveryService,
     @Optional() private readonly databaseBackup?: DatabaseBackupService,
     @Optional() private readonly objectStorage?: ObjectStorageService,
+    @Optional() private readonly config?: ConfigService<Environment, true>,
   ) {}
 
   private readonly operationContext: SystemServiceContext =
@@ -156,6 +159,7 @@ export class SystemService {
       database: (...args) => owner.database(...args),
       mapSettings: (...args) => owner.mapSettings(...args),
       mapIntegration: (...args) => owner.mapIntegration(...args),
+      encryptionSecret: () => owner.encryptionSecret(),
       mapBackup: (...args) => owner.mapBackup(...args),
       mapRestore: (...args) => owner.mapRestore(...args),
       mapExport: (...args) => owner.mapExport(...args),
@@ -488,6 +492,11 @@ export class SystemService {
       version,
       updatedBy,
     );
+  }
+
+  /** Khóa chủ dùng để mã hóa tham chiếu credential tích hợp bằng SecretVault. */
+  private encryptionSecret(): string {
+    return this.config?.get("AUTH_ENCRYPTION_SECRET", { infer: true }) ?? "development-auth-encryption-key-change-me";
   }
 
   /** Ánh xạ integration Prisma và xác minh provider thuộc danh mục hỗ trợ. */

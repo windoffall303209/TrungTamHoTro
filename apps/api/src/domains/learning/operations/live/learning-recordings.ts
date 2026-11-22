@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
+import { assertPublicHttpsUrl } from "../../../../infrastructure/safe-provider-fetch.js";
 import type { LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
@@ -10,9 +11,11 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 export async function attachRecording(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  recordingUrl: string,
+  rawRecordingUrl: string,
   actorId: string,
 ): Promise<LiveSession> {
+  // URL bản ghi sẽ được mở cho học viên: chỉ nhận HTTPS tới host công khai (chặn javascript:, IP nội bộ, metadata cloud).
+  const recordingUrl = assertPublicHttpsUrl(rawRecordingUrl, "Liên kết bản ghi phải dùng HTTPS và trỏ tới máy chủ công khai.");
   const prisma = serviceContext.database();
   if (prisma) {
     const item = await prisma.liveSession.findUnique({
