@@ -11,6 +11,7 @@ import type {
   RegradeRequest,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { purposeKey } from "../../../../infrastructure/purpose-key.js";
 
 /** Ánh xạ đề và giữ thứ tự câu hỏi theo trường order trong bảng nối. */
 export function mapExam(row: ExamWithQuestions): LearningExam {
@@ -87,7 +88,7 @@ export function submissionReceipt(
   submittedAt: string,
   secret: string,
 ): string {
-  const digest = createHmac("sha256", secret).update(`wind-edu:submission-receipt:v2:${attempt.id}:${attempt.examId}:${attempt.learnerId}:${submittedAt}`).digest("hex");
+  const digest = createHmac("sha256", purposeKey(secret, "submission-receipt")).update(`wind-edu:submission-receipt:v2:${attempt.id}:${attempt.examId}:${attempt.learnerId}:${submittedAt}`).digest("hex");
   return `SUB-${digest.slice(0, 20).toUpperCase()}`;
 }
 

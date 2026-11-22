@@ -8,6 +8,7 @@ import { ObjectStorageService } from "../infrastructure/object-storage.service.j
 import { createMfaSecret, createTotpUri, decryptMfaSecret, encryptMfaSecret, matchTotpStep } from "./mfa.js";
 import type { PermissionCode, RoleCode } from "./permissions.js";
 import { dummyPasswordHash, hashPassword, verifyPassword } from "./password.js";
+import { purposeKey } from "../infrastructure/purpose-key.js";
 
 const SESSION_COOKIE = "wind_edu_session";
 const SHORT_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -672,9 +673,22 @@ export class AuthService {
     return this.mapSession(row.id, row.user, roleCode as RoleCode);
   }
 
-  /** Dẫn xuất token theo phiên bằng HMAC để việc mở tab mới không thu hồi token của tab cũ. */
+  /** Dẫn xuất token theo phiên bằng HMAC với khóa con riêng cho CSRF (HKDF) để mở tab mới không thu hồi token tab cũ. */
   issueCsrf(sessionId: string): Promise<string> {
-    return Promise.resolve(`v2.${createHmac("sha256", this.encryptionSecret).update(`wind-edu:csrf:v2:${sessionId}`).digest("base64url")}`);
+    return Promise.resolve(`v3.${createHmac("sha256", purposeKey(this.encryptionSecret, "csrf")).update(`wind-edu:csrf:v3:${sessionId}`).digest("base64url")}`);
+  }
+
+  /**
+   * Token v2 cũ dùng thẳng khóa chủ; chỉ còn được chấp nhận để tab đang mở không lỗi CSRF ngay sau khi nâng cấp.
+   * Phiên mới luôn nhận token v3 từ issueCsrf.
+   */
+  private legacyCsrf(sessionId: string): string {
+    return `v2.${createHmac("sha256", this.encryptionSecret).update(`wind-edu:csrf:v2:${sessionId}`).digest("base64url")}`;
+  }
+
+  /** Tính lại token CSRF dẫn xuất theo đúng phiên bản token client gửi lên. */
+  private async derivedCsrf(sessionId: string, csrfToken: string): Promise<string> {
+    return csrfToken.startsWith("v3.") ? this.issueCsrf(sessionId) : this.legacyCsrf(sessionId);
   }
 
   /**
@@ -683,11 +697,12 @@ export class AuthService {
    */
   async validateCsrf(sessionToken: string, csrfToken: string | undefined, resolvedSessionId?: string): Promise<boolean> {
     if (!csrfToken) return false;
-    if (resolvedSessionId && csrfToken.startsWith("v2.")) return this.matchesHash(this.hashToken(await this.issueCsrf(resolvedSessionId)), csrfToken);
+    const derived = csrfToken.startsWith("v3.") || csrfToken.startsWith("v2.");
+    if (resolvedSessionId && derived) return this.matchesHash(this.hashToken(await this.derivedCsrf(resolvedSessionId, csrfToken)), csrfToken);
     const row = await this.prisma.authSession.findUnique({ where: { tokenHash: this.hashToken(sessionToken) }, select: { id: true, csrfTokenHash: true, revokedAt: true, expiresAt: true } });
     if (!row || row.revokedAt || row.expiresAt <= new Date()) return false;
     // Giữ tương thích token ngẫu nhiên cũ đến khi phiên hết hạn, không ghi đè bản băm của chúng.
-    const expectedHash = csrfToken.startsWith("v2.") ? this.hashToken(await this.issueCsrf(row.id)) : row.csrfTokenHash;
+    const expectedHash = derived ? this.hashToken(await this.derivedCsrf(row.id, csrfToken)) : row.csrfTokenHash;
     if (!expectedHash) return false;
     return this.matchesHash(expectedHash, csrfToken);
   }
@@ -1013,13 +1028,13 @@ export class AuthService {
     return png ? "png" : jpeg ? "jpg" : "webp";
   }
   /** Ràng buộc mã xác minh với verificationId bằng HMAC trước khi lưu/so sánh. */
-  private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${verificationId}:${code}`).digest("hex"); }
+  private hashVerificationCode(verificationId: string, code: string): string { return createHmac("sha256", purposeKey(this.encryptionSecret, "email-verification")).update(`${verificationId}:${code}`).digest("hex"); }
   /** Ràng buộc mã OTP với loại mã, challenge và email đã nhận mã, nhờ vậy không phải lưu email trước khi xác thực xong. */
-  private hashEmailOtp(type: EmailOtpType, challengeId: string, email: string, code: string): string { return createHmac("sha256", this.encryptionSecret).update(`${type}:${challengeId}:${email}:${code}`).digest("hex"); }
+  private hashEmailOtp(type: EmailOtpType, challengeId: string, email: string, code: string): string { return createHmac("sha256", purposeKey(this.encryptionSecret, "email-otp")).update(`${type}:${challengeId}:${email}:${code}`).digest("hex"); }
   /** Băm mã khôi phục đã chuẩn hóa bằng HMAC gắn với userId để bản băm lộ ra không dùng được cho tài khoản khác. */
   private hashRecoveryCode(userId: string, code: string): string {
     const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    return createHmac("sha256", this.encryptionSecret).update(`mfa-recovery:${userId}:${normalized}`).digest("hex");
+    return createHmac("sha256", purposeKey(this.encryptionSecret, "mfa-recovery")).update(`mfa-recovery:${userId}:${normalized}`).digest("hex");
   }
   /** Chặn nghiệp vụ xác thực khi cấu hình chủ động không kết nối cơ sở dữ liệu. */
   private assertDatabase(): void {
