@@ -43,7 +43,7 @@ export interface LearningServiceContext {
   enrollLearner(
     classId: string,
     learnerId: string,
-    actorId?: string,
+    actorId: string,
   ): Promise<LearningClass>;
   getClassClosureReadiness(classId: string): Promise<ClassClosureReadiness>;
   databaseClassClosureReadiness(
@@ -67,12 +67,12 @@ export interface LearningServiceContext {
       page?: number;
       pageSize?: number;
     },
-    learnerId?: string,
-    role?: string,
+    learnerId: string,
+    role: string,
   ): Promise<MaterialSearchResult>;
   getMaterialSummary(
-    actorId?: string,
-    role?: string,
+    actorId: string,
+    role: string,
     classId?: string,
   ): Promise<MaterialSummaryBucket[]>;
   resolveMaterialDownload(
@@ -80,8 +80,8 @@ export interface LearningServiceContext {
     expires: number,
     signature: string,
     role: string,
-    action?: MaterialAccessAction,
-    actorId?: string,
+    action: MaterialAccessAction | undefined,
+    actorId: string,
   ): Promise<{
     fileName: string;
     mimeType: string;
@@ -90,22 +90,22 @@ export interface LearningServiceContext {
   }>;
   createQuestion(
     input: Omit<LearningQuestion, "id" | "status" | "version">,
-    authorId?: string,
+    authorId: string,
   ): Promise<LearningQuestion>;
-  submitAttempt(attemptId: string, learnerId?: string): Promise<ExamAttempt>;
-  listLearnerResults(learnerId?: string): Promise<LearnerResult[]>;
+  submitAttempt(attemptId: string, learnerId: string): Promise<ExamAttempt>;
+  listLearnerResults(learnerId: string): Promise<LearnerResult[]>;
   gradeAttempt(
     attemptId: string,
     score: number,
     feedback: string,
-    correctionReason?: string,
-    graderId?: string,
+    correctionReason: string | undefined,
+    graderId: string,
     questionScores?: Array<{ questionId: string; score: number }>,
   ): Promise<ExamAttempt>;
-  listNotifications(recipientId?: string): Promise<LearningNotification[]>;
+  listNotifications(recipientId: string): Promise<LearningNotification[]>;
   markNotificationRead(
     notificationId: string,
-    recipientId?: string,
+    recipientId: string,
   ): Promise<LearningNotification>;
   isRecordingAvailable(
     session: Pick<
@@ -126,7 +126,7 @@ export interface LearningServiceContext {
   ): LearningQuestion;
   getExamAnalytics(
     input: { classId?: string; examId?: string; from?: string; to?: string },
-    actorId?: string,
+    actorId: string,
   ): Promise<ExamAnalytics>;
   cloneQuestion(item: LearningQuestion): LearningQuestion;
   latestQuestionVersions(items: LearningQuestion[]): LearningQuestion[];

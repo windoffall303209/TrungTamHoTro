@@ -17,7 +17,7 @@ export async function createMaterialAccess(
   materialId: string,
   role: string,
   action: MaterialAccessAction = "DOWNLOAD",
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<{ url: string; expiresAt: string }> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -113,7 +113,7 @@ export async function resolveMaterialDownload(
   signature: string,
   role: string,
   action: MaterialAccessAction = "DOWNLOAD",
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<{
   fileName: string;
   mimeType: string;
@@ -180,7 +180,7 @@ export async function readMaterialPreviewContent(
   serviceContext: LearningServiceContext,
   materialId: string,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<AttachmentDocumentPreview> {
   const access = await createMaterialAccess(
     serviceContext,

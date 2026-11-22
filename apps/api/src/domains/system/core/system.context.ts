@@ -35,7 +35,7 @@ export interface SystemServiceContext {
       reason: string;
       targetDatabase?: string;
     },
-    actorId?: string,
+    actorId: string,
   ): Promise<RestoreRun>;
   processQueuedBackup(prisma: PrismaService): Promise<boolean>;
   processQueuedExport(prisma: PrismaService): Promise<boolean>;

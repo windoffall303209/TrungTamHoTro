@@ -194,7 +194,7 @@ export class SystemService {
   /** Hợp nhất cấu hình, kiểm tra quota/múi giờ, lưu trực tiếp vào system_settings và ghi audit. */
   async updateSettings(
     input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<SystemSettings> {
     try {
       return await settings_ops.updateSettings(
@@ -216,7 +216,7 @@ export class SystemService {
   async updateIntegration(
     integrationId: string,
     enabled: boolean,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<IntegrationConfig> {
     return await integrations_ops.updateIntegration(
       this.operationContext,
@@ -233,7 +233,7 @@ export class SystemService {
       credentialReference?: string;
       webhookUrl?: string;
     },
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<IntegrationConfig> {
     return await integrations_ops.configureIntegration(
       this.operationContext,
@@ -245,7 +245,7 @@ export class SystemService {
   /** Kiểm tra điều kiện kết nối và cập nhật trạng thái/lần kiểm tra của tích hợp. */
   async testIntegration(
     integrationId: string,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<IntegrationConfig> {
     return await integrations_ops.testIntegration(
       this.operationContext,
@@ -257,7 +257,7 @@ export class SystemService {
   /** Đặt một provider enabled làm mặc định và gỡ cờ mặc định của các provider khác nguyên tử. */
   async setDefaultIntegration(
     integrationId: string,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<IntegrationConfig> {
     return await integrations_ops.setDefaultIntegration(
       this.operationContext,
@@ -269,7 +269,7 @@ export class SystemService {
   /** Tạo URL phòng thử ngắn hạn sau khi integration vượt kiểm tra readiness. */
   async createTestMeeting(
     integrationId: string,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
     return await integrations_ops.createTestMeeting(
       this.operationContext,
@@ -286,7 +286,7 @@ export class SystemService {
   /** Xếp sao lưu vào hàng đợi bền vững để request không phải chờ tác vụ nặng. */
   async runBackup(
     type: BackupRun["type"],
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<BackupRun> {
     return await backups_ops.runBackup(this.operationContext, type, actorId);
   }
@@ -299,7 +299,7 @@ export class SystemService {
       reason: string;
       targetDatabase?: string;
     },
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<RestoreRun> {
     return await backups_ops.requestRestore(
       this.operationContext,
@@ -324,7 +324,7 @@ export class SystemService {
   async restoreBackup(
     backupId: string,
     approvedBy: string,
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<RestoreRun> {
     return await backups_ops.restoreBackup(
       this.operationContext,
@@ -343,7 +343,7 @@ export class SystemService {
   async runExport(
     category: string,
     format: DataExport["format"],
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<DataExport> {
     return await exports_ops.runExport(
       this.operationContext,

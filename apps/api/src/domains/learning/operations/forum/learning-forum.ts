@@ -93,8 +93,8 @@ async function assertTopicReadAccess(
 /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
 export async function listTopics(
   serviceContext: LearningServiceContext,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
 ): Promise<ForumTopic[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -112,8 +112,8 @@ export async function listTopics(
 /** Phân trang chủ đề diễn đàn từ DB kèm lọc lớp, ghim, bài của tôi và tìm kiếm cả tiêu đề, nội dung lẫn tags. */
 export async function listTopicsPage(
   serviceContext: LearningServiceContext,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
   filters: ForumTopicPageFilters = {},
 ): Promise<PaginatedResult<ForumTopic>> {
   const query = filters.query?.trim();
@@ -213,7 +213,7 @@ export async function createTopic(
   serviceContext: LearningServiceContext,
   classId: string,
   input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">,
-  authorId = "usr-instructor",
+  authorId: string,
   authorRole = authorId === "usr-learner" ? "LEARNER" : "INSTRUCTOR",
 ): Promise<ForumTopic> {
   const safeTitle = serviceContext.validateForumContent(input.title, "Tiêu đề");
@@ -310,7 +310,7 @@ export async function moderateTopic(
   serviceContext: LearningServiceContext,
   topicId: string,
   input: { isLocked?: boolean; isPinned?: boolean; reason: string },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<ForumTopic> {
   const reason = input.reason.trim();
   if (reason.length < 5)
@@ -373,8 +373,8 @@ export async function moderateTopic(
 export async function listPosts(
   serviceContext: LearningServiceContext,
   topicId: string,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
 ): Promise<ForumPost[]> {
   await assertTopicReadAccess(serviceContext, topicId, role, actorId);
   const prisma = serviceContext.database();
@@ -401,8 +401,8 @@ export async function listPosts(
 export async function listPostsPage(
   serviceContext: LearningServiceContext,
   topicId: string,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
   filters: { page?: number; pageSize?: number } = {},
 ): Promise<ForumPostPageResult> {
   await assertTopicReadAccess(serviceContext, topicId, role, actorId);
@@ -505,7 +505,7 @@ export async function createPost(
   serviceContext: LearningServiceContext,
   topicId: string,
   body: string,
-  authorId = "usr-learner",
+  authorId: string,
   parentId?: string,
   rawAttachmentIds: string[] = [],
   rawMentionedUserIds: string[] = [],
@@ -711,7 +711,7 @@ export async function updatePost(
   serviceContext: LearningServiceContext,
   postId: string,
   body: string,
-  authorId = "usr-learner",
+  authorId: string,
 ): Promise<ForumPost> {
   const safeBody = serviceContext.validateForumContent(
     body,
@@ -793,7 +793,7 @@ export async function updatePost(
 export async function deletePost(
   serviceContext: LearningServiceContext,
   postId: string,
-  authorId = "usr-learner",
+  authorId: string,
 ): Promise<ForumPost> {
   const prisma = serviceContext.database();
   if (prisma) {

@@ -16,7 +16,7 @@ export async function enrollLearner(
   serviceContext: LearningServiceContext,
   classId: string,
   learnerId: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -107,7 +107,7 @@ export async function importEnrollments(
   serviceContext: LearningServiceContext,
   classId: string,
   userIds: string[],
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<EnrollmentImportResult[]> {
   const normalized = userIds.map((value) => value.trim()).filter(Boolean);
   const seen = new Set<string>();
@@ -159,7 +159,7 @@ export async function removeEnrollment(
   classId: string,
   learnerId: string,
   reason: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)

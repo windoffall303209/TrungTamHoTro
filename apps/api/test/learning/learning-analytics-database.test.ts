@@ -71,7 +71,7 @@ describe("database-backed exam analytics", () => {
       closeAt: new Date("2025-01-01"), questions, attempts,
     }]);
 
-    const report = await getExamAnalytics(context, { examId: "large" });
+    const report = await getExamAnalytics(context, { examId: "large" }, "usr-instructor");
     expect(report.exams[0]).toMatchObject({ sampleSize: 800, averagePercentage: 100, passRate: 100 });
     expect(report.exams[0]?.questionStats).toHaveLength(48);
     expect(report.exams[0]?.questionStats.every((stat) =>
@@ -113,13 +113,13 @@ describe("database-backed exam analytics", () => {
       toStringArray: (value: unknown) => value as string[],
     } as unknown as LearningServiceContext;
 
-    const openOnly = await getExamAnalytics(granularContext, { examId: "exam-open" });
+    const openOnly = await getExamAnalytics(granularContext, { examId: "exam-open" }, "usr-instructor");
     expect(openOnly.exams[0]).toMatchObject({ sampleSize: 1, averagePercentage: 80, questionStatsAvailable: false, questionStats: [] });
     expect(examQuestionFindMany).not.toHaveBeenCalled();
     expect(attemptAnswerFindMany).not.toHaveBeenCalled();
 
     examFindMany.mockResolvedValueOnce([openExam, closedExam]);
-    const mixed = await getExamAnalytics(granularContext, { classId: "class" });
+    const mixed = await getExamAnalytics(granularContext, { classId: "class" }, "usr-instructor");
     expect(examQuestionFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { examId: { in: ["exam-closed"] } },
     }));

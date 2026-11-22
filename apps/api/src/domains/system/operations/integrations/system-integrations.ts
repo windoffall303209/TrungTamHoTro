@@ -26,7 +26,7 @@ export async function updateIntegration(
   serviceContext: SystemServiceContext,
   integrationId: string,
   enabled: boolean,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<IntegrationConfig> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -81,7 +81,7 @@ export async function configureIntegration(
     credentialReference?: string;
     webhookUrl?: string;
   },
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<IntegrationConfig> {
   const credentialReference = input.credentialReference?.trim();
   if (input.provider !== "JITSI" && !credentialReference)
@@ -158,7 +158,7 @@ export async function configureIntegration(
 export async function testIntegration(
   serviceContext: SystemServiceContext,
   integrationId: string,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<IntegrationConfig> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -212,7 +212,7 @@ export async function testIntegration(
 export async function setDefaultIntegration(
   serviceContext: SystemServiceContext,
   integrationId: string,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<IntegrationConfig> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -263,7 +263,7 @@ export async function setDefaultIntegration(
 export async function createTestMeeting(
   serviceContext: SystemServiceContext,
   integrationId: string,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<{ provider: string; attendeeUrl: string; expiresAt: string }> {
   const integrations = await serviceContext.listIntegrations();
   const item = integrations.find((entry) => entry.id === integrationId);

@@ -27,7 +27,7 @@ function assertExamQuestionsReady(
 export async function submitExamForReview(
   serviceContext: LearningServiceContext,
   examId: string,
-  actorId = "usr-instructor",
+  actorId: string,
   confirmQuestions = false,
   expectedVersion?: number,
   forcePublish = false,

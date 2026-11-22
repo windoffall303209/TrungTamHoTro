@@ -89,6 +89,9 @@ export function assertMaterialReadAccess(
     throw new NotFoundException(
       "Giảng viên không được phân công vào lớp chứa học liệu này.",
     );
+  // Deny-by-default: vai trò ngoài học viên, giảng viên và cấp quản lý không được đọc học liệu.
+  if (role !== "INSTRUCTOR" && role !== "CENTER_MANAGER" && role !== "SYSTEM_ADMIN")
+    throw new NotFoundException("Không tìm thấy học liệu.");
 }
 
 /** Bản in-memory của assertMaterialReadAccess cho chế độ dữ liệu mẫu. */
@@ -114,6 +117,9 @@ export function assertMemoryMaterialReadAccess(
     throw new NotFoundException(
       "Giảng viên không được phân công vào lớp chứa học liệu này.",
     );
+  // Deny-by-default giống bản PostgreSQL.
+  if (role !== "INSTRUCTOR" && role !== "CENTER_MANAGER" && role !== "SYSTEM_ADMIN")
+    throw new NotFoundException("Không tìm thấy học liệu.");
 }
 
 /** Áp dụng quyền lớp và visibility cho học liệu fallback in-memory. */

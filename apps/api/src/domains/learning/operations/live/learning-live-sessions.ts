@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import type { Prisma } from "../../../../generated/prisma/client.js";
@@ -105,6 +106,18 @@ function isManagerRole(role: string): boolean {
   return role === "CENTER_MANAGER" || role === "SYSTEM_ADMIN";
 }
 
+const SESSION_ACCESS_DENIED = "Vai trò hiện tại không được phép truy cập buổi học này.";
+
+// Deny-by-default: chỉ giảng viên và cấp quản lý được tạo, sửa hoặc hủy buổi học; vai trò lạ bị từ chối thay vì được toàn quyền.
+function assertSessionControlRole(role: string): void {
+  if (role !== "INSTRUCTOR" && !isManagerRole(role)) throw new ForbiddenException(SESSION_ACCESS_DENIED);
+}
+
+// Deny-by-default cho thao tác đọc/tham gia: chỉ bốn vai trò đã biết mới đi tiếp, mỗi vai trò tự giới hạn phạm vi lớp.
+function assertKnownSessionRole(role: string): void {
+  if (role !== "LEARNER" && role !== "INSTRUCTOR" && !isManagerRole(role)) throw new ForbiddenException(SESSION_ACCESS_DENIED);
+}
+
 export interface LiveSessionPageFilters {
   classId?: string;
   status?: LiveSession["status"];
@@ -128,7 +141,8 @@ function buildSessionRoleWhere(
   if (role === "INSTRUCTOR") {
     return { class: { instructors: { some: { instructorId: actorId } } } };
   }
-  return undefined;
+  if (isManagerRole(role)) return undefined;
+  throw new ForbiddenException(SESSION_ACCESS_DENIED);
 }
 
 /** Ẩn thông tin điều khiển host khi trả buổi học cho vai trò học viên. */
@@ -136,9 +150,9 @@ function redactSessionForRole(
   mapped: LiveSession,
   role: string,
 ): LiveSession {
-  return role === "LEARNER"
-    ? { ...mapped, hostUrl: "", recordingUrl: undefined }
-    : mapped;
+  return role === "INSTRUCTOR" || isManagerRole(role)
+    ? mapped
+    : { ...mapped, hostUrl: "", recordingUrl: undefined };
 }
 
 /** Kiểm tra thành viên lớp trên kho nhớ fallback cho danh sách buổi học. */
@@ -153,15 +167,16 @@ function canAccessMemorySession(
   );
   if (role === "LEARNER") return Boolean(classItem?.learnerIds.includes(actorId));
   if (role === "INSTRUCTOR") return Boolean(classItem?.instructorIds.includes(actorId));
-  return true;
+  return isManagerRole(role);
 }
 
 /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
 export async function listSessions(
   serviceContext: LearningServiceContext,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
 ): Promise<LiveSession[]> {
+  assertKnownSessionRole(role);
   const prisma = serviceContext.database();
   if (prisma) {
     const rows = await prisma.liveSession.findMany({
@@ -180,10 +195,11 @@ export async function listSessions(
 /** Phân trang danh sách buổi học theo vai trò, lớp, trạng thái và khoảng thời gian trên DB. */
 export async function listSessionsPage(
   serviceContext: LearningServiceContext,
-  role = "LEARNER",
-  actorId = serviceContext.userIdForRole(role),
+  role: string,
+  actorId: string,
   filters: LiveSessionPageFilters = {},
 ): Promise<PaginatedResult<LiveSession>> {
+  assertKnownSessionRole(role);
   const query = filters.query?.trim();
   const classId = filters.classId?.trim();
   if ((query && query.length > 255) || (classId && classId.length > 191)) {
@@ -278,9 +294,10 @@ export async function createSession(
   input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
     meetingUrl?: string;
   },
-  actorId = "usr-instructor",
-  actorRole = "INSTRUCTOR",
+  actorId: string,
+  actorRole: string,
 ): Promise<LiveSession> {
+  assertSessionControlRole(actorRole);
   const validated = validateSessionWindow(
     input.title,
     input.startsAt,
@@ -428,9 +445,10 @@ export async function updateSession(
     reason: string;
     meetingUrl?: string;
   },
-  actorId = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  actorId: string,
+  actorRole: string,
 ): Promise<LiveSession> {
+  assertSessionControlRole(actorRole);
   const reason = input.reason.trim();
   if (reason.length < 5)
     throw new BadRequestException("Lý do đổi lịch cần ít nhất 5 ký tự.");
@@ -450,7 +468,7 @@ export async function updateSession(
     if (current.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (
-      actorRole === "INSTRUCTOR" &&
+      !isManagerRole(actorRole) &&
       current.hostId !== actorId &&
       !current.class.instructors.some((row) => row.instructorId === actorId)
     )
@@ -528,7 +546,7 @@ export async function updateSession(
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   if (
-    actorRole === "INSTRUCTOR" &&
+    !isManagerRole(actorRole) &&
     item.hostId !== actorId &&
     !classItem.instructorIds.includes(actorId)
   )
@@ -577,9 +595,10 @@ export async function cancelSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
   reason: string,
-  actorId = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  actorId: string,
+  actorRole: string,
 ): Promise<LiveSession> {
+  assertSessionControlRole(actorRole);
   const normalized = reason.trim();
   if (normalized.length < 5)
     throw new BadRequestException("Lý do hủy cần ít nhất 5 ký tự.");
@@ -593,7 +612,7 @@ export async function cancelSession(
     if (current.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
     if (
-      actorRole === "INSTRUCTOR" &&
+      !isManagerRole(actorRole) &&
       current.hostId !== actorId &&
       !current.class.instructors.some((row) => row.instructorId === actorId)
     )
@@ -629,7 +648,7 @@ export async function cancelSession(
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   if (
-    actorRole === "INSTRUCTOR" &&
+    !isManagerRole(actorRole) &&
     item.hostId !== actorId &&
     !classItem.instructorIds.includes(actorId)
   )
@@ -646,7 +665,7 @@ export async function transitionSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
   status: LiveSession["status"],
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LiveSession> {
   const allowed: Record<LiveSession["status"], LiveSession["status"][]> = {
     SCHEDULED: ["LIVE"],
@@ -701,9 +720,10 @@ export async function transitionSession(
 export async function joinSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  actorId = "usr-learner",
-  actorRole = "LEARNER",
+  actorId: string,
+  actorRole: string,
 ): Promise<{ attendeeUrl: string; joinedAt: string }> {
+  assertKnownSessionRole(actorRole);
   const prisma = serviceContext.database();
   if (prisma) {
     const session = await prisma.liveSession.findUnique({

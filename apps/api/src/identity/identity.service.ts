@@ -294,7 +294,7 @@ export class IdentityService {
   async previewUserChange(
     userId: string,
     target: Pick<UpdateUserDto, "roleCode" | "roleCodes" | "status">,
-    actorRoleCode: RoleCode = "SYSTEM_ADMIN",
+    actorRoleCode: RoleCode,
   ): Promise<IdentityChangeImpact> {
     const prisma = this.database();
     if (!prisma) {
@@ -339,8 +339,8 @@ export class IdentityService {
   async updateUser(
     userId: string,
     input: UpdateUserDto,
-    actorId = "usr-admin",
-    actorRoleCode: RoleCode = "SYSTEM_ADMIN",
+    actorId: string,
+    actorRoleCode: RoleCode,
   ): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {

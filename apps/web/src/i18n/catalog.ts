@@ -7,6 +7,7 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Vai trò hiện tại không được phép truy cập buổi học này.": "Your current role is not allowed to access this session.",
   "Không thể đổi loại nhà cung cấp của cấu hình AI đã lưu. Hãy tạo cấu hình mới.": "The provider type of a saved AI configuration cannot be changed. Create a new configuration instead.",
   "Đổi máy chủ endpoint AI cần nhập lại API key.": "Changing the AI endpoint host requires re-entering the API key.",
   "Vui lòng nhập mật khẩu hiện tại.": "Please enter your current password.",

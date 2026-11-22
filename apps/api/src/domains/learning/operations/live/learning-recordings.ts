@@ -11,7 +11,7 @@ export async function attachRecording(
   serviceContext: LearningServiceContext,
   sessionId: string,
   recordingUrl: string,
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LiveSession> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -60,8 +60,8 @@ export async function completeRecording(
   sessionId: string,
   status: "READY" | "FAILED",
   retentionDays = 90,
-  errorMessage?: string,
-  actorId = "usr-instructor",
+  errorMessage: string | undefined,
+  actorId: string,
 ): Promise<LiveSession> {
   const normalizedError = errorMessage?.trim();
   if (status === "FAILED" && (!normalizedError || normalizedError.length < 5))
@@ -154,7 +154,7 @@ export function isRecordingAvailable(
 export async function getSessionSummary(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<object> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -196,7 +196,7 @@ export async function getSessionSummary(
 export async function createRecordingAccess(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<{ url: string; expiresAt: string }> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -243,7 +243,7 @@ export async function resolveRecordingAccess(
   sessionId: string,
   expires: number,
   signature: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<{ recordingUrl: string }> {
   serviceContext.verifyExpiringSignature(
     serviceContext.signRecordingAccess(sessionId, expires, learnerId),

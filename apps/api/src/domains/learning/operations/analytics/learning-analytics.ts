@@ -102,7 +102,7 @@ function computeExamQuestionStats(
 export async function getExamAnalytics(
   serviceContext: LearningServiceContext,
   input: { classId?: string; examId?: string; from?: string; to?: string },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<ExamAnalytics> {
   const { from, to } = serviceContext.reportingPeriod(input.from, input.to);
   const metricDefinitions = {
@@ -302,7 +302,7 @@ export async function getExamAnalytics(
 export async function exportExamAnalytics(
   serviceContext: LearningServiceContext,
   input: { classId?: string; examId?: string; from?: string; to?: string },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<Buffer> {
   const report = await serviceContext.getExamAnalytics(input, actorId);
   /** Bao ô CSV bằng dấu ngoặc kép và thoát dấu ngoặc kép trong nội dung. */

@@ -7,7 +7,7 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 export async function startAttempt(
   serviceContext: LearningServiceContext,
   examId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<ExamAttempt> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -113,7 +113,7 @@ export async function saveAnswer(
   attemptId: string,
   questionId: string,
   answers: string[],
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<ExamAttempt> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -186,7 +186,7 @@ export async function saveAnswer(
 export async function submitAttempt(
   serviceContext: LearningServiceContext,
   attemptId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<ExamAttempt> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -366,7 +366,7 @@ export async function getAttempt(
 /** Liệt kê kết quả đã nộp/chấm của học viên cùng trạng thái phúc khảo. */
 export async function listLearnerResults(
   serviceContext: LearningServiceContext,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<LearnerResult[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -470,7 +470,7 @@ export async function listLearnerResults(
 export async function getLearnerResult(
   serviceContext: LearningServiceContext,
   attemptId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<LearnerResult> {
   const result = (await serviceContext.listLearnerResults(learnerId)).find(
     (item) => item.attempt.id === attemptId,

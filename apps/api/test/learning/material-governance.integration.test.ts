@@ -87,7 +87,7 @@ describe("material governance and folder integration", () => {
       startAt: "2027-01-01T00:00:00.000Z",
       endAt: "2027-06-01T00:00:00.000Z",
       capacity: 30,
-    });
+    }, "usr-manager");
     const classB = await learning.createClass({
       courseId: "course-web",
       code: `MAT-PERM-B-${suffix}`,
@@ -96,7 +96,7 @@ describe("material governance and folder integration", () => {
       startAt: "2027-01-01T00:00:00.000Z",
       endAt: "2027-06-01T00:00:00.000Z",
       capacity: 30,
-    });
+    }, "usr-manager");
     createdClassIds.push(classA.id, classB.id);
 
     await learning.assignInstructor(classA.id, "usr-instructor", "PRIMARY", "usr-manager");
@@ -176,7 +176,7 @@ describe("material governance and folder integration", () => {
       startAt: "2027-01-01T00:00:00.000Z",
       endAt: "2027-06-01T00:00:00.000Z",
       capacity: 25,
-    });
+    }, "usr-manager");
     const classB = await learning.createClass({
       courseId: "course-web",
       code: `MAT-FLD-B-${suffix}`,
@@ -185,7 +185,7 @@ describe("material governance and folder integration", () => {
       startAt: "2027-01-01T00:00:00.000Z",
       endAt: "2027-06-01T00:00:00.000Z",
       capacity: 25,
-    });
+    }, "usr-manager");
     createdClassIds.push(classA.id, classB.id);
     await learning.assignInstructor(classA.id, "usr-instructor", "PRIMARY", "usr-manager");
     await learning.assignInstructor(classB.id, "usr-instructor", "PRIMARY", "usr-manager");
@@ -196,25 +196,25 @@ describe("material governance and folder integration", () => {
 
     // Thiếu class_id bị từ chối
     await expect(
-      learning.createMaterial(null, { name: "Không lớp.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Tài liệu chung", tags: ["MATERIAL"] }),
+      learning.createMaterial(null, { name: "Không lớp.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Tài liệu chung", tags: ["MATERIAL"] }, undefined, "usr-instructor", "INSTRUCTOR"),
     ).rejects.toThrow(BadRequestException);
 
     // Thư mục chưa tồn tại bị từ chối
     await expect(
-      learning.createMaterial(classA.id, { name: "Sai thư mục.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Chưa tạo", tags: ["MATERIAL"] }),
+      learning.createMaterial(classA.id, { name: "Sai thư mục.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Chưa tạo", tags: ["MATERIAL"] }, undefined, "usr-instructor", "INSTRUCTOR"),
     ).rejects.toThrow(BadRequestException);
 
     // Thư mục thuộc lớp khác bị từ chối
     await expect(
-      learning.createMaterial(classA.id, { name: "Thư mục lớp B.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Thư mục riêng lớp B", tags: ["MATERIAL"] }),
+      learning.createMaterial(classA.id, { name: "Thư mục lớp B.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Thư mục riêng lớp B", tags: ["MATERIAL"] }, undefined, "usr-instructor", "INSTRUCTOR"),
     ).rejects.toThrow(BadRequestException);
 
     // Sai loại nội dung (MATERIAL vào thư mục lectures hoặc LECTURE vào thư mục materials) bị từ chối
     await expect(
-      learning.createMaterial(classA.id, { name: "Nhầm loại tài liệu.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Mục Bài giảng", tags: ["MATERIAL"] }),
+      learning.createMaterial(classA.id, { name: "Nhầm loại tài liệu.pdf", mimeType: "application/pdf", sizeBytes: 100, folder: "Mục Bài giảng", tags: ["MATERIAL"] }, undefined, "usr-instructor", "INSTRUCTOR"),
     ).rejects.toThrow(BadRequestException);
     await expect(
-      learning.createMaterial(classA.id, { name: "Nhầm loại bài giảng.mp4", mimeType: "video/mp4", sizeBytes: 100, folder: "Mục Tài liệu", tags: ["LECTURE"] }),
+      learning.createMaterial(classA.id, { name: "Nhầm loại bài giảng.mp4", mimeType: "video/mp4", sizeBytes: 100, folder: "Mục Tài liệu", tags: ["LECTURE"] }, undefined, "usr-instructor", "INSTRUCTOR"),
     ).rejects.toThrow(BadRequestException);
 
     // Đúng lớp, đúng thư mục, đúng loại nội dung được chấp nhận và không thể chuyển ra ngoài lớp
@@ -224,16 +224,16 @@ describe("material governance and folder integration", () => {
       sizeBytes: 100,
       folder: "Mục Tài liệu",
       tags: ["MATERIAL"],
-    });
+    }, undefined, "usr-instructor", "INSTRUCTOR");
     createdMaterialIds.push(okMat.id);
     expect(okMat).toMatchObject({ classId: classA.id, folder: "Mục Tài liệu", scope: "CLASS" });
 
     // Không cho phép chuyển tệp ra khỏi lớp hoặc sang thư mục chưa đăng ký của lớp B
-    await expect(learning.updateMaterial(okMat.id, { classId: null }, "usr-instructor")).rejects.toThrow(BadRequestException);
-    await expect(learning.updateMaterial(okMat.id, { classId: classB.id, folder: "Mục Tài liệu" }, "usr-instructor")).rejects.toThrow(BadRequestException);
+    await expect(learning.updateMaterial(okMat.id, { classId: null }, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(learning.updateMaterial(okMat.id, { classId: classB.id, folder: "Mục Tài liệu" }, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
 
     // Di chuyển sang đúng thư mục của lớp B phải thành công
-    const moved = await learning.updateMaterial(okMat.id, { classId: classB.id, folder: "Thư mục riêng lớp B" }, "usr-instructor");
+    const moved = await learning.updateMaterial(okMat.id, { classId: classB.id, folder: "Thư mục riêng lớp B" }, "usr-instructor", "INSTRUCTOR");
     expect(moved).toMatchObject({ classId: classB.id, folder: "Thư mục riêng lớp B", scope: "CLASS" });
   });
 

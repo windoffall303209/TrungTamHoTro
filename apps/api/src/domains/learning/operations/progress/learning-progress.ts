@@ -17,8 +17,8 @@ export async function getClassProgress(
   serviceContext: LearningServiceContext,
   classId: string,
   input: { from?: string; to?: string } & Partial<RiskThresholds>,
-  actorId = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  actorId: string,
+  actorRole: string,
 ): Promise<ClassProgressReport> {
   if (!["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR"].includes(actorRole)) {
     throw new ForbiddenException("Không có quyền xem báo cáo tiến độ lớp học.");
@@ -224,8 +224,8 @@ export async function createProgressIntervention(
     ProgressIntervention,
     "learnerId" | "title" | "notes" | "dueAt"
   > & { assigneeId: string },
-  createdById = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  createdById: string,
+  actorRole: string,
 ): Promise<ProgressIntervention> {
   if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
     throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép tạo hành động hỗ trợ.");
@@ -368,8 +368,8 @@ export async function updateProgressIntervention(
     outcome?: string;
     cancellationReason?: string;
   },
-  actorId = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  actorId: string,
+  actorRole: string,
 ): Promise<ProgressIntervention> {
   const outcome = input.outcome?.trim();
   const cancellationReason = input.cancellationReason?.trim();
@@ -490,8 +490,8 @@ export async function transferProgressIntervention(
   interventionId: string,
   assigneeId: string,
   rawReason: string,
-  actorId = "usr-manager",
-  actorRole = "CENTER_MANAGER",
+  actorId: string,
+  actorRole: string,
 ): Promise<ProgressIntervention> {
   if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
     throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép bàn giao hành động hỗ trợ.");

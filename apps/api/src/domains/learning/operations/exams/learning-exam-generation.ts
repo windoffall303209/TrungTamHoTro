@@ -20,7 +20,7 @@ import { normalizeQuestionInput } from "../questions/learning-question-rules.js"
 export async function getExamGenerationContext(
   serviceContext: LearningServiceContext,
   classId: string,
-  actorId = "usr-instructor",
+  actorId: string,
   rawMaterialIds: string[] = [],
   skipMaterials = false,
 ): Promise<ExamGenerationContext> {
@@ -209,7 +209,7 @@ export async function getGeneratedExamByRequest(
   serviceContext: LearningServiceContext,
   clientRequestId: string,
   classId: string,
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LearningExam | undefined> {
   const prisma = serviceContext.database();
   if (!prisma) return undefined;
@@ -240,7 +240,7 @@ export async function createGeneratedExam(
     warnings?: string[];
   },
   clientRequestId: string = randomUUID(),
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LearningExam> {
   if (new Date(input.closeAt) <= new Date(input.openAt))
     throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");

@@ -81,8 +81,8 @@ function buildMaterialLectureSql(tags = buildMaterialTagsSql()): Prisma.Sql {
 export async function listMaterials(
   serviceContext: LearningServiceContext,
   role: string,
-  query?: string,
-  actorId = serviceContext.userIdForRole(role),
+  query: string | undefined,
+  actorId: string,
   page = 1,
   materialId?: string,
 ): Promise<LearningMaterial[]> {
@@ -98,8 +98,8 @@ export async function listMaterials(
 /** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung trực tiếp bằng GROUP BY SQL. */
 export async function getMaterialSummary(
   serviceContext: LearningServiceContext,
-  actorId = "usr-learner",
-  role = "LEARNER",
+  actorId: string,
+  role: string,
   classId?: string,
 ): Promise<MaterialSummaryBucket[]> {
   if (classId && classId.length > 255) {
@@ -168,8 +168,8 @@ export async function searchAccessibleMaterials(
     page?: number;
     pageSize?: number;
   },
-  learnerId = "usr-learner",
-  role = "LEARNER",
+  learnerId: string,
+  role: string,
 ): Promise<MaterialSearchResult> {
   const page =
     Number.isSafeInteger(input.page) &&
@@ -310,9 +310,9 @@ export async function createMaterial(
     LearningMaterial,
     "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
   > & { scope?: LearningMaterial["scope"]; courseId?: string; visibility?: "PUBLISHED" | "HIDDEN" },
-  upload?: UploadedMaterialFile,
-  actorId = "usr-instructor",
-  actorRole = "INSTRUCTOR",
+  upload: UploadedMaterialFile | undefined,
+  actorId: string,
+  actorRole: string,
 ): Promise<LearningMaterial> {
   void actorRole;
   const normalizedClassId = classId?.trim() ?? "";
@@ -497,8 +497,8 @@ export async function updateMaterial(
     classId?: string | null;
     name?: string;
   },
-  actorId = "usr-instructor",
-  actorRole = "INSTRUCTOR",
+  actorId: string,
+  actorRole: string,
 ): Promise<LearningMaterial> {
   void actorRole;
   if ((input.scope as string | undefined) === "SHARED")
@@ -619,7 +619,7 @@ export async function replaceMaterialFile(
   materialId: string,
   input: Pick<LearningMaterial, "folder" | "tags">,
   upload: UploadedMaterialFile,
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LearningMaterial> {
   const prisma = serviceContext.database();
   const policy = prisma
@@ -781,7 +781,7 @@ export async function deleteMaterial(
   serviceContext: LearningServiceContext,
   materialId: string,
   actorId: string,
-  actorRole = "INSTRUCTOR",
+  actorRole: string,
 ): Promise<void> {
   void actorRole;
   const prisma = serviceContext.database();

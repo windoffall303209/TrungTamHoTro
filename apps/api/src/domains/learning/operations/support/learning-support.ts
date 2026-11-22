@@ -62,7 +62,7 @@ export interface SupportTicketPageFilters {
 export async function listTickets(
   serviceContext: LearningServiceContext,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<SupportTicket[]> {
   const canManage = serviceContext.canManageSupport(role);
   const prisma = serviceContext.database();
@@ -86,7 +86,7 @@ export async function listTickets(
 export async function listTicketsPage(
   serviceContext: LearningServiceContext,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
   filters: SupportTicketPageFilters = {},
 ): Promise<PaginatedResult<SupportTicket>> {
   const query = filters.query?.trim();
@@ -176,7 +176,7 @@ export async function createTicket(
     SupportTicket,
     "category" | "severity" | "description" | "contextId"
   > & { clientRequestId?: string },
-  reporterId = "usr-learner",
+  reporterId: string,
 ): Promise<SupportTicket> {
   const slaHours: Record<SupportTicket["severity"], number> = {
     P0: 4,
@@ -346,7 +346,7 @@ export async function addSupportAttachment(
   ticketId: string,
   upload: UploadedMaterialFile,
   role: string,
-  uploaderId = serviceContext.userIdForRole(role),
+  uploaderId: string,
 ): Promise<SupportAttachment> {
   const canManage = serviceContext.canManageSupport(role);
   serviceContext.validateSupportUpload(upload);
@@ -431,7 +431,7 @@ export async function readSupportAttachment(
   ticketId: string,
   attachmentId: string,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<MaterialDownload> {
   const canManage = serviceContext.canManageSupport(role);
   const prisma = serviceContext.database();
@@ -490,7 +490,7 @@ export async function updateTicket(
   input: Partial<
     Pick<SupportTicket, "status" | "assigneeId" | "resolution">
   > & { expectedUpdatedAt?: string },
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<SupportTicket> {
   if (input.status === "CLOSED")
     throw new BadRequestException(
@@ -621,7 +621,7 @@ export async function updateTicket(
 export async function closeTicketByReporter(
   serviceContext: LearningServiceContext,
   ticketId: string,
-  reporterId = "usr-learner",
+  reporterId: string,
 ): Promise<SupportTicket> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -673,7 +673,7 @@ export async function listTicketComments(
   serviceContext: LearningServiceContext,
   ticketId: string,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<TicketComment[]> {
   const canManage = serviceContext.canManageSupport(role);
   const prisma = serviceContext.database();
@@ -709,7 +709,7 @@ export async function addTicketComment(
   ticketId: string,
   body: string,
   role: string,
-  authorId = serviceContext.userIdForRole(role),
+  authorId: string,
 ): Promise<TicketComment> {
   const normalized = serviceContext.validateSupportText(
     body,

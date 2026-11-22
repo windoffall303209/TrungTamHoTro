@@ -54,7 +54,7 @@ function matchesMemoryClassRole(
 export async function listClasses(
   serviceContext: LearningServiceContext,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<LearningClass[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -77,7 +77,7 @@ export async function listClasses(
 export async function listClassesPage(
   serviceContext: LearningServiceContext,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
   filters: ClassPageFilters = {},
 ): Promise<PaginatedResult<LearningClass>> {
   const query = filters.query?.trim();
@@ -314,7 +314,7 @@ export async function createClass(
     "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
   > &
     Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const code = input.code.trim().toUpperCase();
   const term = input.term.trim();
@@ -416,7 +416,7 @@ export async function updateClass(
   serviceContext: LearningServiceContext,
   classId: string,
   input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
   if (prisma) {

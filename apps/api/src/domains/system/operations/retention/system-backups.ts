@@ -29,7 +29,7 @@ export async function listBackups(
 export async function runBackup(
   serviceContext: SystemServiceContext,
   type: BackupRun["type"],
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<BackupRun> {
   if (type === "INCREMENTAL")
     throw new BadRequestException(
@@ -73,7 +73,7 @@ export async function requestRestore(
     reason: string;
     targetDatabase?: string;
   },
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<RestoreRun> {
   if (input.reason.trim().length < 10)
     throw new BadRequestException("Cần lý do khôi phục ít nhất 10 ký tự.");
@@ -261,7 +261,7 @@ export async function restoreBackup(
   serviceContext: SystemServiceContext,
   backupId: string,
   approvedBy: string,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<RestoreRun> {
   if (approvedBy.trim().length < 3)
     throw new BadRequestException("Cần người phê duyệt khôi phục.");

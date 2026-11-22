@@ -10,7 +10,7 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 export async function getAttemptReview(
   serviceContext: LearningServiceContext,
   attemptId: string,
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<ExamAttemptReview> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -106,8 +106,8 @@ export async function gradeAttempt(
   attemptId: string,
   score: number,
   feedback: string,
-  correctionReason?: string,
-  graderId = "usr-instructor",
+  correctionReason: string | undefined,
+  graderId: string,
   questionScores?: Array<{ questionId: string; score: number }>,
 ): Promise<ExamAttempt> {
   const prisma = serviceContext.database();

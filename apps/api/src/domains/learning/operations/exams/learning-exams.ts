@@ -19,7 +19,7 @@ function withQuestionIssues(questions: LearningQuestion[]): LearningQuestion[] {
 export async function listExams(
   serviceContext: LearningServiceContext,
   role: string,
-  actorId = serviceContext.userIdForRole(role),
+  actorId: string,
 ): Promise<LearningExam[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -61,8 +61,8 @@ export async function listExams(
 /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
 export async function listLearnerExamSummaries(
   serviceContext: LearningServiceContext,
-  classId?: string,
-  learnerId = "usr-learner",
+  classId: string | undefined,
+  learnerId: string,
 ): Promise<LearnerExamSummary[]> {
   const timestamp = new Date();
   const prisma = serviceContext.database();
@@ -134,7 +134,7 @@ export async function listLearnerExamSummaries(
 export async function getExamQuestions(
   serviceContext: LearningServiceContext,
   examId: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<LearningQuestion[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -242,7 +242,7 @@ export async function getExamQuestions(
 export async function getInstructorExamPreview(
   serviceContext: LearningServiceContext,
   examId: string,
-  instructorId = "usr-instructor",
+  instructorId: string,
 ): Promise<LearningQuestion[]> {
   const prisma = serviceContext.database();
   if (prisma) {

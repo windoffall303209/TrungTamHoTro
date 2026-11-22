@@ -112,8 +112,8 @@ export async function classFolders(
   ctx: LearningServiceContext,
   classId: string,
   actorId: string,
-  input?: { kind: string; name: string },
-  actorRole = "INSTRUCTOR",
+  input: { kind: string; name: string } | undefined,
+  actorRole: string,
 ): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
   const db = ctx.database();
   if (input) {

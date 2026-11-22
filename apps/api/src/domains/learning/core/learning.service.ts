@@ -502,7 +502,7 @@ export class LearningService {
   async createCourse(
     input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
       Partial<Pick<LearningCourse, "grade" | "subject">>,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningCourse> {
     return await courses_ops.createCourse(
       this.operationContext,
@@ -515,7 +515,7 @@ export class LearningService {
   async updateCourse(
     courseId: string,
     input: Pick<LearningCourse, "name" | "description" | "outcomes">,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningCourse> {
     return await courses_ops.updateCourse(
       this.operationContext,
@@ -536,7 +536,7 @@ export class LearningService {
   /** Xuất bản khóa học và chụp snapshot bất biến của phiên bản hiện tại trong transaction. */
   async publishCourse(
     courseId: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningCourse> {
     return await courses_ops.publishCourse(
       this.operationContext,
@@ -549,7 +549,7 @@ export class LearningService {
   async archiveCourse(
     courseId: string,
     reason: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningCourse> {
     return await courses_ops.archiveCourse(
       this.operationContext,
@@ -562,7 +562,7 @@ export class LearningService {
   /** Lọc lớp theo vai trò: quản trị xem tất cả, giảng viên/học viên theo quan hệ thành viên. */
   async listClasses(
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<LearningClass[]> {
     return await classes_ops.listClasses(this.operationContext, role, actorId);
   }
@@ -570,7 +570,7 @@ export class LearningService {
   /** Phân trang danh sách lớp học theo vai trò và bộ lọc trực tiếp ở DB. */
   async listClassesPage(
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
     filters: classes_ops.ClassPageFilters = {},
   ): Promise<PaginatedResult<LearningClass>> {
     return await classes_ops.listClassesPage(
@@ -600,7 +600,7 @@ export class LearningService {
       "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
     > &
       Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await classes_ops.createClass(this.operationContext, input, actorId);
   }
@@ -609,7 +609,7 @@ export class LearningService {
   async updateClass(
     classId: string,
     input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await classes_ops.updateClass(this.operationContext, classId, input, actorId);
   }
@@ -618,8 +618,8 @@ export class LearningService {
   async assignInstructor(
     classId: string,
     instructorId: string,
-    requestedRole?: InstructorRole,
-    actorId = "usr-manager",
+    requestedRole: InstructorRole | undefined,
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_instructors_ops.assignInstructor(
       this.operationContext,
@@ -636,7 +636,7 @@ export class LearningService {
     expectedPrimaryId: string,
     newPrimaryId: string,
     rawReason: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_instructors_ops.transferPrimaryInstructor(
       this.operationContext,
@@ -653,7 +653,7 @@ export class LearningService {
     classId: string,
     instructorId: string,
     reason: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_instructors_ops.removeInstructor(
       this.operationContext,
@@ -668,7 +668,7 @@ export class LearningService {
   async enrollLearner(
     classId: string,
     learnerId: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_enrollments_ops.enrollLearner(
       this.operationContext,
@@ -682,7 +682,7 @@ export class LearningService {
   async importEnrollments(
     classId: string,
     userIds: string[],
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<EnrollmentImportResult[]> {
     return await class_enrollments_ops.importEnrollments(
       this.operationContext,
@@ -697,7 +697,7 @@ export class LearningService {
     classId: string,
     learnerId: string,
     reason: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_enrollments_ops.removeEnrollment(
       this.operationContext,
@@ -719,7 +719,7 @@ export class LearningService {
   /** Kích hoạt lớp khi khóa học đã xuất bản, lịch hợp lệ và có giảng viên chính. */
   async activateClass(
     classId: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_lifecycle_ops.activateClass(
       this.operationContext,
@@ -755,7 +755,7 @@ export class LearningService {
     classId: string,
     closeReason: string,
     archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_lifecycle_ops.closeClass(
       this.operationContext,
@@ -770,7 +770,7 @@ export class LearningService {
   async reopenClass(
     classId: string,
     rawReason: string,
-    actorId = "usr-manager",
+    actorId: string,
   ): Promise<LearningClass> {
     return await class_lifecycle_ops.reopenClass(
       this.operationContext,
@@ -784,8 +784,8 @@ export class LearningService {
   async classFolders(
     classId: string,
     actorId: string,
-    input?: { kind: string; name: string },
-    actorRole = "INSTRUCTOR",
+    input: { kind: string; name: string } | undefined,
+    actorRole: string,
   ): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
     return folderOps.classFolders(this.operationContext, classId, actorId, input, actorRole);
   }
@@ -793,8 +793,8 @@ export class LearningService {
   /** Liệt kê danh sách học liệu hiển thị theo phạm vi quyền của vai trò hiện tại. */
   async listMaterials(
     role: string,
-    query?: string,
-    actorId = this.userIdForRole(role),
+    query: string | undefined,
+    actorId: string,
     page = 1,
     materialId?: string,
   ): Promise<LearningMaterial[]> {
@@ -810,8 +810,8 @@ export class LearningService {
 
   /** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung. */
   async getMaterialSummary(
-    actorId = "usr-learner",
-    role = "LEARNER",
+    actorId: string,
+    role: string,
     classId?: string,
   ): Promise<MaterialSummaryBucket[]> {
     return await materials_ops.getMaterialSummary(
@@ -840,8 +840,8 @@ export class LearningService {
       page?: number;
       pageSize?: number;
     },
-    learnerId = "usr-learner",
-    role = "LEARNER",
+    learnerId: string,
+    role: string,
   ): Promise<MaterialSearchResult> {
     return await materials_ops.searchAccessibleMaterials(
       this.operationContext,
@@ -858,9 +858,9 @@ export class LearningService {
       LearningMaterial,
       "name" | "mimeType" | "sizeBytes" | "folder" | "tags"
     > & { scope?: LearningMaterial["scope"]; courseId?: string; visibility?: "PUBLISHED" | "HIDDEN" },
-    upload?: UploadedMaterialFile,
-    actorId = "usr-instructor",
-    actorRole = "INSTRUCTOR",
+    upload: UploadedMaterialFile | undefined,
+    actorId: string,
+    actorRole: string,
   ): Promise<LearningMaterial> {
     return await materials_ops.createMaterial(
       this.operationContext,
@@ -877,7 +877,7 @@ export class LearningService {
     materialId: string,
     role: string,
     action: MaterialAccessAction = "DOWNLOAD",
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<{ url: string; expiresAt: string }> {
     return await material_downloads_ops.createMaterialAccess(
       this.operationContext,
@@ -917,7 +917,7 @@ export class LearningService {
   async readMaterialPreviewContent(
     materialId: string,
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<AttachmentDocumentPreview> {
     return await material_downloads_ops.readMaterialPreviewContent(
       this.operationContext,
@@ -934,7 +934,7 @@ export class LearningService {
     signature: string,
     role: string,
     action: MaterialAccessAction = "DOWNLOAD",
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<{
     fileName: string;
     mimeType: string;
@@ -959,8 +959,8 @@ export class LearningService {
       classId?: string | null;
       name?: string;
     },
-    actorId = "usr-instructor",
-    actorRole = "INSTRUCTOR",
+    actorId: string,
+    actorRole: string,
   ): Promise<LearningMaterial> {
     return await materials_ops.updateMaterial(
       this.operationContext,
@@ -972,7 +972,7 @@ export class LearningService {
   }
 
   /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
-  async deleteMaterial(materialId: string, actorId: string, actorRole = "INSTRUCTOR"): Promise<void> {
+  async deleteMaterial(materialId: string, actorId: string, actorRole: string): Promise<void> {
     return await materials_ops.deleteMaterial(
       this.operationContext,
       materialId,
@@ -1012,7 +1012,7 @@ export class LearningService {
     materialId: string,
     input: Pick<LearningMaterial, "folder" | "tags">,
     upload: UploadedMaterialFile,
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LearningMaterial> {
     return await materials_ops.replaceMaterialFile(
       this.operationContext,
@@ -1051,7 +1051,7 @@ export class LearningService {
   /** Validate nội dung/đáp án, tạo family câu hỏi và chọn trạng thái theo chế độ duyệt cấu hình. */
   async createQuestion(
     input: Omit<LearningQuestion, "id" | "status" | "version">,
-    authorId = "usr-instructor",
+    authorId: string,
   ): Promise<LearningQuestion> {
     return await questions_ops.createQuestion(
       this.operationContext,
@@ -1064,7 +1064,7 @@ export class LearningService {
   async updateQuestion(
     questionId: string,
     input: Omit<LearningQuestion, "id" | "status" | "version">,
-    authorId = "usr-instructor",
+    authorId: string,
   ): Promise<LearningQuestion> {
     return await questions_ops.updateQuestion(
       this.operationContext,
@@ -1111,7 +1111,7 @@ export class LearningService {
   /** Nhập từng câu độc lập để lỗi một mục không hủy toàn bộ lô. */
   async importQuestions(
     inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>,
-    authorId = "usr-instructor",
+    authorId: string,
   ): Promise<QuestionImportResult[]> {
     return await questions_ops.importQuestions(
       this.operationContext,
@@ -1123,7 +1123,7 @@ export class LearningService {
   /** Liệt kê đề theo vai trò và quan hệ lớp, không trả đề ngoài phạm vi giảng dạy/ghi danh. */
   async listExams(
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<LearningExam[]> {
     return await exams_ops.listExams(this.operationContext, role, actorId);
   }
@@ -1135,8 +1135,8 @@ export class LearningService {
 
   /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
   async listLearnerExamSummaries(
-    classId?: string,
-    learnerId = "usr-learner",
+    classId: string | undefined,
+    learnerId: string,
   ): Promise<LearnerExamSummary[]> {
     return await exams_ops.listLearnerExamSummaries(
       this.operationContext,
@@ -1148,7 +1148,7 @@ export class LearningService {
   /** Trả câu hỏi cho học viên theo thứ tự seed nếu xáo trộn và loại dữ liệu đáp án đúng. */
   async getExamQuestions(
     examId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<LearningQuestion[]> {
     return await exams_ops.getExamQuestions(
       this.operationContext,
@@ -1160,7 +1160,7 @@ export class LearningService {
   /** Xác minh giảng viên phụ trách rồi trả câu hỏi theo đúng thứ tự gốc của đề. */
   async getInstructorExamPreview(
     examId: string,
-    instructorId = "usr-instructor",
+    instructorId: string,
   ): Promise<LearningQuestion[]> {
     return await exams_ops.getInstructorExamPreview(
       this.operationContext,
@@ -1183,7 +1183,7 @@ export class LearningService {
       LearningExam,
       "id" | "status" | "version" | "questionScores" | "aiContext"
     > & { scoreAllocations?: Array<{ questionId: string; score: number }> },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LearningExam> {
     return await exam_editing_ops.createExam(
       this.operationContext,
@@ -1202,7 +1202,7 @@ export class LearningService {
       scoreAllocations?: Array<{ questionId: string; score: number }>;
       expectedVersion: number;
     },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LearningExam> {
     return await exam_editing_ops.updateExam(
       this.operationContext,
@@ -1236,7 +1236,7 @@ export class LearningService {
   /** Kiểm tra đề hoàn chỉnh rồi tự công bố hoặc đưa vào hàng đợi duyệt theo cấu hình. */
   async submitExamForReview(
     examId: string,
-    actorId = "usr-instructor",
+    actorId: string,
     confirmQuestions = false,
     expectedVersion?: number,
     forcePublish = false,
@@ -1254,7 +1254,7 @@ export class LearningService {
   /** Kiểm tra ghi danh, cửa sổ thi, giới hạn lượt rồi tạo hoặc tiếp tục lượt đang làm. */
   async startAttempt(
     examId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<ExamAttempt> {
     return await attempts_ops.startAttempt(
       this.operationContext,
@@ -1268,7 +1268,7 @@ export class LearningService {
     attemptId: string,
     questionId: string,
     answers: string[],
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<ExamAttempt> {
     return await attempts_ops.saveAnswer(
       this.operationContext,
@@ -1282,7 +1282,7 @@ export class LearningService {
   /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */
   async submitAttempt(
     attemptId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<ExamAttempt> {
     return await attempts_ops.submitAttempt(
       this.operationContext,
@@ -1306,7 +1306,7 @@ export class LearningService {
 
   /** Liệt kê kết quả đã nộp/chấm của học viên cùng trạng thái phúc khảo. */
   async listLearnerResults(
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<LearnerResult[]> {
     return await attempts_ops.listLearnerResults(
       this.operationContext,
@@ -1317,7 +1317,7 @@ export class LearningService {
   /** Trả đúng kết quả thuộc học viên, từ chối truy cập chéo lượt thi. */
   async getLearnerResult(
     attemptId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<LearnerResult> {
     return await attempts_ops.getLearnerResult(
       this.operationContext,
@@ -1330,7 +1330,7 @@ export class LearningService {
   async requestRegrade(
     attemptId: string,
     reason: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<RegradeRequest> {
     return await regrades_ops.requestRegrade(
       this.operationContext,
@@ -1342,7 +1342,7 @@ export class LearningService {
 
   /** Liệt kê hàng đợi phúc khảo trong đúng phạm vi lớp của giảng viên. */
   async listRegradeRequests(
-    actorId = "usr-instructor",
+    actorId: string,
     status?: RegradeRequest["status"],
   ): Promise<RegradeRequest[]> {
     return await regrades_ops.listRegradeRequests(
@@ -1355,7 +1355,7 @@ export class LearningService {
   /** Nhận xử lý một yêu cầu OPEN bằng cập nhật có điều kiện để chống hai người cùng nhận. */
   async claimRegrade(
     requestId: string,
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<RegradeRequest> {
     return await regrades_ops.claimRegrade(
       this.operationContext,
@@ -1374,7 +1374,7 @@ export class LearningService {
       feedback?: string;
       questionScores?: Array<{ questionId: string; score: number }>;
     },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<RegradeRequest> {
     return await regrades_ops.resolveRegrade(
       this.operationContext,
@@ -1386,8 +1386,8 @@ export class LearningService {
 
   /** Liệt kê lượt thi trong phạm vi lớp giảng viên phụ trách. */
   async listAttempts(
-    examId?: string,
-    actorId = "usr-instructor",
+    examId: string | undefined,
+    actorId: string,
   ): Promise<ExamAttempt[]> {
     return await regrades_ops.listAttempts(
       this.operationContext,
@@ -1399,7 +1399,7 @@ export class LearningService {
   /** Thu thập tối đa sáu tệp đã công khai trong các lớp cùng môn mà giảng viên được phân công. */
   async getExamGenerationContext(
     classId: string,
-    actorId = "usr-instructor",
+    actorId: string,
     rawMaterialIds: string[] = [],
     skipMaterials = false,
   ): Promise<ExamGenerationContext> {
@@ -1416,7 +1416,7 @@ export class LearningService {
   async getGeneratedExamByRequest(
     clientRequestId: string,
     classId: string,
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LearningExam | undefined> {
     return await exam_generation_ops.getGeneratedExamByRequest(
       this.operationContext,
@@ -1441,7 +1441,7 @@ export class LearningService {
       warnings?: string[];
     },
     clientRequestId: string = randomUUID(),
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LearningExam> {
     return await exam_generation_ops.createGeneratedExam(
       this.operationContext,
@@ -1457,7 +1457,7 @@ export class LearningService {
   /** Trả đầy đủ đề, bài làm và điểm từng câu sau khi xác minh phạm vi giảng viên. */
   async getAttemptReview(
     attemptId: string,
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<ExamAttemptReview> {
     return await grading_ops.getAttemptReview(
       this.operationContext,
@@ -1471,8 +1471,8 @@ export class LearningService {
     attemptId: string,
     score: number,
     feedback: string,
-    correctionReason?: string,
-    graderId = "usr-instructor",
+    correctionReason: string | undefined,
+    graderId: string,
     questionScores?: Array<{ questionId: string; score: number }>,
   ): Promise<ExamAttempt> {
     return await grading_ops.gradeAttempt(
@@ -1489,16 +1489,16 @@ export class LearningService {
 
   /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
   async listTopics(
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
   ): Promise<ForumTopic[]> {
     return await forum_ops.listTopics(this.operationContext, role, actorId);
   }
 
   /** Phân trang chủ đề diễn đàn trực tiếp từ DB kèm bộ lọc lớp, ghim, bài của tôi và từ khóa. */
   async listTopicsPage(
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
     filters: forum_ops.ForumTopicPageFilters = {},
   ): Promise<PaginatedResult<ForumTopic>> {
     return await forum_ops.listTopicsPage(
@@ -1513,7 +1513,7 @@ export class LearningService {
   async createTopic(
     classId: string,
     input: Pick<ForumTopic, "title" | "body" | "tags" | "isPinned">,
-    authorId = "usr-instructor",
+    authorId: string,
     authorRole = authorId === "usr-learner" ? "LEARNER" : "INSTRUCTOR",
   ): Promise<ForumTopic> {
     return await forum_ops.createTopic(
@@ -1529,7 +1529,7 @@ export class LearningService {
   async moderateTopic(
     topicId: string,
     input: { isLocked?: boolean; isPinned?: boolean; reason: string },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<ForumTopic> {
     return await forum_ops.moderateTopic(
       this.operationContext,
@@ -1542,8 +1542,8 @@ export class LearningService {
   /** Kiểm tra quyền lớp rồi trả cây bài viết, ẩn nội dung đã xóa/kiểm duyệt phù hợp. */
   async listPosts(
     topicId: string,
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
   ): Promise<ForumPost[]> {
     return await forum_ops.listPosts(
       this.operationContext,
@@ -1556,8 +1556,8 @@ export class LearningService {
   /** Phân trang bình luận gốc của chủ đề kèm đầy đủ phản hồi thuộc từng gốc đó. */
   async listPostsPage(
     topicId: string,
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
     filters: { page?: number; pageSize?: number } = {},
   ): Promise<forum_ops.ForumPostPageResult> {
     return await forum_ops.listPostsPage(
@@ -1573,7 +1573,7 @@ export class LearningService {
   async createPost(
     topicId: string,
     body: string,
-    authorId = "usr-learner",
+    authorId: string,
     parentId?: string,
     rawAttachmentIds: string[] = [],
     rawMentionedUserIds: string[] = [],
@@ -1593,7 +1593,7 @@ export class LearningService {
   async updatePost(
     postId: string,
     body: string,
-    authorId = "usr-learner",
+    authorId: string,
   ): Promise<ForumPost> {
     return await forum_ops.updatePost(
       this.operationContext,
@@ -1606,14 +1606,14 @@ export class LearningService {
   /** Xóa mềm bài viết của tác giả để giữ tính toàn vẹn chuỗi thảo luận. */
   async deletePost(
     postId: string,
-    authorId = "usr-learner",
+    authorId: string,
   ): Promise<ForumPost> {
     return await forum_ops.deletePost(this.operationContext, postId, authorId);
   }
 
   /** Liệt kê thông báo của đúng người nhận theo thời gian mới nhất. */
   async listNotifications(
-    recipientId = "usr-learner",
+    recipientId: string,
   ): Promise<LearningNotification[]> {
     return await moderation_ops.listNotifications(
       this.operationContext,
@@ -1624,7 +1624,7 @@ export class LearningService {
   /** Đánh dấu đã đọc bằng điều kiện recipientId để ngăn sửa thông báo người khác. */
   async markNotificationRead(
     notificationId: string,
-    recipientId = "usr-learner",
+    recipientId: string,
   ): Promise<LearningNotification> {
     return await moderation_ops.markNotificationRead(
       this.operationContext,
@@ -1635,8 +1635,8 @@ export class LearningService {
 
   /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
   async listSessions(
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
   ): Promise<LiveSession[]> {
     return await live_sessions_ops.listSessions(
       this.operationContext,
@@ -1647,8 +1647,8 @@ export class LearningService {
 
   /** Phân trang buổi học trực tuyến theo lớp, trạng thái và khoảng thời gian trên DB. */
   async listSessionsPage(
-    role = "LEARNER",
-    actorId = this.userIdForRole(role),
+    role: string,
+    actorId: string,
     filters: live_sessions_ops.LiveSessionPageFilters = {},
   ): Promise<PaginatedResult<LiveSession>> {
     return await live_sessions_ops.listSessionsPage(
@@ -1665,8 +1665,8 @@ export class LearningService {
     input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
       meetingUrl?: string;
     },
-    actorId = "usr-instructor",
-    actorRole = "INSTRUCTOR",
+    actorId: string,
+    actorRole: string,
   ): Promise<LiveSession> {
     return await live_sessions_ops.createSession(
       this.operationContext,
@@ -1684,8 +1684,8 @@ export class LearningService {
       reason: string;
       meetingUrl?: string;
     },
-    actorId = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    actorId: string,
+    actorRole: string,
   ): Promise<LiveSession> {
     return await live_sessions_ops.updateSession(
       this.operationContext,
@@ -1700,8 +1700,8 @@ export class LearningService {
   async cancelSession(
     sessionId: string,
     reason: string,
-    actorId = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    actorId: string,
+    actorRole: string,
   ): Promise<LiveSession> {
     return await live_sessions_ops.cancelSession(
       this.operationContext,
@@ -1716,7 +1716,7 @@ export class LearningService {
   async transitionSession(
     sessionId: string,
     status: LiveSession["status"],
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LiveSession> {
     return await live_sessions_ops.transitionSession(
       this.operationContext,
@@ -1729,8 +1729,8 @@ export class LearningService {
   /** Xác minh ghi danh/quyền lớp/cửa sổ tham dự và trả URL phòng họp hợp lệ. */
   async joinSession(
     sessionId: string,
-    actorId = "usr-learner",
-    actorRole = "LEARNER",
+    actorId: string,
+    actorRole: string,
   ): Promise<{ attendeeUrl: string; joinedAt: string }> {
     return await live_sessions_ops.joinSession(
       this.operationContext,
@@ -1744,7 +1744,7 @@ export class LearningService {
   async attachRecording(
     sessionId: string,
     recordingUrl: string,
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<LiveSession> {
     return await recordings_ops.attachRecording(
       this.operationContext,
@@ -1759,8 +1759,8 @@ export class LearningService {
     sessionId: string,
     status: "READY" | "FAILED",
     retentionDays = 90,
-    errorMessage?: string,
-    actorId = "usr-instructor",
+    errorMessage: string | undefined,
+    actorId: string,
   ): Promise<LiveSession> {
     return await recordings_ops.completeRecording(
       this.operationContext,
@@ -1785,7 +1785,7 @@ export class LearningService {
   /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
   async getSessionSummary(
     sessionId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<object> {
     return await recordings_ops.getSessionSummary(
       this.operationContext,
@@ -1797,7 +1797,7 @@ export class LearningService {
   /** Phát URL nội bộ ký theo session, learner và hạn để bảo vệ bản ghi. */
   async createRecordingAccess(
     sessionId: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<{ url: string; expiresAt: string }> {
     return await recordings_ops.createRecordingAccess(
       this.operationContext,
@@ -1811,7 +1811,7 @@ export class LearningService {
     sessionId: string,
     expires: number,
     signature: string,
-    learnerId = "usr-learner",
+    learnerId: string,
   ): Promise<{ recordingUrl: string }> {
     return await recordings_ops.resolveRecordingAccess(
       this.operationContext,
@@ -1825,7 +1825,7 @@ export class LearningService {
   /** Liệt kê tất cả phiếu cho nhân sự hỗ trợ hoặc chỉ phiếu của người gửi. */
   async listTickets(
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<SupportTicket[]> {
     return await support_ops.listTickets(this.operationContext, role, actorId);
   }
@@ -1833,7 +1833,7 @@ export class LearningService {
   /** Phân trang danh sách phiếu hỗ trợ theo vai trò, trạng thái và từ khóa. */
   async listTicketsPage(
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
     filters: support_ops.SupportTicketPageFilters = {},
   ): Promise<PaginatedResult<SupportTicket>> {
     return await support_ops.listTicketsPage(
@@ -1850,7 +1850,7 @@ export class LearningService {
       SupportTicket,
       "category" | "severity" | "description" | "contextId"
     > & { clientRequestId?: string },
-    reporterId = "usr-learner",
+    reporterId: string,
   ): Promise<SupportTicket> {
     return await support_ops.createTicket(
       this.operationContext,
@@ -1881,7 +1881,7 @@ export class LearningService {
     ticketId: string,
     upload: UploadedMaterialFile,
     role: string,
-    uploaderId = this.userIdForRole(role),
+    uploaderId: string,
   ): Promise<SupportAttachment> {
     return await support_ops.addSupportAttachment(
       this.operationContext,
@@ -1897,7 +1897,7 @@ export class LearningService {
     ticketId: string,
     attachmentId: string,
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<MaterialDownload> {
     return await support_ops.readSupportAttachment(
       this.operationContext,
@@ -1914,7 +1914,7 @@ export class LearningService {
     input: Partial<
       Pick<SupportTicket, "status" | "assigneeId" | "resolution">
     > & { expectedUpdatedAt?: string },
-    actorId = "usr-admin",
+    actorId: string,
   ): Promise<SupportTicket> {
     return await support_ops.updateTicket(
       this.operationContext,
@@ -1927,7 +1927,7 @@ export class LearningService {
   /** Cho đúng người gửi đóng phiếu chưa hoàn tất và ghi mốc đóng. */
   async closeTicketByReporter(
     ticketId: string,
-    reporterId = "usr-learner",
+    reporterId: string,
   ): Promise<SupportTicket> {
     return await support_ops.closeTicketByReporter(
       this.operationContext,
@@ -1940,7 +1940,7 @@ export class LearningService {
   async listTicketComments(
     ticketId: string,
     role: string,
-    actorId = this.userIdForRole(role),
+    actorId: string,
   ): Promise<TicketComment[]> {
     return await support_ops.listTicketComments(
       this.operationContext,
@@ -1955,7 +1955,7 @@ export class LearningService {
     ticketId: string,
     body: string,
     role: string,
-    authorId = this.userIdForRole(role),
+    authorId: string,
   ): Promise<TicketComment> {
     return await support_ops.addTicketComment(
       this.operationContext,
@@ -1970,8 +1970,8 @@ export class LearningService {
   async getClassProgress(
     classId: string,
     input: { from?: string; to?: string } & Partial<RiskThresholds>,
-    actorId = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    actorId: string,
+    actorRole: string,
   ): Promise<ClassProgressReport> {
     return await progress_ops.getClassProgress(
       this.operationContext,
@@ -1989,8 +1989,8 @@ export class LearningService {
       ProgressIntervention,
       "learnerId" | "title" | "notes" | "dueAt"
     > & { assigneeId: string },
-    createdById = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    createdById: string,
+    actorRole: string,
   ): Promise<ProgressIntervention> {
     return await progress_ops.createProgressIntervention(
       this.operationContext,
@@ -2019,8 +2019,8 @@ export class LearningService {
       outcome?: string;
       cancellationReason?: string;
     },
-    actorId = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    actorId: string,
+    actorRole: string,
   ): Promise<ProgressIntervention> {
     return await progress_ops.updateProgressIntervention(
       this.operationContext,
@@ -2036,8 +2036,8 @@ export class LearningService {
     interventionId: string,
     assigneeId: string,
     rawReason: string,
-    actorId = "usr-manager",
-    actorRole = "CENTER_MANAGER",
+    actorId: string,
+    actorRole: string,
   ): Promise<ProgressIntervention> {
     return await progress_ops.transferProgressIntervention(
       this.operationContext,
@@ -2084,7 +2084,7 @@ export class LearningService {
   /** Phân tích phân bố điểm, tỷ lệ hoàn thành và hiệu suất câu hỏi trong phạm vi giảng viên. */
   async getExamAnalytics(
     input: { classId?: string; examId?: string; from?: string; to?: string },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<ExamAnalytics> {
     return await analytics_ops.getExamAnalytics(
       this.operationContext,
@@ -2096,7 +2096,7 @@ export class LearningService {
   /** Chuyển dữ liệu phân tích đề thi sang CSV có BOM để Excel đọc Unicode đúng. */
   async exportExamAnalytics(
     input: { classId?: string; examId?: string; from?: string; to?: string },
-    actorId = "usr-instructor",
+    actorId: string,
   ): Promise<Buffer> {
     return await analytics_ops.exportExamAnalytics(
       this.operationContext,

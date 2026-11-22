@@ -33,11 +33,11 @@ describe("class lecture links", () => {
   it("returns hidden lecture metadata without content URLs to administrators", async () => {
     const service = new LearningService();
     const data = { ...linkMaterial(links[0]!), visibility: "HIDDEN" as const, folder: "Chương mới" };
-    await expect(service.createMaterial("class-web-01", data)).rejects.toThrow(BadRequestException);
-    await service.classFolders("class-web-01", "usr-instructor", { kind: "lectures", name: data.folder });
-    const created = await service.createMaterial("class-web-01", data);
+    await expect(service.createMaterial("class-web-01", data, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await service.classFolders("class-web-01", "usr-instructor", { kind: "lectures", name: data.folder }, "INSTRUCTOR");
+    const created = await service.createMaterial("class-web-01", data, undefined, "usr-instructor", "INSTRUCTOR");
     for (const role of ["SYSTEM_ADMIN", "CENTER_MANAGER"]) {
-      const list = await service.searchAccessibleMaterials({ materialId: created.id }, undefined, role);
+      const list = await service.searchAccessibleMaterials({ materialId: created.id }, role === "SYSTEM_ADMIN" ? "usr-admin" : "usr-manager", role);
       expect(list.items[0]?.tags).toEqual(["LECTURE"]);
     }
     const instructorList = await service.searchAccessibleMaterials({ materialId: created.id }, "usr-instructor", "INSTRUCTOR");
@@ -45,7 +45,7 @@ describe("class lecture links", () => {
   });
   it.each(links)("creates %s without a binary upload, then edits its URL", async (url) => {
     const service = new LearningService();
-    const created = await service.createMaterial("class-web-01", linkMaterial(url));
+    const created = await service.createMaterial("class-web-01", linkMaterial(url), undefined, "usr-instructor", "INSTRUCTOR");
     expect(created).toMatchObject({
       classId: "class-web-01",
       mimeType: "text/uri-list",
@@ -59,7 +59,7 @@ describe("class lecture links", () => {
     const updated = await service.updateMaterial(created.id, {
       name: "Bài giảng đã sửa",
       tags: ["LECTURE", `lecture-url:${replacement}`],
-    });
+    }, "usr-instructor", "INSTRUCTOR");
     expect(updated).toMatchObject({ name: "Bài giảng đã sửa", version: 2, sizeBytes: Buffer.byteLength(replacement, "utf8") });
     expect(updated.tags).toContain(`lecture-url:${replacement}`);
     expect(updated.tags).not.toContain(`lecture-url:${url}`);
@@ -76,17 +76,17 @@ describe("class lecture links", () => {
     "javascript:alert(1)",
   ])("rejects unsupported or unsafe URL: %s", async (url) => {
     const service = new LearningService();
-    await expect(service.createMaterial("class-web-01", linkMaterial(url))).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", linkMaterial(url), undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
   });
 
   it("requires class scope, consistent metadata, valid tags, and teaching access", async () => {
     const service = new LearningService();
     const url = links[0]!;
-    await expect(service.createMaterial(null, linkMaterial(url))).rejects.toThrow(BadRequestException);
-    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), sizeBytes: 1 })).rejects.toThrow(BadRequestException);
-    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), tags: ["LECTURE"] })).rejects.toThrow(BadRequestException);
-    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), tags: ["LECTURE", `lecture-url:${url}`, `lecture-url:${url}`] })).rejects.toThrow(BadRequestException);
-    await expect(service.createMaterial("class-web-01", linkMaterial(url), undefined, "usr-outside")).rejects.toThrow(NotFoundException);
+    await expect(service.createMaterial(null, linkMaterial(url), undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), sizeBytes: 1 }, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), tags: ["LECTURE"] }, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", { ...linkMaterial(url), tags: ["LECTURE", `lecture-url:${url}`, `lecture-url:${url}`] }, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", linkMaterial(url), undefined, "usr-outside", "INSTRUCTOR")).rejects.toThrow(NotFoundException);
   });
 
   it("rejects lecture URL tags on binary materials and invalid edits", async () => {
@@ -96,11 +96,11 @@ describe("class lecture links", () => {
       name: "Giáo trình.pdf", mimeType: "application/pdf", sizeBytes: 200,
       folder: "Bài giảng", tags: ["LECTURE"], scope: "CLASS" as const,
     };
-    await expect(service.createMaterial("class-web-01", { ...pdf, tags: ["LECTURE", `lecture-url:${url}`] })).rejects.toThrow(BadRequestException);
-    const material = await service.createMaterial("class-web-01", pdf);
-    await expect(service.updateMaterial(material.id, { tags: ["LECTURE", `lecture-url:${url}`] })).rejects.toThrow(BadRequestException);
-    const linked = await service.createMaterial("class-web-01", linkMaterial(url));
-    await expect(service.updateMaterial(linked.id, { tags: ["LECTURE", "lecture-url:https://malicious.example/path"] })).rejects.toThrow(BadRequestException);
-    await expect(service.updateMaterial(linked.id, { tags: ["LECTURE"] })).rejects.toThrow(BadRequestException);
+    await expect(service.createMaterial("class-web-01", { ...pdf, tags: ["LECTURE", `lecture-url:${url}`] }, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    const material = await service.createMaterial("class-web-01", pdf, undefined, "usr-instructor", "INSTRUCTOR");
+    await expect(service.updateMaterial(material.id, { tags: ["LECTURE", `lecture-url:${url}`] }, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    const linked = await service.createMaterial("class-web-01", linkMaterial(url), undefined, "usr-instructor", "INSTRUCTOR");
+    await expect(service.updateMaterial(linked.id, { tags: ["LECTURE", "lecture-url:https://malicious.example/path"] }, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
+    await expect(service.updateMaterial(linked.id, { tags: ["LECTURE"] }, "usr-instructor", "INSTRUCTOR")).rejects.toThrow(BadRequestException);
   });
 });

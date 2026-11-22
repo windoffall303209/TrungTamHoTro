@@ -11,7 +11,7 @@ export async function runExport(
   serviceContext: SystemServiceContext,
   category: string,
   format: DataExport["format"],
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<DataExport> {
   const normalizedCategory = category.trim().toUpperCase();
   if (!["AUDIT", "LEARNING", "USERS"].includes(normalizedCategory))

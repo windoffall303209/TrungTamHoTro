@@ -125,7 +125,7 @@ export async function createCourse(
   serviceContext: LearningServiceContext,
   input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
     Partial<Pick<LearningCourse, "grade" | "subject">>,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningCourse> {
   const code = input.code.trim().toUpperCase();
   const prisma = serviceContext.database();
@@ -176,7 +176,7 @@ export async function updateCourse(
   courseId: string,
   input: Pick<LearningCourse, "name" | "description" | "outcomes"> &
     Partial<Pick<LearningCourse, "grade" | "subject">>,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningCourse> {
   const name = input.name.trim();
   const description = input.description.trim();
@@ -276,7 +276,7 @@ export async function listCourseVersions(
 export async function publishCourse(
   serviceContext: LearningServiceContext,
   courseId: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningCourse> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -361,7 +361,7 @@ export async function archiveCourse(
   serviceContext: LearningServiceContext,
   courseId: string,
   reason: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningCourse> {
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)

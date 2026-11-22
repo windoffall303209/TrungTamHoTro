@@ -12,8 +12,8 @@ export async function assignInstructor(
   serviceContext: LearningServiceContext,
   classId: string,
   instructorId: string,
-  requestedRole?: InstructorRole,
-  actorId = "usr-manager",
+  requestedRole: InstructorRole | undefined,
+  actorId: string,
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -200,7 +200,7 @@ export async function transferPrimaryInstructor(
   expectedPrimaryId: string,
   newPrimaryId: string,
   rawReason: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const reason = rawReason.trim();
   if (reason.length < 5)
@@ -309,7 +309,7 @@ export async function removeInstructor(
   classId: string,
   instructorId: string,
   reason: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 5)

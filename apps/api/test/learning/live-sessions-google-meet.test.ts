@@ -122,12 +122,12 @@ describe("Live sessions with direct Google Meet URLs", () => {
       startAt,
       endAt,
       capacity: 30,
-    });
+    }, "usr-manager");
     createdClassIds.push(classItem.id);
 
-    await learning.assignInstructor(classItem.id, "usr-instructor", "PRIMARY");
-    await learning.assignInstructor(classItem.id, coInstructorId, "CO_INSTRUCTOR");
-    await learning.enrollLearner(classItem.id, "usr-learner");
+    await learning.assignInstructor(classItem.id, "usr-instructor", "PRIMARY", "usr-manager");
+    await learning.assignInstructor(classItem.id, coInstructorId, "CO_INSTRUCTOR", "usr-manager");
+    await learning.enrollLearner(classItem.id, "usr-learner", "usr-manager");
 
     expect(
       (await system.listIntegrations()).some(

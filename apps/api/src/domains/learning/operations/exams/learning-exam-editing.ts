@@ -21,7 +21,7 @@ export async function createExam(
     LearningExam,
     "id" | "status" | "version" | "questionScores" | "aiContext"
   > & { scoreAllocations?: Array<{ questionId: string; score: number }> },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LearningExam> {
   if (new Date(input.closeAt) <= new Date(input.openAt))
     throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");
@@ -170,7 +170,7 @@ export async function updateExam(
     scoreAllocations?: Array<{ questionId: string; score: number }>;
     expectedVersion: number;
   },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<LearningExam> {
   if (new Date(input.closeAt) <= new Date(input.openAt))
     throw new BadRequestException("Thời gian đóng đề phải sau thời gian mở.");

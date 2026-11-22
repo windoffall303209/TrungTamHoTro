@@ -7,7 +7,7 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 /** Liệt kê thông báo của đúng người nhận theo thời gian mới nhất. */
 export async function listNotifications(
   serviceContext: LearningServiceContext,
-  recipientId = "usr-learner",
+  recipientId: string,
 ): Promise<LearningNotification[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -36,7 +36,7 @@ export async function listNotifications(
 export async function markNotificationRead(
   serviceContext: LearningServiceContext,
   notificationId: string,
-  recipientId = "usr-learner",
+  recipientId: string,
 ): Promise<LearningNotification> {
   const prisma = serviceContext.database();
   if (prisma) {

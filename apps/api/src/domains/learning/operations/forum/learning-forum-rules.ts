@@ -23,6 +23,9 @@ export function assertForumClassAccess(
     throw new NotFoundException(
       "Không tìm thấy chủ đề trong lớp được phân công.",
     );
+  // Deny-by-default: vai trò lạ không được xem diễn đàn lớp thay vì được toàn quyền.
+  if (role !== "LEARNER" && role !== "INSTRUCTOR" && role !== "CENTER_MANAGER" && role !== "SYSTEM_ADMIN")
+    throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
 }
 
 /** Xác minh quyền diễn đàn tương đương trên dữ liệu lớp in-memory. */
@@ -39,4 +42,6 @@ export function assertMemoryForumClassAccess(
     throw new NotFoundException(
       "Không tìm thấy chủ đề trong lớp được phân công.",
     );
+  if (role !== "LEARNER" && role !== "INSTRUCTOR" && role !== "CENTER_MANAGER" && role !== "SYSTEM_ADMIN")
+    throw new NotFoundException("Không tìm thấy chủ đề trong lớp được phân công.");
 }

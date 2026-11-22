@@ -12,7 +12,7 @@ export async function requestRegrade(
   serviceContext: LearningServiceContext,
   attemptId: string,
   reason: string,
-  learnerId = "usr-learner",
+  learnerId: string,
 ): Promise<RegradeRequest> {
   const normalizedReason = reason.trim();
   if (normalizedReason.length < 10)
@@ -88,7 +88,7 @@ export async function requestRegrade(
 /** Liệt kê hàng đợi phúc khảo trong đúng phạm vi lớp của giảng viên. */
 export async function listRegradeRequests(
   serviceContext: LearningServiceContext,
-  actorId = "usr-instructor",
+  actorId: string,
   status?: RegradeRequest["status"],
 ): Promise<RegradeRequest[]> {
   const allowed = ["OPEN", "IN_REVIEW", "RESOLVED", "REJECTED"] as const;
@@ -131,7 +131,7 @@ export async function listRegradeRequests(
 export async function claimRegrade(
   serviceContext: LearningServiceContext,
   requestId: string,
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<RegradeRequest> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -198,7 +198,7 @@ export async function resolveRegrade(
     feedback?: string;
     questionScores?: Array<{ questionId: string; score: number }>;
   },
-  actorId = "usr-instructor",
+  actorId: string,
 ): Promise<RegradeRequest> {
   const resolution = input.resolution.trim();
   if (resolution.length < 5)
@@ -321,8 +321,8 @@ export async function resolveRegrade(
 /** Liệt kê lượt thi trong phạm vi lớp giảng viên phụ trách. */
 export async function listAttempts(
   serviceContext: LearningServiceContext,
-  examId?: string,
-  actorId = "usr-instructor",
+  examId: string | undefined,
+  actorId: string,
 ): Promise<ExamAttempt[]> {
   const prisma = serviceContext.database();
   if (prisma) {

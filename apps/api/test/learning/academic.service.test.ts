@@ -122,10 +122,10 @@ describe("AcademicService", () => {
     const name = "Thư mục kiểm thử " + suffix;
     const classId = "class-web-01";
     try {
-      await learning.classFolders(classId, instructor.user.id, { kind: "lectures", name });
-      expect((await learning.classFolders(classId, instructor.user.id)).lectures).toContain(name);
+      await learning.classFolders(classId, instructor.user.id, { kind: "lectures", name }, "INSTRUCTOR");
+      expect((await learning.classFolders(classId, instructor.user.id, undefined, "INSTRUCTOR")).lectures).toContain(name);
       expect(await prisma.classFolder.count({ where: { classId, kind: "lectures", name } })).toBe(1);
-      await expect(learning.createMaterial(classId, { name: "Bài đọc", folder: name, mimeType: "application/pdf", sizeBytes: 1, tags: ["MATERIAL"] })).rejects.toThrow("Thư mục");
+      await expect(learning.createMaterial(classId, { name: "Bài đọc", folder: name, mimeType: "application/pdf", sizeBytes: 1, tags: ["MATERIAL"] }, undefined, "usr-instructor", "INSTRUCTOR")).rejects.toThrow("Thư mục");
     } finally {
       await prisma.classFolder.deleteMany({ where: { classId, name } });
     }

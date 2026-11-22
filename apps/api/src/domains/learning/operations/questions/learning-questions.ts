@@ -316,7 +316,7 @@ export async function getQuestionSummary(
 export async function createQuestion(
   serviceContext: LearningServiceContext,
   input: Omit<LearningQuestion, "id" | "status" | "version">,
-  authorId = "usr-instructor",
+  authorId: string,
 ): Promise<LearningQuestion> {
   const normalized = serviceContext.validateQuestionInput(input);
   const contentHash = serviceContext.questionContentHash(normalized.content);
@@ -378,7 +378,7 @@ export async function updateQuestion(
   serviceContext: LearningServiceContext,
   questionId: string,
   input: Omit<LearningQuestion, "id" | "status" | "version">,
-  authorId = "usr-instructor",
+  authorId: string,
 ): Promise<LearningQuestion> {
   const normalized = serviceContext.validateQuestionInput(input);
   const contentHash = serviceContext.questionContentHash(normalized.content);
@@ -777,7 +777,7 @@ export async function readQuestionImage(
 export async function importQuestions(
   serviceContext: LearningServiceContext,
   inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>,
-  authorId = "usr-instructor",
+  authorId: string,
 ): Promise<QuestionImportResult[]> {
   const results: QuestionImportResult[] = [];
   for (const [index, input] of inputs.entries()) {

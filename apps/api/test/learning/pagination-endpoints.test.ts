@@ -147,7 +147,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
         correctAnswers: ["A"],
         difficulty: 2,
         tags: ["phan-trang", `tag-${i}`],
-      });
+      }, "usr-instructor");
       created.push(q.id);
     }
     const updated = await service.updateQuestion(created[0]!, {
@@ -158,7 +158,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       correctAnswers: ["A"],
       difficulty: 2,
       tags: ["phan-trang", "tag-1"],
-    });
+    }, "usr-instructor");
 
     const page1 = await service.listQuestionsPage({
       courseId: "course-web",
@@ -198,8 +198,8 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       grade: 10,
       subject: "Toán học",
       outcomes: ["Nam vung dai so"],
-    });
-    await service.publishCourse(course.id);
+    }, "usr-manager");
+    await service.publishCourse(course.id, "usr-manager");
 
     const coursesPage = await service.listCoursesPage({
       grade: 10,
@@ -219,8 +219,8 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       startAt: "2026-10-10T00:00:00.000Z",
       endAt: "2027-05-10T00:00:00.000Z",
       capacity: 30,
-    });
-    await service.assignInstructor(cls.id, "usr-instructor", "PRIMARY");
+    }, "usr-manager");
+    await service.assignInstructor(cls.id, "usr-instructor", "PRIMARY", "usr-manager");
 
     const managerPage = await service.listClassesPage("CENTER_MANAGER", "usr-manager", {
       grade: 10,
@@ -280,7 +280,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       correctAnswers: ["Ý phân tích chuẩn"],
       difficulty: 3,
       tags: ["dot-2"],
-    });
+    }, "usr-instructor");
     const summaryBefore = await service.getQuestionSummary("course-web");
     expect(summaryBefore.total).toBeGreaterThanOrEqual(1);
     expect(summaryBefore.essay).toBeGreaterThanOrEqual(1);

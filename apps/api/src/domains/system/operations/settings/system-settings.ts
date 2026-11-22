@@ -41,7 +41,7 @@ export async function getSettings(
 export async function updateSettings(
   serviceContext: SystemServiceContext,
   input: Partial<Omit<SystemSettings, "updatedAt" | "version" | "updatedBy">>,
-  actorId = "usr-admin",
+  actorId: string,
 ): Promise<SystemSettings> {
   if (
     input.maxFileSizeMb !== undefined &&

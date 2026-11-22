@@ -15,7 +15,7 @@ import type { LearningServiceContext } from "../../core/learning.context.js";
 export async function activateClass(
   serviceContext: LearningServiceContext,
   classId: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -273,7 +273,7 @@ export async function closeClass(
   classId: string,
   closeReason: string,
   archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const reason = closeReason.trim();
   if (reason.length < 5)
@@ -376,7 +376,7 @@ export async function reopenClass(
   serviceContext: LearningServiceContext,
   classId: string,
   rawReason: string,
-  actorId = "usr-manager",
+  actorId: string,
 ): Promise<LearningClass> {
   const reason = rawReason.trim();
   if (reason.length < 5)
