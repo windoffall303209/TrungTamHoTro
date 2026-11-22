@@ -231,7 +231,7 @@ describe("LearningService", () => {
     await service.saveAnswer(attempt.id, "q-db-01", ["Đúng"], "usr-learner");
     const result = await service.submitAttempt(attempt.id, "usr-learner");
     expect(result.score).toBe(10);
-    expect(result.submissionReceipt).toMatch(/^SUB-[A-F0-9]{16}$/);
+    expect(result.submissionReceipt).toMatch(/^SUB-[A-F0-9]{20}$/);
     expect((await service.submitAttempt(attempt.id, "usr-learner")).submissionReceipt).toBe(
       result.submissionReceipt,
     );
@@ -2209,10 +2209,11 @@ describe("LearningService", () => {
     await service.saveAnswer(attempt.id, essay.id, [
       "REST dễ quan sát, cache và tích hợp.",
     ], "usr-learner");
-    expect(await service.submitAttempt(attempt.id, "usr-learner")).toMatchObject({
-      status: "SUBMITTED",
-      score: 5,
-    });
+    const submitted = await service.submitAttempt(attempt.id, "usr-learner");
+    expect(submitted).toMatchObject({ status: "SUBMITTED" });
+    // Điểm phần trắc nghiệm chưa công bố không được trả cho học viên, nhưng vẫn lưu cho giảng viên chấm tiếp.
+    expect(submitted).not.toHaveProperty("score");
+    expect((await service.getAttempt(attempt.id)).score).toBe(5);
     expect(
       await service.gradeAttempt(
         attempt.id,
@@ -2252,7 +2253,16 @@ describe("LearningService", () => {
     const result = await service.getLearnerResult(attempt.id, "usr-learner");
     expect(result.attempt.gradePublishedAt).toBeTruthy();
     expect(result.answerBreakdown).toHaveLength(2);
-    expect(result.answerBreakdown[0]?.awardedScore).toBe(5);
+    // Đề còn mở: chỉ có tổng điểm, điểm từng câu bị ẩn tới khi đề đóng để không thành công cụ dò đáp án.
+    expect(result.attempt.score).toBe(5);
+    expect(result.answerBreakdown[0]).not.toHaveProperty("awardedScore");
+    expect(result.breakdownVisibleAt).toBe(result.exam.closeAt);
+    const openTime = Date.now();
+    vi.setSystemTime(new Date(new Date(result.exam.closeAt).getTime() + 60_000));
+    const afterClose = await service.getLearnerResult(attempt.id, "usr-learner");
+    expect(afterClose.answerBreakdown[0]?.awardedScore).toBe(5);
+    expect(afterClose).not.toHaveProperty("breakdownVisibleAt");
+    vi.setSystemTime(new Date(openTime));
     const request = await service.requestRegrade(
       attempt.id,
       "Đề nghị kiểm tra lại câu số hai", "usr-learner",

@@ -391,9 +391,12 @@ export interface LearnerResult {
     questionId: string;
     content: string;
     submittedAnswers: string[];
-    awardedScore: number;
+    /** Máy chủ ẩn điểm từng câu khi đề còn mở. */
+    awardedScore?: number;
     maxScore: number;
   }>;
+  /** Thời điểm điểm từng câu được công bố (khi đề đóng); chỉ có khi đang ẩn. */
+  breakdownVisibleAt?: string;
   regradeRequest?: RegradeRequest;
 }
 export interface ExamAnalytics {

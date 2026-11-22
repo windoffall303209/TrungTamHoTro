@@ -1,7 +1,16 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "../../../../generated/prisma/client.js";
 import { id, now } from "../../core/learning.shared.js";
-import type { ExamAttempt, LearnerResult } from "../../core/learning.types.js";
+import type { ExamAttempt, LearnerResult, LearningExam } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+
+/** Ẩn điểm của lượt chưa công bố (ví dụ phần trắc nghiệm của đề có tự luận đang chờ chấm) khỏi phản hồi cho học viên. */
+export function redactAttemptForLearner(attempt: ExamAttempt): ExamAttempt {
+  if (attempt.gradePublishedAt) return attempt;
+  const redacted = { ...attempt };
+  delete redacted.score;
+  return redacted;
+}
 
 /** Kiểm tra ghi danh, cửa sổ thi, giới hạn lượt rồi tạo hoặc tiếp tục lượt đang làm. */
 export async function startAttempt(
@@ -23,7 +32,7 @@ export async function startAttempt(
         active.exam.closeAt,
       ) <= new Date()
     )
-      await serviceContext.submitAttempt(active.id, learnerId);
+      await serviceContext.submitAttempt(active.id, learnerId, "SYSTEM");
     return prisma.$transaction(async (transaction) => {
       const exam = await transaction.exam.findUnique({
         where: { id: examId },
@@ -89,7 +98,7 @@ export async function startAttempt(
         new Date(exam.closeAt),
       ) <= timestamp
     )
-      await serviceContext.submitAttempt(existing.id, learnerId);
+      await serviceContext.submitAttempt(existing.id, learnerId, "SYSTEM");
     else return { ...existing, answers: { ...existing.answers } };
   }
   if (attempts.length >= exam.attemptLimit)
@@ -119,8 +128,9 @@ export async function saveAnswer(
   if (prisma) {
     return prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
+      // Hậu kiểm mỗi lần lưu: học viên bị đình chỉ, đề bị thu hồi hoặc lớp đã đóng thì không ghi tiếp.
       const attempt = await transaction.examAttempt.findFirst({
-        where: { id: attemptId, learnerId, exam: { hidden: false } },
+        where: { id: attemptId, learnerId, exam: activeExamForLearner(learnerId) },
         include: { exam: true },
       });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
@@ -149,7 +159,7 @@ export async function saveAnswer(
         update: { answerData: normalizedAnswers },
         create: { attemptId, questionId, answerData: normalizedAnswers },
       });
-      return serviceContext.getDatabaseAttempt(transaction, attemptId);
+      return redactAttemptForLearner(await serviceContext.getDatabaseAttempt(transaction, attemptId));
     });
   }
   const item = serviceContext.attempts.find(
@@ -159,7 +169,7 @@ export async function saveAnswer(
   if (item.status !== "IN_PROGRESS")
     throw new BadRequestException("Bài làm đã khóa.");
   const exam = serviceContext.findExam(item.examId);
-  if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
+  assertMemoryExamActiveForLearner(serviceContext, exam, learnerId);
   if (
     serviceContext.attemptDeadline(
       new Date(item.startedAt),
@@ -179,7 +189,7 @@ export async function saveAnswer(
     answers,
   );
   item.lastSavedAt = now();
-  return { ...item, answers: { ...item.answers }, serverTime: now() };
+  return redactAttemptForLearner({ ...item, answers: { ...item.answers }, serverTime: now() });
 }
 
 /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */
@@ -187,13 +197,16 @@ export async function submitAttempt(
   serviceContext: LearningServiceContext,
   attemptId: string,
   learnerId: string,
+  trigger: "LEARNER" | "SYSTEM" = "LEARNER",
 ): Promise<ExamAttempt> {
   const prisma = serviceContext.database();
   if (prisma) {
     return prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
+      // Học viên tự nộp phải còn ghi danh ACTIVE trên đề đang phát hành của lớp chưa đóng; tiến trình hệ thống
+      // vẫn chốt được lượt quá hạn để không để lượt IN_PROGRESS treo vĩnh viễn.
       const attempt = await transaction.examAttempt.findFirst({
-        where: { id: attemptId, learnerId, exam: { hidden: false } },
+        where: { id: attemptId, learnerId, exam: trigger === "SYSTEM" ? { hidden: false } : activeExamForLearner(learnerId) },
         include: {
           answers: true,
           exam: { include: { questions: { include: { question: true } } } },
@@ -201,14 +214,14 @@ export async function submitAttempt(
       });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
       if (attempt.status !== "IN_PROGRESS")
-        return serviceContext.mapAttempt(attempt);
+        return redactAttemptForLearner(serviceContext.mapAttempt(attempt));
       const submittedAt = new Date();
       const claimed = await transaction.examAttempt.updateMany({
         where: { id: attemptId, learnerId, status: "IN_PROGRESS" },
         data: { status: "SUBMITTED", submittedAt },
       });
       if (!claimed.count)
-        return serviceContext.getDatabaseAttempt(transaction, attemptId);
+        return redactAttemptForLearner(await serviceContext.getDatabaseAttempt(transaction, attemptId));
       let score = 0;
       let requiresManualGrade = false;
       const answersByQuestion = new Map(attempt.answers.map((item) => [item.questionId, item]));
@@ -257,7 +270,7 @@ export async function submitAttempt(
         },
         include: { answers: true },
       });
-      return serviceContext.mapAttempt(updated);
+      return redactAttemptForLearner(serviceContext.mapAttempt(updated));
     });
   }
   const item = serviceContext.attempts.find(
@@ -265,9 +278,10 @@ export async function submitAttempt(
   );
   if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
   if (item.status !== "IN_PROGRESS")
-    return { ...item, answers: { ...item.answers } };
+    return redactAttemptForLearner({ ...item, answers: { ...item.answers } });
   const exam = serviceContext.findExam(item.examId);
   if (exam.hidden) throw new NotFoundException("Không tìm thấy đề.");
+  if (trigger === "LEARNER") assertMemoryExamActiveForLearner(serviceContext, exam, learnerId);
   let objectiveScore = 0;
   let requiresManualGrade = false;
   exam.questionIds.forEach((questionId) => {
@@ -291,14 +305,14 @@ export async function submitAttempt(
   item.status = requiresManualGrade ? "SUBMITTED" : "GRADED";
   item.submittedAt = now();
   item.submissionReceipt = serviceContext.submissionReceipt(
-    item.id,
+    item,
     item.submittedAt,
   );
   item.gradePublishedAt = requiresManualGrade ? undefined : now();
   item.feedback = requiresManualGrade
     ? "Bài đang chờ giảng viên chấm câu tự luận hoặc câu trả lời ngắn."
     : "Bài đã được chấm tự động. Giảng viên có thể bổ sung nhận xét.";
-  return { ...item, answers: { ...item.answers } };
+  return redactAttemptForLearner({ ...item, answers: { ...item.answers } });
 }
 
 /** Tìm lượt IN_PROGRESS quá hạn theo lô và nộp tự động bằng cùng logic submit. */
@@ -328,7 +342,7 @@ export async function reconcileExpiredAttempts(
       .slice(0, boundedLimit);
     const results = await Promise.allSettled(
       expired.map((attempt) =>
-        serviceContext.submitAttempt(attempt.id, attempt.learnerId),
+        serviceContext.submitAttempt(attempt.id, attempt.learnerId, "SYSTEM"),
       ),
     );
     return results.filter((result) => result.status === "fulfilled").length;
@@ -348,7 +362,7 @@ export async function reconcileExpiredAttempts(
     })
     .slice(0, boundedLimit);
   for (const attempt of expired)
-    await serviceContext.submitAttempt(attempt.id, attempt.learnerId);
+    await serviceContext.submitAttempt(attempt.id, attempt.learnerId, "SYSTEM");
   return expired.length;
 }
 
@@ -391,7 +405,8 @@ export async function listLearnerResults(
       distinct: ["examId"],
       orderBy: [{ examId: "asc" }, { attemptNo: "desc" }],
     });
-    return rows.sort((a, b) => b.gradePublishedAt!.getTime() - a.gradePublishedAt!.getTime()).map((row) => ({
+    const timestamp = new Date();
+    return rows.sort((a, b) => b.gradePublishedAt!.getTime() - a.gradePublishedAt!.getTime()).map((row) => withBreakdownPolicy({
       attempt: serviceContext.mapAttempt(row),
       exam: {
         id: row.exam.id,
@@ -416,7 +431,7 @@ export async function listLearnerResults(
       regradeRequest: row.regradeRequests[0]
         ? serviceContext.mapRegradeRequest(row.regradeRequests[0])
         : undefined,
-    }));
+    }, timestamp));
   }
   const latestByExam = new Map<string, ExamAttempt>();
   for (const attempt of serviceContext.attempts) {
@@ -435,7 +450,7 @@ export async function listLearnerResults(
     )
     .map((attempt) => {
       const exam = serviceContext.findExam(attempt.examId);
-      return {
+      return withBreakdownPolicy({
         attempt: { ...attempt, answers: structuredClone(attempt.answers) },
         exam: {
           id: exam.id,
@@ -462,8 +477,41 @@ export async function listLearnerResults(
           (request) =>
             request.attemptId === attempt.id && request.learnerId === learnerId,
         ),
-      };
+      }, new Date());
     });
+}
+
+/**
+ * Chính sách công bố mặc định: tổng điểm trả ngay, điểm từng câu chỉ trả khi đề đã đóng; trước đó gỡ awardedScore
+ * để học viên không dùng lượt trước dò đáp án cho lượt sau hoặc chuyển đáp án cho bạn đang thi.
+ */
+function withBreakdownPolicy(result: LearnerResult, timestamp: Date): LearnerResult {
+  if (timestamp >= new Date(result.exam.closeAt)) return result;
+  return {
+    ...result,
+    answerBreakdown: result.answerBreakdown.map((item) => {
+      const visible = { ...item };
+      delete visible.awardedScore;
+      return visible;
+    }),
+    breakdownVisibleAt: result.exam.closeAt,
+  };
+}
+
+/** Điều kiện Prisma cho đề mà học viên còn được làm: đang phát hành, không ẩn, lớp chưa đóng và ghi danh ACTIVE. */
+function activeExamForLearner(learnerId: string): Prisma.ExamWhereInput {
+  return {
+    hidden: false,
+    status: "PUBLISHED",
+    class: { status: { not: "CLOSED" }, enrollments: { some: { learnerId, status: "ACTIVE" } } },
+  };
+}
+
+/** Bản in-memory của activeExamForLearner cho chế độ dữ liệu mẫu. */
+function assertMemoryExamActiveForLearner(serviceContext: LearningServiceContext, exam: LearningExam, learnerId: string): void {
+  if (exam.hidden || exam.status !== "PUBLISHED") throw new NotFoundException("Không tìm thấy đề.");
+  const classItem = serviceContext.findClass(exam.classId);
+  if (classItem.status === "CLOSED" || !classItem.learnerIds.includes(learnerId)) throw new NotFoundException("Không tìm thấy lượt làm bài.");
 }
 
 /** Trả đúng kết quả thuộc học viên, từ chối truy cập chéo lượt thi. */

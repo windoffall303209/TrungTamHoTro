@@ -408,16 +408,20 @@ export default function ExamsScreen() {
                           <span className="text-xs text-slate-400">/{result.exam.totalScore}</span>
                         </td>
                         <td className="px-4 py-2.5">
-                          <div className="flex flex-wrap gap-1 text-[11px]">
-                            {result.answerBreakdown.map((answer, index) => (
-                              <span
-                                key={answer.questionId}
-                                className="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300"
-                              >
-                                C{index + 1}: <strong className="ml-0.5 text-sky-600 dark:text-sky-400">{answer.awardedScore}</strong>/{answer.maxScore}
-                              </span>
-                            ))}
-                          </div>
+                          {result.breakdownVisibleAt ? (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">Điểm từng câu hiển thị sau khi đề đóng</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1 text-[11px]">
+                              {result.answerBreakdown.map((answer, index) => (
+                                <span
+                                  key={answer.questionId}
+                                  className="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300"
+                                >
+                                  C{index + 1}: <strong className="ml-0.5 text-sky-600 dark:text-sky-400">{answer.awardedScore ?? "—"}</strong>/{answer.maxScore}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
                           <StatusBadge status={result.regradeRequest?.status ?? "PUBLISHED"} />

@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Chỉ chấm được lượt làm bài đã nộp.": "Only submitted attempts can be graded.",
+  "Điểm không được âm hoặc vượt tổng điểm của đề.": "The score cannot be negative or exceed the exam total.",
   "Không có quyền xem ngân hàng câu hỏi.": "You do not have permission to view the question bank.",
   "Không thể chuyển câu hỏi sang khóa học khác.": "A question cannot be moved to another course.",
   "Vai trò hiện tại không được phép truy cập buổi học này.": "Your current role is not allowed to access this session.",

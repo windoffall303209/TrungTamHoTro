@@ -92,7 +92,7 @@ export interface LearningServiceContext {
     input: Omit<LearningQuestion, "id" | "status" | "version">,
     authorId: string,
   ): Promise<LearningQuestion>;
-  submitAttempt(attemptId: string, learnerId: string): Promise<ExamAttempt>;
+  submitAttempt(attemptId: string, learnerId: string, trigger?: "LEARNER" | "SYSTEM"): Promise<ExamAttempt>;
   listLearnerResults(learnerId: string): Promise<LearnerResult[]>;
   gradeAttempt(
     attemptId: string,
@@ -163,7 +163,7 @@ export interface LearningServiceContext {
   ): boolean;
   mapExam(row: ExamWithQuestions): LearningExam;
   mapAttempt(row: AttemptWithAnswers): ExamAttempt;
-  submissionReceipt(attemptId: string, submittedAt: string): string;
+  submissionReceipt(attempt: { id: string; examId: string; learnerId: string }, submittedAt: string): string;
   mapRegradeRequest(
     row: Prisma.RegradeRequestGetPayload<Record<string, never>>,
   ): RegradeRequest;

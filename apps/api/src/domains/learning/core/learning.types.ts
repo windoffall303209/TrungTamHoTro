@@ -262,9 +262,12 @@ export interface LearnerResult {
     questionId: string;
     content: string;
     submittedAnswers: string[];
-    awardedScore: number;
+    /** Ẩn khi đề còn mở để kết quả từng câu không trở thành công cụ dò đáp án cho lượt sau/học viên khác. */
+    awardedScore?: number;
     maxScore: number;
   }>;
+  /** Có giá trị khi điểm từng câu đang ẩn: thời điểm đề đóng và chi tiết được công bố. */
+  breakdownVisibleAt?: string;
   regradeRequest?: RegradeRequest;
 }
 

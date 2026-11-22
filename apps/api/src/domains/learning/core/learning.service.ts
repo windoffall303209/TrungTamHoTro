@@ -3,7 +3,7 @@ import { Injectable, Optional } from "@nestjs/common";
 import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/exams/learning-exam-page.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import type { Environment } from "../../../config/environment.js";
@@ -216,6 +216,7 @@ export class LearningService {
   ];
 
   private readonly attempts: ExamAttempt[] = [];
+  private readonly receiptFallbackSecret = randomBytes(32).toString("hex");
 
 
   private readonly regradeRequests: RegradeRequest[] = [];
@@ -1294,11 +1295,13 @@ export class LearningService {
   async submitAttempt(
     attemptId: string,
     learnerId: string,
+    trigger: "LEARNER" | "SYSTEM" = "LEARNER",
   ): Promise<ExamAttempt> {
     return await attempts_ops.submitAttempt(
       this.operationContext,
       attemptId,
       learnerId,
+      trigger,
     );
   }
 
@@ -2189,9 +2192,9 @@ export class LearningService {
     return result_mapping_ops.mapAttempt(this.operationContext, row);
   }
 
-  /** Tạo mã biên nhận ngắn có HMAC từ lượt thi và thời điểm nộp. */
-  private submissionReceipt(attemptId: string, submittedAt: string): string {
-    return result_mapping_ops.submissionReceipt(attemptId, submittedAt);
+  /** Tạo mã biên nhận HMAC bằng khóa bí mật máy chủ; chế độ bộ nhớ dùng khóa ngẫu nhiên theo tiến trình. */
+  private submissionReceipt(attempt: { id: string; examId: string; learnerId: string }, submittedAt: string): string {
+    return result_mapping_ops.submissionReceipt(attempt, submittedAt, this.config?.get("AUTH_ENCRYPTION_SECRET", { infer: true }) || this.receiptFallbackSecret);
   }
 
   /** Ánh xạ yêu cầu phúc khảo và các mốc xử lý. */

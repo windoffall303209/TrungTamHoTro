@@ -100,6 +100,18 @@ export async function getAttemptReview(
   };
 }
 
+/** Từ chối điểm tổng không phải số hữu hạn hoặc âm trước khi chạm vào dữ liệu. */
+function assertGradeValue(score: number): void {
+  if (!Number.isFinite(score) || score < 0)
+    throw new BadRequestException("Điểm không được âm hoặc vượt tổng điểm của đề.");
+}
+
+/** Từ chối điểm từng câu không phải số hữu hạn hoặc âm. */
+function assertQuestionGradeValue(score: number): void {
+  if (!Number.isFinite(score) || score < 0)
+    throw new BadRequestException("Điểm từng câu phải nằm trong thang điểm của câu hỏi.");
+}
+
 /** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và cập nhật điểm hiện hành. */
 export async function gradeAttempt(
   serviceContext: LearningServiceContext,
@@ -110,6 +122,8 @@ export async function gradeAttempt(
   graderId: string,
   questionScores?: Array<{ questionId: string; score: number }>,
 ): Promise<ExamAttempt> {
+  assertGradeValue(score);
+  for (const item of questionScores ?? []) assertQuestionGradeValue(item.score);
   const prisma = serviceContext.database();
   if (prisma) {
     const attempt = await prisma.examAttempt.findFirst({
@@ -128,6 +142,8 @@ export async function gradeAttempt(
       throw new NotFoundException(
         "Không tìm thấy lượt làm bài được phép chấm.",
       );
+    if (attempt.status === "IN_PROGRESS")
+      throw new BadRequestException("Chỉ chấm được lượt làm bài đã nộp.");
     let nextScore = score;
     if (questionScores) {
       const manualQuestions = attempt.exam.questions.filter((item) =>
@@ -224,6 +240,8 @@ export async function gradeAttempt(
   const exam = serviceContext.findExam(item.examId);
   if (!serviceContext.findClass(exam.classId).instructorIds.includes(graderId))
     throw new NotFoundException("Không tìm thấy lượt làm bài được phép chấm.");
+  if (item.status === "IN_PROGRESS")
+    throw new BadRequestException("Chỉ chấm được lượt làm bài đã nộp.");
   if (questionScores) {
     const manualQuestions = exam.questionIds
       .map(

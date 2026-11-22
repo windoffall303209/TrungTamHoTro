@@ -7,6 +7,9 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Điểm từng câu hiển thị sau khi đề đóng": "Per-question scores appear after the exam closes",
+  "Chỉ chấm được lượt làm bài đã nộp.": "Only submitted attempts can be graded.",
+  "Điểm không được âm hoặc vượt tổng điểm của đề.": "The score cannot be negative or exceed the exam total.",
   "Không có quyền xem ngân hàng câu hỏi.": "You do not have permission to view the question bank.",
   "Không thể chuyển câu hỏi sang khóa học khác.": "A question cannot be moved to another course.",
   "Vai trò hiện tại không được phép truy cập buổi học này.": "Your current role is not allowed to access this session.",

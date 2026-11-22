@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import {
   AttemptWithAnswers,
@@ -73,17 +73,22 @@ export function mapAttempt(
         ).toISOString()
       : undefined,
     submissionReceipt: row.submittedAt
-      ? serviceContext.submissionReceipt(row.id, row.submittedAt.toISOString())
+      ? serviceContext.submissionReceipt({ id: row.id, examId: row.examId, learnerId: row.learnerId }, row.submittedAt.toISOString())
       : undefined,
   };
 }
 
-/** Tạo mã biên nhận ngắn có HMAC từ lượt thi và thời điểm nộp. */
+/**
+ * Tạo mã biên nhận nộp bài bằng HMAC với khóa bí mật của máy chủ trên lượt thi, đề, học viên và thời điểm nộp;
+ * không có khóa thì không ai tự tính lại được biên nhận hợp lệ.
+ */
 export function submissionReceipt(
-  attemptId: string,
+  attempt: { id: string; examId: string; learnerId: string },
   submittedAt: string,
+  secret: string,
 ): string {
-  return `SUB-${createHash("sha256").update(`${attemptId}.${submittedAt}`).digest("hex").slice(0, 16).toUpperCase()}`;
+  const digest = createHmac("sha256", secret).update(`wind-edu:submission-receipt:v2:${attempt.id}:${attempt.examId}:${attempt.learnerId}:${submittedAt}`).digest("hex");
+  return `SUB-${digest.slice(0, 20).toUpperCase()}`;
 }
 
 /** Ánh xạ yêu cầu phúc khảo và các mốc xử lý. */

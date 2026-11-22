@@ -55,7 +55,8 @@ suite("Submit attempt bulk scoring on dedicated test database", () => {
       },
     });
 
-    const submitted = await learning.submitAttempt(attemptId, learner.id);
+    // Học viên bất kỳ có thể chưa ghi danh lớp của đề nên chốt bài theo đường hệ thống (như tiến trình nộp quá hạn).
+    const submitted = await learning.submitAttempt(attemptId, learner.id, "SYSTEM");
 
     const answers = await prisma.attemptAnswer.findMany({ where: { attemptId } });
     // Đọc điểm đã lưu trong attempt_answers của một câu theo questionId.
