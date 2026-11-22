@@ -7,17 +7,19 @@ import { createHash } from "node:crypto";
 import { DataExport } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
-/** Đọc lại tệp export còn hạn và kiểm tra checksum ngay trước khi tải xuống. */
+/** Đọc lại tệp export còn hạn của chính người yêu cầu, kiểm tra checksum và ghi audit mỗi lần tải xuống. */
 export async function downloadExport(
   serviceContext: SystemServiceContext,
   exportId: string,
+  actorId: string,
 ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
   const prisma = serviceContext.database();
   if (prisma) {
     const row = await prisma.operationalJob.findUnique({
       where: { kind: "EXPORT", id: exportId },
     });
-    if (!row || row.status !== "COMPLETED" || !row.objectKey || !row.checksum)
+    // Bản xuất chứa dữ liệu toàn hệ thống: chỉ người đã tạo được tải, người khác nhận 404 như không tồn tại.
+    if (!row || row.requestedBy !== actorId || row.status !== "COMPLETED" || !row.objectKey || !row.checksum)
       throw new NotFoundException("Không tìm thấy tệp export hoàn tất.");
     if (!row.expiresAt || row.expiresAt <= new Date())
       throw new BadRequestException(
@@ -32,6 +34,7 @@ export async function downloadExport(
         "Checksum tệp export không hợp lệ.",
       );
     const format = row.format === "JSON" ? "JSON" : "CSV";
+    await serviceContext.logDatabase(prisma, actorId, "EXPORT_DOWNLOADED", row.id, `Tải bản xuất ${row.category ?? ""} định dạng ${format}.`);
     return {
       buffer,
       filename: `${row.category!.toLowerCase()}-${row.id}.${format.toLowerCase()}`,
@@ -49,6 +52,7 @@ export async function downloadExport(
     throw new BadRequestException(
       "Tệp export đã hết hạn; hãy tạo bản xuất mới.",
     );
+  serviceContext.log(actorId, "EXPORT_DOWNLOADED", item.id, `Tải bản xuất ${item.category} định dạng ${item.format}.`);
   return {
     buffer,
     filename: `${item.category.toLowerCase()}-${item.id}.${item.format.toLowerCase()}`,

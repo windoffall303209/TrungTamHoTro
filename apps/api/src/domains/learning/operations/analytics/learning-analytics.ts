@@ -3,6 +3,7 @@ import type { Prisma } from "../../../../generated/prisma/client.js";
 import { now } from "../../core/learning.shared.js";
 import type { ExamAnalytics } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { csvSafeText } from "../../../../common/redaction.js";
 
 /** Tổng hợp thống kê phần trăm của các bài đã chấm theo quy tắc chung. */
 function summarizeGradedPercentages(
@@ -305,9 +306,9 @@ export async function exportExamAnalytics(
   actorId: string,
 ): Promise<Buffer> {
   const report = await serviceContext.getExamAnalytics(input, actorId);
-  /** Bao ô CSV bằng dấu ngoặc kép và thoát dấu ngoặc kép trong nội dung. */
+  /** Bao ô CSV bằng dấu ngoặc kép, thoát dấu ngoặc kép và vô hiệu hóa công thức trong tiêu đề do người dùng đặt. */
   const escape = (value: string | number | boolean): string =>
-    `"${String(value).replaceAll('"', '""')}"`;
+    `"${(typeof value === "string" ? csvSafeText(value) : String(value)).replaceAll('"', '""')}"`;
   const rows = [
     [
       "examId",

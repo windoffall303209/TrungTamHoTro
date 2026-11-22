@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { redactSensitive as redactSensitiveText } from "../../../../common/redaction.js";
 import { PrismaService } from "../../../../database/prisma.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { IntegrationConfig } from "../../core/system.shared.js";
@@ -18,7 +19,8 @@ export async function logDatabase(
       action,
       entityType: "system",
       entityId: target,
-      context: { detail },
+      // Che token/secret ngay trước khi ghi DB, không chỉ khi đọc ra: bản xuất và truy vấn trực tiếp DB cũng không lộ.
+      context: { detail: redactSensitiveText(detail) },
     },
   });
 }
@@ -45,12 +47,9 @@ export function stringArray(value: unknown, fallback: string[]): string[] {
     : [...fallback];
 }
 
-/** Che giá trị password/token/secret/credential trong chuỗi audit. */
+/** Che giá trị password/token/secret/credential/JWT trong chuỗi audit bằng bộ lọc dùng chung. */
 export function redactSensitive(value: string): string {
-  return value.replace(
-    /(password|token|secret|credential|authorization)\s*[:=]\s*[^\s,;]+/gi,
-    "$1=[REDACTED]",
-  );
+  return redactSensitiveText(value);
 }
 
 /** Type guard cho danh mục provider phòng học được hỗ trợ. */
@@ -73,7 +72,7 @@ export function log(
     actor: actorId,
     action,
     target,
-    detail,
+    detail: redactSensitiveText(detail),
     createdAt: new Date().toISOString(),
   });
 }

@@ -425,10 +425,12 @@ export class SystemService {
   /** Đọc lại tệp export còn hạn và kiểm tra checksum ngay trước khi tải xuống. */
   async downloadExport(
     exportId: string,
+    actorId: string,
   ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
     return await export_download_ops.downloadExport(
       this.operationContext,
       exportId,
+      actorId,
     );
   }
 

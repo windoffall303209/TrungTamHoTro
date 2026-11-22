@@ -1,3 +1,4 @@
+import { csvSafeText, redactSensitiveValue } from "../../../../common/redaction.js";
 import { PrismaService } from "../../../../database/prisma.service.js";
 import { DataExport } from "../../core/system.shared.js";
 
@@ -9,7 +10,7 @@ export async function collectExportRows(
   if (category === "AUDIT")
     return (
       await prisma.auditLog.findMany({ orderBy: { createdAt: "asc" } })
-    ).map((row) => ({ entity: "audit_log", ...row }));
+    ).map((row) => ({ entity: "audit_log", ...row, context: redactSensitiveValue(row.context) }));
   if (category === "USERS")
     return (
       await prisma.user.findMany({
@@ -91,9 +92,9 @@ export function serializeExport(
     if (typeof value === "symbol") return value.description ?? "";
     return "[function]";
   };
-  /** Bao ô CSV bằng dấu ngoặc kép và thoát dấu ngoặc kép trong nội dung. */
+  /** Bao ô CSV bằng dấu ngoặc kép, thoát dấu ngoặc kép và vô hiệu hóa công thức trong ô văn bản. */
   const escape = (value: unknown): string => {
-    const normalized = formatCell(value);
+    const normalized = typeof value === "string" ? csvSafeText(formatCell(value)) : formatCell(value);
     return `"${normalized.replace(/"/g, '""')}"`;
   };
   const lines = [
