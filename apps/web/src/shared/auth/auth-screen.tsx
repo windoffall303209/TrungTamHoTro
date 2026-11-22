@@ -19,6 +19,7 @@ import { useApp } from "@/providers/app-provider";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
 import { ThemeToggle } from "@/shared/layout/theme-toggle";
 import { BrandLogo } from "@/shared/ui/brand-logo";
+import { safeInternalPath } from "@/lib/safe-content";
 
 const fieldClass =
   "mt-1.5 min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3.5 text-sm text-slate-900 dark:text-slate-100 outline-none transition placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs";
@@ -77,7 +78,8 @@ export function AuthScreen() {
         }
       }
       const next = new URLSearchParams(window.location.search).get("next");
-      router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+      // Chỉ quay về đường dẫn nội bộ cùng origin; chặn "//evil", "/\\evil" và URL tuyệt đối (open redirect).
+      router.replace(safeInternalPath(next) ?? "/dashboard");
     } catch (caught) {
       if (caught instanceof ApiError) {
         const details =

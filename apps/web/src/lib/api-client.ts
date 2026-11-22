@@ -9,6 +9,11 @@ type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: un
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
 
+/** Quên CSRF token của phiên cũ khi đăng xuất/hết phiên để request sau không mang token lạc phiên. */
+export function resetCsrfToken(): void {
+  csrfToken = "";
+}
+
 /** Ghép đường dẫn tương đối với API origin dùng cho ảnh/tài nguyên công khai. */
 export function publicApiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
@@ -46,6 +51,7 @@ export async function apiRequest<T>(
   }
   if (!response.ok) {
     const error = payload && "error" in payload ? payload.error : undefined;
+    if (response.status === 401) csrfToken = "";
     if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("wind-edu:unauthorized"));
     }

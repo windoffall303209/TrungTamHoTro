@@ -32,9 +32,11 @@ export class PermissionGuard implements CanActivate {
 
     // Gắn phiên vào request để controller và @CurrentSession dùng lại, tránh giải mã phiên lần hai.
     const request = context.switchToHttp().getRequest<RequestWithRole>();
+    // Vai trò theo từng request: header X-Role-Code, hoặc ?roleCode= cho luồng SSE (EventSource không gửi được header).
+    const queryRole = request.method?.toUpperCase() === "GET" && typeof request.query?.roleCode === "string" ? request.query.roleCode : undefined;
     const session = await this.authService.resolve(
       this.authService.readToken(request.header("cookie") ?? undefined),
-      request.header("x-role-code") ?? undefined,
+      request.header("x-role-code") ?? queryRole,
     );
     request.auth = session;
     request.roleCode = session.roleCode;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSessionDrafts,
+  clearUserLocalData,
   readSessionDraft,
   removeSessionDraft,
   writeSessionDraft,
@@ -48,5 +49,20 @@ describe("Bộ nhớ nháp của tab", () => {
     clearSessionDrafts();
     expect(readSessionDraft("draft", isText)).toBeNull();
     expect(sessionStorage.getItem("unrelated")).toBe("Giữ nguyên");
+  });
+  it("đăng xuất xóa dữ liệu localStorage theo tài khoản nhưng giữ ngôn ngữ và giao diện", () => {
+    localStorage.setItem("wind-chat-drafts:usr-1", "{}");
+    localStorage.setItem("class_feed_posts_class-1", "[]");
+    localStorage.setItem("wind_edu_mini_chat_open_windows_usr-1", "[]");
+    localStorage.setItem("wind-ai-request:usr-1:abc", "id");
+    localStorage.setItem("wind-edu-locale", "en-US");
+    localStorage.setItem("wind-edu-theme", "dark");
+    clearUserLocalData();
+    expect(localStorage.getItem("wind-chat-drafts:usr-1")).toBeNull();
+    expect(localStorage.getItem("class_feed_posts_class-1")).toBeNull();
+    expect(localStorage.getItem("wind_edu_mini_chat_open_windows_usr-1")).toBeNull();
+    expect(localStorage.getItem("wind-ai-request:usr-1:abc")).toBeNull();
+    expect(localStorage.getItem("wind-edu-locale")).toBe("en-US");
+    expect(localStorage.getItem("wind-edu-theme")).toBe("dark");
   });
 });

@@ -116,7 +116,7 @@ export class SessionController {
   @ApiOperation({ summary: "Lấy phiên đăng nhập hiện tại" })
   /** Khôi phục phiên và cấp CSRF token mới cho ứng dụng web. */
   async getSession(@Headers("cookie") cookies?: string, @Headers("x-role-code") roleCode?: string): Promise<object> {
-    const session = await this.auth.resolve(this.auth.readToken(cookies), roleCode);
+    const session = await this.auth.resolve(this.auth.readToken(cookies), roleCode, true);
     return { ...session, csrfToken: await this.auth.issueCsrf(session.sessionId) };
   }
 

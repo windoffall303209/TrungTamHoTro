@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
-import { ApiError, apiRequest } from "@/lib/api-client";
-import { clearSessionDrafts } from "@/lib/session-drafts";
+import { ApiError, apiRequest, resetCsrfToken } from "@/lib/api-client";
+import { clearSessionDrafts, clearUserLocalData } from "@/lib/session-drafts";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 import { isSupportedLocale, LOCALE_STORAGE_KEY } from "@/i18n/catalog";
 import { useI18n } from "@/providers/i18n-provider";
@@ -79,7 +79,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
   useEffect(() => {
     /** Xóa session cục bộ khi API phát tín hiệu phiên hết hạn từ tab hiện tại hoặc tab khác. */
-    const clearExpiredSession = () => setSession(emptySession);
+    /** Dọn token CSRF và dữ liệu cục bộ theo tài khoản khi máy chủ báo phiên đã hết hạn. */
+    const clearExpiredSession = () => {
+      resetCsrfToken();
+      clearSessionDrafts();
+      clearUserLocalData();
+      setSession(emptySession);
+    };
     window.addEventListener("wind-edu:unauthorized", clearExpiredSession);
     return () => window.removeEventListener("wind-edu:unauthorized", clearExpiredSession);
   }, []);
@@ -100,7 +106,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
-    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { clearSessionDrafts(); setSession(emptySession); }
+    try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { resetCsrfToken(); clearSessionDrafts(); clearUserLocalData(); setSession(emptySession); }
   }, []);
   /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */
   const setRole = useCallback(async (role: RoleCode) => {

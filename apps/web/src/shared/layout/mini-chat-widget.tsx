@@ -582,6 +582,7 @@ export function MiniChatWidget() {
   const pathname = usePathname();
   const { session } = useApp();
   const currentUserId = session?.user?.id ?? "";
+  const currentRoleCode = session?.roleCode ?? "";
   const restoredUserIdRef = useRef<string | null>(null);
 
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
@@ -787,7 +788,7 @@ export function MiniChatWidget() {
     const streams = openWindows.flatMap((win) => {
       const conversationId = win.conversationId || contacts.find((contact) => contact.id === win.id)?.conversationId;
       if (!conversationId) return [];
-      const stream = new EventSource(publicApiUrl(`/chat/conversations/${conversationId}/events`), { withCredentials: true });
+      const stream = new EventSource(publicApiUrl(`/chat/conversations/${conversationId}/events?roleCode=${encodeURIComponent(currentRoleCode)}`), { withCredentials: true });
       stream.onmessage = (event) => {
         if (!active) return;
         try {
@@ -884,7 +885,7 @@ export function MiniChatWidget() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [openWindows, contacts, currentUserId]);
+  }, [openWindows, contacts, currentUserId, currentRoleCode]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {

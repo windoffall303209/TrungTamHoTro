@@ -28,6 +28,8 @@ export function proxy(request: NextRequest) {
   response.headers.set("Content-Security-Policy", policy);
   // Không cho bộ nhớ đệm dùng chung tái sử dụng HTML có nonce giữa các yêu cầu.
   response.headers.set("Cache-Control", "private, no-store");
+  // Trang mang token trong URL (đặt lại mật khẩu, xác minh email/tài khoản) không gửi Referer ra tài nguyên ngoài.
+  if (/^\/(?:reset-password|verify-email|verify-account)(?:\/|$)/.test(request.nextUrl.pathname)) response.headers.set("Referrer-Policy", "no-referrer");
   return response;
 }
 

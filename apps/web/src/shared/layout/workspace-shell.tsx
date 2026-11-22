@@ -356,7 +356,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   // Nhận thay đổi thông báo qua SSE; tự kiểm tra dự phòng nếu luồng bị ngắt.
   useEffect(() => {
     let active = true;
-    const events = typeof EventSource === "undefined" ? null : new EventSource(publicApiUrl("/notifications/events"), { withCredentials: true });
+    const events = typeof EventSource === "undefined" ? null : new EventSource(publicApiUrl(`/notifications/events?roleCode=${encodeURIComponent(session.roleCode)}`), { withCredentials: true });
     if (events) events.onmessage = (event) => {
       if (!active) return;
       try {
@@ -387,7 +387,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [loadNotifications]);
+  }, [loadNotifications, session.roleCode]);
 
   useEffect(() => {
     if (!notificationOpen && !profileOpen && !menuOpen) return;

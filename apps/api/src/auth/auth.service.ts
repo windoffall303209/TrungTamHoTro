@@ -663,7 +663,7 @@ export class AuthService {
   }
 
   /** Băm token cookie để tìm phiên, kiểm tra hạn/trạng thái và áp dụng vai trò được yêu cầu. */
-  async resolve(token: string | undefined, requestedRole?: string): Promise<AuthenticatedSession> {
+  async resolve(token: string | undefined, requestedRole?: string, persistRole = false): Promise<AuthenticatedSession> {
     this.assertDatabase();
     if (!token) throw new UnauthorizedException("Vui lòng đăng nhập để tiếp tục.");
     const row = await this.prisma.authSession.findUnique({
@@ -674,8 +674,11 @@ export class AuthService {
     this.assertActive(row.user);
     const roleCode = requestedRole ?? row.currentRoleCode;
     if (!row.user.roles.some(({ role }) => role.code === roleCode)) throw new ForbiddenException("Tài khoản không có vai trò được yêu cầu.");
-    if (row.currentRoleCode !== roleCode || Date.now() - row.lastSeenAt.getTime() > 60_000) {
-      await this.prisma.authSession.update({ where: { id: row.id }, data: { currentRoleCode: roleCode, lastSeenAt: new Date() } });
+    // Chỉ ghi vai trò mặc định của phiên khi người dùng chủ động đổi vai trò (GET /auth/session); request thường dùng
+    // vai trò của chính nó nên hai tab khác vai trò không còn ghi đè lẫn nhau trên auth_sessions.
+    const roleChanged = persistRole && row.currentRoleCode !== roleCode;
+    if (roleChanged || Date.now() - row.lastSeenAt.getTime() > 60_000) {
+      await this.prisma.authSession.update({ where: { id: row.id }, data: { ...(roleChanged ? { currentRoleCode: roleCode } : {}), lastSeenAt: new Date() } });
     }
     return this.mapSession(row.id, row.user, roleCode as RoleCode);
   }

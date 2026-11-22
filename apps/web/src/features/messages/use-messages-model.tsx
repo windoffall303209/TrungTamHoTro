@@ -380,7 +380,7 @@ export function useMessagesModel() {
       void loadMessages(selectedId);
     }, 0);
     const events = new EventSource(
-      publicApiUrl(`/chat/conversations/${selectedId}/events`),
+      publicApiUrl(`/chat/conversations/${selectedId}/events?roleCode=${encodeURIComponent(session.roleCode)}`),
       { withCredentials: true },
     );
     events.onmessage = (event) => {
