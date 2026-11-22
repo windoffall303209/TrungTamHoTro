@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
-import { AppThrottlerGuard, AUTH_THROTTLER } from "./auth/auth-rate-limit.js";
+import { AppThrottlerGuard, AUTH_THROTTLER, IP_THROTTLER } from "./auth/auth-rate-limit.js";
 import { RequestIdMiddleware } from "./common/request-id.middleware.js";
 import { validateEnvironment, type Environment } from "./config/environment.js";
 import { DatabaseModule } from "./database/database.module.js";
@@ -31,6 +31,12 @@ import { MaintenanceGuard } from "./domains/system/operations/maintenance.guard.
             name: "default",
             ttl: config.get("RATE_LIMIT_TTL_MS", { infer: true }),
             limit: config.get("RATE_LIMIT_MAX", { infer: true }),
+          },
+          {
+            // Trần theo IP chặn lạm dụng khi throttler mặc định đếm theo phiên đăng nhập.
+            name: IP_THROTTLER,
+            ttl: config.get("RATE_LIMIT_TTL_MS", { infer: true }),
+            limit: config.get("RATE_LIMIT_IP_MAX", { infer: true }),
           },
           {
             // Chỉ áp cho route gắn @AuthRateLimit(), đếm theo cặp IP + tài khoản.

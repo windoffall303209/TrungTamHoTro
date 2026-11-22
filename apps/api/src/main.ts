@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { Logger, ValidationPipe, VersioningType } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import compression from "compression";
 import helmet from "helmet";
@@ -9,6 +10,7 @@ import { AppModule } from "./app.module.js";
 import { HttpExceptionFilter } from "./common/http-exception.filter.js";
 import { ResponseInterceptor } from "./common/response.interceptor.js";
 import type { Environment } from "./config/environment.js";
+import { parseTrustProxy } from "./config/trust-proxy.js";
 
 /**
  * Khởi tạo HTTP API và lắp toàn bộ pipeline dùng chung của NestJS.
@@ -17,13 +19,15 @@ import type { Environment } from "./config/environment.js";
  * bảo vệ, chuẩn hóa validation và response, dựng Swagger rồi mới mở cổng nghe.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService<Environment, true>);
   const prefix = config.get("API_PREFIX", { infer: true });
   const version = config.get("API_VERSION", { infer: true });
   const port = config.get("API_PORT", { infer: true });
 
   app.useLogger(new Logger());
+  // Sau Nginx/Cloudflare/Ingress phải khai báo proxy tin cậy để req.ip là IP người dùng thay vì IP proxy.
+  app.set("trust proxy", parseTrustProxy(config.get("TRUST_PROXY", { infer: true })));
   app.enableShutdownHooks();
   app.setGlobalPrefix(prefix);
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: version });

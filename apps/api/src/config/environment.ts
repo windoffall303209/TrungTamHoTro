@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseTrustProxy } from "./trust-proxy.js";
 
 const booleanFromString = z.preprocess(
   (value) => value === true || value === "true",
@@ -40,6 +41,8 @@ const environmentSchema = z.object({
   MFA_ISSUER: z.string().trim().min(2).max(80).default("Wind EDU"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().default(1_000),
+  TRUST_PROXY: z.string().trim().default("false"),
   AUTH_RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(900_000),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -66,6 +69,8 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
   }
 
   const environment = result.data;
+  // Kiểm tra sớm để cấu hình proxy sai làm API dừng khởi động thay vì âm thầm tin X-Forwarded-For giả.
+  parseTrustProxy(environment.TRUST_PROXY);
   if (environment.NODE_ENV === "production") {
     const missing: string[] = [];
     if (environment.STORAGE_PROVIDER === "cloudinary") {
