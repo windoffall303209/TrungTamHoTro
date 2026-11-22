@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Endpoint AI chỉ được dùng cổng HTTPS 443.": "The AI endpoint may only use HTTPS port 443.",
   "Đang có tiến trình khôi phục chạy; chưa thể tắt chế độ bảo trì.": "A restore is running; maintenance mode cannot be turned off yet.",
   "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.": "The target database must not be the live database or a PostgreSQL system database.",
   "Liên kết bản ghi phải dùng HTTPS và trỏ tới máy chủ công khai.": "The recording link must use HTTPS and point to a public server.",
