@@ -1,7 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
   "Mã khôi phục không đúng định dạng.": "The recovery code format is invalid.",
-  "Mã khôi phục không chính xác hoặc đã được sử dụng.": "The recovery code is incorrect or has already been used.",
   "Admin cần chọn Gemini hỗ trợ ngữ cảnh cho model Custom.": "The administrator must select Gemini context support for the Custom model.",
   "AI chưa cung cấp đủ tóm tắt và số thẻ ôn tập yêu cầu.": "AI did not supply a summary and the requested number of flashcards.",
   "AI không nhận diện được câu hỏi nào. Hãy dùng ảnh rõ hơn hoặc đổi model.": "AI did not recognize any questions. Please use clearer pictures or change model.",
