@@ -54,7 +54,7 @@ describe("IdentityService", () => {
     const updated = await service.updateUser(created.id, {
       roleCodes: ["INSTRUCTOR", "LEARNER", "CENTER_MANAGER"],
       impactToken: impact.token,
-    }, "usr-admin", "SYSTEM_ADMIN");
+    }, "usr-admin", "SYSTEM_ADMIN", ["user:suspend"]);
     expect(updated.roleCodes).toEqual([
       "INSTRUCTOR",
       "LEARNER",
@@ -65,14 +65,14 @@ describe("IdentityService", () => {
   it("không cho khóa quản trị viên cuối cùng", async () => {
     const service = new IdentityService();
     await expect(
-      service.updateUser("usr-admin", { status: "LOCKED" }, "usr-admin", "SYSTEM_ADMIN"),
+      service.updateUser("usr-admin", { status: "LOCKED" }, "usr-admin", "SYSTEM_ADMIN", ["user:suspend"]),
     ).rejects.toThrow(BadRequestException);
   });
 
   it("yêu cầu xem trước đúng phiên bản trước khi đổi quyền tài khoản", async () => {
     const service = new IdentityService();
     await expect(
-      service.updateUser("usr-learner", { status: "LOCKED" }, "usr-admin", "SYSTEM_ADMIN"),
+      service.updateUser("usr-learner", { status: "LOCKED" }, "usr-admin", "SYSTEM_ADMIN", ["user:suspend"]),
     ).rejects.toThrow(ConflictException);
     const impact = await service.previewUserChange("usr-learner", {
       status: "LOCKED",
@@ -80,7 +80,7 @@ describe("IdentityService", () => {
     const updated = await service.updateUser("usr-learner", {
       status: "LOCKED",
       impactToken: impact.token,
-    }, "usr-admin", "SYSTEM_ADMIN");
+    }, "usr-admin", "SYSTEM_ADMIN", ["user:suspend"]);
     expect(updated.status).toBe("LOCKED");
   });
 
@@ -89,7 +89,7 @@ describe("IdentityService", () => {
     const role = await service.updateRolePermissions({
       roleCode: "LEARNER",
       permissions: ["course:view", "support:create"],
-    });
+    }, "usr-admin", "SYSTEM_ADMIN");
     expect(role.version).toBe(2);
     expect(role.permissions).toEqual(["course:view", "support:create"]);
   });

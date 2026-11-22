@@ -36,9 +36,9 @@ export class IdentityController {
   @Get("users")
   @RequirePermissions("user:view")
   @ApiOperation({ summary: "Danh sách và tìm kiếm tài khoản" })
-  /** Tìm tài khoản theo tên đăng nhập, họ tên hoặc email. */
-  listUsers(@Query() query: UserListQueryDto): ReturnType<IdentityService["listUsersPage"]> {
-    return this.identityService.listUsersPage(query);
+  /** Tìm tài khoản theo tên đăng nhập, họ tên hoặc email; quản lý trung tâm không thấy tài khoản quản trị hệ thống. */
+  listUsers(@Query() query: UserListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<IdentityService["listUsersPage"]> {
+    return this.identityService.listUsersPage(query, session.roleCode);
   }
 
   @Post("users")
@@ -72,7 +72,7 @@ export class IdentityController {
     @Body() input: UpdateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.updateUser(userId, input, session.user.id, session.roleCode);
+    return this.identityService.updateUser(userId, input, session.user.id, session.roleCode, session.permissions);
   }
 
   @Get("roles")
@@ -96,6 +96,7 @@ export class IdentityController {
         permissions: input.permissions,
       },
       session.user.id,
+      session.roleCode,
     );
   }
 

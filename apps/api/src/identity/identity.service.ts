@@ -121,6 +121,36 @@ export class IdentityService {
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
+  /** Quyền cốt lõi SYSTEM_ADMIN luôn phải giữ để không tự khóa vĩnh viễn trang phân quyền/quản trị. */
+  private static readonly ADMIN_CORE_PERMISSIONS = ["role:view", "role:update", "user:view", "user:update", "user:suspend", "system:configure"] as const;
+  /** Quyền tối cao không được cấp cho vai trò ngoài SYSTEM_ADMIN. */
+  private static readonly ADMIN_ONLY_PERMISSIONS = ["role:update", "system:configure"] as const;
+
+  /**
+   * Kiểm tra chung trước khi đổi trạng thái/vai trò: đổi trạng thái khóa/mở cần user:suspend, không được tự khóa hay
+   * tự đổi vai trò, và tài khoản chưa xác minh email không được chuyển thẳng sang ACTIVE (bỏ qua OTP/đổi mật khẩu đầu).
+   */
+  private assertStatusAndSelfChange(
+    target: { userId: string; status: string; emailVerifiedAt: Date | string | null | undefined; roleCodes: RoleCode[] },
+    input: Pick<UpdateUserDto, "status">,
+    nextRoleCodes: RoleCode[] | undefined,
+    actor: { actorId: string; permissions: readonly string[] },
+  ): void {
+    const changesStatus = Boolean(input.status && input.status !== target.status);
+    if (changesStatus && !actor.permissions.includes("user:suspend"))
+      throw new ForbiddenException("Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.");
+    if (target.userId === actor.actorId && (changesStatus || (nextRoleCodes && !this.sameRoleSet(nextRoleCodes, target.roleCodes))))
+      throw new ForbiddenException("Không thể tự khóa hoặc tự đổi vai trò của chính mình.");
+    if (input.status === "ACTIVE" && target.status !== "ACTIVE" && !target.emailVerifiedAt)
+      throw new BadRequestException("Tài khoản chưa xác minh email nên chưa thể kích hoạt.");
+  }
+
+  /** Thao tác có gỡ quyền của một quản trị viên đang hoạt động hay không (xét đủ tập vai trò, không chỉ roles[0]). */
+  private removesActiveAdmin(currentRoleCodes: RoleCode[], currentStatus: string, input: Pick<UpdateUserDto, "status">, nextRoleCodes: RoleCode[] | undefined): boolean {
+    if (!currentRoleCodes.includes("SYSTEM_ADMIN") || currentStatus !== "ACTIVE") return false;
+    return Boolean((input.status && input.status !== "ACTIVE") || (nextRoleCodes && !nextRoleCodes.includes("SYSTEM_ADMIN")));
+  }
+
   /** Giới hạn quản lý trung tâm thao tác và cấp vai trò cho giáo viên, học sinh. */
   private assertUserChangeScope(currentRoleCodes: RoleCode[], nextRoleCodes: RoleCode[], actorRoleCode: RoleCode): void {
     if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(actorRoleCode))
@@ -131,7 +161,7 @@ export class IdentityService {
   }
 
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
-  async listUsersPage(input: UserListQueryDto): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
+  async listUsersPage(input: UserListQueryDto, actorRoleCode: RoleCode): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
     const { page, pageSize } = input;
     if (!Number.isInteger(page) || page < 1 || page > 10000 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50 || (input.query?.length ?? 0) > 200) throw new BadRequestException("Tham số phân trang không hợp lệ.");
     const prisma = this.database();
@@ -143,6 +173,7 @@ export class IdentityService {
       if (input.status) {
         all = all.filter((u) => u.status === input.status);
       }
+      if (actorRoleCode !== "SYSTEM_ADMIN") all = all.filter((u) => !(u.roleCodes ?? [u.roleCode]).includes("SYSTEM_ADMIN"));
       return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, active: all.filter((user) => user.status === "ACTIVE").length, locked: all.filter((user) => user.status === "LOCKED").length, page, pageSize };
     }
     const query = input.query?.trim();
@@ -166,6 +197,8 @@ export class IdentityService {
     if (input.status) {
       where.status = input.status;
     }
+    // Quản lý trung tâm không cần và không được thấy danh sách/email tài khoản quản trị hệ thống.
+    if (actorRoleCode !== "SYSTEM_ADMIN") where.NOT = { roles: { some: { role: { code: "SYSTEM_ADMIN" } } } };
     const [rows, total, active, locked] = await prisma.$transaction([
       prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
       prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),
@@ -341,6 +374,7 @@ export class IdentityService {
     input: UpdateUserDto,
     actorId: string,
     actorRoleCode: RoleCode,
+    actorPermissions: readonly string[],
   ): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {
@@ -353,7 +387,6 @@ export class IdentityService {
         // Chỉ tài khoản chưa từng xác thực (chưa có email) mới về Chưa xác thực, ví dụ khi được mở khóa.
         if (input.status === "PENDING" && current.email)
           throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
-        const currentRole = this.getRoleCode(current);
         const nextRoleCodes = input.roleCodes?.length
           ? [...new Set(input.roleCodes)]
           : input.roleCode
@@ -386,25 +419,26 @@ export class IdentityService {
           throw new BadRequestException(
             "Cần chọn người nhận bàn giao và ghi lý do trước khi đổi quyền tài khoản.",
           );
-        const removesActiveAdmin =
-          currentRole === "SYSTEM_ADMIN" &&
-          current.status === "ACTIVE" &&
-          Boolean(
-            (input.status && input.status !== "ACTIVE") ||
-              (input.roleCode && input.roleCode !== "SYSTEM_ADMIN"),
-          );
-        if (removesActiveAdmin) {
-          const activeAdmins = await transaction.user.count({
-            where: {
-              status: "ACTIVE",
-              roles: { some: { role: { code: "SYSTEM_ADMIN" } } },
-            },
-          });
-          if (activeAdmins === 1)
+        const currentRoleCodes = current.roles.map(({ role }) => role.code as RoleCode);
+        if (this.removesActiveAdmin(currentRoleCodes, current.status, input, nextRoleCodes)) {
+          // Khóa các dòng admin đang hoạt động để hai thao tác song song không cùng gỡ hai admin cuối.
+          const activeAdmins = await transaction.$queryRaw<Array<{ id: string }>>`
+            SELECT u.id FROM users u
+            JOIN user_roles ur ON ur.user_id = u.id
+            JOIN roles r ON r.id = ur.role_id
+            WHERE r.code = 'SYSTEM_ADMIN' AND u.status = 'ACTIVE'
+            FOR UPDATE OF u`;
+          if (activeAdmins.length <= 1)
             throw new BadRequestException(
               "Không thể khóa hoặc hạ quyền quản trị viên hoạt động cuối cùng.",
             );
         }
+        this.assertStatusAndSelfChange(
+          { userId, status: current.status, emailVerifiedAt: current.emailVerifiedAt, roleCodes: currentRoleCodes },
+          input,
+          nextRoleCodes,
+          { actorId, permissions: actorPermissions },
+        );
 
         const nextRoles = nextRoleCodes
           ? await transaction.role.findMany({
@@ -473,22 +507,24 @@ export class IdentityService {
     this.assertUserChangeScope(user.roleCodes ?? [user.roleCode], memoryRoleCodes, actorRoleCode);
     if (input.status === "PENDING" && user.email)
       throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
-    const removesActiveAdmin =
-      user.roleCode === "SYSTEM_ADMIN" &&
-      user.status === "ACTIVE" &&
-      Boolean(
-        (input.status && input.status !== "ACTIVE") ||
-          (input.roleCode && input.roleCode !== "SYSTEM_ADMIN"),
-      );
-    if (removesActiveAdmin) {
+    const userRoleCodes = user.roleCodes ?? [user.roleCode];
+    const memoryNextRoleCodes = input.roleCodes?.length ? memoryRoleCodes : input.roleCode ? memoryRoleCodes : undefined;
+    if (this.removesActiveAdmin(userRoleCodes, user.status, input, memoryNextRoleCodes)) {
       const activeAdmins = this.users.filter(
-        (item) => item.roleCode === "SYSTEM_ADMIN" && item.status === "ACTIVE",
+        (item) => (item.roleCodes ?? [item.roleCode]).includes("SYSTEM_ADMIN") && item.status === "ACTIVE",
       );
-      if (activeAdmins.length === 1)
+      if (activeAdmins.length <= 1)
         throw new BadRequestException(
           "Không thể khóa hoặc hạ quyền quản trị viên hoạt động cuối cùng.",
         );
     }
+    this.assertStatusAndSelfChange(
+      // Kho nhớ demo không lưu emailVerifiedAt: coi tài khoản có email và không chờ xác minh là đã xác minh.
+      { userId, status: user.status, emailVerifiedAt: user.email && user.status !== "PENDING_VERIFICATION" ? user.createdAt : null, roleCodes: userRoleCodes },
+      input,
+      memoryNextRoleCodes,
+      { actorId, permissions: actorPermissions },
+    );
     const fallbackChangesAccess = Boolean(
       !this.sameRoleSet(memoryRoleCodes, user.roleCodes ?? [user.roleCode]) ||
         (input.status && input.status !== user.status),
@@ -529,8 +565,11 @@ export class IdentityService {
   /** Thay thế tập quyền nguyên tử, giữ quyền tự quản trị bắt buộc và tăng version để theo dõi thay đổi. */
   async updateRolePermissions(
     input: UpdateRolePermissionsDto,
-    actorId?: string,
+    actorId: string,
+    actorRoleCode: RoleCode,
   ): Promise<IdentityRole> {
+    if (actorRoleCode !== "SYSTEM_ADMIN")
+      throw new ForbiddenException("Chỉ quản trị hệ thống được thay đổi ma trận quyền.");
     if (
       input.roleCode === "SYSTEM_ADMIN" &&
       !input.permissions.includes("role:update")
@@ -539,6 +578,10 @@ export class IdentityService {
         "Vai trò quản trị phải giữ quyền role:update.",
       );
     }
+    if (input.roleCode === "SYSTEM_ADMIN" && IdentityService.ADMIN_CORE_PERMISSIONS.some((code) => !input.permissions.includes(code)))
+      throw new BadRequestException("Vai trò quản trị phải giữ các quyền cốt lõi role:view, role:update, user:view, user:update, user:suspend và system:configure.");
+    if (input.roleCode !== "SYSTEM_ADMIN" && IdentityService.ADMIN_ONLY_PERMISSIONS.some((code) => input.permissions.includes(code)))
+      throw new BadRequestException("Không được cấp quyền role:update hoặc system:configure cho vai trò ngoài quản trị hệ thống.");
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
@@ -577,7 +620,7 @@ export class IdentityService {
         });
         await transaction.auditLog.create({
           data: {
-            actorId: actorId ?? null,
+            actorId,
             action: "ROLE_PERMISSIONS_UPDATED",
             entityType: "role",
             entityId: role.id,

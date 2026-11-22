@@ -1,5 +1,11 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.": "The user:suspend permission is required to lock or unlock accounts.",
+  "Không thể tự khóa hoặc tự đổi vai trò của chính mình.": "You cannot lock your own account or change your own roles.",
+  "Tài khoản chưa xác minh email nên chưa thể kích hoạt.": "The account has not verified its email and cannot be activated yet.",
+  "Chỉ quản trị hệ thống được thay đổi ma trận quyền.": "Only system administrators can change the permission matrix.",
+  "Vai trò quản trị phải giữ các quyền cốt lõi role:view, role:update, user:view, user:update, user:suspend và system:configure.": "The administrator role must keep the core permissions role:view, role:update, user:view, user:update, user:suspend and system:configure.",
+  "Không được cấp quyền role:update hoặc system:configure cho vai trò ngoài quản trị hệ thống.": "role:update and system:configure cannot be granted to roles other than system administrator.",
   "Bạn đã nhập sai mã xác thực quá nhiều lần. Hãy thử lại sau 15 phút.": "Too many incorrect authentication codes. Try again in 15 minutes.",
   "Chỉ chấm được lượt làm bài đã nộp.": "Only submitted attempts can be graded.",
   "Điểm không được âm hoặc vượt tổng điểm của đề.": "The score cannot be negative or exceed the exam total.",
