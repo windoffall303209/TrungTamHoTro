@@ -203,12 +203,17 @@ describe("Xác minh email qua API", () => {
     expect((await prisma.user.findUniqueOrThrow({ where: { username } })).email).toBe(correctedEmail);
     const appLogin = await post("/auth/login", { username, password });
     const appChallenge = (appLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
+    // Mã TOTP vừa dùng để bật MFA không được phát lại trong cùng chu kỳ.
+    expect((await post("/auth/mfa/verify", { challengeToken: appChallenge, code: totp })).status).toBe(401);
+    // Mô phỏng sang chu kỳ 30 giây kế tiếp bằng cách lùi bước đã dùng thay vì chờ thời gian thật.
+    await prisma.user.update({ where: { username }, data: { mfaLastUsedStep: null } });
     expect((await post("/auth/mfa/verify", { challengeToken: appChallenge, code: generateTotp(secret) })).status).toBe(200);
     expect((await authenticatedRequest("POST", "/account/mfa/disable-challenge", cookie, loginData.csrfToken, { password: "Wrong-E2E-2026!" })).status).toBe(401);
 
     const challenge = await authenticatedRequest("POST", "/account/mfa/disable-challenge", cookie, loginData.csrfToken, { password });
     expect(challenge.status).toBe(201);
     const challengeToken = (challenge.body as Envelope<{ challengeToken: string }>).data.challengeToken;
+    await prisma.user.update({ where: { username }, data: { mfaLastUsedStep: null } });
     const disabled = await authenticatedRequest("DELETE", "/account/mfa", cookie, loginData.csrfToken, { challengeToken, code: generateTotp(secret) });
     expect(disabled.status).toBe(200);
     expect((await prisma.user.findUniqueOrThrow({ where: { username } })).mfaEnabledAt).toBeNull();

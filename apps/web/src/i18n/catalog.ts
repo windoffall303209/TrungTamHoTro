@@ -7,6 +7,7 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Bạn đã nhập sai mã xác thực quá nhiều lần. Hãy thử lại sau 15 phút.": "Too many incorrect authentication codes. Try again in 15 minutes.",
   "Điểm từng câu hiển thị sau khi đề đóng": "Per-question scores appear after the exam closes",
   "Chỉ chấm được lượt làm bài đã nộp.": "Only submitted attempts can be graded.",
   "Điểm không được âm hoặc vượt tổng điểm của đề.": "The score cannot be negative or exceed the exam total.",

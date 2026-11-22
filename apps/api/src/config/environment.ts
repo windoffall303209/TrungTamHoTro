@@ -40,6 +40,8 @@ const environmentSchema = z.object({
   MFA_ISSUER: z.string().trim().min(2).max(80).default("Wind EDU"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  AUTH_RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(900_000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   LIVE_PROVIDER_RETRY_LIMIT: z.coerce.number().int().min(1).max(3).default(2),
   LIVE_PROVIDER_FALLBACK_ORDER: z.string().trim().default("GOOGLE_MEET,ZOOM,JITSI"),

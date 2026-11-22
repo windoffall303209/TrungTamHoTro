@@ -3,6 +3,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
+import { AuthRateLimit } from "./auth-rate-limit.js";
 import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, MfaRecoveryLoginDto, PasswordChangeOtpDto, RegenerateRecoveryCodesDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
@@ -12,6 +13,7 @@ export class SessionController {
   constructor(private readonly auth: AuthService) {}
 
   @Post("login")
+  @AuthRateLimit()
   @HttpCode(200)
   @ApiOperation({ summary: "Đăng nhập bằng tên tài khoản và mật khẩu" })
   /** Xác thực mật khẩu; nếu không cần MFA hay xác thực tài khoản tạm thì phát cookie phiên và CSRF token. */
@@ -23,6 +25,7 @@ export class SessionController {
   }
 
   @Post("account-setup/otp")
+  @AuthRateLimit()
   @HttpCode(200)
   /** Gửi hoặc gửi lại mã OTP tới email người dùng nhập ở trang xác thực tài khoản. */
   sendAccountSetupOtp(@Body() input: AccountSetupOtpDto): Promise<object> {
@@ -30,6 +33,7 @@ export class SessionController {
   }
 
   @Post("account-setup/complete")
+  @AuthRateLimit()
   @HttpCode(200)
   /** Hoàn tất xác thực tài khoản tạm bằng mã OTP, tên tài khoản và mật khẩu mới. */
   completeAccountSetup(@Body() input: CompleteAccountSetupDto): Promise<object> {
@@ -37,6 +41,7 @@ export class SessionController {
   }
 
   @Post("mfa/verify")
+  @AuthRateLimit()
   @HttpCode(200)
   /** Hoàn tất bước TOTP sau đăng nhập mật khẩu và phát phiên đăng nhập. */
   async verifyMfa(@Body() input: MfaLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
@@ -46,6 +51,7 @@ export class SessionController {
   }
 
   @Post("mfa/recovery")
+  @AuthRateLimit()
   @HttpCode(200)
   /** Hoàn tất đăng nhập hai bước bằng một mã khôi phục dùng một lần khi không truy cập được ứng dụng xác thực. */
   async verifyMfaRecovery(@Body() input: MfaRecoveryLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
@@ -55,6 +61,7 @@ export class SessionController {
   }
 
   @Post("forgot-password")
+  @AuthRateLimit()
   @HttpCode(202)
   /** Yêu cầu email đặt lại mật khẩu nhưng luôn trả accepted để tránh lộ tài khoản tồn tại. */
   requestPasswordReset(@Body() input: ForgotPasswordDto): Promise<{ accepted: true }> {
@@ -62,6 +69,7 @@ export class SessionController {
   }
 
   @Post("reset-password")
+  @AuthRateLimit()
   /** Tiêu thụ token đặt lại và chuyển mật khẩu mới cho AuthService. */
   resetPassword(@Body() input: ResetPasswordDto): Promise<{ reset: true }> {
     return this.auth.resetPassword(input.token, input.newPassword);
@@ -74,12 +82,14 @@ export class SessionController {
   }
 
   @Post("verify-email/code")
+  @AuthRateLimit()
   /** Xác minh email bằng mã sáu chữ số gắn với verificationId. */
   verifyEmailCode(@Body() input: VerifyEmailCodeDto): Promise<{ verified: true; verificationId: string }> {
     return this.auth.verifyEmailCode(input.verificationId, input.code);
   }
 
   @Post("verification-email/resend")
+  @AuthRateLimit()
   @HttpCode(202)
   /** Gửi lại xác minh theo luồng công khai mà không tiết lộ trạng thái tài khoản. */
   resendPublicVerification(@Body() input: ResendVerificationDto): Promise<{ accepted: true; verificationId?: string }> {
@@ -87,6 +97,7 @@ export class SessionController {
   }
 
   @Post("verification-email/change")
+  @AuthRateLimit()
   @HttpCode(200)
   /** Đổi email của tài khoản chưa xác minh sau khi kiểm tra mật khẩu và phiên xác minh. */
   changeVerificationEmail(@Body() input: ChangeVerificationEmailDto): Promise<object> {

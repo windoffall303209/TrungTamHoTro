@@ -19,14 +19,23 @@ export function createTotpUri(secret: string, email: string, issuer: string): st
 
 /** Kiểm tra TOTP theo thời gian hiện tại và cho phép lệch một chu kỳ ở mỗi phía. */
 export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
+  return matchTotpStep(secret, code, now) !== null;
+}
+
+/**
+ * Trả bộ đếm thời gian (bước 30 giây) mà mã khớp trong cửa sổ lệch ±1 chu kỳ, hoặc null nếu không khớp.
+ * Lưu bước này sau khi dùng cho phép chặn phát lại cùng một mã trong 90 giây hiệu lực.
+ */
+export function matchTotpStep(secret: string, code: string, now = Date.now()): number | null {
   const normalized = code.replace(/\s/g, "");
-  if (!/^\d{6}$/.test(normalized)) return false;
+  if (!/^\d{6}$/.test(normalized)) return null;
   const supplied = Buffer.from(normalized);
+  const current = Math.floor(now / 1000 / TOTP_STEP_SECONDS);
   for (let offset = -1; offset <= 1; offset += 1) {
-    const expected = Buffer.from(generateTotp(secret, Math.floor(now / 1000 / TOTP_STEP_SECONDS) + offset));
-    if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) return true;
+    const expected = Buffer.from(generateTotp(secret, current + offset));
+    if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) return current + offset;
   }
-  return false;
+  return null;
 }
 
 /** Mã hóa bí mật MFA bằng AES-256-GCM trước khi lưu, kèm IV và authentication tag. */

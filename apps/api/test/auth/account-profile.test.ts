@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { ConflictException, ValidationPipe } from "@nestjs/common";
+import { ValidationPipe } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmEmailChangeDto, EmailChangeOtpDto, UpdateProfileDto } from "../../src/auth/auth.dto.js";
@@ -342,8 +342,9 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
     await expect(service.sendEmailChangeOtp("usr-admin", "admin@wind.edu.vn", { currentPassword: "Current-Pass-2026!" })).rejects.toThrow(
       "Email mới phải khác email hiện tại của tài khoản.",
     );
-    await expect(service.sendEmailChangeOtp("usr-admin", "taken@wind.edu.vn", { currentPassword: "Current-Pass-2026!" })).rejects.toThrow(
-      ConflictException,
-    );
+    // Email đã thuộc tài khoản khác nhận thử thách giả cùng dạng (không 409, không gửi mail) để không dò được email.
+    const decoy = await service.sendEmailChangeOtp("usr-admin", "taken@wind.edu.vn", { currentPassword: "Current-Pass-2026!" });
+    expect(decoy).toMatchObject({ email: "taken@wind.edu.vn", expiresInSeconds: 300, resendAfterSeconds: 60 });
+    expect(decoy.challengeId).toMatch(/^[a-f0-9]{36}$/);
   });
 });

@@ -24,6 +24,14 @@ async function withHashSlot<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 
+let dummyHash: Promise<string> | undefined;
+
+/** Hash scrypt giả (tạo một lần) để so khớp khi không có tài khoản, giữ thời gian phản hồi đăng nhập đồng đều. */
+export function dummyPasswordHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomBytes(24).toString("base64url"));
+  return dummyHash;
+}
+
 /** Băm mật khẩu bằng scrypt với salt riêng và lưu kèm phiên bản thuật toán. */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");

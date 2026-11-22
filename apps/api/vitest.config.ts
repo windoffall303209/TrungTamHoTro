@@ -8,6 +8,8 @@ process.env.DB_NAME = testDatabase;
 process.env.NODE_ENV = "test";
 process.env.RESEND_API_KEY = "";
 process.env.RESEND_FROM = "";
+// Kiểm thử e2e đăng nhập lặp lại cùng tài khoản; giới hạn auth được kiểm riêng trong test của AppThrottlerGuard.
+process.env.AUTH_RATE_LIMIT_MAX ??= "1000";
 
 export default defineConfig({
   test: {

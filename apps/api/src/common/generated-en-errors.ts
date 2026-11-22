@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Bạn đã nhập sai mã xác thực quá nhiều lần. Hãy thử lại sau 15 phút.": "Too many incorrect authentication codes. Try again in 15 minutes.",
   "Chỉ chấm được lượt làm bài đã nộp.": "Only submitted attempts can be graded.",
   "Điểm không được âm hoặc vượt tổng điểm của đề.": "The score cannot be negative or exceed the exam total.",
   "Không có quyền xem ngân hàng câu hỏi.": "You do not have permission to view the question bank.",
