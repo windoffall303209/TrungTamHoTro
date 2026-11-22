@@ -1025,26 +1025,30 @@ export class LearningService {
 
   /** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
   async listQuestions(
-    filters: string | questions_ops.QuestionListFilters = {},
+    filters: string | questions_ops.QuestionListFilters,
+    scope: questions_ops.QuestionScope,
   ): Promise<LearningQuestion[]> {
-    return await questions_ops.listQuestions(this.operationContext, filters);
+    return await questions_ops.listQuestions(this.operationContext, filters, scope);
   }
 
-  /** Phân trang phiên bản mới nhất mỗi family câu hỏi trực tiếp bằng SQL CTE. */
+  /** Phân trang phiên bản mới nhất mỗi family câu hỏi trực tiếp bằng SQL CTE trong phạm vi của người gọi. */
   async listQuestionsPage(
-    filters: questions_ops.QuestionPageFilters = {},
+    filters: questions_ops.QuestionPageFilters,
+    scope: questions_ops.QuestionScope,
   ): Promise<PaginatedResult<LearningQuestion>> {
     return await questions_ops.listQuestionsPage(
       this.operationContext,
       filters,
+      scope,
     );
   }
 
-  /** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận theo từng khóa học. */
-  async getQuestionSummary(courseId?: string): Promise<QuestionSummary> {
+  /** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận theo từng khóa học trong phạm vi của người gọi. */
+  async getQuestionSummary(courseId: string | undefined, scope: questions_ops.QuestionScope): Promise<QuestionSummary> {
     return await questions_ops.getQuestionSummary(
       this.operationContext,
       courseId,
+      scope,
     );
   }
 
@@ -1078,19 +1082,22 @@ export class LearningService {
   async uploadQuestionImage(
     questionId: string,
     upload: UploadedMaterialFile,
+    actorId: string,
   ): Promise<LearningQuestion> {
     return await questions_ops.uploadQuestionImage(
       this.operationContext,
       questionId,
       upload,
+      actorId,
     );
   }
 
   /** Xóa liên kết ảnh của câu hỏi rồi dọn object nếu không còn tham chiếu. */
-  async removeQuestionImage(questionId: string): Promise<LearningQuestion> {
+  async removeQuestionImage(questionId: string, actorId: string): Promise<LearningQuestion> {
     return await questions_ops.removeQuestionImage(
       this.operationContext,
       questionId,
+      actorId,
     );
   }
 
@@ -1170,10 +1177,14 @@ export class LearningService {
   }
 
   /** Trả nội dung đề cho quản lý duyệt, chỉ khi đề đang ở hàng chờ phê duyệt. */
-  async getReviewerExamPreview(examId: string): Promise<LearningQuestion[]> {
+  async getReviewerExamPreview(
+    examId: string,
+    actorId: string,
+  ): Promise<LearningQuestion[]> {
     return await exams_ops.getReviewerExamPreview(
       this.operationContext,
       examId,
+      actorId,
     );
   }
 

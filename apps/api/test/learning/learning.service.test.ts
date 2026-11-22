@@ -1478,7 +1478,7 @@ describe("LearningService", () => {
         await service.listQuestions({
           courseId: "course-web",
           status: "PUBLISHED",
-        })
+        }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })
       ).find((item) => item.familyId === published.familyId)?.id,
     ).toBe(versionTwo.id);
     await expect(
@@ -1488,14 +1488,14 @@ describe("LearningService", () => {
       }, "usr-instructor"),
     ).rejects.toThrow(ConflictException);
     expect(
-      (await service.listQuestions({ tag: "security", difficulty: 2 }))[0]?.id,
+      (await service.listQuestions({ tag: "security", difficulty: 2 }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" }))[0]?.id,
     ).toBe(versionTwo.id);
     expect(
       (
         await service.listQuestions({
           courseId: "course-web",
           status: "PUBLISHED",
-        })
+        }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })
       ).find((item) => item.familyId === published.familyId)?.id,
     ).toBe(versionTwo.id);
     expect(
@@ -1590,7 +1590,7 @@ describe("LearningService", () => {
     if (variant === "same") expect(exam.questionIds).toEqual([original.id]);
     else {
       expect(exam.questionIds[0]).not.toBe(original.id);
-      const stored = (await service.listQuestions({ courseId: base.courseId, status: "PUBLISHED" })).find((question) => question.id === exam.questionIds[0]);
+      const stored = (await service.listQuestions({ courseId: base.courseId, status: "PUBLISHED" }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })).find((question) => question.id === exam.questionIds[0]);
       expect(stored).toMatchObject({ type: generated.type, content: generated.content, options: generated.options, correctAnswers: generated.correctAnswers, difficulty: generated.difficulty });
     }
   });
@@ -1645,7 +1645,7 @@ describe("LearningService", () => {
       materialIds: [],
     });
     const generated = (
-      await service.listQuestions({ courseId: "course-web", status: "PUBLISHED" })
+      await service.listQuestions({ courseId: "course-web", status: "PUBLISHED" }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })
     ).find((item) => item.id === exam.questionIds[0]);
     expect(generated?.tags).toEqual(
       expect.arrayContaining(["ai-generated", "nguồn-web"]),
@@ -1656,12 +1656,12 @@ describe("LearningService", () => {
     const edited = await service.editExamQuestion(exam.id, originalId, { content: "HTTP được viết đầy đủ như thế nào?", options: [], correctAnswers: ["Hypertext Transfer Protocol"], expectedVersion: exam.version }, "usr-instructor");
     expect(edited.id).not.toBe(originalId);
     expect(edited.status).toBe("PUBLISHED");
-    expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === originalId)?.content).toBe(generated?.content);
+    expect((await service.listQuestions({ courseId: "course-web" }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })).find((question) => question.id === originalId)?.content).toBe(generated?.content);
     await expect(service.submitExamForReview(exam.id, "usr-instructor", true, 999)).rejects.toThrow("thay đổi");
     expect((await service.submitExamForReview(exam.id, "usr-instructor", true)).status).toBe(
       "PUBLISHED",
     );
-    expect((await service.listQuestions({ courseId: "course-web" })).find((question) => question.id === edited.id)?.status).toBe("PUBLISHED");
+    expect((await service.listQuestions({ courseId: "course-web" }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" })).find((question) => question.id === edited.id)?.status).toBe("PUBLISHED");
     await expect(service.editExamQuestion(exam.id, edited.id, { content: "Nội dung cập nhật khi công bố", options: [], correctAnswers: ["Đáp án"], expectedVersion: 2 }, "usr-instructor")).resolves.toMatchObject({ content: "Nội dung cập nhật khi công bố" });
   });
 
@@ -1752,7 +1752,7 @@ describe("LearningService", () => {
       }, "usr-instructor"),
     ).rejects.toThrow("tải lại");
     await service.submitExamForReview(draft.id, "usr-instructor");
-    expect(await service.getReviewerExamPreview(draft.id)).toHaveLength(2);
+    expect(await service.getReviewerExamPreview(draft.id, "usr-manager")).toHaveLength(2);
     await expect(
       service.updateExam(draft.id, {
         classId: draft.classId,
@@ -1872,7 +1872,7 @@ describe("LearningService", () => {
       mimeType: "image/png",
       size: png.length,
       buffer: png,
-    });
+    }, "usr-instructor");
     expect(withImage).toMatchObject({
       imageName: "Sơ đồ hệ thống.png",
       imageMimeType: "image/png",
@@ -1897,7 +1897,7 @@ describe("LearningService", () => {
       (await service.readQuestionImage(next.id, "INSTRUCTOR", "usr-instructor"))
         .buffer,
     ).toEqual(png);
-    const removed = await service.removeQuestionImage(next.id);
+    const removed = await service.removeQuestionImage(next.id, "usr-instructor");
     expect(removed.imageUrl).toBeUndefined();
     await expect(
       service.readQuestionImage(removed.id, "INSTRUCTOR", "usr-instructor"),
@@ -1912,7 +1912,7 @@ describe("LearningService", () => {
         mimeType: "image/png",
         size: 8,
         buffer: Buffer.from("notimage"),
-      }),
+      }, "usr-instructor"),
     ).rejects.toThrow("không khớp định dạng");
   });
 
@@ -1935,7 +1935,7 @@ describe("LearningService", () => {
       mimeType: "image/png",
       size: png.length,
       buffer: png,
-    });
+    }, "usr-instructor");
     const exam = await service.createExam({
       classId: "class-web-01",
       title: "Đề ảnh có kiểm soát",

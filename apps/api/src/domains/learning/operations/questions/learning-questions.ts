@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
@@ -49,7 +50,7 @@ function validateQuestionFilterLengths(input: QuestionListFilters): void {
 }
 
 /** Tạo điều kiện CTE chọn phiên bản mới nhất mỗi family và bộ lọc ngoài cho SQL. */
-function buildQuestionLatestSqlParts(input: QuestionListFilters): {
+function buildQuestionLatestSqlParts(input: QuestionListFilters, scope: QuestionScope): {
   innerWhere: Prisma.Sql;
   outerWhere: Prisma.Sql;
 } {
@@ -68,7 +69,7 @@ function buildQuestionLatestSqlParts(input: QuestionListFilters): {
   // Chuẩn hóa chuỗi tìm kiếm LIKE an toàn cho truy vấn SQL.
   const contains = (value: string): string =>
     `%${value.replace(/[\\%_]/g, "\\$&")}%`;
-  const outerConditions: Prisma.Sql[] = [];
+  const outerConditions: Prisma.Sql[] = [questionScopeSql(scope)];
   if (input.type) {
     outerConditions.push(Prisma.sql`l.type::text = ${input.type}`);
   } else if (input.typeGroup === "OBJECTIVE") {
@@ -99,11 +100,82 @@ function buildQuestionLatestSqlParts(input: QuestionListFilters): {
   return { innerWhere, outerWhere };
 }
 
+/** Người gọi danh sách/thống kê câu hỏi; giảng viên chỉ thấy câu hỏi trong phạm vi được phân công. */
+export interface QuestionScope {
+  actorId: string;
+  actorRole: string;
+}
+
+// Cấp quản lý đọc toàn bộ ngân hàng câu hỏi; mọi vai trò khác phải được giới hạn theo phân công.
+function isQuestionManager(role: string): boolean {
+  return role === "CENTER_MANAGER" || role === "SYSTEM_ADMIN";
+}
+
+/**
+ * Điều kiện SQL áp lên phiên bản mới nhất (alias l) của mỗi family: giảng viên chỉ thấy câu hỏi thuộc khóa học
+ * của lớp mình được phân công hoặc family do chính mình soạn; vai trò khác ngoài quản lý bị từ chối.
+ */
+function questionScopeSql(scope: QuestionScope): Prisma.Sql {
+  if (isQuestionManager(scope.actorRole)) return Prisma.sql`TRUE`;
+  if (scope.actorRole !== "INSTRUCTOR") throw new ForbiddenException("Không có quyền xem ngân hàng câu hỏi.");
+  return Prisma.sql`(
+    l.course_id IN (
+      SELECT lc.course_id FROM learning_classes lc
+      JOIN class_instructors ci ON ci.class_id = lc.id
+      WHERE ci.instructor_id = ${scope.actorId}
+    )
+    OR EXISTS (SELECT 1 FROM questions qa WHERE qa.family_id = l.family_id AND qa.author_id = ${scope.actorId})
+  )`;
+}
+
+/** Tập khóa học của các lớp giảng viên được phân công trên kho nhớ fallback. */
+function memoryInstructorCourseIds(serviceContext: LearningServiceContext, actorId: string): Set<string> {
+  return new Set(serviceContext.classes.filter((item) => item.instructorIds.includes(actorId)).map((item) => item.courseId));
+}
+
+/** Bộ lọc phạm vi câu hỏi trên kho nhớ: quản lý thấy hết, giảng viên chỉ thấy khóa học được phân công. */
+function memoryQuestionVisible(serviceContext: LearningServiceContext, scope: QuestionScope): (item: LearningQuestion) => boolean {
+  if (isQuestionManager(scope.actorRole)) return () => true;
+  if (scope.actorRole !== "INSTRUCTOR") throw new ForbiddenException("Không có quyền xem ngân hàng câu hỏi.");
+  const courseIds = memoryInstructorCourseIds(serviceContext, scope.actorId);
+  return (item) => courseIds.has(item.courseId);
+}
+
+/** Chặn giảng viên tạo câu hỏi vào khóa học không có lớp nào mình được phân công. */
+async function assertQuestionCourseAccess(serviceContext: LearningServiceContext, courseId: string, actorId: string): Promise<void> {
+  const prisma = serviceContext.database();
+  const allowed = prisma
+    ? (await prisma.learningClass.count({ where: { courseId, instructors: { some: { instructorId: actorId } } } })) > 0
+    : memoryInstructorCourseIds(serviceContext, actorId).has(courseId);
+  if (!allowed) throw new NotFoundException("Không tìm thấy khóa học.");
+}
+
+/** Chặn sửa/đổi ảnh câu hỏi ngoài phạm vi: phải là tác giả của family hoặc được phân công dạy khóa học. */
+async function assertQuestionFamilyAccess(
+  serviceContext: LearningServiceContext,
+  question: { familyId?: string | null; id: string; courseId: string },
+  actorId: string,
+): Promise<void> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const familyId = question.familyId || question.id;
+    const [authored, assigned] = await Promise.all([
+      prisma.question.count({ where: { familyId, authorId: actorId } }),
+      prisma.learningClass.count({ where: { courseId: question.courseId, instructors: { some: { instructorId: actorId } } } }),
+    ]);
+    if (!authored && !assigned) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    return;
+  }
+  if (!memoryInstructorCourseIds(serviceContext, actorId).has(question.courseId)) throw new NotFoundException("Không tìm thấy câu hỏi.");
+}
+
 /** Lọc phiên bản câu hỏi mới nhất trong bộ nhớ fallback theo bộ lọc đầu vào. */
 function filterMemoryQuestions(
   serviceContext: LearningServiceContext,
   input: QuestionListFilters,
+  scope: QuestionScope,
 ): LearningQuestion[] {
+  const visible = memoryQuestionVisible(serviceContext, scope);
   const normalized = input.query?.trim().toLowerCase() ?? "";
   const normalizedTag = input.tag?.trim().toLowerCase() ?? "";
   const candidates = input.status
@@ -113,6 +185,7 @@ function filterMemoryQuestions(
     .latestQuestionVersions(candidates)
     .filter(
       (item) =>
+        visible(item) &&
         (!normalized ||
           `${item.content} ${item.tags.join(" ")}`
             .toLowerCase()
@@ -133,19 +206,21 @@ function filterMemoryQuestions(
 /** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
 export async function listQuestions(
   serviceContext: LearningServiceContext,
-  filters: string | QuestionListFilters = {},
+  filters: string | QuestionListFilters,
+  scope: QuestionScope,
 ): Promise<LearningQuestion[]> {
   const input: QuestionListFilters =
     typeof filters === "string" ? { query: filters } : filters;
   validateQuestionFilterLengths(input);
   const prisma = serviceContext.database();
   if (prisma) {
-    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(input);
+    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(input, scope);
     const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       WITH latest AS (
         SELECT DISTINCT ON (q.family_id)
           q.id,
           q.course_id,
+          q.family_id,
           q.type,
           q.content,
           q.tags,
@@ -169,13 +244,14 @@ export async function listQuestions(
     });
     return rows.map((row) => serviceContext.mapQuestion(row));
   }
-  return filterMemoryQuestions(serviceContext, input);
+  return filterMemoryQuestions(serviceContext, input, scope);
 }
 
 /** Trả về một trang câu hỏi (phiên bản mới nhất mỗi family) bằng truy vấn SQL COUNT + LIMIT/OFFSET. */
 export async function listQuestionsPage(
   serviceContext: LearningServiceContext,
-  filters: QuestionPageFilters = {},
+  filters: QuestionPageFilters,
+  scope: QuestionScope,
 ): Promise<PaginatedResult<LearningQuestion>> {
   validateQuestionFilterLengths(filters);
   const page =
@@ -190,7 +266,7 @@ export async function listQuestionsPage(
       : 20;
   const prisma = serviceContext.database();
   if (prisma) {
-    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(filters);
+    const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(filters, scope);
     const { rows, total, safePage, totalPages } = await prisma.$transaction(
       async (transaction) => {
         const counts = await transaction.$queryRaw<{ count: bigint }[]>(Prisma.sql`
@@ -198,6 +274,7 @@ export async function listQuestionsPage(
             SELECT DISTINCT ON (q.family_id)
               q.id,
               q.course_id,
+              q.family_id,
               q.type,
               q.content,
               q.tags,
@@ -225,6 +302,7 @@ export async function listQuestionsPage(
             SELECT DISTINCT ON (q.family_id)
               q.id,
               q.course_id,
+              q.family_id,
               q.type,
               q.content,
               q.tags,
@@ -261,14 +339,15 @@ export async function listQuestionsPage(
       totalPages,
     };
   }
-  const matched = filterMemoryQuestions(serviceContext, filters);
+  const matched = filterMemoryQuestions(serviceContext, filters, scope);
   return paginateArray(matched, page, pageSize);
 }
 
 /** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận mới nhất theo từng khóa học bằng SQL. */
 export async function getQuestionSummary(
   serviceContext: LearningServiceContext,
-  courseId?: string,
+  courseId: string | undefined,
+  scope: QuestionScope,
 ): Promise<QuestionSummary> {
   if (courseId && courseId.length > 255) {
     throw new BadRequestException("Search filters must not exceed 255 characters.");
@@ -282,7 +361,7 @@ export async function getQuestionSummary(
       Array<{ total: bigint | number; multipleChoice: bigint | number; essay: bigint | number }>
     >(Prisma.sql`
       WITH latest AS (
-        SELECT DISTINCT ON (q.family_id) q.id, q.type
+        SELECT DISTINCT ON (q.family_id) q.id, q.type, q.course_id, q.family_id
         FROM questions q
         WHERE ${innerWhere}
         ORDER BY q.family_id, q.version DESC, q.created_at DESC, q.id ASC
@@ -292,6 +371,7 @@ export async function getQuestionSummary(
         COUNT(*) FILTER (WHERE l.type::text <> 'ESSAY') AS "multipleChoice",
         COUNT(*) FILTER (WHERE l.type::text = 'ESSAY') AS "essay"
       FROM latest l
+      WHERE ${questionScopeSql(scope)}
     `);
     const row = rows[0];
     return {
@@ -303,7 +383,7 @@ export async function getQuestionSummary(
   const candidates = courseId
     ? serviceContext.questions.filter((item) => item.courseId === courseId)
     : serviceContext.questions;
-  const latest = serviceContext.latestQuestionVersions(candidates);
+  const latest = serviceContext.latestQuestionVersions(candidates).filter(memoryQuestionVisible(serviceContext, scope));
   const essay = latest.filter((item) => item.type === "ESSAY").length;
   return {
     total: latest.length,
@@ -320,6 +400,7 @@ export async function createQuestion(
 ): Promise<LearningQuestion> {
   const normalized = serviceContext.validateQuestionInput(input);
   const contentHash = serviceContext.questionContentHash(normalized.content);
+  await assertQuestionCourseAccess(serviceContext, normalized.courseId, authorId);
   const prisma = serviceContext.database();
   if (prisma) {
     const course = await prisma.course.findUnique({
@@ -388,6 +469,9 @@ export async function updateQuestion(
       where: { id: questionId },
     });
     if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    await assertQuestionFamilyAccess(serviceContext, current, authorId);
+    // Giữ nguyên khóa học của cả family để chuỗi phiên bản không bị chuyển sang khóa học khác.
+    if (normalized.courseId !== current.courseId) throw new BadRequestException("Không thể chuyển câu hỏi sang khóa học khác.");
     const familyId = current.familyId || current.id;
     const duplicate = await prisma.question.findFirst({
       where: {
@@ -438,6 +522,8 @@ export async function updateQuestion(
     (item) => item.id === questionId,
   );
   if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+  await assertQuestionFamilyAccess(serviceContext, current, authorId);
+  if (normalized.courseId !== current.courseId) throw new BadRequestException("Không thể chuyển câu hỏi sang khóa học khác.");
   const familyId = current.familyId ?? current.id;
   const latest = serviceContext.questions
     .filter((item) => (item.familyId ?? item.id) === familyId)
@@ -481,6 +567,7 @@ export async function uploadQuestionImage(
   serviceContext: LearningServiceContext,
   questionId: string,
   upload: UploadedMaterialFile,
+  actorId: string,
 ): Promise<LearningQuestion> {
   await serviceContext.validateQuestionImage(upload);
   const fileName = normalizeMultipartFileName(upload.originalName);
@@ -497,6 +584,7 @@ export async function uploadQuestionImage(
       where: { id: questionId },
     });
     if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    await assertQuestionFamilyAccess(serviceContext, current, actorId);
     const latest = await prisma.question.findFirst({
       where: { familyId: current.familyId },
       orderBy: { version: "desc" },
@@ -528,7 +616,7 @@ export async function uploadQuestionImage(
               data: {
                 id: targetId,
                 courseId: current.courseId,
-                authorId: current.authorId,
+                authorId: actorId,
                 type: current.type,
                 content: current.content,
                 options: current.options as Prisma.InputJsonValue,
@@ -565,6 +653,7 @@ export async function uploadQuestionImage(
     (item) => item.id === questionId,
   );
   if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+  await assertQuestionFamilyAccess(serviceContext, current, actorId);
   const familyId = current.familyId ?? current.id;
   const latest = serviceContext.questions
     .filter((item) => (item.familyId ?? item.id) === familyId)
@@ -605,6 +694,7 @@ export async function uploadQuestionImage(
 export async function removeQuestionImage(
   serviceContext: LearningServiceContext,
   questionId: string,
+  actorId: string,
 ): Promise<LearningQuestion> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -612,6 +702,7 @@ export async function removeQuestionImage(
       where: { id: questionId },
     });
     if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+    await assertQuestionFamilyAccess(serviceContext, current, actorId);
     const latest = await prisma.question.findFirst({
       where: { familyId: current.familyId },
       orderBy: { version: "desc" },
@@ -636,7 +727,7 @@ export async function removeQuestionImage(
             data: {
               id: id("question"),
               courseId: current.courseId,
-              authorId: current.authorId,
+              authorId: actorId,
               type: current.type,
               content: current.content,
               options: current.options as Prisma.InputJsonValue,
@@ -660,6 +751,7 @@ export async function removeQuestionImage(
     (item) => item.id === questionId,
   );
   if (!current) throw new NotFoundException("Không tìm thấy câu hỏi.");
+  await assertQuestionFamilyAccess(serviceContext, current, actorId);
   const familyId = current.familyId ?? current.id;
   const latest = serviceContext.questions
     .filter((item) => (item.familyId ?? item.id) === familyId)

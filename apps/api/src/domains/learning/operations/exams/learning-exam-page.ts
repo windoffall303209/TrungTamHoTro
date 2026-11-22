@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import type { LearningExam, LearnerExamSummary } from "../../core/learning.types.js";
-import { listExams, listLearnerExamSummaries } from "./learning-exams.js";
+import { listExams, listLearnerExamSummaries, redactExamForLearner } from "./learning-exams.js";
 
 export interface ExamPageQuery { page: number; pageSize: number; classId?: string; focusId?: string; search?: string; sort?: "oldest" | "newest" }
 export interface ExamPage { items: Array<LearningExam | LearnerExamSummary>; total: number; page: number; pageSize: number }
@@ -69,7 +69,7 @@ export async function listExamPage(context: LearningServiceContext, role: string
       const timestamp = new Date();
       const items = rows.map((row) => {
         const exam = context.mapExam({ ...row, questions: [] });
-        return { ...exam, questionCount: row._count.questions,
+        return { ...redactExamForLearner(exam), questionCount: row._count.questions,
           availabilityStatus: context.examAvailability(exam, row._count.attempts, row.attempts.length > 0, timestamp),
           remainingAttempts: Math.max(0, row.attemptLimit - row._count.attempts), serverTime: timestamp.toISOString() };
       });

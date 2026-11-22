@@ -265,6 +265,7 @@ export class ContentController {
   @Get("instructor/question-bank/questions") @RequirePermissions("question:view")
   /** Lọc ngân hàng câu hỏi và kiểm tra trạng thái query trước khi gọi service. */
   listQuestions(
+    @CurrentSession() session: AuthenticatedSession,
     @Query("query") query?: string,
     @Query("courseId") courseId?: string,
     @Query("type") type?: string,
@@ -283,18 +284,18 @@ export class ContentController {
       difficulty: difficulty ? Number(difficulty) : undefined,
       tag,
       status: normalizedStatus as LearningQuestion["status"] | undefined,
-    });
+    }, { actorId: session.user.id, actorRole: session.roleCode });
   }
 
   @Get("instructor/question-bank/questions/summary") @RequirePermissions("question:view")
-  /** Trả thống kê nhanh số lượng câu hỏi (tổng, trắc nghiệm, tự luận) theo khóa học. */
-  getQuestionSummary(@Query("courseId") rawCourseId?: string): Promise<QuestionSummary> {
-    return this.learning.getQuestionSummary(parseOptionalQueryString(rawCourseId, "courseId", 191));
+  /** Trả thống kê nhanh số lượng câu hỏi (tổng, trắc nghiệm, tự luận) theo khóa học trong phạm vi được phân công. */
+  getQuestionSummary(@CurrentSession() session: AuthenticatedSession, @Query("courseId") rawCourseId?: string): Promise<QuestionSummary> {
+    return this.learning.getQuestionSummary(parseOptionalQueryString(rawCourseId, "courseId", 191), { actorId: session.user.id, actorRole: session.roleCode });
   }
 
   @Get("instructor/question-bank/questions/page") @RequirePermissions("question:view")
-  /** Phân trang ngân hàng câu hỏi trực tiếp từ DB bằng CTE phiên bản mới nhất mỗi family. */
-  listQuestionsPage(@Query() raw: Record<string, unknown>): Promise<PaginatedResult<LearningQuestion>> {
+  /** Phân trang ngân hàng câu hỏi trực tiếp từ DB bằng CTE phiên bản mới nhất mỗi family, giới hạn theo phân công. */
+  listQuestionsPage(@Query() raw: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<PaginatedResult<LearningQuestion>> {
     const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
     const query = parseOptionalQueryString(raw.query, "query", 255);
     const courseId = parseOptionalQueryString(raw.courseId, "courseId", 191);
@@ -319,7 +320,7 @@ export class ContentController {
       status: normalizedStatus as LearningQuestion["status"] | undefined,
       page,
       pageSize,
-    });
+    }, { actorId: session.user.id, actorRole: session.roleCode });
   }
 
   @Post("instructor/question-bank/questions") @RequirePermissions("question:manage")
@@ -340,12 +341,12 @@ export class ContentController {
   ): Promise<LearningQuestion> {
     this.assertInstructorMutation(session);
     if (!file) throw new BadRequestException("Cần chọn một ảnh cho câu hỏi.");
-    return this.learning.uploadQuestionImage(questionId, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer });
+    return this.learning.uploadQuestionImage(questionId, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.user.id);
   }
 
   @Delete("instructor/question-bank/questions/:questionId/image") @RequirePermissions("question:manage")
   /** Gỡ ảnh minh họa và dọn object liên quan. */
-  removeQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.removeQuestionImage(questionId); }
+  removeQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.removeQuestionImage(questionId, session.user.id); }
 
   @Get("question-bank/questions/:questionId/image") @RequirePermissions("exam:view")
   /** Kiểm tra quyền theo ngữ cảnh đề/câu hỏi rồi stream ảnh nội tuyến. */
@@ -419,8 +420,8 @@ export class ContentController {
   getInstructorExamPreview(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { this.assertInstructorMutation(session); return this.learning.getInstructorExamPreview(examId, session.user.id); }
 
   @Get("manager/exams/:examId/preview") @RequirePermissions("class:manage")
-  /** Cho quản lý xem nội dung đề đã công bố. */
-  getReviewerExamPreview(@Param("examId") examId: string): Promise<LearningQuestion[]> { return this.learning.getReviewerExamPreview(examId); }
+  /** Cho quản lý xem nội dung đề đã công bố; mỗi lần xem được ghi audit vì phản hồi chứa đáp án. */
+  getReviewerExamPreview(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion[]> { return this.learning.getReviewerExamPreview(examId, session.user.id); }
 
   @Post("instructor/exams") @RequirePermissions("exam:manage")
   /** Tạo đề từ danh sách câu hỏi đã chọn và cấu hình thời gian/lượt làm. */

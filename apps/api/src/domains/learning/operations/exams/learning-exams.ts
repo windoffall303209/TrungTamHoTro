@@ -7,6 +7,18 @@ import type {
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { examQuestionIssues } from "../questions/learning-question-rules.js";
 
+/**
+ * Ẩn cấu trúc đề trước khi học viên mở lượt làm: danh sách câu, điểm từng câu, seed xáo trộn và ngữ cảnh AI
+ * (học liệu nguồn, URL tham khảo). Điểm từng câu chỉ trả kèm bộ câu hỏi của lượt đang làm.
+ */
+export function redactExamForLearner<T extends LearningExam>(exam: T): T {
+  const redacted: T = { ...exam, questionIds: [] };
+  delete redacted.questionScores;
+  delete redacted.randomSeed;
+  delete redacted.aiContext;
+  return redacted;
+}
+
 /** Gắn lỗi từng câu để giảng viên thấy câu nào cần sửa trước khi gửi duyệt. */
 function withQuestionIssues(questions: LearningQuestion[]): LearningQuestion[] {
   const issues = examQuestionIssues(questions);
@@ -40,7 +52,8 @@ export async function listExams(
       include: { questions: { orderBy: { position: "asc" } } },
       orderBy: { openAt: "desc" },
     });
-    return rows.map((row) => serviceContext.mapExam(row));
+    const mapped = rows.map((row) => serviceContext.mapExam(row));
+    return role === "LEARNER" ? mapped.map((exam) => redactExamForLearner(exam)) : mapped;
   }
   return serviceContext.exams
     .filter((item) => {
@@ -55,7 +68,10 @@ export async function listExams(
         return classItem?.instructorIds.includes(actorId);
       return true;
     })
-    .map((item) => ({ ...item, questionIds: [...item.questionIds] }));
+    .map((item) => {
+      const copy = { ...item, questionIds: [...item.questionIds] };
+      return role === "LEARNER" ? redactExamForLearner(copy) : copy;
+    });
 }
 
 /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
@@ -85,8 +101,7 @@ export async function listLearnerExamSummaries(
         (attempt) => attempt.status === "IN_PROGRESS",
       );
       return {
-        ...exam,
-        questionIds: [],
+        ...redactExamForLearner(exam),
         questionCount: row.questions.length,
         availabilityStatus: serviceContext.examAvailability(
           exam,
@@ -115,8 +130,7 @@ export async function listLearnerExamSummaries(
           attempt.examId === exam.id && attempt.learnerId === learnerId,
       );
       return {
-        ...exam,
-        questionIds: [],
+        ...redactExamForLearner(exam),
         questionCount: exam.questionIds.length,
         availabilityStatus: serviceContext.examAvailability(
           exam,
@@ -168,13 +182,15 @@ export async function getExamQuestions(
     ) {
       throw new BadRequestException("Lượt làm bài đã hết thời gian.");
     }
-    const original = exam.questions.map(({ question }) =>
-      serviceContext.mapQuestion(question),
-    );
+    const original = exam.questions.map(({ question, score }) => ({
+      ...serviceContext.mapQuestion(question),
+      points: Number(score),
+    }));
+    // Thứ tự xáo trộn gắn với từng lượt làm (id ngẫu nhiên do server sinh) nên không dự đoán trước được từ seed của đề.
     const questionIds = exam.shuffleQuestions
       ? serviceContext.seededOrder(
           original.map((question) => question.id),
-          `${exam.randomSeed ?? "wind-exam-default"}:${learnerId}`,
+          `${exam.randomSeed ?? "wind-exam-default"}:${activeAttempt.id}`,
         )
       : original.map((question) => question.id);
     const byId = new Map(original.map((question) => [question.id, question]));
@@ -220,7 +236,7 @@ export async function getExamQuestions(
   const questionIds = exam.shuffleQuestions
     ? serviceContext.seededOrder(
         exam.questionIds,
-        `${exam.randomSeed ?? "wind-exam-default"}:${learnerId}`,
+        `${exam.randomSeed ?? "wind-exam-default"}:${activeAttempt.id}`,
       )
     : exam.questionIds;
   return questionIds.map((questionId) => {
@@ -234,6 +250,7 @@ export async function getExamQuestions(
       options: [...question.options],
       correctAnswers: [],
       tags: [...question.tags],
+      ...(exam.questionScores?.[questionId] !== undefined ? { points: exam.questionScores[questionId] } : {}),
     };
   });
 }
@@ -286,10 +303,11 @@ export async function getInstructorExamPreview(
   );
 }
 
-/** Trả nội dung đề đã công bố cho quản lý. */
+/** Trả nội dung đề đã công bố (kèm đáp án) cho quản lý và ghi audit mỗi lần mở xem. */
 export async function getReviewerExamPreview(
   serviceContext: LearningServiceContext,
   examId: string,
+  actorId: string,
 ): Promise<LearningQuestion[]> {
   const prisma = serviceContext.database();
   if (prisma) {
@@ -304,6 +322,9 @@ export async function getReviewerExamPreview(
     });
     if (!exam)
       throw new NotFoundException("Không tìm thấy đề đã công bố.");
+    await prisma.auditLog.create({
+      data: { actorId, action: "EXAM_PREVIEWED_BY_REVIEWER", entityType: "exam", entityId: examId, context: { classId: exam.classId, questionCount: exam.questions.length } },
+    });
     return exam.questions.map(({ question }) =>
       serviceContext.mapQuestion(question),
     );

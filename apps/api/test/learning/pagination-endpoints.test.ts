@@ -165,19 +165,19 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       tag: "phan-trang",
       page: 1,
       pageSize: 2,
-    });
+    }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     const page2 = await service.listQuestionsPage({
       courseId: "course-web",
       tag: "phan-trang",
       page: 2,
       pageSize: 2,
-    });
+    }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     const page3 = await service.listQuestionsPage({
       courseId: "course-web",
       tag: "phan-trang",
       page: 3,
       pageSize: 2,
-    });
+    }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
 
     expect(page1.total).toBe(5);
     expect(page1.totalPages).toBe(3);
@@ -250,14 +250,14 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
     expect(() =>
       contentController.searchMaterials(session, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "invalid"),
     ).toThrow(BadRequestException);
-    expect(() => contentController.listQuestionsPage({ page: "0" })).toThrow(BadRequestException);
-    expect(() => contentController.listQuestionsPage({ pageSize: "101" })).toThrow(BadRequestException);
-    expect(() => contentController.listQuestionsPage({ difficulty: "9" })).toThrow(BadRequestException);
-    expect(() => contentController.listQuestionsPage({ status: "UNKNOWN" })).toThrow(BadRequestException);
+    expect(() => contentController.listQuestionsPage({ page: "0" }, session)).toThrow(BadRequestException);
+    expect(() => contentController.listQuestionsPage({ pageSize: "101" }, session)).toThrow(BadRequestException);
+    expect(() => contentController.listQuestionsPage({ difficulty: "9" }, session)).toThrow(BadRequestException);
+    expect(() => contentController.listQuestionsPage({ status: "UNKNOWN" }, session)).toThrow(BadRequestException);
     expect(() => courseController.listCoursesPage({ grade: "13" })).toThrow(BadRequestException);
     expect(() => courseController.listCoursesPage({ status: "ACTIVE" })).toThrow(BadRequestException);
     expect(() => courseController.listClassesPage({ status: "PUBLISHED" }, session)).toThrow(BadRequestException);
-    expect(() => contentController.listQuestionsPage({ typeGroup: "INVALID" })).toThrow(BadRequestException);
+    expect(() => contentController.listQuestionsPage({ typeGroup: "INVALID" }, session)).toThrow(BadRequestException);
 
     const engagementController = new EngagementController(service);
     expect(() => engagementController.listSessionsPage({ status: "INVALID" }, session)).toThrow(BadRequestException);
@@ -281,7 +281,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       difficulty: 3,
       tags: ["dot-2"],
     }, "usr-instructor");
-    const summaryBefore = await service.getQuestionSummary("course-web");
+    const summaryBefore = await service.getQuestionSummary("course-web", { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     expect(summaryBefore.total).toBeGreaterThanOrEqual(1);
     expect(summaryBefore.essay).toBeGreaterThanOrEqual(1);
     expect(summaryBefore.multipleChoice + summaryBefore.essay).toBe(summaryBefore.total);
@@ -291,7 +291,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       typeGroup: "ESSAY",
       page: 1,
       pageSize: 50,
-    });
+    }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     expect(essayOnly.items.length).toBeGreaterThanOrEqual(1);
     expect(essayOnly.items.every((item) => item.type === "ESSAY")).toBe(true);
 
@@ -300,7 +300,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       typeGroup: "OBJECTIVE",
       page: 1,
       pageSize: 50,
-    });
+    }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     expect(objectiveOnly.items.every((item) => item.type !== "ESSAY")).toBe(true);
 
     const t1 = await service.createTopic(
@@ -374,14 +374,14 @@ describe.skipIf(!enabled)("Phân trang DB PostgreSQL cho học liệu, câu hỏ
   });
 
   it("truy vấn phân trang SQL khớp dữ liệu tổng và không trùng lặp giữa các trang", async () => {
-    const allQuestions = await service.listQuestions({});
-    const qPage1 = await service.listQuestionsPage({ page: 1, pageSize: 2 });
-    const qPage2 = await service.listQuestionsPage({ page: 2, pageSize: 2 });
+    const allQuestions = await service.listQuestions({}, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
+    const qPage1 = await service.listQuestionsPage({ page: 1, pageSize: 2 }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
+    const qPage2 = await service.listQuestionsPage({ page: 2, pageSize: 2 }, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     expect(qPage1.total).toBe(allQuestions.length);
     if (allQuestions.length > 2) {
       expect(qPage2.items.every((item) => !qPage1.items.some((prior) => prior.id === item.id))).toBe(true);
     }
-    const qSummary = await service.getQuestionSummary();
+    const qSummary = await service.getQuestionSummary(undefined, { actorId: "usr-manager", actorRole: "CENTER_MANAGER" });
     expect(qSummary.total).toBe(allQuestions.length);
     expect(qSummary.multipleChoice + qSummary.essay).toBe(qSummary.total);
 

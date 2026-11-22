@@ -51,8 +51,12 @@ describe.skipIf(!enabled)("Phân trang đề trên PostgreSQL test", () => {
     expect(page.items.length).toBeGreaterThan(0);
     for (const item of page.items) {
       const original = all.find((exam) => exam.id === item.id)!;
-      expect(item).toMatchObject({ questionIds: [], questionScores: {}, questionCount: original.questionCount,
+      expect(item).toMatchObject({ questionIds: [], questionCount: original.questionCount,
         remainingAttempts: original.remainingAttempts, availabilityStatus: original.availabilityStatus });
+      // Học viên không nhận điểm từng câu, seed xáo trộn hay ngữ cảnh AI trước khi mở lượt làm.
+      expect(item).not.toHaveProperty("questionScores");
+      expect(item).not.toHaveProperty("randomSeed");
+      expect(item).not.toHaveProperty("aiContext");
     }
   });
   it("lọc lớp và focus không vượt qua giới hạn quyền", async () => {

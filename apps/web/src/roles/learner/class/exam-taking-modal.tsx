@@ -24,6 +24,8 @@ type ExamApiQuestion = Omit<Question, "options"> & {
   options: ExamApiOption[];
   correctAnswer?: string;
   explanation?: string;
+  /** Điểm tối đa của câu, chỉ có trong bộ câu hỏi của lượt đang làm. */
+  points?: number;
 };
 
 export interface ExamTakingData {
@@ -45,6 +47,7 @@ interface QuestionItem {
   correctAnswer?: string;
   correctAnswersList: string[];
   explanation?: string;
+  points?: number;
 }
 
 /** Kiểm tra một câu hỏi trong bài làm thử/xem lại đã trả lời đúng hay chưa. */
@@ -222,6 +225,7 @@ export function ExamTakingModal({
                 correctAnswer: matchedCorrectKeys[0],
                 correctAnswersList: matchedCorrectKeys,
                 explanation: q.explanation || undefined,
+                points: typeof q.points === "number" ? q.points : undefined,
               };
             });
             setDbQuestions(mapped);
@@ -479,7 +483,7 @@ export function ExamTakingModal({
           multiAnswersRef.current[index],
           essayAnswersRef.current[index],
         );
-        const weight = customScores?.[String(question.id)] ?? totalScore / Math.max(1, total);
+        const weight = question.points ?? customScores?.[String(question.id)] ?? totalScore / Math.max(1, total);
         if (verdict === "unanswered") unanswered += 1;
         else if (verdict === "correct") {
           correctCount += 1;
@@ -766,7 +770,7 @@ export function ExamTakingModal({
                       const isCorrect = verdict === "correct";
                       const isUnanswered = verdict === "unanswered";
                       const isManual = verdict === "manual";
-                      const qWeight = exam?.questionScores?.[String(q.id)]
+                      const qWeight = q.points ?? exam?.questionScores?.[String(q.id)]
                         ?? Math.round(((scoreResult.total / Math.max(1, questions.length)) * 100)) / 100;
                       const pickedKeys = q.type === "MULTIPLE_CHOICE"
                         ? (multiAnswers[originalIdx] ?? [])

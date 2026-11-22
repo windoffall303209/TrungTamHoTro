@@ -146,6 +146,8 @@ export interface LearningQuestion {
   imageSizeBytes?: number;
   /** Chỉ có ở bản xem đề của giảng viên: lỗi cần sửa trước khi gửi duyệt. */
   issues?: string[];
+  /** Chỉ có ở bộ câu hỏi của lượt đang làm: điểm tối đa của câu trong đề. */
+  points?: number;
 }
 export interface QuestionImportResult {
   row: number;

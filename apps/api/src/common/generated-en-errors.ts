@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Không có quyền xem ngân hàng câu hỏi.": "You do not have permission to view the question bank.",
+  "Không thể chuyển câu hỏi sang khóa học khác.": "A question cannot be moved to another course.",
   "Vai trò hiện tại không được phép truy cập buổi học này.": "Your current role is not allowed to access this session.",
   "Không thể đổi loại nhà cung cấp của cấu hình AI đã lưu. Hãy tạo cấu hình mới.": "The provider type of a saved AI configuration cannot be changed. Create a new configuration instead.",
   "Đổi máy chủ endpoint AI cần nhập lại API key.": "Changing the AI endpoint host requires re-entering the API key.",
