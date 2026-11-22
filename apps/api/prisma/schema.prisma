@@ -180,10 +180,18 @@ model User {
   mfaLockedUntil           DateTime?           @map("mfa_locked_until")
   roles                    UserRole[]
   ownedCourses             Course[]            @relation("CourseOwner")
-  instructedClasses        ClassInstructor[]
+  instructedClasses        ClassInstructor[]   @relation("InstructorAssignment")
   enrollments              ClassEnrollment[]
   materials                Material[]          @relation("MaterialOwner")
-  regradeRequests          RegradeRequest[]
+  regradeRequests          RegradeRequest[]    @relation("RegradeLearner")
+  assignedRegrades         RegradeRequest[]    @relation("RegradeAssignee")
+  resolvedRegrades         RegradeRequest[]    @relation("RegradeResolver")
+  closedAssignments        Assignment[]        @relation("AssignmentCloser")
+  assignedInstructorSlots  ClassInstructor[]   @relation("InstructorAssigner")
+  chatMentions             ChatMessageMention[] @relation("ChatMentionedUser")
+  learnerInterventions     ProgressIntervention[] @relation("InterventionLearner")
+  ownedInterventions       ProgressIntervention[] @relation("InterventionOwner")
+  createdInterventions     ProgressIntervention[] @relation("InterventionCreator")
   questions                Question[]          @relation("QuestionAuthor")
   examAttempts             ExamAttempt[]       @relation("AttemptLearner")
   forumTopics              ForumTopic[]        @relation("TopicAuthor")
@@ -383,6 +391,7 @@ model LearningClass {
   assignments   Assignment[]
   announcements ClassAnnouncement[]
   chatConversation ChatConversation?
+  progressInterventions ProgressIntervention[]
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
@@ -412,6 +421,7 @@ model Assignment {
   closeReason String?          @map("close_reason") @db.Text
   class       LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
   createdBy   User             @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  closedBy    User?            @relation("AssignmentCloser", fields: [closedById], references: [id], onDelete: SetNull)
   sourceMaterial Material?      @relation("AssignmentSourceMaterial", fields: [sourceMaterialId], references: [id], onDelete: SetNull)
   submissions AssignmentSubmission[]
   createdAt   DateTime         @default(now()) @map("created_at")
@@ -510,10 +520,11 @@ model ClassInstructor {
   classId      String        @map("class_id")
   instructorId String        @map("instructor_id")
   role         InstructorAssignmentRole @default(CO_INSTRUCTOR)
-  assignedBy   String        @default("usr-manager") @map("assigned_by") @db.VarChar(191)
+  assignedBy   String?       @map("assigned_by") @db.VarChar(191)
   assignedAt   DateTime      @default(now()) @map("assigned_at")
   class        LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
-  instructor   User          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  instructor   User          @relation("InstructorAssignment", fields: [instructorId], references: [id], onDelete: Restrict)
+  assigner     User?         @relation("InstructorAssigner", fields: [assignedBy], references: [id], onDelete: SetNull)
 
   @@id([classId, instructorId])
   @@index([instructorId])
@@ -711,7 +722,9 @@ model RegradeRequest {
   resolvedById String?     @map("resolved_by_id") @db.VarChar(191)
   resolvedAt DateTime?     @map("resolved_at")
   attempt    ExamAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  learner    User          @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  learner    User          @relation("RegradeLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  assignedTo User?         @relation("RegradeAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolvedBy User?         @relation("RegradeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
   createdAt  DateTime      @default(now()) @map("created_at")
   updatedAt  DateTime      @updatedAt @map("updated_at")
 
@@ -1006,8 +1019,14 @@ model ProgressIntervention {
   handoffHistory Json            @default("[]") @map("handoff_history")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
+  class       LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  learner     User               @relation("InterventionLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  owner       User               @relation("InterventionOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy   User               @relation("InterventionCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([classId, learnerId, status])
+  @@index([learnerId])
+  @@index([createdById])
   @@index([ownerId, dueAt])
   @@map("progress_interventions")
 }
@@ -1110,6 +1129,7 @@ model ChatMessageMention {
   messageId       String      @map("message_id")
   mentionedUserId String      @map("mentioned_user_id") @db.VarChar(191)
   message         ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mentionedUser   User        @relation("ChatMentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
   createdAt       DateTime    @default(now()) @map("created_at")
 
   @@id([messageId, mentionedUserId])
