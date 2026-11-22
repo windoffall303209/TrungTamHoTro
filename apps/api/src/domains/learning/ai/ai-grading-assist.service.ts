@@ -5,6 +5,7 @@ import { AiProviderService, type ExamLanguage } from "../../system/ai/ai-provide
 import { AcademicService } from "../academic/academic.service.js";
 import { AiGradingStoreService, type SavedGradingSuggestion } from "./ai-grading-store.service.js";
 import { validateGradingInput } from "../../system/ai/ai-grading-suggestion.js";
+import { stripInvisibleText } from "../../system/ai/ai-untrusted-content.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 import { AiGradingDocumentReader, GradingExtractionMissingError } from "./ai-grading-document-reader.js";
@@ -30,7 +31,7 @@ export class AiGradingAssistService {
     if (!await this.store.find(identity)) await this.ai.resolveTask("GRADING_ASSIST");
     const suggestion = await this.store.generate(identity, async () => {
       const result = await this.ai.suggestGrading(input);
-      if (context.sources && result.criteria.some((item) => item.evidence.some((quote) => !context.sources!.some((source) => source.text.includes(quote))))) throw new ServiceUnavailableException("Dẫn chứng AI phải nằm nguyên vẹn trong một nguồn bài làm. Gợi ý chưa được chấp nhận.");
+      if (context.sources && result.criteria.some((item) => item.evidence.some((quote) => !context.sources!.some((source) => stripInvisibleText(source.text).includes(quote))))) throw new ServiceUnavailableException("Dẫn chứng AI phải nằm nguyên vẹn trong một nguồn bài làm. Gợi ý chưa được chấp nhận.");
       return { ...result, submissionRevision: context.submissionRevision, assignmentVersion: context.assignmentVersion, contextHash, ...(context.sources ? { sources: context.sources } : {}) };
     });
     const current = await this.context(submissionId, expectedRevision, language, session);

@@ -62,6 +62,62 @@ export function answerKey(value: string, options: { key: string; text: string }[
   return options.find((option) => option.key === match?.[1]?.toUpperCase())?.key;
 }
 
+const ANSWER_PAIR_SEPARATORS = new Set(["-", ".", ":", ")", "=", "–"]);
+
+/** Khoảng trắng theo định nghĩa \s của JavaScript cho một ký tự. */
+function isSpace(char: string | undefined): boolean {
+  return char !== undefined && /\s/u.test(char);
+}
+
+/** Ký tự phân cách giữa các cặp đáp án: dấu phẩy, chấm phẩy hoặc khoảng trắng. */
+function isPairBoundary(char: string | undefined): boolean {
+  return char === "," || char === ";" || isSpace(char);
+}
+
+/**
+ * Tách các cặp "số câu – ký tự đáp án" (vd. `1-A, 2.B; câu 3: C`, `4 D`) bằng một lượt duyệt tuyến tính.
+ * Thay regex có nhiều cụm \s liền kề từng gây quay lui bậc hai làm treo event loop với dòng khoảng trắng dài.
+ */
+export function answerKeyPairs(line: string): Array<{ number: string; key: string }> {
+  const chars = [...line];
+  const pairs: Array<{ number: string; key: string }> = [];
+  let index = 0;
+  while (index < chars.length) {
+    // Cặp chỉ bắt đầu ở đầu dòng hoặc ngay sau ký tự phân cách.
+    if (isPairBoundary(chars[index]) || (index > 0 && !isPairBoundary(chars[index - 1]))) {
+      index += 1;
+      continue;
+    }
+    let cursor = index;
+    if (chars.slice(cursor, cursor + 3).join("").toLocaleLowerCase("vi") === "câu") {
+      cursor += 3;
+      while (isSpace(chars[cursor])) cursor += 1;
+    }
+    const numberStart = cursor;
+    while (cursor < chars.length && chars[cursor]! >= "0" && chars[cursor]! <= "9") cursor += 1;
+    const number = chars.slice(numberStart, cursor).join("");
+    let spaced = false;
+    while (isSpace(chars[cursor])) {
+      cursor += 1;
+      spaced = true;
+    }
+    let separated = spaced;
+    if (ANSWER_PAIR_SEPARATORS.has(chars[cursor] ?? "")) {
+      cursor += 1;
+      separated = true;
+      while (isSpace(chars[cursor])) cursor += 1;
+    }
+    const key = chars[cursor] ?? "";
+    if (number && separated && /^[A-F]$/iu.test(key) && (cursor + 1 === chars.length || isPairBoundary(chars[cursor + 1]))) {
+      pairs.push({ number, key });
+      index = cursor + 1;
+      continue;
+    }
+    index += 1;
+  }
+  return pairs;
+}
+
 // Kết hợp nhiều nguồn đáp án; yêu cầu kiểm tra lại nếu định dạng hoặc khóa bị mâu thuẫn.
 function finishQuestion(q: Question, table: string[], ambiguous: boolean): ScannedQuestionDraft {
   const options = q.options.map((o) => o.text);
@@ -144,13 +200,13 @@ export function parseQuestionDocument(text: string): ScannedQuestionDraft[] {
       answerSection = undefined;
       continue;
     }
-    const pairs = Array.from(keyLine.matchAll(/(?:^|[,;\s]+)(?:câu\s*)?(\d+)\s*(?:[-.:)=–]|\s)\s*([A-F])(?=$|[,;\s])/giu));
+    const pairs = answerKeyPairs(keyLine);
     if (pairs.length && (readingKey || keyLine !== line || pairs.length > 1 || /^\d+\s*[-–]\s*[A-F]$/iu.test(line))) {
       for (const pair of pairs) {
         const keySection = answerSection ?? (sections.size > 1 ? "" : section);
-        const id = keySection + "/" + pair[1];
+        const id = keySection + "/" + pair.number;
         const answers = table.get(id) ?? [];
-        answers.push(pair[2]!);
+        answers.push(pair.key);
         table.set(id, answers);
       }
       continue;

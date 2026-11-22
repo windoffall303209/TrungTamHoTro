@@ -1,16 +1,17 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import mammoth from "mammoth";
+import { stripHiddenDocxText } from "../../../infrastructure/docx-hidden-text.js";
 import { validateDocxArchive } from "../../../infrastructure/validate-docx-archive.js";
 import type { AiProviderService } from "../../system/ai/ai-provider.service.js";
 import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 import { decodeGradingText, isGradingDocument, isGradingDocx, type VerifiedGradingAttachment } from "./ai-grading-source.js";
 
-/** Trích xuất văn bản DOCX tại chỗ sau khi kiểm tra giới hạn tệp nén; không chọn mô hình hoặc nhà cung cấp. */
+/** Trích xuất văn bản DOCX tại chỗ sau khi kiểm tra giới hạn tệp nén; bỏ chữ định dạng ẩn để chỉ thị vô hình không vào prompt AI. */
 async function readDocx(buffer: Buffer): Promise<string> {
   await validateDocxArchive(buffer);
   try {
-    const result = await mammoth.extractRawText({ buffer });
+    const result = await mammoth.extractRawText({ buffer: await stripHiddenDocxText(buffer) });
     if (result.messages.some((message) => message.type === "error")) throw new Error("DOCX extraction reported an error");
     return decodeGradingText(Buffer.from(result.value, "utf8"));
   } catch (error) {

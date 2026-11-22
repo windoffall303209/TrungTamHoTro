@@ -45,6 +45,7 @@ export function parseGradingSuggestion(raw: unknown, input: GradingSuggestionInp
   for (const item of output.criteria) {
     const criterion = criteria.get(item.criterionId);
     if (!criterion || item.suggestedPoints > criterion.maxPoints) throw new ServiceUnavailableException("Điểm AI đề xuất nằm ngoài rubric được phép.");
+    // Bên gọi so khớp với bài làm đã bỏ ký tự vô hình, đúng bản đã gửi cho model.
     if (item.evidence.some((quote) => !quote.trim() || !input.answer.includes(quote))) throw new ServiceUnavailableException("Dẫn chứng AI không có trong bài làm. Gợi ý chưa được chấp nhận.");
   }
   return { ...output, criteria: input.rubric.map((criterion) => output.criteria.find((item) => item.criterionId === criterion.id)!), suggestedTotal: output.criteria.reduce((sum, criterion) => sum + Math.round(criterion.suggestedPoints * 100), 0) / 100, requiresHumanReview: true };

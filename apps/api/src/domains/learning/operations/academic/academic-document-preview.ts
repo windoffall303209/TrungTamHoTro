@@ -5,6 +5,13 @@ import { validateDocxArchive } from "../../../../infrastructure/validate-docx-ar
 import type { AttachmentDocumentPreview } from "../../academic/academic.shared.js";
 
 const PREVIEW_TEXT_LIMIT = 200_000;
+/** Ảnh nhúng lớn hơn ngưỡng này không được chuyển sang base64 trong HTML xem trước. */
+const PREVIEW_IMAGE_BYTES = 2 * 1024 * 1024;
+/** Tổng dung lượng ảnh nhúng tối đa cho một bản xem trước để HTML không phình tới hàng chục MB. */
+const PREVIEW_IMAGES_TOTAL_BYTES = 6 * 1024 * 1024;
+/** Trần độ dài HTML trước khi chạy sanitize-html; vượt ngưỡng thì yêu cầu tải tệp về. */
+const PREVIEW_HTML_LIMIT = 10 * 1024 * 1024;
+const PREVIEW_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const ALLOWED_HTML_IMG_SRC = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+$/i;
 const ALLOWED_LINK_HREF = /^(?:https?:\/\/|mailto:|#)/i;
 /** Giữ định dạng văn bản, liên kết an toàn và ảnh raster nhúng trong bản xem trước. */
@@ -135,17 +142,38 @@ export async function buildDocumentPreview(file: {
     /\.docx$/i.test(file.fileName)
   ) {
     await validateDocxArchive(file.buffer);
+    let imageBudget = PREVIEW_IMAGES_TOTAL_BYTES;
+    let skippedImages = 0;
+    // Chỉ nhúng ảnh raster nhỏ trong ngân sách; ảnh lạ/quá lớn bị bỏ (src rỗng sẽ bị sanitize loại) thay vì tạo HTML base64 khổng lồ.
+    const convertImage = mammoth.images.imgElement(async (image) => {
+      const type = image.contentType.toLowerCase();
+      if (!PREVIEW_IMAGE_TYPES.has(type)) {
+        skippedImages += 1;
+        return { src: "" };
+      }
+      const buffer = await image.readAsBuffer();
+      if (buffer.length > PREVIEW_IMAGE_BYTES || buffer.length > imageBudget) {
+        skippedImages += 1;
+        return { src: "" };
+      }
+      imageBudget -= buffer.length;
+      return { src: `data:${type};base64,${buffer.toString("base64")}` };
+    });
     try {
-      const result = await mammoth.convertToHtml({ buffer: file.buffer }, { includeEmbeddedStyleMap: false });
+      const result = await mammoth.convertToHtml({ buffer: file.buffer }, { includeEmbeddedStyleMap: false, convertImage });
+      if (result.value.length > PREVIEW_HTML_LIMIT)
+        throw new BadRequestException("Bản xem trước DOCX quá lớn. Hãy tải xuống để mở bằng Microsoft Word.");
+      const warnings = result.messages
+        .filter((message) => message.type === "warning" || message.type === "error")
+        .map((message) => message.message)
+        .slice(0, 10);
+      if (skippedImages) warnings.unshift(`Đã ẩn ${skippedImages} ảnh quá lớn hoặc không hỗ trợ trong bản xem trước; tải tệp về để xem đầy đủ.`);
       return {
         kind: "html",
         fileName: file.fileName,
         mimeType: file.mimeType,
         html: sanitizePreviewHtml(result.value),
-        warnings: result.messages
-          .filter((message) => message.type === "warning" || message.type === "error")
-          .map((message) => message.message)
-          .slice(0, 10),
+        warnings,
       };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;

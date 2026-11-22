@@ -74,6 +74,9 @@ importers:
       ipaddr.js:
         specifier: 2.5.0
         version: 2.5.0
+      jszip:
+        specifier: 3.10.1
+        version: 3.10.1
       mammoth:
         specifier: 1.12.2
         version: 1.12.2
@@ -135,9 +138,6 @@ importers:
       globals:
         specifier: 17.4.0
         version: 17.4.0
-      jszip:
-        specifier: 3.10.1
-        version: 3.10.1
       prisma:
         specifier: 7.9.1
         version: 7.9.1(@types/node@24.10.12)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
