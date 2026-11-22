@@ -60,7 +60,7 @@ export class SystemController {
   /** Tải danh sách model provider hiện công bố; Gemini dùng models.list, provider khác dùng OpenAI-compatible /models. */
   @Get("ai-providers/:providerId/models") @RequirePermissions("system:configure") discoverAiProviderModels(@Param("providerId") id: string): ReturnType<AiProviderService["listModels"]> { return this.aiProviders.listModels(id); }
   /** Xóa cấu hình AI và secret liên quan. */
-  @Delete("ai-providers/:providerId") @RequirePermissions("system:configure") async removeAiProvider(@Param("providerId") id: string): Promise<{ removed: true }> { await this.aiProviders.remove(id); return { removed: true }; }
+  @Delete("ai-providers/:providerId") @RequirePermissions("system:configure") async removeAiProvider(@Param("providerId") id: string, @CurrentSession() session: AuthenticatedSession): Promise<{ removed: true }> { await this.aiProviders.remove(id, session.user.id); return { removed: true }; }
   /** Bật hoặc tắt tích hợp phòng học. */
   @Patch("integrations/:integrationId") @RequirePermissions("system:configure") updateIntegration(@Param("integrationId") id: string, @Body() input: ToggleIntegrationDto, @CurrentSession() session: AuthenticatedSession): Promise<IntegrationConfig> { return this.system.updateIntegration(id, input.enabled, session.user.id); }
   /** Lưu thông tin provider, tham chiếu credential và webhook tích hợp. */

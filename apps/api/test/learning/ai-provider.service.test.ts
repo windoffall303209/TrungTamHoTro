@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
 import type { Environment } from "../../src/config/environment.js";
+import type { PrismaService } from "../../src/database/prisma.service.js";
 import { AiProviderService } from "../../src/domains/system/ai/ai-provider.service.js";
 import { decryptSecret, encryptSecret } from "../../src/infrastructure/secret-vault.js";
 import { chunkDocument } from "../../src/domains/system/ai/ai-document-context.js";
@@ -242,6 +243,65 @@ describe("AI provider configuration and image scanning", () => {
   it("requires HTTPS for remote custom endpoints", async () => {
     const service = new AiProviderService(undefined, config);
     await expect(service.configure({ provider: "CUSTOM", name: "Unsafe", model: "vision", baseUrl: "http://example.com/v1/chat/completions", apiKey: "custom-secret" }, "usr-admin")).rejects.toThrow("HTTPS");
+  });
+
+  it("không gửi API key cũ tới máy chủ mới khi đổi host endpoint hoặc đổi loại provider", async () => {
+    const service = new AiProviderService(undefined, config);
+    const custom = await service.configure({ provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-keep", enabled: true }, "usr-admin");
+    const builtIn = await service.configure({ provider: "OPENAI", model: "gpt-4o-mini", apiKey: "openai-secret-keep", enabled: true }, "usr-admin");
+
+    await expect(service.configure({ id: builtIn.id, provider: "CUSTOM", name: "Attacker", model: "text-model", baseUrl: "https://attacker.example/v1/chat/completions" }, "usr-admin"))
+      .rejects.toThrow("Không thể đổi loại nhà cung cấp của cấu hình AI đã lưu.");
+    await expect(service.configure({ id: custom.id, provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://attacker.example/v1/chat/completions" }, "usr-admin"))
+      .rejects.toThrow("Đổi máy chủ endpoint AI cần nhập lại API key.");
+    await expect(service.configure({ id: "ai-custom-missing", provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "custom-secret-miss" }, "usr-admin"))
+      .rejects.toThrow("Không tìm thấy cấu hình AI.");
+
+    // Đổi đường dẫn trên cùng máy chủ vẫn giữ key cũ; đổi máy chủ kèm key mới thì hợp lệ.
+    const sameHost = await service.configure({ id: custom.id, provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://router.example/v2/chat/completions" }, "usr-admin");
+    expect(sameHost.maskedApiKey).toContain("keep");
+    const moved = await service.configure({ id: custom.id, provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://new-router.example/v1/chat/completions", apiKey: "custom-secret-new1" }, "usr-admin");
+    expect(moved.maskedApiKey).toContain("new1");
+
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    await service.test(custom.id, "usr-admin");
+    const firstCall = fetchMock.mock.calls[0] as unknown[] | undefined;
+    expect(String(firstCall?.[0])).toContain("new-router.example");
+    expect(readFetchOptions(fetchMock.mock.calls[0]).headers).toMatchObject({ authorization: "Bearer custom-secret-new1" });
+  });
+
+  it("ghi audit không chứa API key cho mọi thay đổi cấu hình AI", async () => {
+    type SettingRow = { key: string; value: unknown; updatedAt: Date };
+    type AuditEntry = { data: { action: string; entityType: string; entityId: string; context: Record<string, unknown> } };
+    const audits: AuditEntry[] = [];
+    const settings = new Map<string, SettingRow>();
+    const prisma = {
+      isStartupConnectionEnabled: (): boolean => true,
+      systemSetting: {
+        findMany: vi.fn((): Promise<SettingRow[]> => Promise.resolve([...settings.values()])),
+        findUnique: vi.fn(({ where }: { where: { key: string } }): Promise<SettingRow | null> => Promise.resolve(settings.get(where.key) ?? null)),
+        upsert: vi.fn(({ where, create, update }: { where: { key: string }; create: { value: unknown }; update: { value: unknown } }): Promise<object> => {
+          settings.set(where.key, { key: where.key, value: settings.has(where.key) ? update.value : create.value, updatedAt: new Date() });
+          return Promise.resolve({});
+        }),
+        delete: vi.fn(({ where }: { where: { key: string } }): Promise<object> => {
+          settings.delete(where.key);
+          return Promise.resolve({});
+        }),
+      },
+      auditLog: { create: vi.fn((entry: AuditEntry): Promise<object> => { audits.push(entry); return Promise.resolve({}); }) },
+    } as unknown as PrismaService;
+    const service = new AiProviderService(prisma, config);
+
+    const provider = await service.configure({ provider: "CUSTOM", name: "Router", model: "text-model", baseUrl: "https://router.example/v1/chat/completions", apiKey: "audit-secret-9876", enabled: true }, "usr-admin");
+    await service.configure({ id: provider.id, provider: "CUSTOM", name: "Router", model: "text-model-2", baseUrl: "https://router.example/v1/chat/completions" }, "usr-admin");
+    await service.remove(provider.id, "usr-admin");
+
+    expect(audits.map((entry) => entry.data.action)).toEqual(["AI_PROVIDER_CREATED", "AI_PROVIDER_UPDATED", "AI_PROVIDER_REMOVED"]);
+    expect(audits[0]?.data).toMatchObject({ entityType: "ai_provider", entityId: provider.id, context: { endpointHost: "router.example", apiKeyChanged: true } });
+    expect(audits[1]?.data.context).toMatchObject({ model: "text-model-2", apiKeyChanged: false });
+    expect(JSON.stringify(audits)).not.toContain("audit-secret-9876");
   });
 
   it("tests Custom providers with text only instead of the invalid one-pixel image", async () => {

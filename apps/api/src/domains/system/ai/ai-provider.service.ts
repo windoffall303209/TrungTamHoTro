@@ -159,6 +159,7 @@ export class AiProviderService {
     const prisma = this.database();
     if (prisma) await prisma.systemSetting.upsert({ where: { key: "ai-task-routing" }, update: { value: configs, version: { increment: 1 }, updatedBy: actorId, effectiveAt: new Date() }, create: { key: "ai-task-routing", value: configs, updatedBy: actorId } });
     else Object.assign(this.taskMemory, configs);
+    await this.audit(actorId, "AI_TASK_ROUTING_UPDATED", task, { task, ...selected });
     return selected;
   }
 
@@ -289,9 +290,15 @@ export class AiProviderService {
     return resolved.map((item) => this.publicView(item));
   }
 
-  /** Validate model/URL, mã hóa API key mới, xử lý default duy nhất rồi lưu cấu hình và audit. */
+  /**
+   * Validate model/URL, mã hóa API key mới, xử lý default duy nhất rồi lưu cấu hình và audit.
+   * Không cho đổi loại provider của cấu hình đã lưu và bắt nhập lại key khi đổi máy chủ endpoint,
+   * nếu không key đã mã hóa sẽ bị gửi tới máy chủ mới ở lần gọi kiểm tra/đọc model kế tiếp.
+   */
   async configure(input: { id?: string; provider: AiProviderType; name?: string; model: string; baseUrl?: string; apiKey?: string; enabled?: boolean; isDefault?: boolean }, actorId: string): Promise<AiProviderConfig> {
     const current = input.id ? await this.findStored(input.id) : (await this.readAll()).find((item) => item.provider === input.provider && input.provider !== "CUSTOM");
+    if (input.id && !current) throw new NotFoundException("Không tìm thấy cấu hình AI.");
+    if (current && current.provider !== input.provider) throw new BadRequestException("Không thể đổi loại nhà cung cấp của cấu hình AI đã lưu. Hãy tạo cấu hình mới.");
     const model = input.model.trim();
     if (!model) throw new BadRequestException("Cần chọn hoặc nhập model AI.");
     this.assertModelIdentifier(input.provider, model);
@@ -299,6 +306,9 @@ export class AiProviderService {
     if (!current?.encryptedApiKey && !apiKey) throw new BadRequestException("Cần nhập API key cho nhà cung cấp.");
     const builtIn = input.provider === "CUSTOM" ? undefined : defaults[input.provider];
     const baseUrl = input.provider === "CUSTOM" ? this.validateCustomUrl(input.baseUrl) : builtIn?.baseUrl;
+    if (current?.encryptedApiKey && !apiKey && this.endpointOrigin(current.baseUrl) !== this.endpointOrigin(baseUrl)) {
+      throw new BadRequestException("Đổi máy chủ endpoint AI cần nhập lại API key.");
+    }
     const now = new Date().toISOString();
     const stored: StoredAiProvider = {
       id: current?.id ?? (input.provider === "CUSTOM" ? `ai-custom-${randomUUID()}` : `ai-${input.provider.toLowerCase()}`),
@@ -316,16 +326,25 @@ export class AiProviderService {
     };
     await this.persist(stored, actorId);
     if (stored.isDefault) await this.clearOtherDefaults(stored.id, actorId);
+    await this.audit(actorId, current ? "AI_PROVIDER_UPDATED" : "AI_PROVIDER_CREATED", stored.id, {
+      provider: stored.provider,
+      model: stored.model,
+      endpointHost: baseUrl ? new URL(baseUrl).host : null,
+      apiKeyChanged: Boolean(apiKey),
+      enabled: stored.enabled,
+      isDefault: stored.isDefault,
+    });
     return this.publicView(stored);
   }
 
-  /** Xóa cấu hình provider tùy chỉnh và secret; provider built-in được đặt lại rỗng. */
-  async remove(id: string): Promise<void> {
+  /** Xóa cấu hình provider tùy chỉnh và secret; provider built-in được đặt lại rỗng; ghi audit người xóa. */
+  async remove(id: string, actorId: string): Promise<void> {
     const current = await this.findStored(id);
     if (!current) throw new NotFoundException("Không tìm thấy cấu hình AI.");
     const prisma = this.database();
     if (prisma) await prisma.systemSetting.delete({ where: { key: this.key(id) } });
     else this.memory.delete(id);
+    await this.audit(actorId, "AI_PROVIDER_REMOVED", id, { provider: current.provider, model: current.model, endpointHost: current.baseUrl ? new URL(current.baseUrl).host : null });
   }
 
   /** Gọi request kiểm tra nhỏ, cập nhật health state và không đưa lỗi chứa secret ra phản hồi. */
@@ -500,7 +519,7 @@ export class AiProviderService {
             content.push({ type: "input_image", image_url: `data:${file.mimeType};base64,${file.buffer.toString("base64")}`, detail: "high" });
             continue;
           }
-          const fileId = await this.uploadOpenAiFile(apiKey, file);
+          const fileId = await this.uploadOpenAiFile(apiKey, provider, file);
           uploadedFileIds.push(fileId);
           content.push({ type: "input_file", file_id: fileId });
         }
@@ -723,12 +742,12 @@ export class AiProviderService {
     };
   }
 
-  /** Tải tệp tạm lên OpenAI với purpose user_data và trả file id để gắn vào Responses API. */
-  private async uploadOpenAiFile(apiKey: string, file: ExamSourceFile): Promise<string> {
+  /** Tải tệp tạm lên đúng máy chủ OpenAI đã cấu hình với purpose user_data và trả file id để gắn vào Responses API. */
+  private async uploadOpenAiFile(apiKey: string, provider: StoredAiProvider, file: ExamSourceFile): Promise<string> {
     const body = new FormData();
     body.append("purpose", "user_data");
     body.append("file", new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }), file.name);
-    const response = await fetchProviderEndpoint("https://api.openai.com/v1/files", { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body, signal: AbortSignal.timeout(60_000) })
+    const response = await fetchProviderEndpoint(this.openAiUrl(provider, "files"), { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body, signal: AbortSignal.timeout(60_000) })
       .catch(() => { throw new ServiceUnavailableException(`Không thể tải tệp ${file.name} lên OpenAI.`); });
     const payload = await response.json().catch(() => undefined) as { id?: string } | undefined;
     if (!response.ok) this.throwProviderHttpError(response.status, "tải tài liệu OpenAI");
@@ -951,6 +970,17 @@ export class AiProviderService {
     const prisma = this.database();
     if (prisma) await prisma.systemSetting.upsert({ where: { key: this.key(item.id) }, update: { value: item as unknown as object, version: { increment: 1 }, effectiveAt: new Date(), updatedBy: actorId }, create: { key: this.key(item.id), value: item as unknown as object, updatedBy: actorId } });
     else this.memory.set(item.id, structuredClone(item));
+  }
+  /** Ghi audit thay đổi cấu hình AI (không chứa API key); bỏ qua ở chế độ bộ nhớ khi không có PostgreSQL. */
+  private async audit(actorId: string, action: string, entityId: string, context: Record<string, string | number | boolean | null | undefined>): Promise<void> {
+    const prisma = this.database();
+    if (!prisma) return;
+    await prisma.auditLog.create({ data: { actorId, action, entityType: "ai_provider", entityId, context } });
+  }
+  /** Trả origin (scheme + host + port) của endpoint để phát hiện việc đổi máy chủ nhận API key. */
+  private endpointOrigin(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    try { return new URL(value).origin; } catch { return undefined; }
   }
   /** Bỏ cờ mặc định ở provider khác để duy trì invariant một default. */
   private async clearOtherDefaults(id: string, actorId: string): Promise<void> {

@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Không thể đổi loại nhà cung cấp của cấu hình AI đã lưu. Hãy tạo cấu hình mới.": "The provider type of a saved AI configuration cannot be changed. Create a new configuration instead.",
+  "Đổi máy chủ endpoint AI cần nhập lại API key.": "Changing the AI endpoint host requires re-entering the API key.",
   "Mã khôi phục không đúng định dạng.": "The recovery code format is invalid.",
   "Admin cần chọn Gemini hỗ trợ ngữ cảnh cho model Custom.": "The administrator must select Gemini context support for the Custom model.",
   "AI chưa cung cấp đủ tóm tắt và số thẻ ôn tập yêu cầu.": "AI did not supply a summary and the requested number of flashcards.",
