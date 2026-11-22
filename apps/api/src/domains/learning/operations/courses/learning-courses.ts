@@ -15,6 +15,7 @@ import type {
   LearningCourse,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface CoursePageFilters {
   query?: string;
@@ -75,7 +76,7 @@ export async function listCoursesPage(
         { description: { contains: query, mode: "insensitive" } },
       ];
     }
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const total = await transaction.course.count({ where });
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -90,8 +91,7 @@ export async function listCoursesPage(
                 take: pageSize,
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) => serviceContext.mapCourse(row)),

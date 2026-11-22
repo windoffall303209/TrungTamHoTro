@@ -12,6 +12,7 @@ import {
 import { id, now } from "../../core/learning.shared.js";
 import type { LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 const GOOGLE_MEET_URL_ERROR =
   "Link phòng học phải là URL Google Meet hợp lệ (https://meet.google.com/...).";
@@ -247,7 +248,7 @@ export async function listSessionsPage(
     }
     const where: Prisma.LiveSessionWhereInput | undefined =
       andConditions.length > 0 ? { AND: andConditions } : undefined;
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const total = await transaction.liveSession.count({ where });
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -262,8 +263,7 @@ export async function listSessionsPage(
                 take: pageSize,
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) =>

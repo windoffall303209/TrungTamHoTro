@@ -19,6 +19,7 @@ import {
 import type { LearningMaterial } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { canEditMaterial } from "../access/learning-access.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 const AI_SEARCH_MIME_TYPES = new Set([
   "application/pdf",
@@ -241,7 +242,7 @@ export async function searchAccessibleMaterials(
     const where = conditions.length
       ? Prisma.join(conditions, " AND ")
       : Prisma.sql`TRUE`;
-    const { rows, total } = await prisma.$transaction(
+    const { rows, total } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const ids = await transaction.$queryRaw<{ id: string }[]>(
           Prisma.sql`SELECT m.id FROM materials m WHERE ${where} ORDER BY m.created_at DESC, m.id ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
@@ -254,8 +255,7 @@ export async function searchAccessibleMaterials(
           orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         });
         return { rows, total: Number(counts[0]?.count ?? 0n) };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     const items = rows.map((row) => ({
       ...serviceContext.mapMaterial(row),

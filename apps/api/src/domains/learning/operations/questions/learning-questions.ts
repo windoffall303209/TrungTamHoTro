@@ -22,6 +22,7 @@ import type {
   QuestionImportResult,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface QuestionListFilters {
   query?: string;
@@ -267,7 +268,7 @@ export async function listQuestionsPage(
   const prisma = serviceContext.database();
   if (prisma) {
     const { innerWhere, outerWhere } = buildQuestionLatestSqlParts(filters, scope);
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const counts = await transaction.$queryRaw<{ count: bigint }[]>(Prisma.sql`
           WITH latest AS (
@@ -328,8 +329,7 @@ export async function listQuestionsPage(
                 orderBy: [{ version: "desc" }, { createdAt: "desc" }, { id: "asc" }],
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) => serviceContext.mapQuestion(row)),

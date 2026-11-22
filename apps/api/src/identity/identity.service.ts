@@ -199,10 +199,10 @@ export class IdentityService {
     }
     // Quản lý trung tâm không cần và không được thấy danh sách/email tài khoản quản trị hệ thống.
     if (actorRoleCode !== "SYSTEM_ADMIN") where.NOT = { roles: { some: { role: { code: "SYSTEM_ADMIN" } } } };
-    const [rows, total, active, locked] = await prisma.$transaction([
+    const [rows, total, active, locked] = await Promise.all([
       prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
       prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),
-    ], { isolationLevel: "RepeatableRead" });
+    ]);
     return { items: rows.map((row) => this.mapUser(row)), total, active, locked, page, pageSize };
   }
 

@@ -25,6 +25,7 @@ import type {
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { assertSafeUpload } from "../../../../infrastructure/file-signature.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 /** Kiểm tra chuyển trạng thái và người xử lý thống nhất giữa hai chế độ lưu trữ. */
 function assertTicketTransition(
@@ -124,7 +125,7 @@ export async function listTicketsPage(
     }
     const where: Prisma.SupportTicketWhereInput | undefined =
       andConditions.length > 0 ? { AND: andConditions } : undefined;
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const total = await transaction.supportTicket.count({ where });
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -140,8 +141,7 @@ export async function listTicketsPage(
                 take: pageSize,
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) => serviceContext.mapTicket(row)),

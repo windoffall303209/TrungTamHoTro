@@ -294,6 +294,7 @@ model UserRole {
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+  @@index([roleId])
   @@map("user_roles")
 }
 
@@ -304,6 +305,7 @@ model RolePermission {
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
+  @@index([permissionId])
   @@map("role_permissions")
 }
 
@@ -454,6 +456,7 @@ model AssignmentSubmission {
 
   @@unique([assignmentId, learnerId])
   @@index([learnerId, status])
+  @@index([assignmentId, status, submittedAt])
   @@map("assignment_submissions")
 }
 
@@ -480,6 +483,7 @@ model AiGradingSuggestion {
 
   @@index([ownerId, submissionId, createdAt])
   @@index([state, createdAt, id], map: "ai_grading_operations_state_created_id")
+  @@index([submissionId])
   @@map("ai_grading_suggestions")
 }
 
@@ -686,6 +690,7 @@ model ExamQuestion {
 
   @@id([examId, questionId])
   @@unique([examId, position])
+  @@index([questionId])
   @@map("exam_questions")
 }
 
@@ -707,6 +712,7 @@ model ExamAttempt {
 
   @@unique([examId, learnerId, attemptNo])
   @@index([learnerId, status])
+  @@index([examId, status, submittedAt])
   @@map("exam_attempts")
 }
 
@@ -744,6 +750,7 @@ model AttemptAnswer {
   question   Question    @relation(fields: [questionId], references: [id], onDelete: Restrict)
 
   @@id([attemptId, questionId])
+  @@index([questionId])
   @@map("attempt_answers")
 }
 
@@ -764,6 +771,7 @@ model ForumTopic {
   updatedAt DateTime      @updatedAt @map("updated_at")
 
   @@index([classId, createdAt])
+  @@index([authorId])
   @@map("forum_topics")
 }
 
@@ -788,6 +796,7 @@ model ForumPost {
 
   @@index([topicId, status, createdAt])
   @@index([parentId])
+  @@index([authorId])
   @@map("forum_posts")
 }
 
@@ -826,6 +835,7 @@ model Notification {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, createdAt(sort: Desc)])
   @@map("notifications")
 }
 
@@ -888,6 +898,7 @@ model SupportTicket {
   @@index([reporterId])
   @@index([duplicateOfId])
   @@unique([reporterId, clientRequestId])
+  @@index([assigneeId])
   @@map("support_tickets")
 }
 
@@ -999,6 +1010,8 @@ model AuditLog {
   @@index([actorId, createdAt])
   @@index([entityType, entityId])
   @@index([action, createdAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([requestId])
   @@map("audit_logs")
 }
 
@@ -1107,6 +1120,7 @@ model ChatMessage {
 
   @@unique([senderId, clientMessageId])
   @@index([conversationId, createdAt])
+  @@index([replyToId])
   @@map("chat_messages")
 }
 

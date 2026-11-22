@@ -11,6 +11,7 @@ import {
 import { id, now } from "../../core/learning.shared.js";
 import type { ForumPost, ForumTopic } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface ForumTopicPageFilters {
   classId?: string;
@@ -156,7 +157,7 @@ export async function listTopicsPage(
     const where = conditions.length
       ? Prisma.join(conditions, " AND ")
       : Prisma.sql`TRUE`;
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const counts = await transaction.$queryRaw<{ count: bigint }[]>(
           Prisma.sql`SELECT COUNT(*) AS count FROM forum_topics ft WHERE ${where}`,
@@ -179,8 +180,7 @@ export async function listTopicsPage(
                 orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }, { id: "asc" }],
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) => serviceContext.mapTopic(row)),
@@ -419,7 +419,7 @@ export async function listPostsPage(
   const prisma = serviceContext.database();
   if (prisma) {
     const { combined, totalRoots, totalPosts, safePage, totalPages } =
-      await prisma.$transaction(
+      await readWithoutTransaction(prisma,
         async (transaction) => {
           const [totalRoots, totalPosts] = await Promise.all([
             transaction.forumPost.count({ where: { topicId, parentId: null } }),
@@ -466,8 +466,7 @@ export async function listPostsPage(
             safePage,
             totalPages,
           };
-        },
-        { isolationLevel: "RepeatableRead" },
+        }
       );
     return {
       items: combined.map((row) => serviceContext.mapPost(row)),

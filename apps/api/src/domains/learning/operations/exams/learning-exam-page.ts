@@ -3,6 +3,7 @@ import type { Prisma } from "../../../../generated/prisma/client.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import type { LearningExam, LearnerExamSummary } from "../../core/learning.types.js";
 import { listExams, listLearnerExamSummaries, redactExamForLearner } from "./learning-exams.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface ExamPageQuery { page: number; pageSize: number; classId?: string; focusId?: string; search?: string; sort?: "oldest" | "newest" }
 export interface ExamPage { items: Array<LearningExam | LearnerExamSummary>; total: number; page: number; pageSize: number }
@@ -49,7 +50,7 @@ export async function listExamPage(context: LearningServiceContext, role: string
     ...(learner ? { hidden: false, status: "PUBLISHED", class: { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } } }
       : role === "INSTRUCTOR" ? { class: { instructors: { some: { instructorId: actorId } } } } : {}),
   };
-  return database.$transaction(async (transaction) => {
+  return readWithoutTransaction(database, async (transaction) => {
     const total = await transaction.exam.count({ where });
     let page = Math.min(query.page, Math.max(1, Math.ceil(total / query.pageSize)));
     if (query.focusId) {
@@ -77,5 +78,5 @@ export async function listExamPage(context: LearningServiceContext, role: string
     }
     const rows = await transaction.exam.findMany({ ...window, include: { questions: { orderBy: { position: "asc" } } } });
     return { items: rows.map((row) => context.mapExam(row)), total, page, pageSize: query.pageSize };
-  }, { isolationLevel: "RepeatableRead" });
+  });
 }

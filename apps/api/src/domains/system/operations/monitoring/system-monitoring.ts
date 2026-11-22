@@ -11,6 +11,7 @@ import {
   StorageOverview,
 } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 /** Kiểm tra và chuyển đổi khoảng thời gian audit từ chuỗi ISO sang Date hợp lệ. */
 function parseAuditDateRange(filter: AuditFilter): { from?: Date; to?: Date } {
@@ -140,7 +141,7 @@ export async function listAuditPage(
     const where = conditions.length
       ? Prisma.join(conditions, " AND ")
       : Prisma.sql`TRUE`;
-    const { rows, total, safePage, totalPages } = await prisma.$transaction(
+    const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const counts = await transaction.$queryRaw<{ count: bigint }[]>(
           Prisma.sql`SELECT COUNT(*) AS count FROM audit_logs a WHERE ${where}`,
@@ -163,8 +164,7 @@ export async function listAuditPage(
                 orderBy: [{ createdAt: "desc" }, { id: "desc" }],
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
     return {
       items: rows.map((row) => serviceContext.mapAudit(row)),

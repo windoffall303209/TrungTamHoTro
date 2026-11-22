@@ -9,6 +9,7 @@ import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { AssignmentView, RubricCriterion } from "../../academic/academic.shared.js";
 import type { AcademicServiceContext } from "../../academic/academic.context.js";
+import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface AssignmentPageFilters {
   classId?: string;
@@ -147,7 +148,7 @@ export async function listAssignmentsPage(
     query,
   });
   const { rows, total, safePage, totalPages } =
-    await serviceContext.prisma.$transaction(
+    await readWithoutTransaction(serviceContext.prisma,
       async (transaction) => {
         const total = await transaction.assignment.count({ where });
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -181,8 +182,7 @@ export async function listAssignmentsPage(
                 take: pageSize,
               });
         return { rows, total, safePage, totalPages };
-      },
-      { isolationLevel: "RepeatableRead" },
+      }
     );
   return {
     items: rows.map((row) =>
