@@ -396,6 +396,15 @@ export async function updateProgressIntervention(
       throw new ConflictException(
         "Chỉ người được giao hoặc quản lý mới được cập nhật hành động này.",
       );
+    // Hồ sơ can thiệp thuộc lớp: lớp đã đóng chỉ đọc, giảng viên đã bị gỡ khỏi lớp không còn cập nhật được.
+    const classItem = await prisma.learningClass.findUnique({
+      where: { id: current.classId },
+      select: { status: true, instructors: { where: { instructorId: actorId }, select: { instructorId: true } } },
+    });
+    if (!classItem) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole) && !classItem.instructors.length)
+      throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
     if (current.status === "IN_PROGRESS" && input.status === "IN_PROGRESS")
       throw new ConflictException("Hành động hỗ trợ đã được nhận xử lý.");
     const terminal = ["DONE", "CANCELLED"].includes(input.status);
@@ -471,6 +480,10 @@ export async function updateProgressIntervention(
     throw new ConflictException(
       "Chỉ người được giao hoặc quản lý mới được cập nhật hành động này.",
     );
+  const memoryClass = serviceContext.findClass(item.classId);
+  if (memoryClass.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole) && !memoryClass.instructorIds.includes(actorId))
+    throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
   if (item.status === "IN_PROGRESS" && input.status === "IN_PROGRESS")
     throw new ConflictException("Hành động hỗ trợ đã được nhận xử lý.");
   item.status = input.status;

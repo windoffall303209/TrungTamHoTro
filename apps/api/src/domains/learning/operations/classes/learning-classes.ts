@@ -31,7 +31,8 @@ function buildClassRoleWhere(
   actorId: string,
 ): Prisma.LearningClassWhereInput | undefined {
   if (role === "LEARNER") {
-    return { enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } };
+    // Lớp nháp chưa mở cho học viên dù đã có ghi danh trước.
+    return { status: { not: "DRAFT" }, enrollments: { some: { learnerId: actorId, status: "ACTIVE" } } };
   }
   if (role === "INSTRUCTOR") {
     return { instructors: { some: { instructorId: actorId } } };
@@ -45,9 +46,15 @@ function matchesMemoryClassRole(
   role: string,
   actorId: string,
 ): boolean {
-  if (role === "LEARNER") return item.learnerIds.includes(actorId);
+  if (role === "LEARNER") return item.status !== "DRAFT" && item.learnerIds.includes(actorId);
   if (role === "INSTRUCTOR") return item.instructorIds.includes(actorId);
   return true;
+}
+
+/** Học viên chỉ nhận id của chính mình trong learnerIds (kèm sĩ số), không nhận danh sách id của cả lớp. */
+function redactClassForRole(item: LearningClass, role: string, actorId: string): LearningClass {
+  if (role !== "LEARNER") return item;
+  return { ...item, learnerIds: item.learnerIds.filter((learnerId) => learnerId === actorId), learnerCount: item.learnerIds.length };
 }
 
 /** Lọc lớp theo vai trò: quản trị xem tất cả, giảng viên/học viên theo quan hệ thành viên. */
@@ -66,11 +73,11 @@ export async function listClasses(
       },
       orderBy: { startAt: "desc" },
     });
-    return rows.map((row) => serviceContext.mapClass(row));
+    return rows.map((row) => redactClassForRole(serviceContext.mapClass(row), role, actorId));
   }
   return serviceContext.classes
     .filter((item) => matchesMemoryClassRole(item, role, actorId))
-    .map(copyLearningClass);
+    .map((item) => redactClassForRole(copyLearningClass(item), role, actorId));
 }
 
 /** Phân trang danh sách lớp học theo vai trò, khóa học, khối/môn và từ khóa trực tiếp ở DB. */
@@ -160,7 +167,7 @@ export async function listClassesPage(
       { isolationLevel: "RepeatableRead" },
     );
     return {
-      items: rows.map((row) => serviceContext.mapClass(row)),
+      items: rows.map((row) => redactClassForRole(serviceContext.mapClass(row), role, actorId)),
       total,
       page: safePage,
       pageSize,

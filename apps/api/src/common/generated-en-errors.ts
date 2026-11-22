@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Học viên ẩn danh": "Anonymous learner",
   "Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.": "The user:suspend permission is required to lock or unlock accounts.",
   "Không thể tự khóa hoặc tự đổi vai trò của chính mình.": "You cannot lock your own account or change your own roles.",
   "Tài khoản chưa xác minh email nên chưa thể kích hoạt.": "The account has not verified its email and cannot be activated yet.",

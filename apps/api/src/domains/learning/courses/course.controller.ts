@@ -25,18 +25,22 @@ export class CourseController {
   constructor(private readonly learning: LearningService) {}
 
   @Get("manager/courses") @RequirePermissions("course:view")
-  /** Liệt kê danh mục khóa học cho khu vực quản lý. */
-  listCourses(): Promise<LearningCourse[]> { return this.learning.listCourses(); }
+  /** Liệt kê danh mục khóa học; người không có course:manage chỉ thấy khóa học đã xuất bản. */
+  async listCourses(@CurrentSession() session: AuthenticatedSession): Promise<LearningCourse[]> {
+    const courses = await this.learning.listCourses();
+    return session.permissions.includes("course:manage") ? courses : courses.filter((course) => course.status === "PUBLISHED");
+  }
 
   @Get("manager/courses/page") @RequirePermissions("course:view")
-  /** Trả danh mục khóa học phân trang từ DB kèm lọc theo khối, môn và từ khóa. */
-  listCoursesPage(@Query() raw: Record<string, unknown>): Promise<PaginatedResult<LearningCourse>> {
+  /** Trả danh mục khóa học phân trang; người không có course:manage bị ép lọc trạng thái PUBLISHED. */
+  listCoursesPage(@Query() raw: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<PaginatedResult<LearningCourse>> {
     const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
+    const requestedStatus = parseStatusFilter(raw.status, ["DRAFT", "PUBLISHED", "ARCHIVED"] as const);
     return this.learning.listCoursesPage({
       query: parseOptionalQueryString(raw.query, "query", 255),
       grade: parseOptionalQueryInt(raw.grade, "grade", 1, 12),
       subject: parseOptionalQueryString(raw.subject, "subject", 100),
-      status: parseStatusFilter(raw.status, ["DRAFT", "PUBLISHED", "ARCHIVED"] as const),
+      status: session.permissions.includes("course:manage") ? requestedStatus : "PUBLISHED",
       page,
       pageSize,
     });
@@ -54,7 +58,7 @@ export class CourseController {
   /** Cập nhật nội dung khóa học theo quy tắc trạng thái trong service. */
   updateCourse(@Param("courseId") courseId: string, @Body() input: UpdateCourseDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningCourse> { return this.learning.updateCourse(courseId, input, session.user.id); }
 
-  @Get("manager/courses/:courseId/versions") @RequirePermissions("course:view")
+  @Get("manager/courses/:courseId/versions") @RequirePermissions("course:manage")
   /** Đọc lịch sử snapshot của các lần xuất bản khóa học. */
   listCourseVersions(@Param("courseId") courseId: string): Promise<CourseVersionSnapshot[]> { return this.learning.listCourseVersions(courseId); }
 

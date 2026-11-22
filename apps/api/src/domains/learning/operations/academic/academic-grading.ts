@@ -116,6 +116,8 @@ export async function gradebook(
   classId: string,
   session: AuthenticatedSession,
 ): Promise<GradebookRow[]> {
+  // Học viên luôn xem được dòng điểm của chính mình; khi lớp bật xem chung chỉ thấy điểm ẩn danh của bạn cùng lớp.
+  let learnerScope: "ALL" | "SELF" | "PEERS_ANONYMOUS" = "ALL";
   if (session.roleCode === "LEARNER") {
     const access = await serviceContext.prisma.learningClass.findUnique({
       where: { id: classId },
@@ -127,10 +129,12 @@ export async function gradebook(
         },
       },
     });
-    if (!access?.allowPeerGradeViewing || !access.enrollments.length) {
-      throw new ForbiddenException("Lớp chưa cho phép học viên xem bảng điểm chung.");
+    if (!access?.enrollments.length) {
+      throw new ForbiddenException("Học viên không thuộc lớp này.");
     }
-  } else {
+    learnerScope = access.allowPeerGradeViewing ? "PEERS_ANONYMOUS" : "SELF";
+  } else if (session.roleCode !== "CENTER_MANAGER" && session.roleCode !== "SYSTEM_ADMIN") {
+    // Cấp quản lý được đọc sổ điểm mọi lớp; giảng viên chỉ đọc lớp được phân công.
     await serviceContext.requireTeachingAccess(classId, session);
   }
   const classItem = await serviceContext.prisma.learningClass.findUnique({
@@ -188,7 +192,7 @@ export async function gradebook(
     dueAt: work.dueAt,
   }));
 
-  return classItem.enrollments.map(({ learnerId, learner }) => {
+  const rows: GradebookRow[] = classItem.enrollments.map(({ learnerId, learner }) => {
     let examEarned = 0;
     let examPossible = 0;
     let assignmentEarned = 0;
@@ -327,6 +331,30 @@ export async function gradebook(
       cells,
     };
   });
+  if (learnerScope === "SELF") return rows.filter((row) => row.learnerId === session.user.id);
+  if (learnerScope === "PEERS_ANONYMOUS") return anonymizePeerRows(rows, session.user.id);
+  return rows;
+}
+
+/**
+ * Bảng điểm chung cho học viên: giữ nguyên dòng của chính học viên, các dòng khác bỏ email/learnerId/họ tên và
+ * trạng thái chi tiết (đang làm, chờ chấm, số lượt), chỉ còn điểm đã chấm và xếp theo điểm để không suy ra danh tính.
+ */
+function anonymizePeerRows(rows: GradebookRow[], selfId: string): GradebookRow[] {
+  const self = rows.filter((row) => row.learnerId === selfId);
+  const peers = rows
+    .filter((row) => row.learnerId !== selfId)
+    .sort((left, right) => right.totalPercent - left.totalPercent)
+    .map((row, index) => ({
+      ...row,
+      learnerId: `peer-${index + 1}`,
+      learnerName: "Học viên ẩn danh",
+      learnerEmail: null,
+      awaitingGrade: 0,
+      notSubmitted: 0,
+      cells: row.cells?.map((cell) => ({ ...cell, status: cell.score === null ? "NOT_SUBMITTED" as const : "GRADED" as const, attemptCount: 0 })),
+    }));
+  return [...self, ...peers];
 }
 
 /** Gom bài tập và bài thi theo lớp → bài → bài nộp cho một hàng đợi chấm duy nhất. */

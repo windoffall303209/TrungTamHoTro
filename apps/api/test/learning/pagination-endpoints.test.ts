@@ -254,8 +254,8 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
     expect(() => contentController.listQuestionsPage({ pageSize: "101" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ difficulty: "9" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ status: "UNKNOWN" }, session)).toThrow(BadRequestException);
-    expect(() => courseController.listCoursesPage({ grade: "13" })).toThrow(BadRequestException);
-    expect(() => courseController.listCoursesPage({ status: "ACTIVE" })).toThrow(BadRequestException);
+    expect(() => courseController.listCoursesPage({ grade: "13" }, session)).toThrow(BadRequestException);
+    expect(() => courseController.listCoursesPage({ status: "ACTIVE" }, session)).toThrow(BadRequestException);
     expect(() => courseController.listClassesPage({ status: "PUBLISHED" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ typeGroup: "INVALID" }, session)).toThrow(BadRequestException);
 

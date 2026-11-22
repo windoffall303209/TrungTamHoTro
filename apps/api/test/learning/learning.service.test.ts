@@ -466,6 +466,12 @@ describe("LearningService", () => {
       "manager-real",
     );
     await service.enrollLearner(classItem.id, "learner-real", "manager-real");
+    // Lớp nháp chưa hiện cho học viên dù đã ghi danh; chỉ khi kích hoạt học viên mới thấy.
+    expect((await service.listClasses("LEARNER", "learner-real")).map((item) => item.id)).not.toContain(classItem.id);
+    await service.activateClass(classItem.id, "manager-real");
+    const learnerView = (await service.listClasses("LEARNER", "learner-real")).find((item) => item.id === classItem.id);
+    expect(learnerView?.learnerIds).toEqual(["learner-real"]);
+    expect(learnerView?.learnerCount).toBe(1);
 
     expect(
       (await service.listClasses("INSTRUCTOR", "instructor-real")).map(

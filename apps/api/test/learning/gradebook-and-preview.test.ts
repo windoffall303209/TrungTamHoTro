@@ -249,6 +249,30 @@ describe.skipIf(!enabled)("Bảng điểm tổng hợp theo từng bài (điểm
     });
   });
 
+  it("học viên chỉ thấy dòng điểm của mình hoặc điểm ẩn danh của bạn, quản lý đọc được sổ điểm", async () => {
+    const managerSession: AuthenticatedSession = { ...instructorSession, sessionId: "test-mgr", roleCode: "CENTER_MANAGER", permissions: ["class:view"], user: { ...instructorSession.user, id: "usr-manager" } };
+    const original = await prisma.learningClass.findUniqueOrThrow({ where: { id: "class-web-01" }, select: { allowPeerGradeViewing: true } });
+    try {
+      await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: false } });
+      const own = await service.gradebook("class-web-01", learnerSession);
+      expect(own.map((row) => row.learnerId)).toEqual([learnerSession.user.id]);
+
+      await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: true } });
+      const shared = await service.gradebook("class-web-01", learnerSession);
+      expect(shared[0]?.learnerId).toBe(learnerSession.user.id);
+      for (const peer of shared.slice(1)) {
+        expect(peer.learnerId).toMatch(/^peer-\d+$/);
+        expect(peer.learnerEmail).toBeNull();
+        expect(peer.cells?.every((cell) => cell.attemptCount === 0 && ["GRADED", "NOT_SUBMITTED"].includes(cell.status))).toBe(true);
+      }
+
+      const managerRows = await service.gradebook("class-web-01", managerSession);
+      expect(managerRows.some((row) => row.learnerId === learnerSession.user.id && row.learnerEmail)).toBe(true);
+    } finally {
+      await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: original.allowPeerGradeViewing } });
+    }
+  });
+
   it("hỗ trợ endpoint xem trước DOCX đính kèm bài nộp sau khi kiểm tra quyền", async () => {
     const assignment = await service.createAssignment(
       "class-web-01",

@@ -45,6 +45,8 @@ export interface LearningClass {
   status: "DRAFT" | "ACTIVE" | "CLOSED";
   instructorIds: string[];
   learnerIds: string[];
+  /** Sĩ số lớp; có khi learnerIds đã được rút gọn cho học viên. */
+  learnerCount?: number;
   closeReason?: string;
   archivePolicy?: string;
   closedAt?: string;
