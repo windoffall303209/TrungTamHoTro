@@ -54,46 +54,47 @@ export class ContentController {
   @Header("Cache-Control", "no-store")
   /** Liệt kê câu hỏi riêng đã lưu, không sinh câu trả lời hoặc nhận chủ sở hữu do client cung cấp. */
   questionHistory(@Param("materialId") materialId: string, @Query() query: MaterialAiHistoryQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionHistory"]> {
+    this.assertInstructorMutation(session);
     return this.materialAi.questionHistory(materialId, query.version, session.user.id, session.roleCode, query.cursor);
   }
 
   @Post("instructor/materials/:materialId/ai-context") @RequirePermissions("material:manage")
   /** Chuẩn bị ngữ cảnh có nguồn cho tài liệu giảng viên được phép truy cập. */
-  prepareMaterialContext(@Param("materialId") materialId: string, @Body() input: MaterialAiContextDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["prepare"]> { return this.materialAi.prepare(materialId, session.user.id, session.roleCode, input.query); }
+  prepareMaterialContext(@Param("materialId") materialId: string, @Body() input: MaterialAiContextDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["prepare"]> { this.assertInstructorMutation(session); return this.materialAi.prepare(materialId, session.user.id, session.roleCode, input.query); }
 
   @Post("instructor/materials/:materialId/ai-question") @RequirePermissions("material:manage")
   @Header("Cache-Control", "no-store")
   /** Hỏi đáp tài liệu của giảng viên với trích dẫn từ đúng ngữ cảnh server đã đọc. */
-  askMaterial(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["ask"]> { return this.materialAi.ask(materialId, session.user.id, session.roleCode, input.question, input.language); }
+  askMaterial(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["ask"]> { this.assertInstructorMutation(session); return this.materialAi.ask(materialId, session.user.id, session.roleCode, input.question, input.language); }
 
   @Post("instructor/materials/:materialId/ai-question/status") @RequirePermissions("material:manage")
   @HttpCode(200) @Header("Cache-Control", "no-store")
   /** Tra cứu trạng thái chỉ đọc qua body để nội dung câu hỏi riêng không xuất hiện trong URL. */
-  questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionStatusDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language, input.version); }
+  questionStatus(@Param("materialId") materialId: string, @Body() input: MaterialAiQuestionStatusDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["questionStatus"]> { this.assertInstructorMutation(session); return this.materialAi.questionStatus(materialId, session.user.id, session.roleCode, input.question, input.language, input.version); }
 
   @Post("instructor/materials/:materialId/ai-study-guide") @RequirePermissions("material:manage")
   /** Tạo tóm tắt và thẻ ôn tập có nguồn từ học liệu giảng viên được phép xem. */
-  studyMaterial(@Param("materialId") materialId: string, @Body() input: MaterialStudyGuideDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["study"]> { return this.materialAi.study(materialId, session.user.id, session.roleCode, input); }
+  studyMaterial(@Param("materialId") materialId: string, @Body() input: MaterialStudyGuideDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["study"]> { this.assertInstructorMutation(session); return this.materialAi.study(materialId, session.user.id, session.roleCode, input); }
 
   @Get("instructor/materials/:materialId/ai-study-guides") @RequirePermissions("material:manage")
   /** Liệt kê lịch sử bộ ôn tập riêng của giảng viên, có phân trang. */
-  listStudyDrafts(@Param("materialId") materialId: string, @Query() query: StudyDraftListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["listStudyDrafts"]> { return this.materialAi.listStudyDrafts(materialId, session.user.id, session.roleCode, query.cursor); }
+  listStudyDrafts(@Param("materialId") materialId: string, @Query() query: StudyDraftListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["listStudyDrafts"]> { this.assertInstructorMutation(session); return this.materialAi.listStudyDrafts(materialId, session.user.id, session.roleCode, query.cursor); }
 
   @Get("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
   /** Mở lại bộ ôn tập đã lưu sau khi xác nhận quyền đối với phiên bản nguồn. */
-  getStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getStudyDraft"]> { return this.materialAi.getStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
+  getStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["getStudyDraft"]> { this.assertInstructorMutation(session); return this.materialAi.getStudyDraft(materialId, draftId, session.user.id, session.roleCode); }
 
   /** Chỉnh sửa bản ôn tập riêng, giữ nguồn gốc và phát hiện xung đột chỉnh sửa. */
   @Patch("instructor/materials/:materialId/ai-study-guides/:draftId") @RequirePermissions("material:manage")
-  editStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: EditStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["editStudyDraft"]> { return this.materialAi.editStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
+  editStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: EditStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["editStudyDraft"]> { this.assertInstructorMutation(session); return this.materialAi.editStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
 
   /** Phát hành snapshot đã duyệt, không gọi AI. */
   @Post("instructor/materials/:materialId/ai-study-guides/:draftId/publish") @RequirePermissions("material:manage")
-  publishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: PublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["publishStudyDraft"]> { return this.materialAi.publishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
+  publishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: PublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["publishStudyDraft"]> { this.assertInstructorMutation(session); return this.materialAi.publishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input); }
 
   /** Thu hồi quyền xem snapshot của học viên mà không xóa bản nháp riêng. */
   @Post("instructor/materials/:materialId/ai-study-guides/:draftId/unpublish") @RequirePermissions("material:manage")
-  unpublishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: UnpublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["unpublishStudyDraft"]> { return this.materialAi.unpublishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input.expectedPublicationRevision); }
+  unpublishStudyDraft(@Param("materialId") materialId: string, @Param("draftId") draftId: string, @Body() input: UnpublishStudyDraftDto, @CurrentSession() session: AuthenticatedSession): ReturnType<AiMaterialContextService["unpublishStudyDraft"]> { this.assertInstructorMutation(session); return this.materialAi.unpublishStudyDraft(materialId, draftId, session.user.id, session.roleCode, input.expectedPublicationRevision); }
 
   @Get("learner/materials/:materialId/study-guides") @RequirePermissions("material:view")
   /** Danh sách có phân trang, chỉ trả metadata của các bản phát hành có nguồn được phép xem. */

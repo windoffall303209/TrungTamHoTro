@@ -7,6 +7,7 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Chỉ đọc được dữ liệu AI của phiên bản học liệu hiện tại.": "AI data can only be read for the current material version.",
   "Học viên ẩn danh": "Anonymous learner",
   "Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.": "The user:suspend permission is required to lock or unlock accounts.",
   "Không thể tự khóa hoặc tự đổi vai trò của chính mình.": "You cannot lock your own account or change your own roles.",

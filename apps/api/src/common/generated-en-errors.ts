@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Chỉ đọc được dữ liệu AI của phiên bản học liệu hiện tại.": "AI data can only be read for the current material version.",
   "Học viên ẩn danh": "Anonymous learner",
   "Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.": "The user:suspend permission is required to lock or unlock accounts.",
   "Không thể tự khóa hoặc tự đổi vai trò của chính mình.": "You cannot lock your own account or change your own roles.",

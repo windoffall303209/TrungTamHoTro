@@ -96,17 +96,20 @@ describe("authorized material AI context", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("checks material access on both sides of historical status lookup", async () => {
+  it("checks material access on both sides of status lookup and refuses superseded versions", async () => {
     const { learning, ai, material } = fixture();
     learning.listMaterials.mockResolvedValue([{ ...material, version: 4 }]);
     const status = vi.fn().mockResolvedValue({ state: "NOT_REQUESTED" });
     const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, undefined, undefined, { status } as unknown as AiDocumentAnswerStore);
-    await service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 2);
-    expect(status).toHaveBeenCalledExactlyOnceWith({ ownerId: "teacher", materialId: material.id, version: 2, question: "Old question?", language: "EN" });
+    // Phiên bản cũ đã bị thay tệp: không đọc lại câu trả lời/trích dẫn của tệp cũ.
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 2)).rejects.toMatchObject({ status: 404 });
+    expect(status).not.toHaveBeenCalled();
+    await service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 4);
+    expect(status).toHaveBeenCalledExactlyOnceWith({ ownerId: "teacher", materialId: material.id, version: 4, question: "Old question?", language: "EN" });
     expect(learning.createMaterialAccess.mock.calls).toEqual(Array.from({ length: 2 }, () => [material.id, "INSTRUCTOR", "PREVIEW", "teacher"]));
     status.mockClear();
     learning.createMaterialAccess.mockRejectedValue(new NotFoundException("Material revoked"));
-    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 2)).rejects.toMatchObject({ status: 404 });
+    await expect(service.questionStatus(material.id, "teacher", "INSTRUCTOR", "Old question?", "EN", 4)).rejects.toMatchObject({ status: 404 });
     expect(status).not.toHaveBeenCalled();
     expect(ai.resolveTask).not.toHaveBeenCalled();
   });

@@ -13,12 +13,13 @@ import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
 export class AiMaterialContextService {
-  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
+  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
 
   /** Chỉ đọc lịch sử riêng khi vẫn có quyền truy cập học liệu nguồn được yêu cầu. */
   async questionHistory(materialId: string, version: number, actorId: string, role: string, cursor?: string): ReturnType<AiDocumentAnswerStore["list"]> {
     if (!Number.isSafeInteger(version) || version < 1) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
-    await this.requireMaterial(materialId, actorId, role);
+    const material = await this.requireMaterial(materialId, actorId, role);
+    this.assertCurrentVersion(material, version);
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     const page = await this.answers.list({ ownerId: actorId, materialId, version }, cursor);
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
@@ -30,7 +31,8 @@ export class AiMaterialContextService {
     const text = this.questionText(question, language);
     if (sourceVersion !== undefined && (!Number.isSafeInteger(sourceVersion) || sourceVersion < 1 || sourceVersion > 2147483647)) throw new BadRequestException("Phiên bản tài liệu không hợp lệ.");
     const material = await this.requireMaterial(materialId, actorId, role);
-    const version = sourceVersion ?? material.version;
+    if (sourceVersion !== undefined) this.assertCurrentVersion(material, sourceVersion);
+    const version = material.version;
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     const status = await this.answers.status({ ownerId: actorId, materialId, version, question: text, language });
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
@@ -49,6 +51,7 @@ export class AiMaterialContextService {
   async ask(materialId: string, actorId: string, role: string, question: string, language: "VI" | "EN" | "BILINGUAL"): Promise<Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number }> {
     const text = this.questionText(question, language);
     const material = await this.requireMaterial(materialId, actorId, role);
+    await this.assertWritableClass(material);
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     const identity = { ownerId: actorId, materialId, version: material.version, question: text, language };
     const previous = await this.answers.status(identity);
@@ -71,6 +74,7 @@ export class AiMaterialContextService {
   async study(materialId: string, actorId: string, role: string, options: StudyGuideOptions): Promise<SavedStudyGuide & { draftId: string }> {
     validateStudyGuideOptions(options);
     const material = await this.requireMaterial(materialId, actorId, role);
+    await this.assertWritableClass(material);
     const sourceVersion = material.version;
     const identity = { ownerId: actorId, materialId, sourceVersion, options };
     const previous = await this.drafts.find(identity);
@@ -98,14 +102,17 @@ export class AiMaterialContextService {
 
   /** Mở bản đã lưu chỉ khi người tạo vẫn được xem học liệu nguồn. */
   async getStudyDraft(materialId: string, draftId: string, actorId: string, role: string): ReturnType<AiStudyDraftService["get"]> {
-    await this.requireMaterial(materialId, actorId, role);
+    const material = await this.requireMaterial(materialId, actorId, role);
     const draft = await this.drafts.get(draftId, actorId, materialId);
+    // Bản nháp tạo từ phiên bản học liệu cũ (đã thay tệp) không còn được mở lại.
+    this.assertCurrentVersion(material, draft.sourceVersion);
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     return draft;
   }
 
   /** Chỉnh sửa chỉ sau khi xác nhận chủ bản nháp và quyền với học liệu. */
   async editStudyDraft(materialId: string, draftId: string, actorId: string, role: string, input: unknown): ReturnType<AiStudyDraftService["edit"]> {
+    await this.assertWritableClass(await this.requireMaterial(materialId, actorId, role));
     await this.getStudyDraft(materialId, draftId, actorId, role);
     return this.drafts.edit(draftId, actorId, materialId, input);
   }
@@ -113,14 +120,16 @@ export class AiMaterialContextService {
   /** Chỉ phát hành bản đã duyệt từ phiên bản hiện tại của học liệu đang công khai cho lớp. */
   async publishStudyDraft(materialId: string, draftId: string, actorId: string, role: string, input: PublishStudyDraft): ReturnType<AiStudyDraftService["publish"]> {
     const material = await this.requireMaterial(materialId, actorId, role);
-    const draft = await this.getStudyDraft(materialId, draftId, actorId, role);
+    await this.assertWritableClass(material);
+    const draft = await this.drafts.get(draftId, actorId, materialId);
     if (material.visibility !== "PUBLISHED" || material.version !== draft.sourceVersion) throw new ConflictException("Cần phát hành phiên bản học liệu hiện tại trước khi phát hành bộ ôn tập tương ứng.");
+    await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     return this.drafts.publish(draftId, actorId, materialId, input);
   }
 
   /** Chủ bản nháp có thể thu hồi ngay cả khi học liệu đã ẩn hoặc nguồn không còn tải được. */
   async unpublishStudyDraft(materialId: string, draftId: string, actorId: string, role: string, revision: number): ReturnType<AiStudyDraftService["unpublish"]> {
-    await this.requireMaterial(materialId, actorId, role);
+    await this.assertWritableClass(await this.requireMaterial(materialId, actorId, role));
     return this.drafts.unpublish(draftId, actorId, materialId, revision);
   }
 
@@ -131,9 +140,11 @@ export class AiMaterialContextService {
     const page = await this.drafts.listPublished(materialId, cursor);
     try {
       await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
-      return page;
+      // Chỉ liệt kê bộ ôn tập của phiên bản học liệu hiện tại; bản của tệp cũ đã thay thế không còn hiển thị.
+      return { ...page, items: page.items.filter((item) => item.sourceVersion === material.version) };
     } catch (error) {
-      if (error instanceof HttpException && [403, 404].includes(error.getStatus())) return { ...page, items: [] };
+      // Bị từ chối quyền thì không trả cả nextCursor để không lộ sự tồn tại của các bản đã phát hành.
+      if (error instanceof HttpException && [403, 404].includes(error.getStatus())) return { items: [], nextCursor: null };
       throw error;
     }
   }
@@ -143,6 +154,7 @@ export class AiMaterialContextService {
     const material = await this.requireMaterial(materialId, actorId, role);
     if (material.visibility !== "PUBLISHED") throw new NotFoundException("Không tìm thấy bộ ôn tập đã phát hành.");
     const published = await this.drafts.getPublished(draftId, materialId);
+    this.assertCurrentVersion(material, published.sourceVersion);
     await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
     return published;
   }
@@ -150,6 +162,7 @@ export class AiMaterialContextService {
   /** Kiểm tra quyền mỗi lần, kể cả cache hit; không nhận object key hoặc nguồn ngoài từ client. */
   async prepare(materialId: string, actorId: string, role: string, query?: string, requireAnswerModel = false, expectedVersion?: number): Promise<{ materialId: string; version: number; checksum: string; chunks: ContextChunk[]; cached: boolean; warning: string }> {
     const material = await this.requireMaterial(materialId, actorId, role);
+    await this.assertWritableClass(material);
     if (expectedVersion !== undefined && material.version !== expectedVersion) throw new ConflictException("Phiên bản tài liệu đã thay đổi. Hãy tải lại tài liệu trước khi tạo bộ ôn tập.");
     // Xác nhận đủ model trước khi trích xuất có phí, nhưng không tiết lộ cấu hình trước kiểm tra quyền.
     if (requireAnswerModel) await this.ai.resolveTask("DOCUMENT_QA");
@@ -164,6 +177,18 @@ export class AiMaterialContextService {
     await this.learning.createMaterialAccess(material.id, role, "PREVIEW", actorId);
     const chunks = chunkDocument({ materialId, version: material.version, checksum, name: material.name }, pages);
     return { materialId, version: material.version, checksum, chunks: query ? retrieveDocumentContext(query, chunks) : chunks, cached, warning: "Nội dung được AI trích xuất, cần đối chiếu tài liệu gốc; số trang và độ chính xác chưa được xác minh độc lập." };
+  }
+
+  /** Dữ liệu AI (lịch sử hỏi đáp, bộ ôn tập) chỉ được đọc theo phiên bản hiện tại của học liệu. */
+  private assertCurrentVersion(material: LearningMaterial, version: number): void {
+    if (version !== material.version) throw new NotFoundException("Chỉ đọc được dữ liệu AI của phiên bản học liệu hiện tại.");
+  }
+
+  /** Chặn thao tác sinh/sửa/phát hành AI trên học liệu của lớp đã đóng (lớp lưu trữ chỉ cho phép đọc). */
+  private async assertWritableClass(material: LearningMaterial): Promise<void> {
+    if (!material.classId || !this.prisma?.isStartupConnectionEnabled()) return;
+    const classItem = await this.prisma.learningClass.findUnique({ where: { id: material.classId }, select: { status: true } });
+    if (classItem?.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   }
 
   /** Xác nhận quyền hiện tại và trạng thái cách ly trước khi đọc cache hoặc metadata bản nháp. */
