@@ -7,6 +7,7 @@ import { LearningService } from "../../src/domains/learning/core/learning.servic
 import { AiGenerationRequestService } from "../../src/domains/learning/ai/ai-generation-request.service.js";
 import type { GeneratedExamDraft } from "../../src/domains/system/ai/ai-provider.service.js";
 import type { AiGeneratedExamResult } from "../../src/domains/learning/core/learning.types.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 
@@ -32,7 +33,7 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
       await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
       const notices = await prisma.notification.findMany({ where: { recipientId: fixture }, select: { id: true } });
       await prisma.outboxDelivery.deleteMany({ where: { id: { in: notices.map(({ id }) => "delivery:email:" + id) } } });
-      await prisma.auditLog.deleteMany({ where: { actorId: fixture } });
+      await deleteTestAuditLogs(prisma, { actorId: fixture });
       await prisma.exam.deleteMany({ where: { classId: fixture } });
       await prisma.question.deleteMany({ where: { courseId: fixture } });
       await prisma.learningClass.deleteMany({ where: { id: fixture } });

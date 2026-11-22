@@ -56,7 +56,7 @@ suite("Submit attempt bulk scoring on dedicated test database", () => {
     });
 
     // Học viên bất kỳ có thể chưa ghi danh lớp của đề nên chốt bài theo đường hệ thống (như tiến trình nộp quá hạn).
-    const submitted = await learning.submitAttempt(attemptId, learner.id, "SYSTEM");
+    await learning.submitAttempt(attemptId, learner.id, "SYSTEM");
 
     const answers = await prisma.attemptAnswer.findMany({ where: { attemptId } });
     // Đọc điểm đã lưu trong attempt_answers của một câu theo questionId.
@@ -64,6 +64,8 @@ suite("Submit attempt bulk scoring on dedicated test database", () => {
     expect(scoreOf(correctItem!.questionId)).toBe(Number(correctItem!.score));
     if (wrongItem) expect(scoreOf(wrongItem.questionId)).toBe(0);
     const total = answers.reduce((sum, item) => sum + Number(item.score ?? 0), 0);
-    expect(submitted.score).toBe(total);
+    // So với điểm lưu trong DB vì phản hồi cho học viên ẩn điểm khi đề còn câu tự luận chờ chấm.
+    const stored = await prisma.examAttempt.findUniqueOrThrow({ where: { id: attemptId }, select: { score: true } });
+    expect(Number(stored.score)).toBe(total);
   });
 });

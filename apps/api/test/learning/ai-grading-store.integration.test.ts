@@ -6,6 +6,7 @@ import { PrismaService } from "../../src/database/prisma.service.js";
 import { AiGradingStoreService, type SavedGradingSuggestion } from "../../src/domains/learning/ai/ai-grading-store.service.js";
 import { AiGradingOperationsService } from "../../src/domains/learning/ai/ai-grading-operations.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const contextHash = "a".repeat(64);
@@ -32,7 +33,7 @@ describe.skipIf(!enabled)("Grading claims on dedicated PostgreSQL test database"
   // Xóa đúng bài tập fixture và các bản ghi phụ thuộc qua cascade.
   afterAll(async () => {
     if (prisma) {
-      if (retryClaimId) await prisma.auditLog.deleteMany({ where: { entityId: retryClaimId, action: "AI_GRADING_RETRY_AUTHORIZED" } });
+      if (retryClaimId) await deleteTestAuditLogs(prisma, { entityId: retryClaimId, action: "AI_GRADING_RETRY_AUTHORIZED" });
       await prisma.assignment.deleteMany({ where: { id: assignmentId } });
     }
     if (moduleRef) await moduleRef.close();

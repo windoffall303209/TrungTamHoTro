@@ -1,4 +1,4 @@
-import { createHash, scryptSync } from "node:crypto";
+import { createHash, randomBytes, scryptSync } from "node:crypto";
 import { config } from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
@@ -7,13 +7,22 @@ import { seedDemoData } from "./demo-data.mjs";
 
 config({ path: new URL("../../../.env", import.meta.url) });
 
+const production = process.env.NODE_ENV === "production";
 const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
-if (!defaultPassword || defaultPassword.length < 12) throw new Error("SEED_DEFAULT_PASSWORD phải có ít nhất 12 ký tự.");
+// Production không bao giờ dùng mật khẩu mẫu chung: chỉ bootstrap quyền/vai trò và một admin tạm khi chưa có admin.
+if (production && defaultPassword) throw new Error("Không dùng SEED_DEFAULT_PASSWORD trên production; hãy gỡ biến này trước khi chạy seed.");
+if (!production && (!defaultPassword || defaultPassword.length < 12)) throw new Error("SEED_DEFAULT_PASSWORD phải có ít nhất 12 ký tự.");
 
 const adapter = new PrismaPg({ connectionString: buildDatabaseUrl(process.env), max: 4 });
 const prisma = new PrismaClient({ adapter });
-const seedPasswordSalt = "wind-edu-seed-v1";
-const passwordHash = `scrypt:${seedPasswordSalt}:${scryptSync(defaultPassword, seedPasswordSalt, 64).toString("hex")}`;
+
+/** Băm mật khẩu bằng scrypt với salt ngẫu nhiên riêng cho từng tài khoản, cùng định dạng với src/auth/password.ts. */
+function hashSeedPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  return `scrypt:${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+}
+/** Mỗi lần gọi trả một hash mới của mật khẩu mẫu để hai tài khoản không bao giờ chung hash. */
+const passwordHashFor = () => hashSeedPassword(defaultPassword);
 /** Chuẩn hóa nội dung rồi tạo mã băm để nhận diện câu hỏi mẫu trùng nhau. */
 const questionHash = (content) => createHash("sha256").update(content.trim().replace(/\s+/g, " ").toLowerCase()).digest("hex");
 
@@ -26,14 +35,39 @@ const roleMatrix = {
 };
 const roleNames = { SYSTEM_ADMIN: "Quản trị hệ thống", CENTER_MANAGER: "Quản lý trung tâm", INSTRUCTOR: "Giảng viên", LEARNER: "Học viên" };
 
+/**
+ * Production chỉ tạo một tài khoản quản trị tạm ở trạng thái PENDING khi hệ thống chưa có admin nào; mật khẩu tạm
+ * ngẫu nhiên in ra một lần và người nhận phải xác thực email + đặt mật khẩu mới ở lần đăng nhập đầu tiên.
+ */
+async function bootstrapProductionAdmin() {
+  const existingAdmin = await prisma.user.findFirst({ where: { roles: { some: { role: { code: "SYSTEM_ADMIN" } } } }, select: { id: true } });
+  if (existingAdmin) {
+    console.log("Đã có tài khoản SYSTEM_ADMIN; seed production không tạo hay sửa tài khoản nào.");
+    return;
+  }
+  const temporaryPassword = `${randomBytes(18).toString("base64url")}!9a`;
+  const role = await prisma.role.findUniqueOrThrow({ where: { code: "SYSTEM_ADMIN" } });
+  const username = `admin-${randomBytes(4).toString("hex")}`;
+  await prisma.user.create({ data: { username, displayName: username, status: "PENDING", passwordHash: hashSeedPassword(temporaryPassword), roles: { create: { roleId: role.id } } } });
+  console.log(`Đã tạo tài khoản quản trị tạm: ${username}`);
+  console.log(`Mật khẩu tạm (chỉ hiển thị một lần, hãy đăng nhập và hoàn tất xác thực ngay): ${temporaryPassword}`);
+}
+
 /** Khởi tạo quyền, vai trò, tài khoản và dữ liệu nền trong cơ sở dữ liệu đã cấu hình. */
 async function seed() {
   for (const code of permissions) await prisma.permission.upsert({ where: { code }, update: {}, create: { code, description: `Quyền ${code}` } });
   for (const [code, name] of Object.entries(roleNames)) {
+    const existing = await prisma.role.findUnique({ where: { code }, select: { id: true } });
     const role = await prisma.role.upsert({ where: { code }, update: { name }, create: { code, name, description: `Vai trò ${name}` } });
+    // Production giữ nguyên ma trận quyền quản trị viên đã chỉnh; chỉ vai trò mới tạo nhận ma trận mặc định.
+    if (production && existing) continue;
     const permissionRows = await prisma.permission.findMany({ where: { code: { in: roleMatrix[code] } }, select: { id: true } });
     await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     await prisma.rolePermission.createMany({ data: permissionRows.map(({ id }) => ({ roleId: role.id, permissionId: id })) });
+  }
+  if (production) {
+    await bootstrapProductionAdmin();
+    return;
   }
   const users = [
     { id: "usr-admin", username: "admin@wind.edu.vn", email: "admin@wind.edu.vn", displayName: "Wind Of Fall", role: "SYSTEM_ADMIN" },
@@ -42,7 +76,8 @@ async function seed() {
     { id: "usr-learner", username: "learner@wind.edu.vn", email: "learner@wind.edu.vn", displayName: "Lê Hoàng Nam", role: "LEARNER" },
   ];
   for (const input of users) {
-    const user = await prisma.user.upsert({ where: { email: input.email }, update: { username: input.username, displayName: input.displayName, status: "ACTIVE", emailVerifiedAt: new Date(), passwordHash }, create: { id: input.id, username: input.username, email: input.email, displayName: input.displayName, emailVerifiedAt: new Date(), passwordHash } });
+    // Chạy lại seed không đặt lại mật khẩu/trạng thái của tài khoản đã có (không mở khóa admin bị khóa).
+    const user = await prisma.user.upsert({ where: { email: input.email }, update: { username: input.username, displayName: input.displayName }, create: { id: input.id, username: input.username, email: input.email, displayName: input.displayName, emailVerifiedAt: new Date(), passwordHash: passwordHashFor() } });
     const role = await prisma.role.findUniqueOrThrow({ where: { code: input.role } });
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   }
@@ -99,7 +134,7 @@ async function seed() {
   const baselineAudit = await prisma.auditLog.findFirst({ where: { action: "DATABASE_SEEDED", entityType: "platform", entityId: "wind-edu" } });
   if (!baselineAudit) await prisma.auditLog.create({ data: { actorId: "usr-admin", action: "DATABASE_SEEDED", entityType: "platform", entityId: "wind-edu", context: { courseCode: course.code, classCode: learningClass.code } } });
 
-  const summary = await seedDemoData({ prisma, passwordHash, questionHash });
+  const summary = await seedDemoData({ prisma, passwordHashFor, questionHash });
   console.table(summary);
 }
 

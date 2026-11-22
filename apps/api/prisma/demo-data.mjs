@@ -48,7 +48,7 @@ const questionTemplates = [
 ];
 
 /** Khởi tạo dữ liệu minh họa liên kết giữa tài khoản, lớp và các nghiệp vụ của trung tâm. */
-export async function seedDemoData({ prisma, passwordHash, questionHash }) {
+export async function seedDemoData({ prisma, passwordHashFor, questionHash }) {
   const roles = new Map((await prisma.role.findMany()).map((role) => [role.code, role.id]));
   const manager = await prisma.user.findUniqueOrThrow({ where: { email: "manager@wind.edu.vn" } });
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@wind.edu.vn" } });
@@ -73,8 +73,8 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
   for (const input of instructorInputs) {
     const user = await prisma.user.upsert({
       where: { email: input.email },
-      update: { username: input.username, displayName: input.displayName, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
-      create: { ...input, phone: `0908${pad(instructorIds.length + 1, 6)}`, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
+      update: { username: input.username, displayName: input.displayName },
+      create: { ...input, phone: `0908${pad(instructorIds.length + 1, 6)}`, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash: passwordHashFor() },
     });
     instructorIds.push(user.id);
   }
@@ -82,15 +82,15 @@ export async function seedDemoData({ prisma, passwordHash, questionHash }) {
   for (const input of learnerInputs) {
     const user = await prisma.user.upsert({
       where: { email: input.email },
-      update: { username: input.username, displayName: input.displayName, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
-      create: { ...input, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
+      update: { username: input.username, displayName: input.displayName },
+      create: { ...input, status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash: passwordHashFor() },
     });
     learnerIds.push(user.id);
   }
   const emptyLearner = await prisma.user.upsert({
     where: { email: "empty.learner@wind.edu.vn" },
-    update: { username: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh", status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
-    create: { id: "demo-learner-empty", username: "empty.learner@wind.edu.vn", email: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh", status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash },
+    update: { username: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh" },
+    create: { id: "demo-learner-empty", username: "empty.learner@wind.edu.vn", email: "empty.learner@wind.edu.vn", displayName: "Học viên Chưa Ghi Danh", status: "ACTIVE", emailVerifiedAt: ANCHOR, passwordHash: passwordHashFor() },
   });
   await createMany(prisma.userRole, [
     ...instructorIds.map((userId) => ({ userId, roleId: roles.get("INSTRUCTOR") })),

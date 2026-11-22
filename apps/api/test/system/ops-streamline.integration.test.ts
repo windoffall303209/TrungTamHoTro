@@ -10,6 +10,7 @@ import { SystemController } from "../../src/domains/system/core/system.controlle
 import { SystemService } from "../../src/domains/system/core/system.service.js";
 import { EmailDeliveryService } from "../../src/infrastructure/email-delivery.service.js";
 import { OutboxDeliveryService } from "../../src/infrastructure/outbox-delivery.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 describe("System streamline and merged outbox integration", () => {
   let moduleRef: TestingModule;
@@ -62,7 +63,7 @@ describe("System streamline and merged outbox integration", () => {
       });
     }
     if (createdAuditIds.length) {
-      await prisma.auditLog.deleteMany({ where: { id: { in: createdAuditIds } } });
+      await deleteTestAuditLogs(prisma, { id: { in: createdAuditIds } });
     }
     if (previousPlatformSetting) {
       await prisma.systemSetting.upsert({

@@ -6,6 +6,7 @@ import { hashPassword } from "../../src/auth/password.js";
 import { HttpExceptionFilter } from "../../src/common/http-exception.filter.js";
 import { ResponseInterceptor } from "../../src/common/response.interceptor.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const fixtureSuffix = `${process.pid}-${Date.now().toString(36)}`;
 const password = "E2e-Identity-2026!";
@@ -260,7 +261,7 @@ describe("Cô lập danh tính qua API và PostgreSQL", () => {
       expect(audits.every((row) => row.actorId === ids.admin)).toBe(true);
       expect(JSON.stringify(audits.map((row) => row.context))).not.toContain("TempAudit-2026!");
     } finally {
-      await prisma.auditLog.deleteMany({ where: { entityType: "user", entityId: createdUserId } });
+      await deleteTestAuditLogs(prisma, { entityType: "user", entityId: createdUserId });
       await prisma.user.deleteMany({ where: { id: createdUserId } });
     }
   });
@@ -393,6 +394,6 @@ async function cleanupFixture(prisma: PrismaService): Promise<void> {
   await prisma.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
   await prisma.learningClass.deleteMany({ where: { id: { in: classIds } } });
   await prisma.course.deleteMany({ where: { id: { in: courseIds } } });
-  await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+  await deleteTestAuditLogs(prisma, { actorId: { in: userIds } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 }

@@ -8,6 +8,7 @@ import { AiGradingOperationsService } from "../../src/domains/learning/ai/ai-gra
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import type { GeneratedExamDraft } from "../../src/domains/system/ai/ai-provider.service.js";
 import type { AiGeneratedExamResult } from "../../src/domains/learning/core/learning.types.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const prepared = { courseId: "fixture-course", generated: { model: "mock" } as GeneratedExamDraft };
@@ -31,7 +32,7 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
   // Chỉ dọn các claim do định danh fixture độc lập của lượt test này tạo.
   afterAll(async () => {
     if (prisma) {
-      await prisma.auditLog.deleteMany({ where: { actorId: adminId } });
+      await deleteTestAuditLogs(prisma, { actorId: adminId });
       await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [owner, adminId] }, key: { startsWith: "ai-generation" } } });
       await prisma.user.deleteMany({ where: { id: adminId } });
     }

@@ -6,6 +6,7 @@ import { PrismaService } from "../../src/database/prisma.service.js";
 import { AiStudyDraftService, type SavedStudyGuide } from "../../src/domains/learning/ai/ai-study-draft.service.js";
 import { AiGradingOperationsService } from "../../src/domains/learning/ai/ai-grading-operations.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const result: SavedStudyGuide = { insufficientContext: true, summary: [], flashcards: [], version: 1, warning: "Integration fixture", coverage: { totalChunks: 1, selectedChunks: 1, selectedPages: [1], partial: false, fromPage: null, toPage: null } };
@@ -31,7 +32,7 @@ describe.skipIf(!enabled)("Study draft persistence on dedicated PostgreSQL test 
   // Xóa đúng tài liệu fixture cùng bản nháp cascade; giữ nguyên mọi dữ liệu seed và học liệu khác.
   afterAll(async () => {
     if (prisma) {
-      if (retryClaimId) await prisma.auditLog.deleteMany({ where: { entityId: retryClaimId, action: "AI_STUDY_RETRY_AUTHORIZED" } });
+      if (retryClaimId) await deleteTestAuditLogs(prisma, { entityId: retryClaimId, action: "AI_STUDY_RETRY_AUTHORIZED" });
       await prisma.material.deleteMany({ where: { id: materialId } });
     }
     if (moduleRef) await moduleRef.close();

@@ -6,6 +6,7 @@ import { PrismaService } from "../../src/database/prisma.service.js";
 import { AiDocumentAnswerStore } from "../../src/domains/learning/ai/ai-document-answer-store.js";
 import { AiGradingOperationsService } from "../../src/domains/learning/ai/ai-grading-operations.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
@@ -20,7 +21,7 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   afterAll(async () => {
     if (prisma) {
       const rows = await prisma.systemSetting.findMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } }, select: { key: true } });
-      await prisma.auditLog.deleteMany({ where: { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: { in: rows.map((row) => row.key.slice(14)) } } });
+      await deleteTestAuditLogs(prisma, { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: { in: rows.map((row) => row.key.slice(14)) } });
       await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } } });
     }
     await moduleRef?.close();

@@ -29,7 +29,11 @@ try {
   finish(1);
 }
 
-if (seedPassword.length >= 12) record("SEED_DEFAULT_PASSWORD", "PASSED", `Đã cấu hình ${seedPassword.length} ký tự.`);
+if (process.env.NODE_ENV === "production") {
+  // Production không dùng mật khẩu mẫu: seed chỉ bootstrap admin tạm có mật khẩu ngẫu nhiên.
+  if (seedPassword) record("SEED_DEFAULT_PASSWORD", "FAILED", "Không đặt SEED_DEFAULT_PASSWORD trên production.");
+  else record("SEED_DEFAULT_PASSWORD", "PASSED", "Không dùng trên production.");
+} else if (seedPassword.length >= 12) record("SEED_DEFAULT_PASSWORD", "PASSED", `Đã cấu hình ${seedPassword.length} ký tự.`);
 else record("SEED_DEFAULT_PASSWORD", "FAILED", `Cần ít nhất 12 ký tự; hiện có ${seedPassword.length}.`);
 
 let connection;

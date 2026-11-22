@@ -6,6 +6,7 @@ import { PrismaService } from "../../src/database/prisma.service.js";
 import { AiDocumentExtractionStore } from "../../src/domains/learning/ai/ai-document-extraction-store.js";
 import { AiGradingOperationsService } from "../../src/domains/learning/ai/ai-grading-operations.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
+import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 describe.skipIf(!enabled)("Durable extraction on PostgreSQL", () => {
@@ -19,7 +20,7 @@ describe.skipIf(!enabled)("Durable extraction on PostgreSQL", () => {
   // Chỉ xóa đúng khóa dữ liệu của lần chạy này, không xóa bộ đệm của ứng dụng.
   afterAll(async () => {
     if (prisma) {
-      await prisma.auditLog.deleteMany({ where: { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: keys[6]!.slice(7) } });
+      await deleteTestAuditLogs(prisma, { action: "AI_DOCUMENT_EXTRACTION_RETRY_AUTHORIZED", entityId: keys[6]!.slice(7) });
       await prisma.systemSetting.deleteMany({ where: { updatedBy: ownerId, key: { in: keys } } });
     }
     await moduleRef?.close();
