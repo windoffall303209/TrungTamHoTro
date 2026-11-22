@@ -24,6 +24,7 @@ import type {
   TicketComment,
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { assertSafeUpload } from "../../../../infrastructure/file-signature.js";
 
 /** Kiểm tra chuyển trạng thái và người xử lý thống nhất giữa hai chế độ lưu trữ. */
 function assertTicketTransition(
@@ -350,6 +351,7 @@ export async function addSupportAttachment(
 ): Promise<SupportAttachment> {
   const canManage = serviceContext.canManageSupport(role);
   serviceContext.validateSupportUpload(upload);
+  await assertSafeUpload(upload);
   const quarantineReason = await serviceContext.scanUpload(upload);
   if (quarantineReason)
     throw new BadRequestException(

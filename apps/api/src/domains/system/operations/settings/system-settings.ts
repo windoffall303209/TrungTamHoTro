@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { assertNoActiveContentMimeTypes } from "../../../../infrastructure/file-signature.js";
 import { defaultSettings, SystemSettings } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
@@ -55,6 +56,7 @@ export async function updateSettings(
     throw new BadRequestException(
       "Quota lưu trữ phải từ 100 đến 1.000.000 MB.",
     );
+  if (input.allowedMimeTypes) assertNoActiveContentMimeTypes(input.allowedMimeTypes);
   if (input.timezone) {
     try {
       new Intl.DateTimeFormat("vi-VN", { timeZone: input.timezone }).format();

@@ -242,12 +242,13 @@ describe("Gradebook UI, question parser, document viewer, and essay review page"
   });
 
   it("hỗ trợ xem trước ảnh (zoom/xoay), PDF và DOCX (tìm từ khóa, chỉnh cỡ chữ) trong DocumentRichViewer", async () => {
+    // Máy chủ trả đúng kiểu nội dung theo tệp; trình xem chỉ hiển thị khi kiểu khớp ảnh raster/PDF.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
+      vi.fn().mockImplementation((url: string) => Promise.resolve({
         ok: true,
-        blob: async () => new Blob(["binary"], { type: "image/png" }),
-      }),
+        blob: async () => new Blob(["binary"], { type: String(url).includes("att-pdf") ? "application/pdf" : "image/png" }),
+      })),
     );
 
     const { rerender } = render(

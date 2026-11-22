@@ -11,6 +11,7 @@ import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-
 import { apiRequest } from "@/lib/api-client";
 import type { LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { safeExternalUrl } from "@/lib/safe-content";
 
 interface Summary {
   session: LiveSession;
@@ -99,7 +100,9 @@ export default function LearningHistoryPage() {
       const resolved = await apiRequest<{ recordingUrl: string }>(access.url, {
         roleCode: session.roleCode,
       });
-      window.open(resolved.recordingUrl, "_blank", "noopener,noreferrer");
+      const recordingUrl = safeExternalUrl(resolved.recordingUrl);
+      if (!recordingUrl) throw new Error("Liên kết bản ghi không hợp lệ.");
+      window.open(recordingUrl, "_blank", "noopener,noreferrer");
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không mở được bản ghi.",

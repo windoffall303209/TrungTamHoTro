@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, StreamableFile } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query, StreamableFile } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
@@ -19,6 +19,7 @@ import {
 } from "./system.service.js";
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "../ai/ai-provider.service.js";
 import { OutboxDeliveryService } from "../../../infrastructure/outbox-delivery.service.js";
+import { USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
 class ConfigureAiTaskDto {
   @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
@@ -86,7 +87,7 @@ export class SystemController {
   /** Chạy xuất dữ liệu theo danh mục và định dạng. */
   @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto, @CurrentSession() session: AuthenticatedSession): Promise<DataExport> { return this.system.runExport(input.category, input.format, session.user.id); }
   /** Stream tệp export còn hạn sau khi xác minh checksum tại thời điểm tải. */
-  @Get("exports/:exportId/download") @RequirePermissions("system:configure") async downloadExport(@Param("exportId") exportId: string): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: `attachment; filename="${file.filename}"` }); }
+  @Get("exports/:exportId/download") @RequirePermissions("system:configure") @Header("Content-Security-Policy", USER_FILE_CSP) async downloadExport(@Param("exportId") exportId: string): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: `attachment; filename="${file.filename}"` }); }
   /** Tìm audit theo từ khóa, actor, action, target và khoảng thời gian. */
   @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string, @Query("actor") actor?: string, @Query("action") action?: string, @Query("target") target?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<AuditEvent[]> { return this.system.listAudit({ query, actor, action, target, from, to }); }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -11,6 +11,7 @@ import { fileContentDisposition, normalizeMultipartFileName } from "../../../inf
 import { AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreatePostDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto, CreateProgressInterventionDto, CreateTopicDto, ModerateTopicDto, ProgressQueryDto, TransferProgressInterventionDto, TransitionSessionDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto } from "../core/learning.dto.js";
 import { LearningService, type ForumPostPageResult } from "../core/learning.service.js";
 import type { ClassProgressReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ProgressIntervention, SupportAttachment, SupportTicket, TicketComment } from "../core/learning.types.js";
+import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
 @ApiTags("Forum, Live Class & Support")
 @Controller()
@@ -228,11 +229,11 @@ export class EngagementController {
     return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
   }
 
-  @Get("support/tickets/:ticketId/attachments/:attachmentId") @RequireAuthentication()
+  @Get("support/tickets/:ticketId/attachments/:attachmentId") @RequireAuthentication() @Header("Content-Security-Policy", USER_FILE_CSP)
   /** Đọc bằng chứng sau khi service kiểm tra người gửi hoặc quyền quản lý hỗ trợ. */
   async readSupportAttachment(@Param("ticketId") ticketId: string, @Param("attachmentId") attachmentId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
     const file = await this.learning.readSupportAttachment(ticketId, attachmentId, session.roleCode, session.user.id);
-    return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition("inline", normalizeMultipartFileName(file.fileName)), length: file.buffer.length });
+    return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition(isInlineSafeMime(file.mimeType) ? "inline" : "attachment", normalizeMultipartFileName(file.fileName)), length: file.buffer.length });
   }
 
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")

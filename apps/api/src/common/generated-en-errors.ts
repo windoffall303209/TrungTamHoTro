@@ -1,5 +1,10 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Tệp DOCX chứa khai báo XML không an toàn.": "The DOCX file contains unsafe XML declarations.",
+  "Tệp DOCX chứa liên kết ngoài không được phép.": "The DOCX file contains disallowed external links.",
+  "Tệp DOCX chứa macro không được phép.": "The DOCX file contains macros, which are not allowed.",
+  "Không được cho phép định dạng có thể chứa script (HTML, SVG, XML, JavaScript).": "Formats that can contain scripts (HTML, SVG, XML, JavaScript) cannot be allowed.",
+  "Nội dung tệp không khớp định dạng đã khai báo.": "The file content does not match its declared format.",
   "Chỉ đọc được dữ liệu AI của phiên bản học liệu hiện tại.": "AI data can only be read for the current material version.",
   "Học viên ẩn danh": "Anonymous learner",
   "Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.": "The user:suspend permission is required to lock or unlock accounts.",

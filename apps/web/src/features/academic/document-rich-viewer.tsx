@@ -18,6 +18,7 @@ import {
 import { apiRequest, downloadApiFile, publicApiUrl } from "@/lib/api-client";
 import type { AssignmentSubmission, AttachmentDocumentPreview } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { isSafePreviewImage, safePreviewBlob, sanitizePreviewHtml } from "@/lib/safe-content";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DOC_MIME = "application/msword";
@@ -169,10 +170,14 @@ function DocumentRichViewerContent({
         if (!response.ok) throw new Error("Không tải được dữ liệu xem trước tệp.");
         const blob = await response.blob();
         if (controller.signal.aborted) return;
-        createdObjectUrl = URL.createObjectURL(blob);
+        const mode = previewType === "image" ? "image" : "pdf";
+        // Không tin đuôi tệp: chỉ hiển thị khi máy chủ trả đúng ảnh raster/PDF, và ép kiểu blob để HTML/SVG không render cùng origin.
+        if (mode === "image" ? !isSafePreviewImage(blob.type) : blob.type.split(";", 1)[0] !== "application/pdf")
+          throw new Error("Định dạng này chỉ hỗ trợ tải xuống.");
+        createdObjectUrl = URL.createObjectURL(safePreviewBlob(blob));
         setBlobPreview({
           url: createdObjectUrl,
-          mode: previewType === "image" ? "image" : "pdf",
+          mode,
         });
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -469,7 +474,7 @@ function DocumentRichViewerContent({
                   ref={docHtmlContainerRef}
                   className="space-y-3 text-slate-800 dark:text-slate-100 leading-relaxed [&_h1]:text-xl [&_h1]:font-extrabold [&_h2]:text-lg [&_h2]:font-bold [&_h3]:text-base [&_h3]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:dark:bg-slate-800 [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_td]:border [&_td]:border-slate-300 [&_td]:dark:border-slate-700 [&_td]:px-3 [&_td]:py-1.5 [&_img]:max-w-full [&_img]:rounded-lg [&_blockquote]:border-l-4 [&_blockquote]:border-sky-400 [&_blockquote]:pl-3 [&_blockquote]:italic"
                   style={{ fontSize: `${docFontSize}px` }}
-                  dangerouslySetInnerHTML={{ __html: docPreview.html }}
+                  dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(docPreview.html) }}
                 />
               ) : (
                 <HighlightedText

@@ -3,6 +3,7 @@ import type { ChatDirectoryEntry } from "@/lib/learning-types";
 import { ImageOff, LoaderCircle, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { isSafePreviewImage, safePreviewBlob } from "@/lib/safe-content";
 
 export const roleLabels: Record<ChatDirectoryEntry["roleCode"], string> = {
   SYSTEM_ADMIN: "Quản trị hệ thống",
@@ -44,11 +45,11 @@ export function InlineChatImage({
       .then(async (response) => {
         if (!response.ok) throw new Error("image-preview-failed");
         const blob = await response.blob();
-        if (!blob.type.startsWith("image/"))
+        if (!isSafePreviewImage(blob.type))
           throw new Error("invalid-image-preview");
         // Không tạo URL sau khi ảnh hoặc hội thoại đã rời khỏi màn hình.
         if (!active) return;
-        objectUrl = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(safePreviewBlob(blob));
         setImageUrl(objectUrl);
       })
       .catch((error: unknown) => {

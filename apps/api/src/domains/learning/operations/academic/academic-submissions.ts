@@ -26,6 +26,7 @@ import {
 import type { AcademicServiceContext } from "../../academic/academic.context.js";
 
 import type { Prisma } from "../../../../generated/prisma/client.js";
+import { assertSafeUpload } from "../../../../infrastructure/file-signature.js";
 
 // Khóa các bản ghi bài tập, lớp học và ghi danh hợp lệ trước khi cập nhật bài nộp.
 async function lockOpenAssignment(
@@ -82,6 +83,8 @@ export async function submitAssignment(
   if (session.roleCode !== "LEARNER")
     throw new ForbiddenException("Chỉ học viên được nộp bài.");
   serviceContext.validateAssignmentFiles(files);
+  // DOCX chỉ được kiểm 2 byte "PK" ở bước trên; kiểm sâu cấu trúc nén, XML và macro trước khi lưu.
+  for (const file of files) await assertSafeUpload(file);
   const assignment = await serviceContext.prisma.assignment.findUnique({
     where: { id: assignmentId },
     include: {

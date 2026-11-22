@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
   Param,
   Patch,
@@ -27,6 +28,7 @@ import type {
   ChatMessageView,
 } from "./chat.types.js";
 import type { Observable } from "rxjs";
+import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
 @ApiTags("Chat")
 @Controller("chat")
@@ -156,7 +158,7 @@ export class ChatController {
   }
 
   /** Mở hoặc tải một tệp chat sau khi kiểm tra membership và thời điểm rời nhóm. */
-  @Get("messages/:messageId/attachments/:attachmentId") async attachment(
+  @Get("messages/:messageId/attachments/:attachmentId") @Header("Content-Security-Policy", USER_FILE_CSP) async attachment(
     @Param("messageId") messageId: string,
     @Param("attachmentId") attachmentId: string,
     @Query("action") action: string,
@@ -167,11 +169,7 @@ export class ChatController {
       attachmentId,
       session,
     );
-    const inline =
-      action === "preview" &&
-      (file.mimeType === "application/pdf" ||
-        file.mimeType.startsWith("image/") ||
-        file.mimeType.startsWith("audio/"));
+    const inline = action === "preview" && isInlineSafeMime(file.mimeType);
     return new StreamableFile(file.buffer, {
       type: file.mimeType,
       disposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,

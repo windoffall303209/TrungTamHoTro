@@ -56,6 +56,7 @@ import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 import { filterLearnerAssignments, filterLearnerFiles, getLearnerFolderNames } from "./learner-class-workspace.helpers";
+import { detachOpener, safeExternalUrl } from "@/lib/safe-content";
 
 interface LearnerClassWorkspaceProps {
   item: LearningClass;
@@ -394,7 +395,7 @@ export function LearnerClassWorkspace({
 
   // Mở tab ngay từ thao tác người dùng, sau đó xác nhận quyền tham gia trên máy chủ.
   const joinClassSession = async (liveSession: LiveSession) => {
-    const meetingWindow = window.open("", "_blank");
+    const meetingWindow = detachOpener(window.open("", "_blank"));
     if (!meetingWindow) {
       showToast("Trình duyệt đã chặn cửa sổ phòng học.", { type: "warning" });
       return;
@@ -405,7 +406,9 @@ export function LearnerClassWorkspace({
         method: "POST",
         roleCode: session.roleCode,
       });
-      meetingWindow.location.replace(result.attendeeUrl);
+      const meetingUrl = safeExternalUrl(result.attendeeUrl);
+      if (!meetingUrl) throw new Error("Liên kết phòng học không hợp lệ.");
+      meetingWindow.location.replace(meetingUrl);
     } catch (error) {
       meetingWindow.close();
       showToast(error instanceof Error ? error.message : "Không thể tham gia phòng học.", { type: "warning" });
@@ -424,7 +427,7 @@ export function LearnerClassWorkspace({
 
   // Mở trước cửa sổ xem tài liệu để tránh trình duyệt chặn sau yêu cầu bất đồng bộ.
   const previewClassMaterial = (materialId: string, title: string) => {
-    const previewWindow = window.open("", "_blank");
+    const previewWindow = detachOpener(window.open("", "_blank"));
     if (!previewWindow) {
       showToast("Trình duyệt đã chặn cửa sổ xem trước.", { type: "warning" });
       return;

@@ -18,6 +18,7 @@ import type {
 } from "./chat.types.js";
 import { defer, from, interval, type Observable } from "rxjs";
 import { concatMap, finalize, mergeMap } from "rxjs/operators";
+import { assertSafeUpload } from "../../../infrastructure/file-signature.js";
 
 type ConversationRow = Prisma.ChatConversationGetPayload<{
   include: {
@@ -478,7 +479,7 @@ export class ChatService {
       throw new ConflictException(
         "Lớp đã đóng; hội thoại lớp chỉ cho phép đọc.",
       );
-    this.validateFiles(files);
+    await this.validateFiles(files);
     const content = input.content?.trim() ?? "";
     if (!content && !files.length)
       throw new BadRequestException(
@@ -1201,8 +1202,8 @@ export class ChatService {
       : undefined;
   }
 
-  /** Giới hạn và xác thực định dạng tệp trước khi quét virus/lưu storage. */
-  private validateFiles(files: UploadedChatFile[]): void {
+  /** Giới hạn và xác thực định dạng tệp (MIME + magic bytes + cấu trúc DOCX) trước khi quét virus/lưu storage. */
+  private async validateFiles(files: UploadedChatFile[]): Promise<void> {
     if (files.length > 5)
       throw new BadRequestException("Mỗi tin nhắn được đính kèm tối đa 5 tệp.");
     const allowed = new Set([
@@ -1229,6 +1230,8 @@ export class ChatService {
         throw new BadRequestException(
           `Định dạng tệp ${file.originalName} không được hỗ trợ trong chat.`,
         );
+      // Không tin MIME client khai báo: nội dung phải khớp chữ ký định dạng.
+      await assertSafeUpload(file);
     }
   }
 

@@ -18,6 +18,7 @@ import { AiGenerationRequestService } from "../ai/ai-generation-request.service.
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiQuestionStatusDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "../core/learning.dto.js";
 import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
+import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
 @ApiTags("Content & Assessment")
 @Controller()
@@ -238,6 +239,7 @@ export class ContentController {
 
   @Get("materials/:materialId/download") @RequirePermissions("material:view")
   /** Xác minh quyền/chữ ký rồi stream học liệu hiện tại. */
+  @Header("Content-Security-Policy", USER_FILE_CSP)
   async downloadMaterial(
     @Param("materialId") materialId: string,
     @Query("expires") expires: string,
@@ -249,7 +251,7 @@ export class ContentController {
     const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, session.user.id);
     return new StreamableFile(download.stream, {
       type: download.mimeType,
-      disposition: fileContentDisposition(action === "PREVIEW" ? "inline" : "attachment", download.fileName),
+      disposition: fileContentDisposition(action === "PREVIEW" && isInlineSafeMime(download.mimeType) ? "inline" : "attachment", download.fileName),
       length: download.size,
     });
   }
@@ -349,7 +351,7 @@ export class ContentController {
   /** Gỡ ảnh minh họa và dọn object liên quan. */
   removeQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningQuestion> { this.assertInstructorMutation(session); return this.learning.removeQuestionImage(questionId, session.user.id); }
 
-  @Get("question-bank/questions/:questionId/image") @RequirePermissions("exam:view")
+  @Get("question-bank/questions/:questionId/image") @RequirePermissions("exam:view") @Header("Content-Security-Policy", USER_FILE_CSP)
   /** Kiểm tra quyền theo ngữ cảnh đề/câu hỏi rồi stream ảnh nội tuyến. */
   async readQuestionImage(@Param("questionId") questionId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
     const image = await this.learning.readQuestionImage(questionId, session.roleCode, session.user.id);

@@ -10,6 +10,7 @@ import { useRef, useState } from "react";
 import { InlineChatImage, roleLabels } from "./messages.shared";
 import { useMessagesModel } from "./use-messages-model";
 import { UserAvatar } from "@/shared/ui/user-avatar";
+import { safeInternalPath } from "@/lib/safe-content";
 
 const CHAT_EMOJI_GROUPS = [
   { label: "Cảm xúc", icons: ["😀", "😄", "😆", "🥰", "😍", "😘", "🥹", "😂", "🤣", "😊", "😎", "🤩", "😭", "🥲", "😮", "😡"] },
@@ -463,7 +464,7 @@ export default function MessagesScreen() {
                                     ? "border-white/30 bg-white/10 text-white"
                                     : "border-slate-300 dark:border-slate-600 bg-white dark:bg-[#242526] text-blue-600 dark:text-blue-400"
                                 }`}
-                                href={message.context.href}
+                                href={safeInternalPath(message.context.href) ?? "/messages"}
                               >
                                 {message.context.type === "ASSIGNMENT"
                                   ? "Bài tập"

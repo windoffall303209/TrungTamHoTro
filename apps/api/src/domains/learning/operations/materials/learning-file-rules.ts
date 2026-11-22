@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { UploadedMaterialFile } from "../../core/learning.shared.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
+import { ACTIVE_CONTENT_MIME_TYPES, matchesFileSignature } from "../../../../infrastructure/file-signature.js";
 
 /** Phát hiện mẫu tệp thực thi/script nguy hiểm khi antivirus ngoài không khả dụng. */
 export function detectMaliciousUpload(
@@ -16,6 +17,9 @@ export function detectMaliciousUpload(
     return "Phát hiện nội dung script có khả năng thực thi.";
   if (/\.(?:exe|dll|bat|cmd|ps1|js|html?)$/i.test(upload.originalName))
     return "Phần mở rộng tệp có khả năng thực thi.";
+  // Không tin MIME client khai báo: định dạng có thể chạy script hoặc nội dung lệch chữ ký đã biết đều bị cách ly.
+  if (ACTIVE_CONTENT_MIME_TYPES.has(upload.mimeType.toLowerCase()) || matchesFileSignature(upload.mimeType.toLowerCase(), head) === false)
+    return "Nội dung tệp không khớp định dạng đã khai báo.";
   return undefined;
 }
 

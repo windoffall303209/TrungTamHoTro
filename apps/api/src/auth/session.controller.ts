@@ -5,6 +5,7 @@ import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
 import { AuthRateLimit } from "./auth-rate-limit.js";
 import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, MfaRecoveryLoginDto, PasswordChangeOtpDto, RegenerateRecoveryCodesDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { USER_FILE_CSP } from "../infrastructure/file-signature.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -151,6 +152,7 @@ export class AccountController {
   constructor(private readonly auth: AuthService) {}
 
   @Get("avatar")
+  @Header("Content-Security-Policy", USER_FILE_CSP)
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
   @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
   /** Đọc ảnh đại diện từ object storage và stream đúng MIME để trình duyệt hiển thị nội tuyến. */
@@ -161,6 +163,7 @@ export class AccountController {
   }
 
   @Get("users/:id/avatar")
+  @Header("Content-Security-Policy", USER_FILE_CSP)
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
   @Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
   /** Cho phép tải ảnh đại diện công khai của người dùng trong hệ thống mà không phụ thuộc phiên hiện tại. */

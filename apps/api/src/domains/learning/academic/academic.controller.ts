@@ -39,6 +39,7 @@ import {
   UpdateAssignmentDto,
 } from "./academic.dto.js";
 import { AiGradingAssistService } from "../ai/ai-grading-assist.service.js";
+import { USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
 @Controller()
 /** API học vụ cho bài tập, sổ điểm, lịch và thông báo; phiên hiện tại quyết định phạm vi lớp. */
@@ -252,6 +253,7 @@ export class AcademicController {
 
   @Get("assignment-submissions/:submissionId/attachments/:attachmentId")
   @RequireAuthentication()
+  @Header("Content-Security-Policy", USER_FILE_CSP)
   /** Stream tệp bài nộp với disposition xem nội tuyến hoặc tải xuống. */
   async readAttachment(
     @Param("submissionId") submissionId: string,

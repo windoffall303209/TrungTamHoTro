@@ -28,6 +28,7 @@ import {
   toLocalTimeInputValue,
 } from "@/features/class-detail/live-session-utils";
 import { hasPermission } from "@/lib/access-control";
+import { safeExternalUrl } from "@/lib/safe-content";
 
 // Lấy mốc thời gian ngày thứ Hai đầu tuần từ một ngày bất kỳ
 function getMonday(d: Date): Date {
@@ -410,7 +411,9 @@ export default function LiveClassesPage() {
         method: "POST",
         roleCode: session.roleCode,
       });
-      meetingWindow.location.replace(result.attendeeUrl);
+      const meetingUrl = safeExternalUrl(result.attendeeUrl);
+      if (!meetingUrl) throw new Error("Liên kết phòng học không hợp lệ.");
+      meetingWindow.location.replace(meetingUrl);
       notify(
         `Đã mở liên kết phòng học lúc ${new Date(result.joinedAt).toLocaleTimeString(activeLocale())}.`,
       );
@@ -820,11 +823,11 @@ export default function LiveClassesPage() {
                         : ""}
                     {item.timezone ? ` · ${item.timezone}` : ""}
                   </p>
-                  {item.recordingUrl ? (
+                  {safeExternalUrl(item.recordingUrl) ? (
                     <a
                       className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-sky-700"
-                      href={item.recordingUrl}
-                      rel="noreferrer"
+                      href={safeExternalUrl(item.recordingUrl)}
+                      rel="noopener noreferrer"
                       target="_blank"
                     >
                       Xem bản ghi <ExternalLink size={12} />

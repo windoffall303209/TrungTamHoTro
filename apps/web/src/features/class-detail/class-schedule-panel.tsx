@@ -33,6 +33,7 @@ import {
   type SessionFormValidationResult,
   type SessionFormValues,
 } from "./live-session-utils";
+import { detachOpener, safeExternalUrl } from "@/lib/safe-content";
 
 export interface ClassSchedulePanelProps {
   classItem: LearningClass;
@@ -315,7 +316,7 @@ export function ClassSchedulePanel({
 
   // Mở tab mới ngay khi nhấn rồi lấy liên kết Google Meet xác thực từ máy chủ.
   const handleJoinSession = async (sessionItem: LiveSession) => {
-    const meetingWindow = window.open("", "_blank");
+    const meetingWindow = detachOpener(window.open("", "_blank"));
     if (!meetingWindow) {
       notify("Trình duyệt đã chặn cửa sổ phòng học.", "error");
       return;
@@ -332,7 +333,9 @@ export function ClassSchedulePanel({
       if (!result?.attendeeUrl) {
         throw new Error("Buổi học chưa có liên kết phòng học.");
       }
-      meetingWindow.location.replace(result.attendeeUrl);
+      const meetingUrl = safeExternalUrl(result.attendeeUrl);
+      if (!meetingUrl) throw new Error("Liên kết phòng học không hợp lệ.");
+      meetingWindow.location.replace(meetingUrl);
     } catch (error) {
       meetingWindow.close();
       notify(

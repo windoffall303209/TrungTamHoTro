@@ -55,6 +55,7 @@ import { type RemoveTarget } from "@/features/class-detail/class-detail.shared";
 import { isLectureMaterial, toLectureItem, toMaterialDisplayItem } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { buildManagerFolderView } from "./manager-folder-view";
 import { ManagerFolderSidebar } from "./manager-folder-sidebar";
+import { detachOpener } from "@/lib/safe-content";
 
 export type ManagerSubTab =
   | "overview"
@@ -319,7 +320,7 @@ export function ManagerClassWorkspace({
       window.open(sourceUrl, "_blank", "noopener,noreferrer");
       return;
     }
-    const previewWindow = window.open("", "_blank");
+    const previewWindow = detachOpener(window.open("", "_blank"));
     if (!previewWindow) {
       notify("Trình duyệt đã chặn cửa sổ xem trước.", "error");
       return;

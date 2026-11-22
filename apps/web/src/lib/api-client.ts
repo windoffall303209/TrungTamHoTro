@@ -2,6 +2,7 @@ import type { ApiEnvelope } from "@wind-of-fall/contracts";
 import type { RoleCode } from "./app-types";
 import { translateText, type SupportedLocale } from "@/i18n/catalog";
 import { activeLocale } from "@/i18n/runtime";
+import { detachOpener, safePreviewBlob } from "@/lib/safe-content";
 
 type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
 
@@ -92,7 +93,7 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
 
 /** Mở cửa sổ trước thao tác async để tránh popup blocker, sau đó tải và render bản xem trước có nút đóng. */
 export async function previewApiFile(path: string, roleCode: RoleCode, fallbackFileName = "Học liệu", existingWindow?: Window): Promise<void> {
-  const previewWindow = existingWindow ?? window.open("", "_blank");
+  const previewWindow = existingWindow ?? detachOpener(window.open("", "_blank"));
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
   const palette = previewPalette();
   const locale = activeLocale();
@@ -113,8 +114,9 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
     const blob = await response.blob();
     // Người dùng có thể đóng cửa sổ trong khi tệp đang tải; không tạo URL khi đã hủy xem trước.
     if (previewWindow.closed) return;
-    blobUrl = URL.createObjectURL(blob);
     const mimeType = (response.headers.get("content-type") ?? blob.type).split(";", 1)[0]?.toLowerCase() ?? "application/octet-stream";
+    // Blob cùng origin: chỉ giữ kiểu PDF/ảnh raster/media, mọi kiểu khác (HTML, SVG…) bị ép thành octet-stream.
+    blobUrl = URL.createObjectURL(safePreviewBlob(blob, mimeType));
     const fileName = apiFileName(response.headers.get("content-disposition") ?? "", fallbackFileName);
     renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType }, palette, locale);
     previewWindow.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });

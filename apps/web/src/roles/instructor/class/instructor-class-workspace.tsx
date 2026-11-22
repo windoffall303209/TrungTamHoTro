@@ -108,6 +108,7 @@ import {
   ClassExamEditModal,
   ClassExamPreviewModal,
 } from "./class-work-modals";
+import { detachOpener } from "@/lib/safe-content";
 
 export interface InstructorClassWorkspaceProps {
   item: LearningClass;
@@ -1484,7 +1485,7 @@ export function InstructorClassWorkspace({
 
   // Mở tệp đề tự luận trong tab mới qua URL truy cập có phân quyền.
   const handlePreviewMaterial = async (materialId: string) => {
-    const previewWindow = window.open("", "_blank");
+    const previewWindow = detachOpener(window.open("", "_blank"));
     if (!previewWindow) {
       notify("Trình duyệt đã chặn cửa sổ xem đề.", "error");
       return;
