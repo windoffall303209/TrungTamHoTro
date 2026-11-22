@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.": "The system is handling too many sign-ins right now. Please try again in a few seconds.",
   "Ảnh đại diện bị hỏng hoặc có cấu trúc không hợp lệ.": "The avatar image is corrupted or has an invalid structure.",
   "Ảnh đại diện bị từ chối vì phát hiện mã độc.": "The avatar image was rejected because malware was detected.",
   "Endpoint AI chỉ được dùng cổng HTTPS 443.": "The AI endpoint may only use HTTPS port 443.",

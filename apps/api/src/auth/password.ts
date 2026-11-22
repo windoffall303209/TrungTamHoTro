@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from "@nestjs/common";
 import { randomBytes, scrypt as nodeScrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 
@@ -7,11 +8,15 @@ const KEY_LENGTH = 64;
 // scrypt chạy trên threadpool libuv dùng chung với fs/zlib/dns; chỉ cho băm chiếm tối đa một nửa số luồng.
 const THREADPOOL_SIZE = Number(process.env.UV_THREADPOOL_SIZE) || 4;
 const MAX_CONCURRENT_HASHES = Math.max(1, Math.floor(THREADPOOL_SIZE / 2));
+/** Trần hàng đợi băm: vượt ngưỡng thì trả 503 có Retry-After thay vì để request treo tới timeout của proxy. */
+const MAX_WAITING_HASHES = 256;
 let activeHashes = 0;
 const waitingHashes: Array<() => void> = [];
 
 /** Chạy một phép băm khi còn slot, xếp hàng FIFO khi đã đủ MAX_CONCURRENT_HASHES tác vụ đồng thời. */
 async function withHashSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeHashes >= MAX_CONCURRENT_HASHES && waitingHashes.length >= MAX_WAITING_HASHES)
+    throw new ServiceUnavailableException({ message: "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.", retryAfterSeconds: 2 });
   if (activeHashes >= MAX_CONCURRENT_HASHES) await new Promise<void>((resolve) => waitingHashes.push(resolve));
   else activeHashes += 1;
   try {

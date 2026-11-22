@@ -1,3 +1,4 @@
+import "./threadpool.js";
 import "reflect-metadata";
 import { Logger, ValidationPipe, VersioningType } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";

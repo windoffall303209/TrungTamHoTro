@@ -44,6 +44,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
         timestamp: new Date().toISOString(),
       },
     };
+    // Lỗi quá tải có thể kèm số giây nên chờ; trình duyệt/proxy đọc header Retry-After để thử lại có kiểm soát.
+    const retryAfter = typeof raw === "object" && raw !== null && "retryAfterSeconds" in raw ? Number((raw as { retryAfterSeconds: unknown }).retryAfterSeconds) : undefined;
+    if (status === 503 && retryAfter && Number.isFinite(retryAfter)) response.setHeader("Retry-After", String(Math.ceil(retryAfter)));
     response.status(status).json(payload);
   }
 
