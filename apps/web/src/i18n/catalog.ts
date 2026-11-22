@@ -7,6 +7,8 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Ảnh đại diện bị hỏng hoặc có cấu trúc không hợp lệ.": "The avatar image is corrupted or has an invalid structure.",
+  "Ảnh đại diện bị từ chối vì phát hiện mã độc.": "The avatar image was rejected because malware was detected.",
   "Endpoint AI chỉ được dùng cổng HTTPS 443.": "The AI endpoint may only use HTTPS port 443.",
   "Đang có tiến trình khôi phục chạy; chưa thể tắt chế độ bảo trì.": "A restore is running; maintenance mode cannot be turned off yet.",
   "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.": "The target database must not be the live database or a PostgreSQL system database.",

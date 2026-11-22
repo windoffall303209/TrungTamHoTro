@@ -126,7 +126,8 @@ export class SessionController {
   /** Thu hồi session phía máy chủ và xóa cookie trên trình duyệt. */
   async logout(@Headers("cookie") cookies: string | undefined, @Res({ passthrough: true }) response: Response): Promise<void> {
     await this.auth.logout(this.auth.readToken(cookies));
-    response.clearCookie(this.auth.cookieName(), { httpOnly: true, sameSite: "lax", path: "/" });
+    // Thuộc tính phải khớp lúc đặt cookie (kể cả Secure) thì trình duyệt mới xóa đúng cookie phiên.
+    response.clearCookie(this.auth.cookieName(), { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" });
   }
 
   /** Ghi session token vào cookie HttpOnly, chỉ bật Secure trong môi trường production. */
@@ -166,9 +167,11 @@ export class AccountController {
   @Get("users/:id/avatar")
   @Header("Content-Security-Policy", USER_FILE_CSP)
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
-  @Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+  @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
   /** Cho phép tải ảnh đại diện công khai của người dùng trong hệ thống mà không phụ thuộc phiên hiện tại. */
-  async userAvatar(@Param("id") id: string): Promise<StreamableFile> {
+  async userAvatar(@Param("id") id: string, @Headers("cookie") cookies?: string): Promise<StreamableFile> {
+    // Chỉ người đã đăng nhập mới xem avatar của người khác; proxy/CDN dùng chung không được cache (private).
+    await this.session(cookies);
     const avatar = await this.auth.readAvatar(id);
     return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
   }

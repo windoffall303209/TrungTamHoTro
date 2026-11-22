@@ -44,7 +44,7 @@ export class ObjectStorageService {
     if (this.provider === "local") {
       const target = this.resolveLocalPath(objectKey);
       await mkdir(dirname(target), { recursive: true });
-      const result = await streamToFile(Readable.from([buffer]), target, Number.MAX_SAFE_INTEGER, 0o666).catch((error: unknown) => {
+      const result = await streamToFile(Readable.from([buffer]), target, Number.MAX_SAFE_INTEGER, 0o600).catch((error: unknown) => {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") throw new ConflictException("Khóa lưu trữ đã tồn tại.");
         throw new ServiceUnavailableException("Không thể ghi tệp vào kho local.");
       });

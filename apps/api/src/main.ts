@@ -49,12 +49,13 @@ async function bootstrap(): Promise<void> {
     .setDescription("API nền tảng cho trung tâm hỗ trợ giảng dạy")
     .setVersion("0.1.0")
     .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup(`${prefix}/docs`, app, document);
+  // Không công khai sơ đồ API trên production; bật lại tường minh bằng SWAGGER_ENABLED=true khi cần.
+  const swaggerEnabled = config.get("NODE_ENV", { infer: true }) !== "production" || process.env.SWAGGER_ENABLED === "true";
+  if (swaggerEnabled) SwaggerModule.setup(`${prefix}/docs`, app, SwaggerModule.createDocument(app, swaggerConfig));
 
   await app.listen(port, "0.0.0.0");
   Logger.log(`API: http://localhost:${port}/${prefix}/v${version}`, "Bootstrap");
-  Logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`, "Bootstrap");
+  if (swaggerEnabled) Logger.log(`Swagger: http://localhost:${port}/${prefix}/docs`, "Bootstrap");
 }
 
 void bootstrap();

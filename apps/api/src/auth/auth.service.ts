@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../database/prisma.service.js";
@@ -9,6 +9,8 @@ import { createMfaSecret, createTotpUri, decryptMfaSecret, encryptMfaSecret, mat
 import type { PermissionCode, RoleCode } from "./permissions.js";
 import { dummyPasswordHash, hashPassword, verifyPassword } from "./password.js";
 import { purposeKey } from "../infrastructure/purpose-key.js";
+import { AntivirusService } from "../infrastructure/antivirus.service.js";
+import { stripImageMetadata } from "../infrastructure/image-metadata.js";
 
 const SESSION_COOKIE = "wind_edu_session";
 const SHORT_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -68,6 +70,7 @@ export class AuthService {
     private readonly email: EmailDeliveryService,
     private readonly objectStorage: ObjectStorageService,
     config: ConfigService<Environment, true>,
+    @Optional() private readonly antivirus?: AntivirusService,
   ) {
     this.encryptionSecret = config.get("AUTH_ENCRYPTION_SECRET", { infer: true });
     this.issuer = config.get("MFA_ISSUER", { infer: true });
@@ -499,12 +502,16 @@ export class AuthService {
     return this.getProfile(userId);
   }
 
-  /** Kiểm tra chữ ký ảnh, lưu object mới, cập nhật DB và hoàn tác object nếu cập nhật thất bại. */
+  /** Kiểm tra chữ ký ảnh, bỏ metadata Exif/GPS, quét mã độc, lưu object mới và hoàn tác object nếu cập nhật thất bại. */
   async updateAvatar(userId: string, upload: { mimeType: string; size: number; buffer: Buffer }): Promise<AccountProfile> {
     const extension = this.validateAvatar(upload);
     const current = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarObjectKey: true } });
     if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
-    const stored = await this.objectStorage.put(`avatars/${userId}/${randomUUID()}.${extension}`, upload.buffer);
+    // Avatar được mọi người dùng trong hệ thống xem: không giữ vị trí GPS/thiết bị chụp trong Exif/XMP.
+    const content = stripImageMetadata(upload.buffer, upload.mimeType);
+    const scan = await this.antivirus?.scan(content);
+    if (scan && !scan.clean) throw new BadRequestException("Ảnh đại diện bị từ chối vì phát hiện mã độc.");
+    const stored = await this.objectStorage.put(`avatars/${userId}/${randomUUID()}.${extension}`, content);
     try {
       await this.prisma.user.update({ where: { id: userId }, data: { avatarObjectKey: stored.objectKey, avatarMimeType: upload.mimeType, avatarUpdatedAt: new Date() } });
     } catch (error) {
