@@ -29,7 +29,7 @@ function makeProfile(displayName: string): AccountProfile {
   return {
     id: "user-1", username: "user", displayName, email: "user@example.com", phone: "",
     timezone: "Asia/Bangkok", locale: "vi-VN", avatarUrl: null, status: "ACTIVE",
-    emailVerifiedAt: "2026-10-01T00:00:00Z", mfaEnabled: false, hasPassword: true, createdAt: "2026-10-01T00:00:00Z",
+    emailVerifiedAt: "2026-10-01T00:00:00Z", mfaEnabled: false, mfaRecoveryCodesRemaining: 0, hasPassword: true, createdAt: "2026-10-01T00:00:00Z",
   };
 }
 
@@ -173,7 +173,7 @@ describe("AccountPage request lifecycle", () => {
       if (path === "/account/mfa/confirm") {
         confirmAttempts += 1;
         if (confirmAttempts === 1) return Promise.reject(new Error("Mã OTP không chính xác."));
-        return Promise.resolve({ enabled: true });
+        return Promise.resolve({ enabled: true, recoveryCodes: ["AAAAA-BBBBB", "CCCCC-DDDDD"] });
       }
       return originalImplementation(path);
     });
@@ -206,7 +206,12 @@ describe("AccountPage request lifecycle", () => {
     await waitFor(() => expect(profiles).toHaveLength(2));
     await finishLoad(1, "Initial");
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Sau khi bật MFA, bộ mã khôi phục chỉ hiển thị một lần trong hộp thoại riêng.
+    const recoveryDialog = await screen.findByRole("dialog", { name: "Mã khôi phục xác thực hai bước" });
+    expect(recoveryDialog).toHaveTextContent("AAAAA-BBBBB");
+    expect(recoveryDialog).toHaveTextContent("CCCCC-DDDDD");
+    fireEvent.click(screen.getByRole("button", { name: "Tôi đã lưu mã" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("có đầy đủ bản dịch tiếng Anh cho toàn bộ chuỗi giao diện modal 2FA", () => {
@@ -269,6 +274,9 @@ describe("AccountPage request lifecycle", () => {
 
     const newEmailInput = screen.getByLabelText("Email mới");
     fireEvent.change(newEmailInput, { target: { value: "  NewEmail@Wind.edu.vn  " } });
+    // Chưa nhập mật khẩu hiện tại thì không cho gửi mã đổi email.
+    expect(screen.getByRole("button", { name: "Gửi mã xác minh" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "Current#Pass2026" } });
     fireEvent.click(screen.getByRole("button", { name: "Gửi mã xác minh" }));
 
     await waitFor(() => {
@@ -276,7 +284,7 @@ describe("AccountPage request lifecycle", () => {
         "/account/email/otp",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ email: "newemail@wind.edu.vn" }),
+          body: JSON.stringify({ email: "newemail@wind.edu.vn", currentPassword: "Current#Pass2026" }),
         }),
       );
     });
@@ -304,6 +312,7 @@ describe("AccountPage request lifecycle", () => {
           challengeId: "challenge-email-0001",
           email: "newemail@wind.edu.vn",
           code: "654321",
+          currentPassword: "Current#Pass2026",
         }),
       }),
     );
@@ -339,6 +348,7 @@ describe("AccountPage request lifecycle", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sửa" }));
     fireEvent.change(screen.getByLabelText("Email mới"), { target: { value: "typo@wind.edu.vn" } });
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "Current#Pass2026" } });
     fireEvent.click(screen.getByRole("button", { name: "Gửi mã xác minh" }));
 
     expect(await screen.findByRole("dialog", { name: "Xác minh địa chỉ email mới" })).toBeInTheDocument();
@@ -347,6 +357,73 @@ describe("AccountPage request lifecycle", () => {
     expect(await screen.findByRole("dialog", { name: "Thay đổi địa chỉ email" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email mới")).toHaveValue("typo@wind.edu.vn");
     expect(screen.queryByLabelText("Mã gồm 6 chữ số")).not.toBeInTheDocument();
+  });
+
+  it("yêu cầu mã TOTP khi đổi mật khẩu trên tài khoản đã bật xác thực hai bước", async () => {
+    const originalImplementation = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === "/account/password/otp" && init?.method === "POST") {
+        return Promise.resolve({ challengeId: "chg-mfa", email: "user@example.com", expiresInSeconds: 300, resendAfterSeconds: 60 });
+      }
+      if (path === "/account/password" && init?.method === "PATCH") return Promise.resolve({ revokedSessions: 0 });
+      return originalImplementation(path);
+    });
+
+    render(<AccountPage />);
+    await waitFor(() => expect(profiles).toHaveLength(1));
+    await act(async () => {
+      profiles[0]!.resolve({ ...makeProfile("Initial"), mfaEnabled: true, mfaRecoveryCodesRemaining: 7 });
+      sessions[0]!.resolve([]);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
+    expect(screen.getByText("7/10")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "Current#Pass2026" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Gửi mã OTP xác nhận/ }));
+    });
+    await waitFor(() => expect(screen.getByLabelText(/^Mật khẩu mới/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/^Mật khẩu mới/), { target: { value: "StrongPass#2026" } });
+    fireEvent.change(screen.getByLabelText("Nhập lại mật khẩu mới"), { target: { value: "StrongPass#2026" } });
+    fireEvent.change(screen.getByLabelText("Mã OTP 6 số"), { target: { value: "654321" } });
+    const submit = screen.getByRole("button", { name: /Xác nhận đổi mật khẩu/ });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Mã xác thực 6 số"), { target: { value: "112233" } });
+    expect(submit).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+
+    expect(apiMock).toHaveBeenCalledWith(
+      "/account/password",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          challengeId: "chg-mfa",
+          code: "654321",
+          newPassword: "StrongPass#2026",
+          currentPassword: "Current#Pass2026",
+          mfaCode: "112233",
+        }),
+      }),
+    );
+  });
+
+  it("có đầy đủ bản dịch tiếng Anh cho chuỗi xác thực lại và mã khôi phục", () => {
+    const keys = [
+      "Vui lòng nhập mật khẩu hiện tại.",
+      "Mã khôi phục xác thực hai bước",
+      "Mỗi mã chỉ dùng được một lần để đăng nhập khi bạn mất thiết bị xác thực. Hãy lưu ở nơi an toàn vì mã sẽ không hiển thị lại.",
+      "Tôi đã lưu mã",
+      "Mã khôi phục còn lại:",
+      "Tạo lại mã khôi phục",
+      "Tạo mã mới",
+      "Dùng mã khôi phục",
+      "Mã khôi phục",
+    ];
+    for (const key of keys) {
+      expect(translateText(key, "en-US")).not.toBe(key);
+    }
   });
 
   it("có đầy đủ bản dịch tiếng Anh cho toàn bộ chuỗi giao diện modal đổi email", () => {
@@ -429,6 +506,7 @@ describe("AccountPage request lifecycle", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Bảo mật" }));
+    fireEvent.change(screen.getByLabelText("Mật khẩu hiện tại"), { target: { value: "Current#Pass2026" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Gửi mã OTP xác nhận/ }));
     });
@@ -437,7 +515,7 @@ describe("AccountPage request lifecycle", () => {
       "/account/password/otp",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ email: "user@example.com" }),
+        body: JSON.stringify({ email: "user@example.com", currentPassword: "Current#Pass2026" }),
       }),
     );
 
@@ -458,6 +536,7 @@ describe("AccountPage request lifecycle", () => {
           challengeId: "chg-123",
           code: "654321",
           newPassword: "StrongPass#2026",
+          currentPassword: "Current#Pass2026",
         }),
       }),
     );

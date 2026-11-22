@@ -21,7 +21,7 @@ interface AppContextValue {
   authLoading: boolean;
   authError: string;
   login: (input: LoginInput) => Promise<{ requiresMfa: boolean; challengeToken?: string; accountSetup?: AccountSetupStart }>;
-  completeMfa: (challengeToken: string, value: string, rememberMe: boolean, otpId?: string) => Promise<void>;
+  completeMfa: (challengeToken: string, value: string, rememberMe: boolean, method?: "totp" | "recovery") => Promise<void>;
   logout: () => Promise<void>;
   setRole: (role: RoleCode) => Promise<void>;
   refreshSession: () => Promise<boolean>;
@@ -92,10 +92,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     adoptSession(result);
     return { requiresMfa: false };
   }, [adoptSession]);
-  /** Hoàn tất MFA bằng TOTP hoặc OTP email và lưu phiên trả về. */
-  const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, otpId?: string) => {
-    const path = otpId ? "/auth/mfa/email/verify" : "/auth/mfa/verify";
-    const body = { challengeToken, code: value, rememberMe, otpId };
+  /** Hoàn tất MFA bằng mã TOTP hoặc một mã khôi phục dùng một lần rồi lưu phiên trả về. */
+  const completeMfa = useCallback(async (challengeToken: string, value: string, rememberMe: boolean, method: "totp" | "recovery" = "totp") => {
+    const path = method === "recovery" ? "/auth/mfa/recovery" : "/auth/mfa/verify";
+    const body = method === "recovery" ? { challengeToken, recoveryCode: value, rememberMe } : { challengeToken, code: value, rememberMe };
     adoptSession(await apiRequest<SessionData>(path, { method: "POST", body: JSON.stringify(body) }));
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */

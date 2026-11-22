@@ -41,6 +41,7 @@ export interface AccountProfile {
   status: "PENDING" | "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
   emailVerifiedAt: string | null;
   mfaEnabled: boolean;
+  mfaRecoveryCodesRemaining: number;
   hasPassword: boolean;
   createdAt: string;
 }

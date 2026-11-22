@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { saveAccountSetup } from "@/lib/account-setup";
-import { ApiError, apiRequest } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { LanguageSwitcher } from "@/shared/layout/language-switcher";
 import { ThemeToggle } from "@/shared/layout/theme-toggle";
@@ -36,7 +36,7 @@ export function AuthScreen() {
   const [notice, setNotice] = useState("");
   const [challengeToken, setChallengeToken] = useState("");
   const [mfaValue, setMfaValue] = useState("");
-  const [otpId, setOtpId] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
 
   useEffect(() => {
     if (!authLoading && authenticated) router.replace("/dashboard");
@@ -49,21 +49,11 @@ export function AuthScreen() {
     );
   }, []);
 
-  /** Yêu cầu mã đăng nhập qua địa chỉ email tài khoản đã xác minh. */
-  async function sendEmailCode() {
-    setSubmitting(true);
+  /** Chuyển giữa nhập mã TOTP và nhập mã khôi phục, xóa giá trị đang gõ dở để tránh gửi nhầm loại mã. */
+  function toggleRecoveryCode(next: boolean) {
+    setUseRecoveryCode(next);
+    setMfaValue("");
     setError("");
-    try {
-      const otp = await apiRequest<{ challengeId: string }>("/auth/mfa/email/send", {
-        method: "POST", body: JSON.stringify({ challengeToken }),
-      });
-      setOtpId(otp.challengeId);
-      setMfaValue("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Không gửi được mã qua email.");
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   /** Gửi biểu mẫu đăng nhập và điều phối các nhánh MFA hoặc thiết lập tài khoản. */
@@ -73,7 +63,7 @@ export function AuthScreen() {
     setSubmitting(true);
     try {
       if (challengeToken) {
-        await completeMfa(challengeToken, mfaValue, rememberMe, otpId || undefined);
+        await completeMfa(challengeToken, mfaValue, rememberMe, useRecoveryCode ? "recovery" : "totp");
       } else {
         const result = await login({ username, password, rememberMe });
         if (result.requiresMfa && result.challengeToken) {
@@ -173,7 +163,7 @@ export function AuthScreen() {
           </h2>
           <p className="mt-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             {challengeToken
-              ? (otpId ? "Nhập mã 6 số vừa gửi đến email đã xác minh." : "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập.")
+              ? (useRecoveryCode ? "Nhập một mã khôi phục bạn đã lưu khi bật xác thực hai bước." : "Nhập mã từ ứng dụng xác thực để hoàn tất đăng nhập.")
               : "Chào mừng bạn quay lại. Hãy nhập thông tin để truy cập không gian làm việc."}
           </p>
 
@@ -190,17 +180,18 @@ export function AuthScreen() {
             {challengeToken ? (
               <>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  {otpId ? "Mã OTP email" : "Mã xác thực"}
+                  {useRecoveryCode ? "Mã khôi phục" : "Mã xác thực"}
                   <span className="relative block">
                     <input
-                      autoComplete="one-time-code"
+                      autoComplete={useRecoveryCode ? "off" : "one-time-code"}
                       autoFocus
                       className={`${fieldClass} pr-10 font-mono tracking-widest`}
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
+                      inputMode={useRecoveryCode ? "text" : "numeric"}
+                      key={useRecoveryCode ? "recovery" : "totp"}
+                      pattern={useRecoveryCode ? undefined : "[0-9]{6}"}
+                      maxLength={useRecoveryCode ? 24 : 6}
                       onChange={(event) => setMfaValue(event.target.value.toUpperCase())}
-                      placeholder="000000"
+                      placeholder={useRecoveryCode ? "XXXXX-XXXXX" : "000000"}
                       required
                       value={mfaValue}
                     />
@@ -213,17 +204,11 @@ export function AuthScreen() {
                 <button
                   className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline"
                   disabled={submitting}
-                  onClick={() => void sendEmailCode()}
+                  onClick={() => toggleRecoveryCode(!useRecoveryCode)}
                   type="button"
                 >
-                  {otpId ? "Gửi lại mã qua email" : "Gửi mã qua email đã xác minh"}
+                  {useRecoveryCode ? "Dùng mã từ ứng dụng xác thực" : "Dùng mã khôi phục"}
                 </button>
-                {otpId && (
-                  <button type="button" className="block text-xs font-semibold hover:underline" disabled={submitting}
-                    onClick={() => { setOtpId(""); setMfaValue(""); setError(""); }}>
-                    Dùng mã từ ứng dụng xác thực
-                  </button>
-                )}
 
               </>
             ) : (
@@ -323,7 +308,7 @@ export function AuthScreen() {
                 className="mx-auto mt-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                 onClick={() => {
                   setChallengeToken("");
-                  setOtpId("");
+                  setUseRecoveryCode(false);
                   setMfaValue("");
                 }}
                 type="button"

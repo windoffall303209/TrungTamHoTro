@@ -67,15 +67,31 @@ export class UpdateProfileDto {
   locale!: string;
 }
 
+/** Mật khẩu hiện tại để xác thực lại chủ tài khoản trước thao tác nhạy cảm; bỏ trống khi tài khoản chưa có mật khẩu. */
+class CurrentPasswordDto {
+  @IsOptional()
+  @IsString()
+  @Length(8, 128, { message: "Mật khẩu hiện tại không hợp lệ." })
+  currentPassword?: string;
+}
+
+/** Mật khẩu hiện tại kèm mã TOTP; mã TOTP bắt buộc khi tài khoản đã bật xác thực hai bước. */
+class StepUpDto extends CurrentPasswordDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực phải gồm 6 chữ số." })
+  mfaCode?: string;
+}
+
 /** Email đã xác thực của tài khoản, nhập lại để nhận mã OTP đổi mật khẩu. */
-export class PasswordChangeOtpDto {
+export class PasswordChangeOtpDto extends CurrentPasswordDto {
   @IsEmail({}, { message: "Email không đúng định dạng." })
   @Length(3, 191, { message: "Email không được vượt quá 191 ký tự." })
   email!: string;
 }
 
-/** Dữ liệu đổi mật khẩu: mã OTP gửi tới email tài khoản và mật khẩu mới đủ mạnh. */
-export class ChangePasswordDto {
+/** Dữ liệu đổi mật khẩu: mật khẩu hiện tại, TOTP nếu đã bật, mã OTP gửi tới email tài khoản và mật khẩu mới đủ mạnh. */
+export class ChangePasswordDto extends StepUpDto {
   @IsString()
   @Length(20, 64, { message: "Mã OTP không còn hiệu lực. Hãy nhận mã OTP mới." })
   challengeId!: string;
@@ -186,27 +202,42 @@ export class DisableMfaDto extends MfaCodeDto {
   challengeToken!: string;
 }
 
-export class MfaEmailRequestDto {
+/** Hoàn tất đăng nhập hai bước bằng một mã khôi phục dùng một lần khi không truy cập được ứng dụng xác thực. */
+export class MfaRecoveryLoginDto {
   @IsString()
-  @Length(32, 512)
+  @Length(32, 512, { message: "Phiên xác thực hai bước không hợp lệ." })
   challengeToken!: string;
-}
 
-export class MfaEmailVerifyDto extends MfaLoginDto {
   @IsString()
-  @Matches(/^[a-f0-9]{36}$/)
-  otpId!: string;
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9\s-]{8,22}[A-Za-z0-9]$/, { message: "Mã khôi phục không đúng định dạng." })
+  recoveryCode!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  rememberMe?: boolean;
 }
 
-/** Yêu cầu gửi mã OTP xác minh địa chỉ email mới cho tài khoản đang đăng nhập. */
-export class EmailChangeOtpDto {
+/** Xác thực lại bằng mật khẩu và TOTP trước khi phát bộ mã khôi phục mới. */
+export class RegenerateRecoveryCodesDto extends CurrentPasswordDto {
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực phải gồm 6 chữ số." })
+  mfaCode!: string;
+}
+
+/** Yêu cầu gửi mã OTP xác minh địa chỉ email mới cho tài khoản đang đăng nhập; cần nhập lại mật khẩu hiện tại. */
+export class EmailChangeOtpDto extends CurrentPasswordDto {
   @IsEmail({}, { message: "Email mới không đúng định dạng." })
   @Length(3, 191, { message: "Email mới không được vượt quá 191 ký tự." })
   email!: string;
 }
 
-/** Xác nhận mã OTP 6 chữ số để cập nhật địa chỉ email tài khoản. */
+/** Xác nhận mã OTP 6 chữ số kèm mật khẩu hiện tại và TOTP (nếu đã bật) để cập nhật địa chỉ email tài khoản. */
 export class ConfirmEmailChangeDto extends EmailChangeOtpDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: "Mã xác thực phải gồm 6 chữ số." })
+  mfaCode?: string;
+
   @IsString()
   @Length(20, 64, { message: "Phiên xác minh email không hợp lệ." })
   challengeId!: string;

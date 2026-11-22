@@ -163,23 +163,44 @@ describe("Xác minh email qua API", () => {
     expect((setup.body as Envelope<{ otpauthUri: string }>).data.otpauthUri).toContain(encodeURIComponent(username));
 
     const totp = generateTotp(secret);
-    expect((await authenticatedRequest("POST", "/account/mfa/confirm", cookie, loginData.csrfToken, { code: totp })).status).toBe(201);
+    const confirmed = await authenticatedRequest("POST", "/account/mfa/confirm", cookie, loginData.csrfToken, { code: totp });
+    expect(confirmed.status).toBe(201);
+    const recoveryCodes = (confirmed.body as Envelope<{ recoveryCodes: string[] }>).data.recoveryCodes;
+    expect(recoveryCodes).toHaveLength(10);
+    expect(new Set(recoveryCodes).size).toBe(10);
+    expect(await prisma.mfaRecoveryCode.count({ where: { user: { username }, usedAt: null } })).toBe(10);
+    // Mã khôi phục chỉ được lưu dưới dạng băm, không lưu bản rõ.
+    expect(await prisma.mfaRecoveryCode.count({ where: { codeHash: { in: recoveryCodes } } })).toBe(0);
+
     const mfaLogin = await post("/auth/login", { username, password });
     expect(mfaLogin.headers.get("set-cookie")).toBeNull();
     const loginChallenge = (mfaLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
-    const delivery = await post("/auth/mfa/email/send", { challengeToken: loginChallenge });
-    expect(delivery.status).toBe(200);
-    const otpId = (delivery.body as Envelope<{ challengeId: string }>).data.challengeId;
+    // OTP email không còn thay được TOTP: chiếm hộp thư không đủ để vượt qua nhân tố thứ hai.
+    expect((await post("/auth/mfa/email/send", { challengeToken: loginChallenge })).status).toBe(404);
+    expect((await post("/auth/mfa/recovery", { challengeToken: loginChallenge, recoveryCode: "AAAAA-AAAAA" })).status).toBe(401);
+    const emailsBeforeRecovery = sentEmails.length;
+    const recovered = await post("/auth/mfa/recovery", { challengeToken: loginChallenge, recoveryCode: recoveryCodes[0]!.toLowerCase().replace("-", " ") });
+    expect(recovered.status).toBe(200);
+    expect(recovered.headers.get("set-cookie")).toContain("wind_edu_session=");
+    expect(sentEmails.length).toBe(emailsBeforeRecovery + 1);
     expect(sentEmails.at(-1)?.to).toBe(correctedEmail);
-    const emailCode = sentEmails.at(-1)?.text.match(/là:\s*(\d{6})/)?.[1];
-    expect(emailCode).toMatch(/^\d{6}$/);
-    const credentials = { challengeToken: loginChallenge, otpId, code: emailCode };
-    expect((await post("/auth/mfa/email/send", { challengeToken: loginChallenge })).status).toBe(429);
-    expect((await post("/auth/mfa/email/verify", { ...credentials, code: emailCode === "000000" ? "000001" : "000000" })).status).toBe(401);
-    const verified = await post("/auth/mfa/email/verify", credentials);
-    expect(verified.status).toBe(200);
-    expect(verified.headers.get("set-cookie")).toContain("wind_edu_session=");
-    expect((await post("/auth/mfa/email/verify", credentials)).status).toBe(400);
+    expect((await post("/auth/mfa/recovery", { challengeToken: loginChallenge, recoveryCode: recoveryCodes[1] })).status).toBe(400);
+    const reuseLogin = await post("/auth/login", { username, password });
+    const reuseChallenge = (reuseLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
+    expect((await post("/auth/mfa/recovery", { challengeToken: reuseChallenge, recoveryCode: recoveryCodes[0] })).status).toBe(401);
+    expect(await prisma.mfaRecoveryCode.count({ where: { user: { username }, usedAt: null } })).toBe(9);
+
+    // Thao tác nhạy cảm cần xác thực lại: thiếu mật khẩu hiện tại hoặc thiếu TOTP đều bị từ chối.
+    expect((await authenticatedRequest("POST", "/account/password/otp", cookie, loginData.csrfToken, { email: correctedEmail })).status).toBe(401);
+    const takeoverEmail = `takeover-${suffix}@e2e.wind.local`;
+    const emailOtp = await authenticatedRequest("POST", "/account/email/otp", cookie, loginData.csrfToken, { email: takeoverEmail, currentPassword: password });
+    expect(emailOtp.status).toBe(200);
+    const emailChallenge = (emailOtp.body as Envelope<{ challengeId: string }>).data.challengeId;
+    const emailOtpCode = sentEmails.at(-1)?.text.match(/là:\s*(\d{6})/)?.[1];
+    expect(emailOtpCode).toMatch(/^\d{6}$/);
+    const withoutTotp = await authenticatedRequest("PATCH", "/account/email", cookie, loginData.csrfToken, { challengeId: emailChallenge, email: takeoverEmail, code: emailOtpCode, currentPassword: password });
+    expect(withoutTotp.status).toBe(401);
+    expect((await prisma.user.findUniqueOrThrow({ where: { username } })).email).toBe(correctedEmail);
     const appLogin = await post("/auth/login", { username, password });
     const appChallenge = (appLogin.body as Envelope<{ challengeToken: string }>).data.challengeToken;
     expect((await post("/auth/mfa/verify", { challengeToken: appChallenge, code: generateTotp(secret) })).status).toBe(200);

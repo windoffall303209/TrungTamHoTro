@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
-import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, PasswordChangeOtpDto, MfaEmailRequestDto, MfaEmailVerifyDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
+import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, MfaRecoveryLoginDto, PasswordChangeOtpDto, RegenerateRecoveryCodesDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -45,18 +45,11 @@ export class SessionController {
     return { ...result.session, csrfToken: result.csrfToken };
   }
 
-  @Post("mfa/email/send")
+  @Post("mfa/recovery")
   @HttpCode(200)
-  /** Gửi OTP cho thử thách đăng nhập hiện tại. */
-  sendMfaEmail(@Body() input: MfaEmailRequestDto): Promise<object> {
-    return this.auth.sendMfaLoginOtp(input.challengeToken);
-  }
-
-  @Post("mfa/email/verify")
-  @HttpCode(200)
-  /** Hoàn tất đăng nhập mật khẩu bằng OTP email dùng một lần. */
-  async verifyMfaEmail(@Body() input: MfaEmailVerifyDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
-    const result = await this.auth.completeMfaLogin(input.challengeToken, input.code, input.rememberMe, this.context(request), input.otpId);
+  /** Hoàn tất đăng nhập hai bước bằng một mã khôi phục dùng một lần khi không truy cập được ứng dụng xác thực. */
+  async verifyMfaRecovery(@Body() input: MfaRecoveryLoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response): Promise<object> {
+    const result = await this.auth.completeMfaRecoveryLogin(input.challengeToken, input.recoveryCode, input.rememberMe, this.context(request));
     this.setSessionCookie(response, result.token, result.maxAgeMs);
     return { ...result.session, csrfToken: result.csrfToken };
   }
@@ -197,32 +190,32 @@ export class AccountController {
 
   @Post("email/otp")
   @HttpCode(200)
-  /** Gửi mã OTP 6 chữ số tới địa chỉ email mới để xác minh trước khi cập nhật tài khoản. */
+  /** Xác thực lại mật khẩu hiện tại rồi gửi mã OTP 6 chữ số tới địa chỉ email mới trước khi cập nhật tài khoản. */
   async sendEmailChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: EmailChangeOtpDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.sendEmailChangeOtp(session.user.id, input.email);
+    return this.auth.sendEmailChangeOtp(session.user.id, input.email, { currentPassword: input.currentPassword });
   }
 
   @Patch("email")
-  /** Xác minh mã OTP 6 chữ số và cập nhật địa chỉ email mới cho tài khoản. */
+  /** Xác thực lại mật khẩu + TOTP, xác minh mã OTP và cập nhật email mới; các phiên khác bị đăng xuất. */
   async confirmEmailChange(@Headers("cookie") cookies: string | undefined, @Body() input: ConfirmEmailChangeDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.confirmEmailChange(session.user.id, input.challengeId, input.email, input.code);
+    return this.auth.confirmEmailChange(session.user.id, input.challengeId, input.email, input.code, { currentPassword: input.currentPassword, mfaCode: input.mfaCode }, session.sessionId);
   }
 
   @Post("password/otp")
   @HttpCode(200)
-  /** Gửi mã OTP đổi mật khẩu khi người dùng nhập đúng email đã xác thực của tài khoản. */
+  /** Xác thực lại mật khẩu hiện tại rồi gửi mã OTP đổi mật khẩu tới email đã xác thực của tài khoản. */
   async sendPasswordChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: PasswordChangeOtpDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.sendPasswordChangeOtp(session.user.id, input.email);
+    return this.auth.sendPasswordChangeOtp(session.user.id, input.email, { currentPassword: input.currentPassword });
   }
 
   @Patch("password")
-  /** Đổi mật khẩu bằng mã OTP gửi tới email và giữ lại phiên đang thao tác. */
+  /** Đổi mật khẩu sau khi xác thực lại mật khẩu + TOTP và mã OTP email; giữ lại phiên đang thao tác. */
   async changePassword(@Headers("cookie") cookies: string | undefined, @Body() input: ChangePasswordDto): Promise<object> {
     const session = await this.session(cookies);
-    return this.auth.changePassword(session.user.id, session.sessionId, input.challengeId, input.code, input.newPassword);
+    return this.auth.changePassword(session.user.id, session.sessionId, input.challengeId, input.code, input.newPassword, { currentPassword: input.currentPassword, mfaCode: input.mfaCode });
   }
 
   @Get("sessions")
@@ -261,10 +254,17 @@ export class AccountController {
   }
 
   @Post("mfa/confirm")
-  /** Xác nhận mã TOTP đầu tiên, bật MFA khi email đã xác minh. */
-  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ enabled: true }> {
+  /** Xác nhận mã TOTP đầu tiên, bật MFA khi email đã xác minh và trả bộ mã khôi phục hiển thị một lần. */
+  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ enabled: true; recoveryCodes: string[] }> {
     const session = await this.session(cookies);
     return this.auth.confirmMfa(session.user.id, input.code);
+  }
+
+  @Post("mfa/recovery-codes")
+  /** Xác thực lại bằng mật khẩu + TOTP rồi thay toàn bộ mã khôi phục cũ bằng bộ mã mới. */
+  async regenerateRecoveryCodes(@Headers("cookie") cookies: string | undefined, @Body() input: RegenerateRecoveryCodesDto): Promise<{ recoveryCodes: string[] }> {
+    const session = await this.session(cookies);
+    return this.auth.regenerateRecoveryCodes(session.user.id, { currentPassword: input.currentPassword, mfaCode: input.mfaCode });
   }
 
   @Post("mfa/disable-challenge")

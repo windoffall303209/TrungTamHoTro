@@ -149,7 +149,7 @@ export const ROLE_GUIDE_CATALOG: readonly [RoleGuideContent, ...RoleGuideContent
       {
         id: "learner-faq-3",
         question: "Quên mật khẩu hoặc đổi thiết bị không có mã OTP thì làm sao?",
-        answer: "Dùng chức năng Quên mật khẩu ở màn hình đăng nhập hoặc nhận mã OTP qua email đã xác minh khi kích hoạt xác thực 2 bước.",
+        answer: "Dùng chức năng Quên mật khẩu ở màn hình đăng nhập. Nếu mất thiết bị xác thực 2 bước, hãy đăng nhập bằng một mã khôi phục đã lưu khi bật tính năng này.",
       },
     ],
   },

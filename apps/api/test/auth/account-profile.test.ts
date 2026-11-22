@@ -4,6 +4,7 @@ import type { ConfigService } from "@nestjs/config";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmEmailChangeDto, EmailChangeOtpDto, UpdateProfileDto } from "../../src/auth/auth.dto.js";
 import { AuthService } from "../../src/auth/auth.service.js";
+import { hashPassword } from "../../src/auth/password.js";
 import type { Environment } from "../../src/config/environment.js";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import type { EmailDeliveryService } from "../../src/infrastructure/email-delivery.service.js";
@@ -78,10 +79,17 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
     ).rejects.toThrow();
 
     const acceptedOtpRequest: unknown = await pipe.transform(
-      { email: "new.admin@wind.edu.vn" },
+      { email: "new.admin@wind.edu.vn", currentPassword: "Current-Pass-2026!" },
       { type: "body", metatype: EmailChangeOtpDto },
     );
-    expect(acceptedOtpRequest).toMatchObject({ email: "new.admin@wind.edu.vn" });
+    expect(acceptedOtpRequest).toMatchObject({ email: "new.admin@wind.edu.vn", currentPassword: "Current-Pass-2026!" });
+
+    await expect(
+      pipe.transform(
+        { challengeId: "ch-12345678901234567890", email: "new.admin@wind.edu.vn", code: "123456", mfaCode: "12ab56" },
+        { type: "body", metatype: ConfirmEmailChangeDto },
+      ),
+    ).rejects.toThrow();
 
     await expect(
       pipe.transform(
@@ -144,7 +152,10 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
   });
 
   it("gửi OTP tới email mới, từ chối mã sai và cập nhật email đã xác minh khi mã đúng", async () => {
+    const currentPassword = "Current-Pass-2026!";
+    const passwordHash = await hashPassword(currentPassword);
     let storedEmail = "old@wind.edu.vn";
+    const revokedSessionQueries: unknown[] = [];
     const capturedUserUpdates: UpdateUserCall[] = [];
     const capturedAudits: Array<{ data: { action: string; context: Record<string, string | null> } }> = [];
     const sentEmails: Array<{ to: string; subject: string; text: string }> = [];
@@ -208,7 +219,8 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
           status: "ACTIVE",
           emailVerifiedAt: new Date("2026-10-01T00:00:00Z"),
           mfaEnabledAt: null,
-          passwordHash: "hashed",
+          mfaSecretEncrypted: null,
+          passwordHash,
           createdAt: new Date("2026-09-15T10:26:00Z"),
         });
       }),
@@ -226,10 +238,18 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
       },
     };
 
+    const authSessionApi = {
+      updateMany: vi.fn((query: unknown) => {
+        revokedSessionQueries.push(query);
+        return Promise.resolve({ count: 2 });
+      }),
+    };
+
     const prisma = {
       user: userApi,
       accountToken: accountTokenApi,
       auditLog: auditLogApi,
+      authSession: authSessionApi,
       $transaction: vi.fn(async (arg: unknown) => {
         if (Array.isArray(arg)) return Promise.all(arg);
         const callback = arg as (tx: unknown) => Promise<unknown>;
@@ -237,6 +257,7 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
           user: userApi,
           accountToken: accountTokenApi,
           auditLog: auditLogApi,
+          authSession: authSessionApi,
         });
       }),
     } as unknown as PrismaService;
@@ -255,18 +276,26 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
       makeConfig(),
     );
 
-    const challenge = await service.sendEmailChangeOtp("usr-admin", "  New.Admin@Wind.edu.vn ");
+    // Phiên bị chiếm nhưng không biết mật khẩu thì không thể yêu cầu đổi email.
+    await expect(service.sendEmailChangeOtp("usr-admin", "new.admin@wind.edu.vn")).rejects.toThrow("Mật khẩu hiện tại không chính xác.");
+    await expect(service.sendEmailChangeOtp("usr-admin", "new.admin@wind.edu.vn", { currentPassword: "Wrong-Pass-2026!" })).rejects.toThrow("Mật khẩu hiện tại không chính xác.");
+    expect(sentEmails).toHaveLength(0);
+
+    const challenge = await service.sendEmailChangeOtp("usr-admin", "  New.Admin@Wind.edu.vn ", { currentPassword });
     expect(challenge.email).toBe("new.admin@wind.edu.vn");
     expect(sentEmails[0]?.to).toBe("new.admin@wind.edu.vn");
     const otpCode = sentEmails[0]?.text.match(/\b(\d{6})\b/)?.[1];
     expect(otpCode).toBeDefined();
 
     await expect(
-      service.confirmEmailChange("usr-admin", challenge.challengeId, "new.admin@wind.edu.vn", "000000"),
+      service.confirmEmailChange("usr-admin", challenge.challengeId, "new.admin@wind.edu.vn", otpCode!, {}, "session-current"),
+    ).rejects.toThrow("Mật khẩu hiện tại không chính xác.");
+    await expect(
+      service.confirmEmailChange("usr-admin", challenge.challengeId, "new.admin@wind.edu.vn", "000000", { currentPassword }, "session-current"),
     ).rejects.toThrow("Mã OTP không chính xác.");
     expect(storedEmail).toBe("old@wind.edu.vn");
 
-    const profile = await service.confirmEmailChange("usr-admin", challenge.challengeId, "new.admin@wind.edu.vn", otpCode!);
+    const profile = await service.confirmEmailChange("usr-admin", challenge.challengeId, "new.admin@wind.edu.vn", otpCode!, { currentPassword }, "session-current");
     expect(profile.username).toBe("admin@wind.edu.vn");
     expect(profile.email).toBe("new.admin@wind.edu.vn");
     expect(profile.emailVerifiedAt).toBeTruthy();
@@ -277,8 +306,16 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
     expect(capturedAudits).toHaveLength(1);
     expect(capturedAudits[0]?.data).toMatchObject({
       action: "PROFILE_EMAIL_UPDATED",
-      context: { previousEmail: "old@wind.edu.vn", newEmail: "new.admin@wind.edu.vn", verificationMethod: "EMAIL_OTP" },
+      context: { previousEmail: "old@wind.edu.vn", newEmail: "new.admin@wind.edu.vn", verificationMethod: "PASSWORD+EMAIL_OTP", revokedSessions: 2 },
     });
+    expect(revokedSessionQueries).toEqual([
+      expect.objectContaining({ where: { userId: "usr-admin", revokedAt: null, id: { not: "session-current" } } }),
+    ]);
+    // Email cũ nhận cảnh báo với email mới đã được che bớt.
+    const warning = sentEmails.at(-1);
+    expect(warning?.to).toBe("old@wind.edu.vn");
+    expect(warning?.text).toContain("ne*******@wind.edu.vn");
+    expect(warning?.text).not.toContain("new.admin@wind.edu.vn");
   });
 
   it("từ chối khi email mới trùng email hiện tại hoặc đã thuộc về tài khoản khác", async () => {
@@ -302,10 +339,10 @@ describe("cập nhật hồ sơ và email tài khoản", () => {
       makeConfig(),
     );
 
-    await expect(service.sendEmailChangeOtp("usr-admin", "admin@wind.edu.vn")).rejects.toThrow(
+    await expect(service.sendEmailChangeOtp("usr-admin", "admin@wind.edu.vn", { currentPassword: "Current-Pass-2026!" })).rejects.toThrow(
       "Email mới phải khác email hiện tại của tài khoản.",
     );
-    await expect(service.sendEmailChangeOtp("usr-admin", "taken@wind.edu.vn")).rejects.toThrow(
+    await expect(service.sendEmailChangeOtp("usr-admin", "taken@wind.edu.vn", { currentPassword: "Current-Pass-2026!" })).rejects.toThrow(
       ConflictException,
     );
   });

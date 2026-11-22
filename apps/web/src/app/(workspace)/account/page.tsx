@@ -41,6 +41,7 @@ const emptyProfile: AccountProfile = {
   status: "ACTIVE",
   emailVerifiedAt: null,
   mfaEnabled: false,
+  mfaRecoveryCodesRemaining: 0,
   hasPassword: true,
   createdAt: "",
 };
@@ -101,6 +102,10 @@ function AccountContent() {
   const [emailConfirming, setEmailConfirming] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [emailResendAt, setEmailResendAt] = useState(0);
+  const [emailCurrentPassword, setEmailCurrentPassword] = useState("");
+  const [emailMfaCode, setEmailMfaCode] = useState("");
+  const emailPasswordInputId = useId();
+  const emailMfaInputId = useId();
   const emailInputId = useId();
   const newEmailInputId = useId();
   const emailOtpInputId = useId();
@@ -117,6 +122,8 @@ function AccountContent() {
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwords, setPasswords] = useState({ newPassword: "", confirmPassword: "" });
   const [passwordEmail, setPasswordEmail] = useState("");
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordMfaCode, setPasswordMfaCode] = useState("");
   const [passwordOtp, setPasswordOtp] = useState<{ challengeId: string; email: string } | null>(null);
   const [passwordCode, setPasswordCode] = useState("");
   const [passwordResendAt, setPasswordResendAt] = useState(0);
@@ -138,6 +145,11 @@ function AccountContent() {
   const [mfaDisableStep, setMfaDisableStep] = useState<"idle" | "password" | "code">("idle");
   const [mfaDisablePassword, setMfaDisablePassword] = useState("");
   const [mfaDisableChallenge, setMfaDisableChallenge] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [recoveryFormOpen, setRecoveryFormOpen] = useState(false);
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryMfaCode, setRecoveryMfaCode] = useState("");
+  const [recoverySaving, setRecoverySaving] = useState(false);
 
   // Đồng bộ tab từ URL param khi URL thay đổi
   useEffect(() => {
@@ -166,6 +178,8 @@ function AccountContent() {
       setEmailOtp(null);
       setEmailOtpCode("");
       setEmailError("");
+      setEmailCurrentPassword("");
+      setEmailMfaCode("");
       if (profileData.email) setPasswordEmail(profileData.email);
     } catch (error) {
       if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không thể tải thông tin tài khoản.", "error");
@@ -228,6 +242,8 @@ function AccountContent() {
     setEmailOtp(null);
     setEmailOtpCode("");
     setEmailError("");
+    setEmailCurrentPassword("");
+    setEmailMfaCode("");
     setEmailModalOpen(true);
     window.requestAnimationFrame(() => {
       emailDraftInputRef.current?.focus();
@@ -242,6 +258,8 @@ function AccountContent() {
     setEmailOtp(null);
     setEmailOtpCode("");
     setEmailError("");
+    setEmailCurrentPassword("");
+    setEmailMfaCode("");
   }
 
   /** Cập nhật email đang nhập trong hộp thoại và xóa thông báo lỗi nếu người dùng sửa lại. */
@@ -275,6 +293,10 @@ function AccountContent() {
       emailDraftInputRef.current?.focus();
       return;
     }
+    if (profile.hasPassword && !emailCurrentPassword) {
+      setEmailError("Vui lòng nhập mật khẩu hiện tại.");
+      return;
+    }
     if (emailSending || emailConfirming || emailResendSeconds > 0) return;
 
     setEmailError("");
@@ -284,7 +306,7 @@ function AccountContent() {
         "/account/email/otp",
         {
           method: "POST",
-          body: JSON.stringify({ email: normalized }),
+          body: JSON.stringify({ email: normalized, currentPassword: emailCurrentPassword || undefined }),
         },
       );
       const now = Date.now();
@@ -314,7 +336,7 @@ function AccountContent() {
       await requestEmailChangeOtp();
       return;
     }
-    if (!/^\d{6}$/.test(emailOtpCode)) {
+    if (!/^\d{6}$/.test(emailOtpCode) || (profile.mfaEnabled && !/^\d{6}$/.test(emailMfaCode))) {
       setEmailError("Vui lòng nhập đủ 6 chữ số xác minh.");
       emailOtpInputRef.current?.focus();
       return;
@@ -329,6 +351,8 @@ function AccountContent() {
           challengeId: emailOtp.challengeId,
           email: emailOtp.email,
           code: emailOtpCode,
+          currentPassword: emailCurrentPassword || undefined,
+          mfaCode: profile.mfaEnabled ? emailMfaCode : undefined,
         }),
       });
       setProfile(updated);
@@ -344,6 +368,8 @@ function AccountContent() {
       setEmailDraft("");
       setEmailOtp(null);
       setEmailOtpCode("");
+      setEmailCurrentPassword("");
+      setEmailMfaCode("");
       await refreshSession();
       notify("Đã xác minh và cập nhật địa chỉ email mới.", "success");
     } catch (error) {
@@ -447,7 +473,7 @@ function AccountContent() {
         "/account/password/otp",
         {
           method: "POST",
-          body: JSON.stringify({ email: normalizedEmail }),
+          body: JSON.stringify({ email: normalizedEmail, currentPassword: passwordCurrent || undefined }),
         },
       );
       const now = Date.now();
@@ -492,11 +518,15 @@ function AccountContent() {
           challengeId: passwordOtp?.challengeId,
           code: passwordCode,
           newPassword: passwords.newPassword,
+          currentPassword: passwordCurrent || undefined,
+          mfaCode: profile.mfaEnabled ? passwordMfaCode : undefined,
         }),
       });
       setPasswords({ newPassword: "", confirmPassword: "" });
       setPasswordCode("");
       setPasswordOtp(null);
+      setPasswordCurrent("");
+      setPasswordMfaCode("");
       notify("Đổi mật khẩu thành công. Các phiên khác đã được đóng.", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể đổi mật khẩu.", "error");
@@ -589,10 +619,11 @@ function AccountContent() {
     setMfaConfirming(true);
     setMfaError("");
     try {
-      await apiRequest<{ enabled: true }>("/account/mfa/confirm", {
+      const enabled = await apiRequest<{ enabled: true; recoveryCodes?: string[] }>("/account/mfa/confirm", {
         method: "POST",
         body: JSON.stringify({ code: normalizedCode }),
       });
+      if (enabled.recoveryCodes?.length) setRecoveryCodes(enabled.recoveryCodes);
       if (mfaCopiedTimer.current !== null) {
         clearTimeout(mfaCopiedTimer.current);
         mfaCopiedTimer.current = null;
@@ -645,6 +676,40 @@ function AccountContent() {
       notify("Đã tắt xác thực hai bước.", "info");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể tắt MFA.", "error");
+    }
+  }
+
+  /** Xác thực lại bằng mật khẩu và TOTP để thay toàn bộ mã khôi phục cũ bằng bộ mã mới. */
+  async function regenerateRecoveryCodes(event: FormEvent) {
+    event.preventDefault();
+    if (recoverySaving) return;
+    setRecoverySaving(true);
+    try {
+      const result = await apiRequest<{ recoveryCodes: string[] }>("/account/mfa/recovery-codes", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: recoveryPassword || undefined, mfaCode: recoveryMfaCode }),
+      });
+      setRecoveryCodes(result.recoveryCodes);
+      setRecoveryFormOpen(false);
+      setRecoveryPassword("");
+      setRecoveryMfaCode("");
+      await load();
+      notify("Đã tạo bộ mã khôi phục mới.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tạo lại mã khôi phục.", "error");
+    } finally {
+      setRecoverySaving(false);
+    }
+  }
+
+  /** Sao chép toàn bộ mã khôi phục vừa phát, mỗi mã một dòng, để người dùng lưu vào trình quản lý mật khẩu. */
+  async function copyRecoveryCodes() {
+    if (!recoveryCodes?.length) return;
+    try {
+      await navigator.clipboard.writeText(recoveryCodes.join("\n"));
+      notify("Đã sao chép mã khôi phục.", "success");
+    } catch {
+      notify("Không thể sao chép mã khôi phục.", "error");
     }
   }
 
@@ -916,6 +981,20 @@ function AccountContent() {
             >
               {!passwordOtp ? (
                 <>
+                  {profile.hasPassword ? (
+                    <Field label="Mật khẩu hiện tại">
+                      <input
+                        autoComplete="current-password"
+                        className={inputClass}
+                        maxLength={128}
+                        minLength={8}
+                        onChange={(e) => setPasswordCurrent(e.target.value)}
+                        required
+                        type="password"
+                        value={passwordCurrent}
+                      />
+                    </Field>
+                  ) : null}
                   <Field label="Email xác thực để nhận mã OTP">
                     <input
                       autoComplete="email"
@@ -982,8 +1061,23 @@ function AccountContent() {
                     />
                   </Field>
 
+                  {profile.mfaEnabled ? (
+                    <Field label="Mã xác thực 6 số">
+                      <input
+                        autoComplete="one-time-code"
+                        className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
+                        inputMode="numeric"
+                        maxLength={6}
+                        onChange={(e) => setPasswordMfaCode(e.target.value.replace(/\D/g, ""))}
+                        placeholder="000000"
+                        required
+                        value={passwordMfaCode}
+                      />
+                    </Field>
+                  ) : null}
+
                   <div className="flex flex-wrap gap-2 pt-2">
-                    <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode)} loading={passwordSaving} type="submit">
+                    <Button disabled={passwordSaving || !/^\d{6}$/.test(passwordCode) || (profile.mfaEnabled && !/^\d{6}$/.test(passwordMfaCode))} loading={passwordSaving} type="submit">
                       <ShieldCheck size={16} />
                       Xác nhận đổi mật khẩu
                     </Button>
@@ -1039,7 +1133,7 @@ function AccountContent() {
             {!profile.mfaEnabled && (
               <div className="mt-5 flex flex-col items-start gap-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {profile.emailVerifiedAt && profile.email ? "Khi mất quyền truy cập ứng dụng xác thực, bạn có thể nhận OTP qua email." : "Hãy xác minh email trong phần tài khoản trước khi bật xác thực hai bước."}
+                  {profile.emailVerifiedAt && profile.email ? "Sau khi bật, bạn sẽ nhận 10 mã khôi phục dùng khi mất quyền truy cập ứng dụng xác thực." : "Hãy xác minh email trong phần tài khoản trước khi bật xác thực hai bước."}
                 </p>
                 <Button disabled={!profile.email || !profile.emailVerifiedAt} loading={mfaStarting} onClick={() => void startMfa()} variant="secondary">
                   <KeyRound size={15} />
@@ -1172,6 +1266,96 @@ function AccountContent() {
                   </div>
                 </form>
               )}
+            </Modal>
+
+            {profile.mfaEnabled && mfaDisableStep === "idle" && (
+              <div className="mt-5 space-y-3">
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  <span>Mã khôi phục còn lại:</span>{" "}
+                  <strong className="tabular-nums text-slate-900 dark:text-slate-100" data-i18n-skip>
+                    {profile.mfaRecoveryCodesRemaining}/10
+                  </strong>
+                </p>
+                {!recoveryFormOpen ? (
+                  <Button onClick={() => setRecoveryFormOpen(true)} variant="secondary">
+                    <RefreshCw size={15} />
+                    Tạo lại mã khôi phục
+                  </Button>
+                ) : (
+                  <form className="max-w-md space-y-4" onSubmit={(e) => void regenerateRecoveryCodes(e)}>
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Nhập mật khẩu hiện tại và mã 6 số từ ứng dụng xác thực để tạo bộ mã khôi phục mới. Các mã cũ sẽ bị vô hiệu hóa.
+                    </p>
+                    {profile.hasPassword ? (
+                      <Field label="Mật khẩu hiện tại">
+                        <input
+                          autoComplete="current-password"
+                          className={inputClass}
+                          maxLength={128}
+                          minLength={8}
+                          onChange={(e) => setRecoveryPassword(e.target.value)}
+                          required
+                          type="password"
+                          value={recoveryPassword}
+                        />
+                      </Field>
+                    ) : null}
+                    <Field label="Mã xác thực 6 số">
+                      <input
+                        autoComplete="one-time-code"
+                        className={`${inputClass} text-center font-mono text-lg font-bold tracking-[0.3em]`}
+                        inputMode="numeric"
+                        maxLength={6}
+                        onChange={(e) => setRecoveryMfaCode(e.target.value.replace(/\D/g, ""))}
+                        value={recoveryMfaCode}
+                      />
+                    </Field>
+                    <div className="flex gap-2">
+                      <Button disabled={!/^\d{6}$/.test(recoveryMfaCode)} loading={recoverySaving} type="submit">
+                        Tạo mã mới
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setRecoveryFormOpen(false);
+                          setRecoveryPassword("");
+                          setRecoveryMfaCode("");
+                        }}
+                        variant="ghost"
+                      >
+                        Hủy
+                      </Button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Hộp thoại hiển thị một lần bộ mã khôi phục vừa phát */}
+            <Modal
+              description="Mỗi mã chỉ dùng được một lần để đăng nhập khi bạn mất thiết bị xác thực. Hãy lưu ở nơi an toàn vì mã sẽ không hiển thị lại."
+              onClose={() => setRecoveryCodes(null)}
+              open={Boolean(recoveryCodes)}
+              size="sm"
+              title="Mã khôi phục xác thực hai bước"
+            >
+              {recoveryCodes ? (
+                <div className="space-y-4">
+                  <ul className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-3 font-mono text-sm font-semibold text-slate-900 dark:text-slate-100" data-i18n-skip>
+                    {recoveryCodes.map((code) => (
+                      <li className="text-center tracking-wider" key={code}>{code}</li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center justify-end gap-2.5">
+                    <Button onClick={() => void copyRecoveryCodes()} shape="pill" type="button" variant="secondary">
+                      <Copy size={15} />
+                      Sao chép tất cả
+                    </Button>
+                    <Button onClick={() => setRecoveryCodes(null)} shape="pill" type="button" variant="primary">
+                      Tôi đã lưu mã
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </Modal>
 
             {/* Bước tắt 2FA */}
@@ -1351,6 +1535,30 @@ function AccountContent() {
                 ) : null}
               </div>
 
+              {profile.hasPassword ? (
+                <div>
+                  <label
+                    className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+                    htmlFor={emailPasswordInputId}
+                  >
+                    Mật khẩu hiện tại
+                  </label>
+                  <input
+                    autoComplete="current-password"
+                    className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:opacity-60"
+                    disabled={emailSending}
+                    id={emailPasswordInputId}
+                    maxLength={128}
+                    onChange={(event) => {
+                      setEmailCurrentPassword(event.target.value);
+                      if (emailError) setEmailError("");
+                    }}
+                    type="password"
+                    value={emailCurrentPassword}
+                  />
+                </div>
+              ) : null}
+
               <div className="flex items-center justify-end gap-2.5 pt-1">
                 <Button
                   disabled={emailSending}
@@ -1362,7 +1570,7 @@ function AccountContent() {
                   Huỷ
                 </Button>
                 <Button
-                  disabled={!emailDraft.trim() || emailSending || emailResendSeconds > 0}
+                  disabled={!emailDraft.trim() || (profile.hasPassword && !emailCurrentPassword) || emailSending || emailResendSeconds > 0}
                   loading={emailSending}
                   shape="pill"
                   type="submit"
@@ -1419,6 +1627,31 @@ function AccountContent() {
                 ) : null}
               </div>
 
+              {profile.mfaEnabled ? (
+                <div>
+                  <label
+                    className="block text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200"
+                    htmlFor={emailMfaInputId}
+                  >
+                    Mã xác thực 6 số
+                  </label>
+                  <input
+                    autoComplete="one-time-code"
+                    className="mt-2 min-h-11 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950/70 px-3.5 py-2 font-mono text-base font-semibold tracking-[0.22em] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/25 disabled:opacity-60"
+                    disabled={emailConfirming}
+                    id={emailMfaInputId}
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => {
+                      setEmailMfaCode(event.target.value.replace(/\D/g, ""));
+                      if (emailError) setEmailError("");
+                    }}
+                    placeholder="000000"
+                    value={emailMfaCode}
+                  />
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <button
                   className="font-medium text-slate-600 dark:text-slate-300 hover:text-sky-600 dark:hover:text-sky-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded px-1 py-0.5"
@@ -1454,7 +1687,7 @@ function AccountContent() {
                   Huỷ
                 </Button>
                 <Button
-                  disabled={!/^\d{6}$/.test(emailOtpCode) || emailSending || emailConfirming}
+                  disabled={!/^\d{6}$/.test(emailOtpCode) || (profile.mfaEnabled && !/^\d{6}$/.test(emailMfaCode)) || emailSending || emailConfirming}
                   loading={emailConfirming}
                   shape="pill"
                   type="submit"
