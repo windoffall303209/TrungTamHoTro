@@ -328,6 +328,9 @@ export async function createMaterial(
     throw new BadRequestException("Chỉ được tạo bài giảng bằng liên kết trong lớp.");
   if (isLectureLink && input.sizeBytes !== Buffer.byteLength(lectureUrl!, "utf8"))
     throw new BadRequestException("Dung lượng metadata liên kết không khớp URL.");
+  // Dung lượng tính quota do máy chủ xác định: tệp lấy số byte thực đã ghi, liên kết tính theo độ dài URL,
+  // metadata không kèm tệp tính 0 — client không thể khai khống sizeBytes để làm cạn quota toàn hệ thống.
+  const sizeBytes = upload ? upload.size : isLectureLink ? Buffer.byteLength(lectureUrl!, "utf8") : 0;
   const prisma = serviceContext.database();
   const policy = prisma
     ? await serviceContext.getStoragePolicy(prisma)
@@ -336,7 +339,7 @@ export async function createMaterial(
         storageQuotaMb: 10_240,
         allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES],
       };
-  if (input.sizeBytes > policy.maxFileSizeMb * 1_000_000)
+  if (sizeBytes > policy.maxFileSizeMb * 1_000_000)
     throw new BadRequestException(
       `Tệp vượt giới hạn ${policy.maxFileSizeMb} MB.`,
     );
@@ -371,7 +374,7 @@ export async function createMaterial(
       _sum: { sizeBytes: true },
     });
     if (
-      (usage._sum.sizeBytes ?? 0n) + BigInt(input.sizeBytes) >
+      (usage._sum.sizeBytes ?? 0n) + BigInt(sizeBytes) >
       BigInt(policy.storageQuotaMb) * 1_000_000n
     )
       throw new BadRequestException("Kho lưu trữ đã vượt quota hệ thống.");
@@ -399,7 +402,7 @@ export async function createMaterial(
             objectKey: stored.objectKey,
             checksum: stored.checksum,
             mimeType: input.mimeType,
-            sizeBytes: BigInt(input.sizeBytes),
+            sizeBytes: BigInt(sizeBytes),
             folder: input.folder.trim(),
             tags: input.tags,
             visibility: quarantineReason ? "HIDDEN" : (input.visibility === "HIDDEN" ? "HIDDEN" : "PUBLISHED"),
@@ -441,6 +444,7 @@ export async function createMaterial(
     : undefined;
   const item: LearningMaterial = {
     ...input,
+    sizeBytes,
     id: id("material"),
     classId: normalizedClassId,
     courseId: classItem.courseId,

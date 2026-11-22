@@ -7,6 +7,8 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Học liệu dạng tệp phải được tải lên kèm nội dung.": "File materials must be uploaded together with their content.",
+  "Bản xem trước DOCX quá lớn. Hãy tải xuống để mở bằng Microsoft Word.": "The DOCX preview is too large. Download the file to open it in Microsoft Word.",
   "Tệp DOCX chứa khai báo XML không an toàn.": "The DOCX file contains unsafe XML declarations.",
   "Tệp DOCX chứa liên kết ngoài không được phép.": "The DOCX file contains disallowed external links.",
   "Tệp DOCX chứa macro không được phép.": "The DOCX file contains macros, which are not allowed.",

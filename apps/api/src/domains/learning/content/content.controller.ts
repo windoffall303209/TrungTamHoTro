@@ -168,7 +168,7 @@ export class ContentController {
   }
 
   @Post("instructor/classes/:classId/materials") @RequirePermissions("material:manage")
-  /** Tạo metadata học liệu không kèm tệp cho lớp giảng viên. */
+  /** Tạo bài giảng dạng liên kết (không kèm tệp) cho lớp giảng viên; dung lượng do máy chủ tính theo URL. */
   createMaterial(@Param("classId") classId: string, @Body() input: CreateMaterialDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningMaterial> {
     this.assertInstructorMutation(session);
     return this.learning.createMaterial(classId, input, undefined, session.user.id, session.roleCode);

@@ -194,7 +194,8 @@ export class ReopenClassDto {
 
 export class CreateMaterialDto {
   @IsString() @MinLength(2) name!: string;
-  @IsString() mimeType!: string;
+  // Route JSON chỉ tạo bài giảng dạng liên kết; mọi tệp phải đi qua material-uploads để máy chủ đo dung lượng thật.
+  @IsIn(["text/uri-list"], { message: "Học liệu dạng tệp phải được tải lên kèm nội dung." }) mimeType!: string;
   @IsInt() @Min(1) sizeBytes!: number;
   @IsString() folder!: string;
   @IsArray() @IsString({ each: true }) tags!: string[];
