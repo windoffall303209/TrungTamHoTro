@@ -64,6 +64,15 @@ export async function runBackup(
   return serviceContext.mapBackup(row);
 }
 
+/** Database hệ thống của PostgreSQL không bao giờ được làm đích khôi phục. */
+const SYSTEM_DATABASES = new Set(["postgres", "template0", "template1"]);
+
+/** Tên đích trùng database đang vận hành (không phân biệt hoa thường) hoặc database hệ thống/tiền tố pg_. */
+function isReservedRestoreTarget(serviceContext: SystemServiceContext, target: string): boolean {
+  const normalized = target.toLowerCase();
+  return SYSTEM_DATABASES.has(normalized) || normalized.startsWith("pg_") || Boolean(serviceContext.databaseBackup?.isCurrentDatabase(target));
+}
+
 /** Tạo yêu cầu drill hoặc khôi phục vận hành và để trạng thái chờ một quản trị viên khác phê duyệt. */
 export async function requestRestore(
   serviceContext: SystemServiceContext,
@@ -83,6 +92,10 @@ export async function requestRestore(
   )
     throw new BadRequestException(
       "Khôi phục vận hành cần tên database đích mới, chỉ gồm chữ, số và dấu gạch dưới.",
+    );
+  if (input.mode === "OPERATIONAL" && isReservedRestoreTarget(serviceContext, input.targetDatabase!.trim()))
+    throw new BadRequestException(
+      "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.",
     );
   const prisma = serviceContext.database();
   if (!prisma)
@@ -173,17 +186,28 @@ export async function approveRestore(
     restore.backup.status !== "COMPLETED"
   )
     throw new BadRequestException("Điểm sao lưu không còn hợp lệ.");
-  if (
-    restore.mode === "OPERATIONAL" &&
-    !(await serviceContext.getSettings()).maintenanceMode
-  )
+  if (restore.mode === "OPERATIONAL" && restore.targetDatabase && isReservedRestoreTarget(serviceContext, restore.targetDatabase))
     throw new BadRequestException(
-      "Khôi phục vận hành chỉ được chạy khi hệ thống đang ở chế độ bảo trì.",
+      "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.",
     );
   const backup = restore.backup;
-  const claimed = await prisma.operationalJob.updateMany({
-    where: { kind: "RESTORE", id: restoreId, status: "PENDING" },
-    data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() },
+  // Đọc cờ bảo trì và chuyển RUNNING trong cùng khóa advisory với updateSettings để không ai tắt bảo trì chen giữa.
+  const claimed = await prisma.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('system_settings.platform', 0))`;
+    if (restore.mode === "OPERATIONAL") {
+      const platform = await transaction.systemSetting.findUnique({ where: { key: "platform" } });
+      const maintenanceMode = platform
+        ? serviceContext.mapSettings(platform.value, platform.updatedAt, platform.version, platform.updatedBy).maintenanceMode
+        : false;
+      if (!maintenanceMode)
+        throw new BadRequestException(
+          "Khôi phục vận hành chỉ được chạy khi hệ thống đang ở chế độ bảo trì.",
+        );
+    }
+    return transaction.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "PENDING" },
+      data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() },
+    });
   });
   if (claimed.count !== 1)
     throw new BadRequestException(

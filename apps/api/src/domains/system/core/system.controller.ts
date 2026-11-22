@@ -20,6 +20,7 @@ import {
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "../ai/ai-provider.service.js";
 import { OutboxDeliveryService } from "../../../infrastructure/outbox-delivery.service.js";
 import { USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
+import { AllowDuringMaintenance } from "../operations/allow-during-maintenance.decorator.js";
 
 class ConfigureAiTaskDto {
   @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
@@ -43,7 +44,7 @@ export class SystemController {
   /** Đọc cấu hình hệ thống hiện hành. */
   @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
   /** Cập nhật trực tiếp cấu hình hiện hành và ghi audit log. */
-  @Patch("settings") @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto, @CurrentSession() session: AuthenticatedSession): Promise<SystemSettings> { return this.system.updateSettings(input, session.user.id); }
+  @Patch("settings") @AllowDuringMaintenance() @RequirePermissions("system:configure") updateSettings(@Body() input: UpdateSettingsDto, @CurrentSession() session: AuthenticatedSession): Promise<SystemSettings> { return this.system.updateSettings(input, session.user.id); }
   /** Liệt kê cấu hình các nhà cung cấp phòng học. */
   @Get("integrations") @RequirePermissions("system:configure") listIntegrations(): Promise<IntegrationConfig[]> { return this.system.listIntegrations(); }
   /** Trả catalog model/endpoint mặc định của các nhà cung cấp AI. */
@@ -75,13 +76,13 @@ export class SystemController {
   /** Liệt kê các lần sao lưu và trạng thái. */
   @Get("backups") @RequirePermissions("system:configure") listBackups(): Promise<BackupRun[]> { return this.system.listBackups(); }
   /** Khởi chạy sao lưu full hoặc incremental. */
-  @Post("backups") @RequirePermissions("system:configure") runBackup(@Body() input: RunBackupDto, @CurrentSession() session: AuthenticatedSession): Promise<BackupRun> { return this.system.runBackup(input.type, session.user.id); }
+  @Post("backups") @AllowDuringMaintenance() @RequirePermissions("system:configure") runBackup(@Body() input: RunBackupDto, @CurrentSession() session: AuthenticatedSession): Promise<BackupRun> { return this.system.runBackup(input.type, session.user.id); }
   /** Liệt kê lịch sử phục hồi dữ liệu. */
   @Get("restores") @RequirePermissions("system:configure") listRestores(): Promise<RestoreRun[]> { return this.system.listRestores(); }
   /** Tạo yêu cầu phục hồi chờ một quản trị viên khác phê duyệt. */
-  @Post("restores") @RequirePermissions("system:configure") requestRestore(@Body() input: RestoreBackupDto, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.requestRestore(input, session.user.id); }
+  @Post("restores") @AllowDuringMaintenance() @RequirePermissions("system:configure") requestRestore(@Body() input: RestoreBackupDto, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.requestRestore(input, session.user.id); }
   /** Phê duyệt và thực thi yêu cầu phục hồi bằng danh tính phiên hiện tại. */
-  @Post("restores/:restoreId/approve") @RequirePermissions("system:configure") approveRestore(@Param("restoreId") restoreId: string, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.approveRestore(restoreId, session.user.id); }
+  @Post("restores/:restoreId/approve") @AllowDuringMaintenance() @RequirePermissions("system:configure") approveRestore(@Param("restoreId") restoreId: string, @CurrentSession() session: AuthenticatedSession): Promise<RestoreRun> { return this.system.approveRestore(restoreId, session.user.id); }
   /** Liệt kê các job xuất dữ liệu hệ thống. */
   @Get("exports") @RequirePermissions("system:configure") listExports(): Promise<DataExport[]> { return this.system.listExports(); }
   /** Chạy xuất dữ liệu theo danh mục và định dạng. */

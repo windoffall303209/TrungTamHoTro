@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { assertNoActiveContentMimeTypes } from "../../../../infrastructure/file-signature.js";
 import { defaultSettings, SystemSettings } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
@@ -69,6 +69,9 @@ export async function updateSettings(
     return prisma.$transaction(async (transaction) => {
       // Serialize platform updates, including the first update when no row exists to lock.
       await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('system_settings.platform', 0))`;
+      // Cùng khóa advisory với bước duyệt restore: không ai tắt được bảo trì khi khôi phục vận hành đang ghi dữ liệu.
+      if (input.maintenanceMode === false && await transaction.operationalJob.count({ where: { kind: "RESTORE", status: "RUNNING" } }))
+        throw new ConflictException("Đang có tiến trình khôi phục chạy; chưa thể tắt chế độ bảo trì.");
       const existing = await transaction.systemSetting.findUnique({
         where: { key: "platform" },
       });

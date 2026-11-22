@@ -5,29 +5,25 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
-import { ConfigService } from "@nestjs/config";
-import type { Environment } from "../../../config/environment.js";
 import { SystemService } from "../core/system.service.js";
+import { ALLOW_DURING_MAINTENANCE } from "./allow-during-maintenance.decorator.js";
 
 @Injectable()
-/** Chặn mutation nghiệp vụ khi maintenanceMode hiệu lực nhưng vẫn cho phép đăng nhập, kiểm tra sức khỏe và quản trị hệ thống. */
+/**
+ * Chặn mutation khi maintenanceMode hiệu lực. Chỉ handler gắn @AllowDuringMaintenance() (đăng nhập, tắt bảo trì,
+ * sao lưu/khôi phục) được miễn trừ; không so khớp chuỗi path thô nên `/system/../<route>` không còn lách được.
+ */
 export class MaintenanceGuard implements CanActivate {
-  constructor(private readonly system: SystemService, @Optional() private readonly config?: ConfigService<Environment, true>) {}
+  constructor(private readonly system: SystemService, @Optional() private readonly reflector: Reflector = new Reflector()) {}
 
-  /** Đọc cấu hình hiệu lực tại thời điểm request và trả lỗi ổn định cho mutation bị tạm dừng. */
+  /** Đọc metadata của handler đã định tuyến và cấu hình hiệu lực, trả lỗi ổn định cho mutation bị tạm dừng. */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase()))
       return true;
-    const rawPath = request.path || request.url.split("?")[0] || "/";
-    const prefix = `/${(this.config?.get("API_PREFIX", { infer: true }) ?? "api").replace(/^\/+|\/+$/g, "")}/v${this.config?.get("API_VERSION", { infer: true }) ?? "1"}`;
-    const path = rawPath.startsWith(`${prefix}/`) ? rawPath.slice(prefix.length) : rawPath;
-    if (
-      path.startsWith("/auth/") ||
-      path === "/health" || path.startsWith("/health/") ||
-      path.startsWith("/system/")
-    )
+    if (this.reflector.getAllAndOverride<boolean | undefined>(ALLOW_DURING_MAINTENANCE, [context.getHandler(), context.getClass()]))
       return true;
     if (!(await this.system.isMaintenanceMode())) return true;
     throw new ServiceUnavailableException({

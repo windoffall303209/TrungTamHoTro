@@ -6,6 +6,7 @@ import { AuthService, type AuthenticatedSession } from "./auth.service.js";
 import { AuthRateLimit } from "./auth-rate-limit.js";
 import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, MfaRecoveryLoginDto, PasswordChangeOtpDto, RegenerateRecoveryCodesDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 import { USER_FILE_CSP } from "../infrastructure/file-signature.js";
+import { AllowDuringMaintenance } from "../domains/system/operations/allow-during-maintenance.decorator.js";
 
 @ApiTags("Authentication")
 @Controller("auth")
@@ -13,7 +14,7 @@ import { USER_FILE_CSP } from "../infrastructure/file-signature.js";
 export class SessionController {
   constructor(private readonly auth: AuthService) {}
 
-  @Post("login")
+  @Post("login") @AllowDuringMaintenance()
   @AuthRateLimit()
   @HttpCode(200)
   @ApiOperation({ summary: "Đăng nhập bằng tên tài khoản và mật khẩu" })
@@ -41,7 +42,7 @@ export class SessionController {
     return this.auth.completeAccountSetup(input);
   }
 
-  @Post("mfa/verify")
+  @Post("mfa/verify") @AllowDuringMaintenance()
   @AuthRateLimit()
   @HttpCode(200)
   /** Hoàn tất bước TOTP sau đăng nhập mật khẩu và phát phiên đăng nhập. */
@@ -51,7 +52,7 @@ export class SessionController {
     return { ...result.session, csrfToken: result.csrfToken };
   }
 
-  @Post("mfa/recovery")
+  @Post("mfa/recovery") @AllowDuringMaintenance()
   @AuthRateLimit()
   @HttpCode(200)
   /** Hoàn tất đăng nhập hai bước bằng một mã khôi phục dùng một lần khi không truy cập được ứng dụng xác thực. */
@@ -61,7 +62,7 @@ export class SessionController {
     return { ...result.session, csrfToken: result.csrfToken };
   }
 
-  @Post("forgot-password")
+  @Post("forgot-password") @AllowDuringMaintenance()
   @AuthRateLimit()
   @HttpCode(202)
   /** Yêu cầu email đặt lại mật khẩu nhưng luôn trả accepted để tránh lộ tài khoản tồn tại. */
@@ -69,7 +70,7 @@ export class SessionController {
     return this.auth.requestPasswordReset(input.email);
   }
 
-  @Post("reset-password")
+  @Post("reset-password") @AllowDuringMaintenance()
   @AuthRateLimit()
   /** Tiêu thụ token đặt lại và chuyển mật khẩu mới cho AuthService. */
   resetPassword(@Body() input: ResetPasswordDto): Promise<{ reset: true }> {
@@ -119,7 +120,7 @@ export class SessionController {
     return { ...session, csrfToken: await this.auth.issueCsrf(session.sessionId) };
   }
 
-  @Post("logout")
+  @Post("logout") @AllowDuringMaintenance()
   @HttpCode(204)
   @ApiOperation({ summary: "Đăng xuất và thu hồi phiên" })
   /** Thu hồi session phía máy chủ và xóa cookie trên trình duyệt. */

@@ -79,11 +79,16 @@ export class DatabaseBackupService {
     }
   }
 
+  /** So khớp không phân biệt hoa thường với database đang vận hành để chặn đích khôi phục trùng tên. */
+  isCurrentDatabase(name: string): boolean {
+    return name.trim().toLowerCase() === this.databaseName.toLowerCase();
+  }
+
   /** Phục hồi backup vào database mới và không bao giờ ghi đè database đang vận hành. */
   async restoreToDatabase(path: string, targetDatabase: string): Promise<RestoreSummary> {
     this.assertBackup(await readFileHead(path, 5));
     this.assertIdentifier(targetDatabase);
-    if (targetDatabase === this.databaseName) throw new BadRequestException("Không được khôi phục trực tiếp đè lên database đang vận hành.");
+    if (this.isCurrentDatabase(targetDatabase) || ["postgres", "template0", "template1"].includes(targetDatabase.toLowerCase())) throw new BadRequestException("Không được khôi phục trực tiếp đè lên database đang vận hành.");
     const administrator = await this.open("postgres");
     let created = false;
     try {
