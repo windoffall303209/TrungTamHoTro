@@ -427,6 +427,29 @@ export async function listLearnerResults(
   serviceContext: LearningServiceContext,
   learnerId: string,
 ): Promise<LearnerResult[]> {
+  return collectLearnerResults(serviceContext, learnerId, "BEST");
+}
+
+/** Chọn lượt đại diện của mỗi đề: điểm cao nhất (như sổ điểm), hòa điểm thì lấy lượt mới hơn. */
+function pickBestAttempts<T>(rows: T[], key: (row: T) => { examId: string; score: number; attemptNo: number }): T[] {
+  const best = new Map<string, { row: T; score: number; attemptNo: number }>();
+  for (const row of rows) {
+    const { examId, score, attemptNo } = key(row);
+    const current = best.get(examId);
+    if (!current || score > current.score || (score === current.score && attemptNo > current.attemptNo)) best.set(examId, { row, score, attemptNo });
+  }
+  return [...best.values()].map((item) => item.row);
+}
+
+/**
+ * Gom kết quả đã công bố của học viên. "BEST" trả một lượt điểm cao nhất mỗi đề (trước đây lấy lượt mới nhất nên thi
+ * lại điểm thấp hơn làm "mất" kết quả tốt); "ALL" trả mọi lượt để xem chi tiết lượt cũ không còn bị 404.
+ */
+async function collectLearnerResults(
+  serviceContext: LearningServiceContext,
+  learnerId: string,
+  mode: "BEST" | "ALL",
+): Promise<LearnerResult[]> {
   const prisma = serviceContext.database();
   if (prisma) {
     const rows = await prisma.examAttempt.findMany({
@@ -447,11 +470,11 @@ export async function listLearnerResults(
           take: 1,
         },
       },
-      distinct: ["examId"],
       orderBy: [{ examId: "asc" }, { attemptNo: "desc" }],
     });
+    const selected = mode === "ALL" ? rows : pickBestAttempts(rows, (row) => ({ examId: row.examId, score: Number(row.score ?? 0), attemptNo: row.attemptNo }));
     const timestamp = new Date();
-    return rows.sort((a, b) => b.gradePublishedAt!.getTime() - a.gradePublishedAt!.getTime()).map((row) => withBreakdownPolicy({
+    return selected.sort((a, b) => b.gradePublishedAt!.getTime() - a.gradePublishedAt!.getTime()).map((row) => withBreakdownPolicy({
       attempt: serviceContext.mapAttempt(row),
       exam: {
         id: row.exam.id,
@@ -478,14 +501,13 @@ export async function listLearnerResults(
         : undefined,
     }, timestamp));
   }
-  const latestByExam = new Map<string, ExamAttempt>();
-  for (const attempt of serviceContext.attempts) {
-    if (attempt.learnerId !== learnerId || attempt.status !== "GRADED" || !attempt.gradePublishedAt) continue;
-    const current = latestByExam.get(attempt.examId);
-    if (!current || (attempt.attemptNo ?? 0) > (current.attemptNo ?? 0) ||
-        (attempt.attemptNo === current.attemptNo && attempt.startedAt >= current.startedAt)) latestByExam.set(attempt.examId, attempt);
-  }
-  return [...latestByExam.values()]
+  const published = serviceContext.attempts.filter(
+    (attempt) => attempt.learnerId === learnerId && attempt.status === "GRADED" && Boolean(attempt.gradePublishedAt),
+  );
+  const chosen: ExamAttempt[] = mode === "ALL"
+    ? published
+    : pickBestAttempts(published, (attempt) => ({ examId: attempt.examId, score: attempt.score ?? 0, attemptNo: attempt.attemptNo ?? 0 }));
+  return chosen
     .filter(
       (attempt) =>
         !serviceContext.findExam(attempt.examId).hidden,
@@ -565,7 +587,7 @@ export async function getLearnerResult(
   attemptId: string,
   learnerId: string,
 ): Promise<LearnerResult> {
-  const result = (await serviceContext.listLearnerResults(learnerId)).find(
+  const result = (await collectLearnerResults(serviceContext, learnerId, "ALL")).find(
     (item) => item.attempt.id === attemptId,
   );
   if (!result)

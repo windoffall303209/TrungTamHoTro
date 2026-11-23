@@ -237,7 +237,7 @@ describe("LearningService", () => {
     );
   });
 
-  it("trả lượt đã chấm mới nhất dù điểm thấp hơn lượt trước", async () => {
+  it("trả lượt điểm cao nhất như sổ điểm và vẫn cho xem chi tiết lượt thấp hơn", async () => {
     const service = new LearningService();
     const first = await service.startAttempt("exam-mid-web", "usr-learner");
     await service.saveAnswer(first.id, "q-rest-01", ["PATCH"], "usr-learner");
@@ -248,7 +248,8 @@ describe("LearningService", () => {
     await service.submitAttempt(latest.id, "usr-learner");
     const results = await service.listLearnerResults("usr-learner");
     expect(results).toHaveLength(1);
-    expect(results[0]?.attempt).toMatchObject({ id: latest.id, score: 0 });
+    expect(results[0]?.attempt).toMatchObject({ id: first.id, score: 10 });
+    expect((await service.getLearnerResult(latest.id, "usr-learner")).attempt).toMatchObject({ id: latest.id, score: 0 });
   });
 
   it("tự động nộp lượt làm bài khi bộ đếm phía máy chủ hết giờ", async () => {
