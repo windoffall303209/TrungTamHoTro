@@ -40,8 +40,9 @@ export async function getClassProgress(
       },
       include: {
         enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } },
+        // Chỉ đề đã phát hành/đóng và không ẩn: đề nháp, chờ duyệt hay đang ẩn không thuộc mẫu số tiến độ.
         exams: {
-          where: { openAt: { lte: to }, closeAt: { gte: from } },
+          where: { openAt: { lte: to }, closeAt: { gte: from }, status: { in: ["PUBLISHED", "CLOSED"] }, hidden: false },
           select: {
             id: true,
             status: true,
@@ -58,6 +59,7 @@ export async function getClassProgress(
         assignments: {
           where: {
             status: { in: ["PUBLISHED", "CLOSED"] },
+            hidden: false,
             dueAt: { gte: from, lte: to },
           },
           select: {
@@ -102,22 +104,24 @@ export async function getClassProgress(
       else interventionsByLearner.set(item.learnerId, [item]);
     }
     const learners = classItem.enrollments.map(({ learnerId }) => {
-      let earned = 0;
-      let possible = 0;
+      // Cùng công thức với sổ điểm: trung bình phần trăm từng bài, lượt điểm cao nhất của đề; bài đã nộp nhưng chưa
+      // chấm không bị tính 0, chỉ bài quá hạn mà học viên không làm mới tính 0.
+      let percentSum = 0;
+      let scoredItems = 0;
       let completedAssessments = 0;
       const activityDates: Date[] = [];
       for (const exam of classItem.exams) {
         const learnerAttempts = attemptIndex.get(`${learnerId}:${exam.id}`) ?? [];
         if (learnerAttempts.some((attempt) => attempt.status !== "IN_PROGRESS")) completedAssessments += 1;
         for (const attempt of learnerAttempts) if (attempt.submittedAt) activityDates.push(attempt.submittedAt);
-        const graded = learnerAttempts.find(
-          (attempt) => attempt.status === "GRADED",
-        );
-        if (graded) {
-          earned += Number(graded.score ?? 0);
-          possible += Number(exam.totalScore);
-        } else if (exam.status === "CLOSED" || exam.closeAt <= to)
-          possible += Number(exam.totalScore);
+        const best = learnerAttempts
+          .filter((attempt) => attempt.status === "GRADED")
+          .reduce<ExamAttemptRow | undefined>((top, current) => (!top || Number(current.score ?? 0) > Number(top.score ?? 0) ? current : top), undefined);
+        const total = Number(exam.totalScore);
+        if (best) {
+          percentSum += total > 0 ? Number(best.score ?? 0) / total : 0;
+          scoredItems += 1;
+        } else if (!learnerAttempts.length && (exam.status === "CLOSED" || exam.closeAt <= to)) scoredItems += 1;
       }
       for (const assignment of classItem.assignments) {
         const submission = submissionIndex.get(`${learnerId}:${assignment.id}`);
@@ -125,11 +129,11 @@ export async function getClassProgress(
           completedAssessments += 1;
           activityDates.push(submission.submittedAt);
         }
+        const max = Number(assignment.maxScore);
         if (submission?.status === "GRADED") {
-          earned += Number(submission.score ?? 0);
-          possible += Number(assignment.maxScore);
-        } else if (assignment.status === "CLOSED" || assignment.dueAt <= to)
-          possible += Number(assignment.maxScore);
+          percentSum += max > 0 ? Number(submission.score ?? 0) / max : 0;
+          scoredItems += 1;
+        } else if (!submission && (assignment.status === "CLOSED" || assignment.dueAt <= to)) scoredItems += 1;
       }
       const totalAssessments =
         classItem.exams.length + classItem.assignments.length;
@@ -140,11 +144,11 @@ export async function getClassProgress(
           completedAssessments,
           totalAssessments,
         ),
-        averageScore: possible
-          ? Math.round((earned / possible) * 10_000) / 100
-          : 0,
+        averageScore: scoredItems ? Math.round((percentSum / scoredItems) * 10_000) / 100 : 0,
         lastActivityAt: serviceContext.latestDate(activityDates),
         thresholds,
+        scoredItems,
+        totalAssessments,
         interventions: (interventionsByLearner.get(learnerId) ?? [])
           .map((item) => serviceContext.mapProgressIntervention(item)),
       });

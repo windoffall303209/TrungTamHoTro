@@ -2290,7 +2290,7 @@ export class LearningService {
   /** So sánh chỉ số học viên với ngưỡng để sinh mức và lý do rủi ro. */
   private buildLearnerProgress(
     input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & {
-      thresholds: RiskThresholds;
+      thresholds: RiskThresholds; scoredItems?: number; totalAssessments?: number;
     },
   ): LearnerProgress {
     return report_rules_ops.buildLearnerProgress(input);

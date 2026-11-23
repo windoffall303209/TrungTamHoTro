@@ -189,7 +189,7 @@ export interface LearningServiceContext {
   latestDate(values: Date[]): string | undefined;
   buildLearnerProgress(
     input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & {
-      thresholds: RiskThresholds;
+      thresholds: RiskThresholds; scoredItems?: number; totalAssessments?: number;
     },
   ): LearnerProgress;
   buildProviderUrls(

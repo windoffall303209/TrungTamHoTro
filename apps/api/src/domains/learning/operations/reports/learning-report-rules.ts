@@ -62,15 +62,20 @@ export function latestDate(values: Date[]): string | undefined {
 export function buildLearnerProgress(
   input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & {
     thresholds: RiskThresholds;
+    /** Số bài đã có điểm hoặc quá hạn tính 0; 0 nghĩa là chưa có dữ liệu điểm để đánh giá. */
+    scoredItems?: number;
+    /** Tổng số bài đánh giá trong kỳ; 0 nghĩa là lớp chưa giao bài nào. */
+    totalAssessments?: number;
   },
 ): LearnerProgress {
   const reasons: string[] = [];
-  if (input.averageScore < input.thresholds.scoreBelow)
+  // Lớp mới khai giảng chưa có bài nào: không gắn nguy cơ cho cả lớp chỉ vì điểm/tiến độ đang là 0.
+  if (input.scoredItems !== 0 && input.averageScore < input.thresholds.scoreBelow)
     reasons.push(
       `Điểm trung bình ${input.averageScore}% thấp hơn ngưỡng ${input.thresholds.scoreBelow}%.`,
     );
   const overallCompletion = input.assessmentCompletionRate;
-  if (overallCompletion < input.thresholds.completionBelow)
+  if (input.totalAssessments !== 0 && overallCompletion < input.thresholds.completionBelow)
     reasons.push(
       `Tiến độ tổng hợp ${overallCompletion}% thấp hơn ngưỡng ${input.thresholds.completionBelow}%.`,
     );

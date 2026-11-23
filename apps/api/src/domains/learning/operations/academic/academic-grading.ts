@@ -200,11 +200,16 @@ export async function gradebook(
     let assignmentPossible = 0;
     let awaitingGrade = 0;
     let notSubmitted = 0;
+    // Trung bình theo phần trăm từng bài (mỗi bài cùng trọng số) thay vì cộng thô điểm tuyệt đối khiến bài thang 100
+    // nặng gấp 10 lần đề thang 10; bài đang ẩn hiển thị trong ô nhưng không tính vào trung bình ở mọi góc nhìn.
+    let percentSum = 0;
+    let scoredItems = 0;
     const cells: GradebookAssessmentCell[] = [];
 
     for (const work of orderedWorks) {
       if (work.kind === "EXAM" && work.exam) {
         const exam = work.exam;
+        const counts = !exam.hidden;
         const attempts = exam.attempts.filter(
           (attempt) => attempt.learnerId === learnerId,
         );
@@ -222,8 +227,12 @@ export async function gradebook(
         );
         if (highestAttempt) {
           const score = Number(highestAttempt.score ?? 0);
-          examPossible += Number(exam.totalScore);
-          examEarned += score;
+          if (counts) {
+            examPossible += Number(exam.totalScore);
+            examEarned += score;
+            percentSum += Number(exam.totalScore) > 0 ? score / Number(exam.totalScore) : 0;
+            scoredItems += 1;
+          }
           cells.push({
             assessmentId: exam.id,
             kind: "EXAM",
@@ -253,9 +262,10 @@ export async function gradebook(
             attemptCount: attempts.length,
           });
         } else {
-          if (exam.status === "CLOSED" || exam.closeAt <= now) {
+          if (counts && (exam.status === "CLOSED" || exam.closeAt <= now)) {
             examPossible += Number(exam.totalScore);
             notSubmitted += 1;
+            scoredItems += 1;
           }
           cells.push({
             assessmentId: exam.id,
@@ -268,13 +278,18 @@ export async function gradebook(
         }
       } else if (work.assignment) {
         const assignment = work.assignment;
+        const counts = !assignment.hidden;
         const submission = assignment.submissions.find(
           (item) => item.learnerId === learnerId,
         );
         if (submission?.status === "GRADED") {
           const score = Number(submission.score ?? 0);
-          assignmentPossible += Number(assignment.maxScore);
-          assignmentEarned += score;
+          if (counts) {
+            assignmentPossible += Number(assignment.maxScore);
+            assignmentEarned += score;
+            percentSum += Number(assignment.maxScore) > 0 ? score / Number(assignment.maxScore) : 0;
+            scoredItems += 1;
+          }
           cells.push({
             assessmentId: assignment.id,
             kind: "ASSIGNMENT",
@@ -294,9 +309,10 @@ export async function gradebook(
             attemptCount: 1,
           });
         } else {
-          if (assignment.status === "CLOSED" || assignment.dueAt <= now) {
+          if (counts && (assignment.status === "CLOSED" || assignment.dueAt <= now)) {
             assignmentPossible += Number(assignment.maxScore);
             notSubmitted += 1;
+            scoredItems += 1;
           }
           cells.push({
             assessmentId: assignment.id,
@@ -310,10 +326,7 @@ export async function gradebook(
       }
     }
 
-    const possible = examPossible + assignmentPossible;
-    const totalPercent = possible
-      ? Math.round(((examEarned + assignmentEarned) / possible) * 10_000) / 100
-      : 0;
+    const totalPercent = scoredItems ? Math.round((percentSum / scoredItems) * 10_000) / 100 : 0;
     return {
       learnerId,
       learnerName: learner.displayName,
@@ -323,9 +336,7 @@ export async function gradebook(
       assignmentEarned,
       assignmentPossible,
       totalPercent,
-      averageScore: possible
-        ? Math.round(((examEarned + assignmentEarned) / possible) * 1000) / 100
-        : null,
+      averageScore: scoredItems ? Math.round((percentSum / scoredItems) * 1000) / 100 : null,
       awaitingGrade,
       notSubmitted,
       assessments,
