@@ -50,17 +50,9 @@ export function serializeExport(
   rows: Array<Record<string, unknown>>,
   format: DataExport["format"],
 ): Buffer {
-  /** Chuyển dữ liệu xuất sang dạng JSON tương thích, gồm số nguyên lớn và thời gian. */
-  const normalize = (value: unknown): unknown =>
-    JSON.parse(
-      JSON.stringify(value, (_key, item: unknown) =>
-        typeof item === "bigint"
-          ? item.toString()
-          : item instanceof Date
-            ? item.toISOString()
-            : item,
-      ),
-    );
+  /** Replacer JSON cho số nguyên lớn; Date đã tự chuyển ISO qua toJSON nên không cần sao chép dữ liệu trung gian. */
+  const replacer = (_key: string, item: unknown): unknown => (typeof item === "bigint" ? item.toString() : item);
+  // Tuần tự hóa một lượt duy nhất: bỏ vòng JSON.parse(JSON.stringify()) từng nhân bản toàn bộ bảng trên V8 heap.
   if (format === "JSON")
     return Buffer.from(
       JSON.stringify(
@@ -68,9 +60,9 @@ export function serializeExport(
           format: "wind-edu-data-export",
           version: 1,
           createdAt: new Date().toISOString(),
-          rows: normalize(rows),
+          rows,
         },
-        null,
+        replacer,
         2,
       ),
       "utf8",
@@ -81,7 +73,7 @@ export function serializeExport(
     if (value === null || value === undefined) return "";
     if (value instanceof Date) return value.toISOString();
     if (typeof value === "object")
-      return JSON.stringify(normalize(value)) ?? "";
+      return JSON.stringify(value, replacer) ?? "";
     if (typeof value === "string") return value;
     if (
       typeof value === "number" ||

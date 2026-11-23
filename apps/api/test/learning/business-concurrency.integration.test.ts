@@ -77,7 +77,8 @@ suite("Business concurrency on dedicated test database", () => {
 
   // Trigger ghi trực tiếp delivery cùng transaction với notification để worker có thể retry độc lập.
   it("tạo outbox delivery đúng một lần cho notification đã commit", async () => {
-    const recipient = await prisma.user.findFirstOrThrow({ where: { status: "ACTIVE" }, select: { id: true } });
+    // Trigger chỉ tạo delivery EMAIL cho người có email; học viên phụ thuộc cấu hình bật email nên chọn người không phải học viên.
+    const recipient = await prisma.user.findFirstOrThrow({ where: { status: "ACTIVE", email: { not: null }, roles: { none: { role: { code: "LEARNER" } } } }, select: { id: true } });
     await prisma.notification.create({ data: { id: notificationId, recipientId: recipient.id, type: "TEST_OUTBOX", title: "Kiểm tra outbox", entityType: "SYSTEM", entityId: notificationId, dedupKey: notificationId } });
     const deliveries = await prisma.outboxDelivery.findMany({ where: { id: `delivery:email:${notificationId}` } });
     expect(deliveries).toHaveLength(1);

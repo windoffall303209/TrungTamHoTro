@@ -8,10 +8,12 @@ import { streamToFile } from "./file-streams.js";
 
 let activeDownloads = 0;
 const logger = new Logger("VerifiedDownload");
+/** Số lượt tải đồng thời mỗi tiến trình; mặc định 32 thay vì 4 để vài kết nối chậm không khóa cả trường. */
+const MAX_CONCURRENT_DOWNLOADS = Math.max(1, Number(process.env.DOWNLOAD_CONCURRENCY) || 32);
 
 /** Kiểm tra checksum trên tệp tạm trước khi phát byte, giới hạn đĩa và số download đồng thời. */
 export async function prepareVerifiedDownload(openSource: () => Promise<Readable>, checksum?: string): Promise<{ stream: ReturnType<typeof createReadStream>; size: number }> {
-  if (activeDownloads >= 4) throw new HttpException("Có quá nhiều lượt tải tệp. Hãy thử lại sau.", 429);
+  if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS) throw new HttpException("Có quá nhiều lượt tải tệp. Hãy thử lại sau.", 429);
   activeDownloads++;
   let directory: string | undefined;
   let released = false;
