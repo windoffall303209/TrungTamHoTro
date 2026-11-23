@@ -97,6 +97,12 @@ export class EngagementController {
     );
   }
 
+  @Patch("notifications/read-all") @RequireAuthentication()
+  /** Đánh dấu toàn bộ thông báo của tài khoản là đã đọc trong một request. */
+  markAllRoleNotificationsRead(@CurrentSession() session: AuthenticatedSession): Promise<LearningNotification[]> {
+    return this.learning.markAllNotificationsRead(session.user.id);
+  }
+
   @Patch("notifications/:notificationId/read") @RequireAuthentication()
   /** Đánh dấu đã đọc ở endpoint dùng chung cho mọi vai trò. */
   markRoleNotificationRead(@Param("notificationId") notificationId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningNotification> {

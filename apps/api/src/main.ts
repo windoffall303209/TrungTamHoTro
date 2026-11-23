@@ -40,7 +40,13 @@ async function bootstrap(): Promise<void> {
     exposedHeaders: ["Content-Disposition", "Content-Type", "Content-Length"],
   });
   app.use(helmet());
-  app.use(compression());
+  // Không nén text/event-stream: compression giữ đệm từng sự kiện SSE cho tới khi đủ khối, làm trễ thông báo/chat.
+  app.use(compression({
+    filter: (request, response) =>
+      request.headers.accept !== "text/event-stream" &&
+      !String(response.getHeader("Content-Type") ?? "").includes("text/event-stream") &&
+      compression.filter(request, response),
+  }));
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter());

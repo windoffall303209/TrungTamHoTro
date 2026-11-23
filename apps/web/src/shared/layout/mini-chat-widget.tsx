@@ -780,13 +780,16 @@ export function MiniChatWidget() {
   }, [currentUserId]);
 
   // Tải tin nhắn thật từ CSDL PostgreSQL cho các ô chat đang mở
+  // Khóa ổn định của các hội thoại đang mở: poll danh bạ 12 giây tạo mảng contacts mới nhưng không làm mở lại SSE.
+  const openChatTargets = useMemo(() => JSON.stringify(openWindows.map((win) => ({ id: win.id, conversationId: win.conversationId || contacts.find((contact) => contact.id === win.id)?.conversationId || "" }))), [openWindows, contacts]);
   useEffect(() => {
     if (!currentUserId) return;
     let active = true;
     let refreshing = false;
+    const targets = JSON.parse(openChatTargets) as Array<{ id: string; conversationId: string }>;
     // Lắng nghe tin mới trong các cửa sổ đang mở và tự kết nối lại khi đường truyền gián đoạn.
-    const streams = openWindows.flatMap((win) => {
-      const conversationId = win.conversationId || contacts.find((contact) => contact.id === win.id)?.conversationId;
+    const streams = targets.flatMap((win) => {
+      const conversationId = win.conversationId;
       if (!conversationId) return [];
       const stream = new EventSource(publicApiUrl(`/chat/conversations/${conversationId}/events?roleCode=${encodeURIComponent(currentRoleCode)}`), { withCredentials: true });
       stream.onmessage = (event) => {
@@ -822,10 +825,9 @@ export function MiniChatWidget() {
       if (refreshing || document.visibilityState === "hidden") return;
       refreshing = true;
       try {
-      for (const win of openWindows) {
+      for (const win of targets) {
         if (!active) return;
-        const targetConvId =
-          win.conversationId || contacts.find((c) => c.id === win.id)?.conversationId;
+        const targetConvId = win.conversationId;
 
         if (targetConvId) {
           try {
@@ -866,16 +868,16 @@ export function MiniChatWidget() {
       }
     }
 
-    if (openWindows.length > 0) {
+    if (targets.length > 0) {
       void loadMessagesForOpenWindows();
     }
     const timer = window.setInterval(() => {
-      if (openWindows.length > 0 && (streams.length === 0 || streams.some((stream) => stream.readyState !== EventSource.OPEN))) {
+      if (targets.length > 0 && (streams.length === 0 || streams.some((stream) => stream.readyState !== EventSource.OPEN))) {
         void loadMessagesForOpenWindows();
       }
     }, 5000);
     /** Cập nhật các cửa sổ chat đang mở khi trình duyệt nhận focus. */
-    const onFocus = () => { if (openWindows.length > 0) void loadMessagesForOpenWindows(); };
+    const onFocus = () => { if (targets.length > 0) void loadMessagesForOpenWindows(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
@@ -885,7 +887,7 @@ export function MiniChatWidget() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [openWindows, contacts, currentUserId, currentRoleCode]);
+  }, [openChatTargets, currentUserId, currentRoleCode]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {

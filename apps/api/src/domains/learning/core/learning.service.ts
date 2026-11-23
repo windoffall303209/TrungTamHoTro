@@ -1635,6 +1635,11 @@ export class LearningService {
     );
   }
 
+  /** Đánh dấu toàn bộ thông báo của người nhận là đã đọc và trả danh sách mới. */
+  async markAllNotificationsRead(recipientId: string): Promise<LearningNotification[]> {
+    return await moderation_ops.markAllNotificationsRead(this.operationContext, recipientId);
+  }
+
   /** Đánh dấu đã đọc bằng điều kiện recipientId để ngăn sửa thông báo người khác. */
   async markNotificationRead(
     notificationId: string,

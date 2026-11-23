@@ -68,3 +68,18 @@ export async function markNotificationRead(
   item.readAt ??= now();
   return { ...item };
 }
+
+/** Đánh dấu mọi thông báo chưa đọc của người nhận bằng một lệnh UPDATE thay vì N request PATCH song song từ client. */
+export async function markAllNotificationsRead(
+  serviceContext: LearningServiceContext,
+  recipientId: string,
+): Promise<LearningNotification[]> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    await prisma.notification.updateMany({ where: { recipientId, readAt: null }, data: { readAt: new Date() } });
+    return listNotifications(serviceContext, recipientId);
+  }
+  const timestamp = now();
+  for (const item of serviceContext.notifications) if (item.recipientId === recipientId) item.readAt ??= timestamp;
+  return listNotifications(serviceContext, recipientId);
+}

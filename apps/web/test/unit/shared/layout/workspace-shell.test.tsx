@@ -36,6 +36,7 @@ describe("WorkspaceShell", () => {
     });
     apiRequest.mockImplementation((path: string) => Promise.resolve(path === "/notifications"
       ? [{ id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", createdAt: "2026-08-27T07:00:00.000Z" }]
+      : path === "/notifications/read-all" ? [{ id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", readAt: "2026-08-27T08:00:00.000Z", createdAt: "2026-08-27T07:00:00.000Z" }]
       : { id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", readAt: "2026-08-27T08:00:00.000Z", createdAt: "2026-08-27T07:00:00.000Z" }));
   });
 
@@ -62,7 +63,7 @@ describe("WorkspaceShell", () => {
     fireEvent.click(trigger);
     expect(screen.getByText("Điểm đã được công bố")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Đọc tất cả/i }));
-    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/notifications/notice-1/read", { method: "PATCH", roleCode: "LEARNER" }));
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/notifications/read-all", { method: "PATCH", roleCode: "LEARNER" }));
     await waitFor(() => expect(screen.getByText("Đã đọc tất cả")).toBeInTheDocument());
   });
 

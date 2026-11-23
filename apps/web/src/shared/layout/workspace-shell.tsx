@@ -445,18 +445,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     const unread = notifications.filter((item) => !item.readAt);
     if (!unread.length) return;
     try {
-      const updated = await Promise.all(
-        unread.map((item) =>
-          apiRequest<LearningNotification>(`/notifications/${item.id}/read`, {
-            method: "PATCH",
-            roleCode: session.roleCode,
-          }),
-        ),
-      );
-      const byId = new Map(updated.map((item) => [item.id, item]));
-      setNotifications((current) =>
-        current.map((item) => byId.get(item.id) ?? item),
-      );
+      // Một request gộp thay cho N lệnh PATCH song song (dễ chạm giới hạn 6 kết nối/origin và rate limit).
+      const updated = await apiRequest<LearningNotification[]>("/notifications/read-all", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+      });
+      setNotifications(updated);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không thể đánh dấu toàn bộ thông báo.",
