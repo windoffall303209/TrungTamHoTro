@@ -1383,6 +1383,11 @@ export class LearningService {
     );
   }
 
+  /** Nhả yêu cầu phúc khảo mình đang xử lý về hàng đợi. */
+  async releaseRegrade(requestId: string, actorId: string): Promise<RegradeRequest> {
+    return await regrades_ops.releaseRegrade(this.operationContext, requestId, actorId);
+  }
+
   /** Nhận xử lý một yêu cầu OPEN bằng cập nhật có điều kiện để chống hai người cùng nhận. */
   async claimRegrade(
     requestId: string,

@@ -547,6 +547,13 @@ export class ContentController {
     return this.learning.claimRegrade(requestId, session.user.id);
   }
 
+  @Post("instructor/regrade-requests/:requestId/release") @RequirePermissions("exam:manage")
+  /** Nhả yêu cầu phúc khảo đã nhận nhầm hoặc không thể xử lý tiếp về hàng đợi chung. */
+  releaseRegrade(@Param("requestId") requestId: string, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {
+    this.assertInstructorMutation(session);
+    return this.learning.releaseRegrade(requestId, session.user.id);
+  }
+
   @Patch("instructor/regrade-requests/:requestId/resolve") @RequirePermissions("exam:manage")
   /** Chấp thuận hoặc từ chối phúc khảo, đồng bộ điểm và lịch sử khi chấp thuận. */
   resolveRegrade(@Param("requestId") requestId: string, @Body() input: ResolveRegradeDto, @CurrentSession() session: AuthenticatedSession): Promise<RegradeRequest> {

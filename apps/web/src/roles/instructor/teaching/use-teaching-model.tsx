@@ -287,6 +287,17 @@ export function useTeachingModel() {
     }
   };
 
+  /** Nhả yêu cầu phúc khảo mình đang xử lý về hàng đợi để giảng viên khác có thể nhận. */
+  const releaseRegrade = async (request: RegradeRequest) => {
+    try {
+      await apiRequest<RegradeRequest>(`/instructor/regrade-requests/${request.id}/release`, { method: "POST", roleCode: session.roleCode });
+      notify("Đã nhả yêu cầu phúc khảo về hàng đợi.");
+      await load();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không nhả được yêu cầu phúc khảo.", "error");
+    }
+  };
+
   /** Lưu điểm từng câu tự luận, tổng điểm và phản hồi cho bài làm đang mở. */
   const saveGrade = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -484,6 +495,7 @@ export function useTeachingModel() {
     setRecording,
     openGrade,
     openRegrade,
+    releaseRegrade,
     saveGrade,
     rejectRegrade,
     attachRecording,

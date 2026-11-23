@@ -92,6 +92,23 @@ export async function gradeSubmission(
         },
       },
     });
+    // Sửa điểm đã công bố phải để lại dấu vết: lý do, điểm cũ/mới và người sửa (trước đây lý do bị bỏ qua).
+    if (correction)
+      await transaction.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "ASSIGNMENT_GRADE_CORRECTED",
+          entityType: "assignment_submission",
+          entityId: submissionId,
+          context: {
+            assignmentId: submission.assignmentId,
+            learnerId: submission.learnerId,
+            previousScore: submission.score === null ? null : Number(submission.score),
+            newScore: total,
+            reason: correctionReason!.trim(),
+          },
+        },
+      });
     await transaction.notification.create({
       data: {
         id: `notification-${randomUUID()}`,

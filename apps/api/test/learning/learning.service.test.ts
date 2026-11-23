@@ -2287,6 +2287,10 @@ describe("LearningService", () => {
       status: "IN_REVIEW",
       assignedToId: "usr-instructor",
     });
+    // Người khác không nhả được; chính người nhận nhả về hàng đợi rồi nhận lại để xử lý tiếp.
+    await expect(service.releaseRegrade(request.id, "usr-other")).rejects.toThrow(ConflictException);
+    expect(await service.releaseRegrade(request.id, "usr-instructor")).toMatchObject({ status: "OPEN" });
+    expect(await service.claimRegrade(request.id, "usr-instructor")).toMatchObject({ status: "IN_REVIEW", assignedToId: "usr-instructor" });
     expect(
       await service.resolveRegrade(request.id, {
         decision: "APPROVE",

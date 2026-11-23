@@ -133,7 +133,7 @@ export function ExamGradingDialog({
                         })
                       }
                       required
-                      step="0.25"
+                      step="0.01"
                       type="number"
                       value={questionScores[question.questionId] ?? 0}
                     />

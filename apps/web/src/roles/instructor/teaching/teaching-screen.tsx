@@ -47,6 +47,7 @@ export default function TeachingScreen() {
     setRecording,
     openGrade,
     openRegrade,
+    releaseRegrade,
     attachRecording,
     markRecordingReady,
   } = model;
@@ -421,6 +422,11 @@ export default function TeachingScreen() {
                           {request.status === "OPEN"
                             ? "Nhận & xem bài"
                             : "Tiếp tục xử lý"}
+                        </Button>
+                      ) : null}
+                      {request.status === "IN_REVIEW" && request.assignedToId === session.user.id ? (
+                        <Button onClick={() => void releaseRegrade(request)} variant="ghost">
+                          Nhả yêu cầu
                         </Button>
                       ) : null}
                     </article>

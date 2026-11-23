@@ -314,12 +314,29 @@ export async function updateAssignment(
       "Tổng điểm rubric phải bằng điểm tối đa của bài tập.",
     );
   const previousRubric = serviceContext.rubric(current.rubric, Number(current.maxScore));
-  const rubric: RubricCriterion[] = input.rubric.map((item, index) => ({
-    id: previousRubric[index]?.id ?? `criterion-${randomUUID()}`,
-    title: item.title.trim(),
-    description: item.description.trim(),
-    maxPoints: item.maxPoints,
-  }));
+  // Giữ ID tiêu chí theo đúng tiêu chí (khớp tên) thay vì theo vị trí mảng: đổi thứ tự/thêm/xóa tiêu chí không còn
+  // làm rubricScores cũ trỏ nhầm sang tiêu chí khác.
+  const unusedPrevious = new Map(previousRubric.map((item) => [item.title.trim().toLocaleLowerCase("vi"), item]));
+  const rubric: RubricCriterion[] = input.rubric.map((item) => {
+    const key = item.title.trim().toLocaleLowerCase("vi");
+    const matched = unusedPrevious.get(key);
+    if (matched) unusedPrevious.delete(key);
+    return {
+      id: matched?.id ?? `criterion-${randomUUID()}`,
+      title: item.title.trim(),
+      description: item.description.trim(),
+      maxPoints: item.maxPoints,
+    };
+  });
+  // Đã có bài chấm thì không cho đổi cấu trúc rubric/điểm tối đa (có thể tạo điểm > 100% hoặc mất điểm tiêu chí cũ).
+  const rubricChanged = Number(current.maxScore) !== input.maxScore
+    || rubric.length !== previousRubric.length
+    || rubric.some((item) => {
+      const before = previousRubric.find((criterion) => criterion.id === item.id);
+      return !before || before.maxPoints !== item.maxPoints;
+    });
+  if (rubricChanged && await serviceContext.prisma.assignmentSubmission.count({ where: { assignmentId, status: "GRADED" } }))
+    throw new ConflictException("Bài tập đã có bài được chấm nên không thể đổi tiêu chí rubric hoặc điểm tối đa; chỉ sửa được tên, mô tả, hướng dẫn và hạn nộp.");
   return serviceContext.prisma.$transaction(async (transaction) => {
     const result = await transaction.assignment.updateMany({
       where: {

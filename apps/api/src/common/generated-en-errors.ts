@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Bài tập đã có bài được chấm nên không thể đổi tiêu chí rubric hoặc điểm tối đa; chỉ sửa được tên, mô tả, hướng dẫn và hạn nộp.": "This assignment already has graded submissions, so its rubric criteria and maximum score cannot change; only the title, description, instructions and due date can be edited.",
+  "Chỉ người đang xử lý mới nhả được yêu cầu phúc khảo chưa kết thúc.": "Only the current reviewer can release an unfinished regrade request.",
   "Không tìm thấy đề cần duyệt hoặc đã công bố.": "No exam pending review or published was found.",
   "Đề đã được lưu ở dạng nháp vì chưa đủ điều kiện công bố; hãy kiểm tra rồi công bố thủ công.": "The exam was saved as a draft because it is not ready to publish; review it and publish manually.",
   "Nhà cung cấp AI đã chọn không còn khả dụng.": "The selected AI provider is no longer available.",

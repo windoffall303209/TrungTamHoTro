@@ -187,6 +187,30 @@ export async function claimRegrade(
   return { ...request };
 }
 
+/** Nhả yêu cầu phúc khảo mình đã nhận (IN_REVIEW) về hàng đợi OPEN để giảng viên khác có thể xử lý. */
+export async function releaseRegrade(
+  serviceContext: LearningServiceContext,
+  requestId: string,
+  actorId: string,
+): Promise<RegradeRequest> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const released = await prisma.regradeRequest.updateMany({
+      where: { id: requestId, status: "IN_REVIEW", assignedToId: actorId },
+      data: { status: "OPEN", assignedToId: null },
+    });
+    if (released.count !== 1)
+      throw new ConflictException("Chỉ người đang xử lý mới nhả được yêu cầu phúc khảo chưa kết thúc.");
+    return serviceContext.mapRegradeRequest(await prisma.regradeRequest.findUniqueOrThrow({ where: { id: requestId } }));
+  }
+  const request = serviceContext.regradeRequests.find((item) => item.id === requestId);
+  if (!request || request.status !== "IN_REVIEW" || request.assignedToId !== actorId)
+    throw new ConflictException("Chỉ người đang xử lý mới nhả được yêu cầu phúc khảo chưa kết thúc.");
+  request.status = "OPEN";
+  request.assignedToId = undefined;
+  return { ...request };
+}
+
 /** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì cập nhật điểm hiện hành. */
 export async function resolveRegrade(
   serviceContext: LearningServiceContext,
