@@ -26,6 +26,15 @@ describe("I18nProvider", () => {
     expect(screen.getByText("Đã đóng 3 phiên khác.")).toBeInTheDocument();
   });
 
+  it("không theo dõi toàn bộ DOM bằng MutationObserver khi dùng tiếng Việt", async () => {
+    const observe = vi.spyOn(MutationObserver.prototype, "observe");
+    render(<I18nProvider><LocaleFixture /></I18nProvider>);
+    expect(screen.getByText("Bài tập")).toBeInTheDocument();
+    expect(observe).not.toHaveBeenCalledWith(document.body, expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+    await waitFor(() => expect(observe).toHaveBeenCalledWith(document.body, expect.objectContaining({ subtree: true })));
+  });
+
   it("vẫn chuyển đổi ngôn ngữ khi trình duyệt chặn localStorage", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new DOMException("Blocked", "SecurityError"); });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Blocked", "SecurityError"); });

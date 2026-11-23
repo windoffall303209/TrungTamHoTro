@@ -1,5 +1,5 @@
 import * as folderOps from "../operations/materials/class-folders.js";
-import { Injectable, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/exams/learning-exam-page.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
@@ -1289,6 +1289,23 @@ export class LearningService {
       answers,
       learnerId,
     );
+  }
+
+  /**
+   * Lưu gộp đáp án cuối cùng rồi nộp bài. Nếu đã quá hạn lưu, các đáp án gửi kèm bị bỏ qua và bài được nộp
+   * với những gì máy chủ đã lưu trước hạn, giống luồng nộp tự động khi hết giờ.
+   */
+  async submitAttemptWithAnswers(
+    attemptId: string,
+    learnerId: string,
+    answers: Array<{ questionId: string; answers: string[] }> = [],
+  ): Promise<ExamAttempt> {
+    try {
+      await attempts_ops.saveAnswers(this.operationContext, attemptId, answers, learnerId);
+    } catch (error) {
+      if (!(error instanceof BadRequestException) || error.message !== "Đã hết thời gian lưu câu trả lời.") throw error;
+    }
+    return this.submitAttempt(attemptId, learnerId);
   }
 
   /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */

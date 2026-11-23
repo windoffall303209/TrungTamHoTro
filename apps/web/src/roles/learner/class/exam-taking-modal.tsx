@@ -80,6 +80,57 @@ function evaluatePreviewQuestion(
   return question.correctAnswer && singleAnswer === question.correctAnswer ? "correct" : "wrong";
 }
 
+/** Định dạng số giây thành MM:SS cho đồng hồ làm bài. */
+function formatClock(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Đồng hồ đếm ngược tự cập nhật mỗi giây trong component riêng: modal cha (đề có công thức KaTeX) không còn
+ * render lại toàn bộ mỗi giây; chỉ báo lên cha đúng một lần khi hết giờ.
+ */
+function ExamCountdown({ deadlineAt, fallbackSeconds, running, onExpire }: {
+  /** Hạn chót đã quy đổi sang đồng hồ máy khách (đã trừ độ lệch với máy chủ). */
+  deadlineAt: number | null;
+  fallbackSeconds: number;
+  running: boolean;
+  onExpire: () => void;
+}) {
+  /** Số giây còn lại tại thời điểm gọi theo hạn chót đã quy đổi về đồng hồ máy khách. */
+  const compute = useCallback(
+    () => (deadlineAt === null ? fallbackSeconds : Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000))),
+    [deadlineAt, fallbackSeconds],
+  );
+  const [seconds, setSeconds] = useState(compute);
+  useEffect(() => {
+    setSeconds(compute());
+    if (!running || deadlineAt === null) return;
+    const timer = setInterval(() => {
+      const next = compute();
+      setSeconds(next);
+      if (next === 0) {
+        clearInterval(timer);
+        onExpire();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [compute, deadlineAt, onExpire, running]);
+  return (
+    <div
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-bold tabular-nums ${
+        seconds < 180
+          ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-400 animate-pulse"
+          : "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-300"
+      }`}
+    >
+      <Clock size={16} />
+      <span>Thời gian còn: {formatClock(seconds)}</span>
+    </div>
+  );
+}
+
 interface ExamTakingModalProps {
   open: boolean;
   onClose: () => void;
@@ -101,7 +152,9 @@ export function ExamTakingModal({
   const [multiAnswers, setMultiAnswers] = useState<Record<number, string[]>>({});
   const [essayTextAnswers, setEssayTextAnswers] = useState<Record<number, string>>({});
   const [flagged, setFlagged] = useState<Record<number, boolean>>({});
-  const [remainingSeconds, setRemainingSeconds] = useState(15 * 60);
+  // Thời điểm hết hạn (theo đồng hồ máy chủ) và cờ hết giờ; số giây còn lại do ExamCountdown tự tính.
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  const [timeUp, setTimeUp] = useState(false);
   const [initialDurationSeconds, setInitialDurationSeconds] = useState(15 * 60);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [scoreResult, setScoreResult] = useState<{
@@ -135,7 +188,6 @@ export function ExamTakingModal({
   const [confirmSubmitModalOpen, setConfirmSubmitModalOpen] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<"all" | "correct" | "wrong">("all");
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const deadlineRef = useRef<number | null>(null);
   const serverOffsetRef = useRef(0);
 
@@ -177,7 +229,7 @@ export function ExamTakingModal({
             deadlineRef.current = Math.min(startedAt + (examDurationMinutes || 15) * 60000, Number.isNaN(closeAt) ? Number.POSITIVE_INFINITY : closeAt);
             const serverTime = attempt.serverTime ? Date.parse(attempt.serverTime) : NaN;
             serverOffsetRef.current = Number.isFinite(serverTime) ? serverTime - Date.now() : 0;
-            setRemainingSeconds(Math.max(0, Math.ceil((deadlineRef.current - Date.now() - serverOffsetRef.current) / 1000)));
+            setDeadlineAt(deadlineRef.current - serverOffsetRef.current);
             setAttemptId(attempt.id);
           }
 
@@ -288,7 +340,8 @@ export function ExamTakingModal({
     if (!open || !examId) return;
 
     const totalSec = (examDurationMinutes || 15) * 60;
-    setRemainingSeconds(totalSec);
+    setDeadlineAt(null);
+    setTimeUp(false);
     setInitialDurationSeconds(totalSec);
     deadlineRef.current = null;
     serverOffsetRef.current = 0;
@@ -314,31 +367,22 @@ export function ExamTakingModal({
     setStartConfirmed(isInstructorPreview);
     setExitConfirmOpen(false);
     setConfirmSubmitModalOpen(false);
-
-    if (timerRef.current) clearInterval(timerRef.current);
   }, [open, examId, examDurationMinutes, isInstructorPreview]);
 
-  // Đồng hồ sử dụng thời hạn thật của lượt thi trên máy chủ, kể cả khi mở lại bài.
+  // Đồng hồ học viên dùng thời hạn thật của lượt thi trên máy chủ; bản xem trước của giáo viên bắt đầu khi xác nhận.
   useEffect(() => {
-    if (!open || isSubmitted || (isInstructorPreview ? !startConfirmed : !attemptId)) {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
-    }
+    if (!open || !isInstructorPreview || !startConfirmed || deadlineRef.current !== null) return;
+    deadlineRef.current = Date.now() + initialDurationSeconds * 1000;
+    setDeadlineAt(deadlineRef.current);
+  }, [open, isInstructorPreview, startConfirmed, initialDurationSeconds]);
 
-    if (isInstructorPreview && deadlineRef.current === null) {
-      deadlineRef.current = Date.now() + initialDurationSeconds * 1000;
-    }
-    timerRef.current = setInterval(() => {
-      const deadline = deadlineRef.current;
-      if (deadline !== null) {
-        setRemainingSeconds(Math.max(0, Math.ceil((deadline - Date.now() - serverOffsetRef.current) / 1000)));
-      }
-    }, 1000);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [open, startConfirmed, isSubmitted, isInstructorPreview, attemptId, initialDurationSeconds]);
+  /** Số giây còn lại tính tại thời điểm gọi, không phụ thuộc state render. */
+  const remainingNow = useCallback(
+    () => (deadlineRef.current === null ? initialDurationSeconds : Math.max(0, Math.ceil((deadlineRef.current - Date.now() - serverOffsetRef.current) / 1000))),
+    [initialDurationSeconds],
+  );
+  /** Ghi nhận hết giờ đúng một lần từ ExamCountdown. */
+  const handleTimeUp = useCallback(() => setTimeUp(true), []);
 
   /** Định dạng số giây còn lại thành chuỗi MM:SS */
   const formatTime = (seconds: number) => {
@@ -431,36 +475,28 @@ export function ExamTakingModal({
           pendingSaveFailed = true;
           console.error("Lưu câu trả lời trước khi nộp thất bại.", error);
         }
-        if (remainingSeconds > 0) {
-          for (const [index, question] of questions.entries()) {
-            if (question.type === "MULTIPLE_CHOICE" && question.options.length) {
-              const selectedKeys = multiAnswersRef.current[index] ?? [];
-              const values = selectedKeys
-                .map((key) => question.options.find((option) => option.key === key)?.value)
-                .filter((value): value is string => Boolean(value));
-              if (!values.length) continue;
-              await apiRequest(`/learner/exam-attempts/${attemptId}/answers`, {
-                method: "PATCH",
-                body: JSON.stringify({ questionId: String(question.id), answers: values }),
-              });
-              continue;
-            }
-            const selected = answersRef.current[index];
-            const answer = question.options.length
-              ? question.options.find((option) => option.key === selected)?.value
-              : essayAnswersRef.current[index]?.trim();
-            if (!answer) continue;
-            await apiRequest(`/learner/exam-attempts/${attemptId}/answers`, {
-              method: "PATCH",
-              body: JSON.stringify({ questionId: String(question.id), answers: [answer] }),
-            });
+        // Gửi gộp đáp án mới nhất cùng lệnh nộp thay vì N request PATCH tuần tự (đề 45–50 câu từng chạm rate limit).
+        const finalAnswers: Array<{ questionId: string; answers: string[] }> = [];
+        for (const [index, question] of questions.entries()) {
+          if (question.type === "MULTIPLE_CHOICE" && question.options.length) {
+            const values = (multiAnswersRef.current[index] ?? [])
+              .map((key) => question.options.find((option) => option.key === key)?.value)
+              .filter((value): value is string => Boolean(value));
+            if (values.length) finalAnswers.push({ questionId: String(question.id), answers: values });
+            continue;
           }
-        } else if (pendingSaveFailed) {
+          const selected = answersRef.current[index];
+          const answer = question.options.length
+            ? question.options.find((option) => option.key === selected)?.value
+            : essayAnswersRef.current[index]?.trim();
+          if (answer) finalAnswers.push({ questionId: String(question.id), answers: [answer] });
+        }
+        if (remainingNow() <= 0 && pendingSaveFailed) {
           setSubmissionWarning("Một số câu trả lời chưa được máy chủ xác nhận trước khi hết giờ. Kết quả chỉ tính những câu đã lưu thành công.");
         }
         const submitted = await apiRequest<{ status: string; score?: number }>(
           `/learner/exam-attempts/${attemptId}/submit`,
-          { method: "POST" },
+          { method: "POST", body: JSON.stringify({ answers: finalAnswers }) },
         );
         if (submitted.status !== "SUBMITTED" && submitted.status !== "GRADED") {
           throw new Error("Máy chủ chưa xác nhận đã nộp bài.");
@@ -504,11 +540,10 @@ export function ExamTakingModal({
         correctCount,
         wrongCount,
         unansweredCount: unanswered,
-        completedSeconds: Math.max(1, initialDurationSeconds - remainingSeconds),
+        completedSeconds: Math.max(1, initialDurationSeconds - remainingNow()),
         reviewAvailable: isInstructorPreview,
       });
       setIsSubmitted(true);
-      if (timerRef.current) clearInterval(timerRef.current);
       setConfirmSubmitModalOpen(false);
       onSubmitted?.({ score, total: totalScore });
     } catch (error) {
@@ -518,15 +553,15 @@ export function ExamTakingModal({
       submittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [attemptId, exam, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingSeconds]);
+  }, [attemptId, exam, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingNow]);
 
   // Gọi nộp bài bên ngoài updater để tránh tác dụng phụ khi React tính lại state.
   useEffect(() => {
-    if ((startConfirmed || (!isInstructorPreview && attemptId)) && remainingSeconds === 0 && !isSubmitted && !autoSubmitAttemptedRef.current) {
+    if ((startConfirmed || (!isInstructorPreview && attemptId)) && timeUp && !isSubmitted && !autoSubmitAttemptedRef.current) {
       autoSubmitAttemptedRef.current = true;
       void handleSubmitExam();
     }
-  }, [attemptId, handleSubmitExam, isInstructorPreview, isSubmitted, remainingSeconds, startConfirmed]);
+  }, [attemptId, handleSubmitExam, isInstructorPreview, isSubmitted, timeUp, startConfirmed]);
 
   /** Xử lý khi nhấn nút đóng X trên thanh header bài thi */
   const handleRequestClose = () => {
@@ -923,16 +958,12 @@ export function ExamTakingModal({
 
               <div className="flex items-center gap-3 sm:gap-4 shrink-0">
                 {/* Đồng hồ đếm ngược: chỉ hiển thị khi bài thi ĐANG LÀM */}
-                <div
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-bold tabular-nums ${
-                    remainingSeconds < 180
-                      ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-400 animate-pulse"
-                      : "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-300"
-                  }`}
-                >
-                  <Clock size={16} />
-                  <span>Thời gian còn: {formatTime(remainingSeconds)}</span>
-                </div>
+                <ExamCountdown
+                  deadlineAt={deadlineAt}
+                  fallbackSeconds={initialDurationSeconds}
+                  running={open && !isSubmitted && (isInstructorPreview ? startConfirmed : Boolean(attemptId))}
+                  onExpire={handleTimeUp}
+                />
 
                 <button
                   type="button"
@@ -957,7 +988,7 @@ export function ExamTakingModal({
             {submitError && (
               <div role="alert" className="mx-5 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
                 <span>{submitError}</span>
-                {remainingSeconds === 0 && (
+                {timeUp && (
                   <button type="button" onClick={() => void handleSubmitExam()} disabled={isSubmitting} className="rounded-lg bg-rose-700 px-3 py-1.5 font-semibold text-white disabled:opacity-60">
                     {isSubmitting ? "Đang thử lại" : "Thử nộp lại"}
                   </button>

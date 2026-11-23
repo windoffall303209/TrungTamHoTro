@@ -90,6 +90,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dataset.locale = locale;
     document.title = locale === "en-US" ? "Wind EDU | Bilingual Teaching Center" : "Wind EDU | Trung tâm hỗ trợ giảng dạy";
     localizeTree(document.body, locale);
+    // Văn bản gốc của giao diện là tiếng Việt: sau lượt khôi phục ở trên, vi-VN không cần theo dõi mọi thay đổi DOM.
+    // Chỉ bật MutationObserver + TreeWalker toàn trang khi thực sự cần dịch sang tiếng Anh.
+    if (locale === "vi-VN") return;
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === "characterData") localizeTextNode(mutation.target as Text, locale);

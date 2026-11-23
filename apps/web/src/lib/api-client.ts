@@ -91,9 +91,10 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
     document.body.appendChild(anchor);
     anchor.click();
   } finally {
-    // Giải phóng cả khi thao tác DOM hoặc click download thất bại.
+    // Giải phóng cả khi thao tác DOM hoặc click download thất bại; lùi 60 giây vì Firefox/Safari bắt đầu tải
+    // bất đồng bộ sau click, thu hồi ngay làm hỏng tệp tải về.
     anchor.remove();
-    URL.revokeObjectURL(blobUrl);
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   }
 }
 

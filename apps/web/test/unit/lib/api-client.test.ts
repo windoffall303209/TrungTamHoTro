@@ -68,9 +68,17 @@ describe("downloadApiFile resource cleanup", () => {
     const originalAnchors = document.querySelectorAll("a").length;
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { throw new Error("Download blocked"); });
 
-    await expect(downloadApiFile("/exports/1", "LEARNER")).rejects.toThrow("Download blocked");
-    expect(document.querySelectorAll("a")).toHaveLength(originalAnchors);
-    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:download-test");
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      await expect(downloadApiFile("/exports/1", "LEARNER")).rejects.toThrow("Download blocked");
+      expect(document.querySelectorAll("a")).toHaveLength(originalAnchors);
+      // Firefox/Safari tải bất đồng bộ sau click: URL chỉ được thu hồi sau 60 giây, không ngay lập tức.
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:download-test");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -9,7 +9,7 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
 import { LearningService, type MaterialAccessAction, type MaterialSearchResult, type MaterialSummaryBucket, type QuestionSummary, type UploadedMaterialFile } from "../core/learning.service.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
 import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
@@ -511,7 +511,7 @@ export class ContentController {
 
   @Post("learner/exam-attempts/:attemptId/submit") @RequirePermissions("exam:view")
   /** Chốt lượt thi, tự chấm phần hỗ trợ được và chuyển trạng thái phù hợp. */
-  submitAttempt(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.submitAttempt(attemptId, session.user.id); }
+  submitAttempt(@Param("attemptId") attemptId: string, @Body() input: SubmitAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.learning.submitAttemptWithAnswers(attemptId, session.user.id, input.answers ?? []); }
 
   @Get("learner/attempts/:attemptId/result") @RequirePermissions("exam:view")
   /** Trả kết quả một lượt thi thuộc học viên hiện tại. */

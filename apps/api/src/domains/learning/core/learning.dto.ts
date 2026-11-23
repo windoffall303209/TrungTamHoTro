@@ -297,6 +297,16 @@ export class SaveAnswerDto {
   answers!: string[];
 }
 
+/** Nộp bài kèm (tùy chọn) toàn bộ đáp án mới nhất để client không phải gửi N lệnh PATCH trước khi nộp. */
+export class SubmitAttemptDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => SaveAnswerDto)
+  answers?: SaveAnswerDto[];
+}
+
 export class QuestionGradeDto {
   @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) score!: number;

@@ -192,6 +192,51 @@ export async function saveAnswer(
   return redactAttemptForLearner({ ...item, answers: { ...item.answers }, serverTime: now() });
 }
 
+/**
+ * Lưu gộp nhiều câu trả lời trong một transaction: khóa lượt thi một lần, kiểm hạn một lần và nạp các câu hỏi
+ * của đề bằng một truy vấn, thay cho N request PATCH (dễ chạm rate limit đúng lúc nộp bài).
+ */
+export async function saveAnswers(
+  serviceContext: LearningServiceContext,
+  attemptId: string,
+  entries: Array<{ questionId: string; answers: string[] }>,
+  learnerId: string,
+): Promise<void> {
+  if (!entries.length) return;
+  const prisma = serviceContext.database();
+  if (!prisma) {
+    for (const entry of entries) await saveAnswer(serviceContext, attemptId, entry.questionId, entry.answers, learnerId);
+    return;
+  }
+  await prisma.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
+    const attempt = await transaction.examAttempt.findFirst({
+      where: { id: attemptId, learnerId, exam: activeExamForLearner(learnerId) },
+      include: { exam: true },
+    });
+    if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+    if (attempt.status !== "IN_PROGRESS")
+      throw new BadRequestException("Bài làm đã khóa.");
+    if (serviceContext.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date())
+      throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
+    const examQuestions = await transaction.examQuestion.findMany({
+      where: { examId: attempt.examId, questionId: { in: entries.map((entry) => entry.questionId) } },
+      include: { question: true },
+    });
+    const byId = new Map(examQuestions.map((item) => [item.questionId, item]));
+    for (const entry of entries) {
+      const examQuestion = byId.get(entry.questionId);
+      if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
+      const normalizedAnswers = serviceContext.validateSubmittedAnswers(serviceContext.mapQuestion(examQuestion.question), entry.answers);
+      await transaction.attemptAnswer.upsert({
+        where: { attemptId_questionId: { attemptId, questionId: entry.questionId } },
+        update: { answerData: normalizedAnswers },
+        create: { attemptId, questionId: entry.questionId, answerData: normalizedAnswers },
+      });
+    }
+  });
+}
+
 /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */
 export async function submitAttempt(
   serviceContext: LearningServiceContext,
