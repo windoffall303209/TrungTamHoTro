@@ -7,6 +7,8 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Chọn thành viên được nhắc:": "Choose members to mention:",
+  "Bạn không thuộc lớp của chủ đề.": "You are not a member of this topic's class.",
   "Gửi lại": "Resend",
   "Không gửi được ảnh:": "Could not send the image:",
   "Tin nhắn trước chưa gửi được.": "The previous message was not sent.",

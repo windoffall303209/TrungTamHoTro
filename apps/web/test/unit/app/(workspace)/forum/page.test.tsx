@@ -103,24 +103,13 @@ describe("ForumPage topic request lifecycle", () => {
     expect(notifyMock).not.toHaveBeenCalled();
   });
 
-  it.each(["{}", '["a", 123]']) (
-    "bỏ qua dữ liệu lượt thích sai cấu trúc: %s",
-    async (storedLikes) => {
-      window.localStorage.setItem("wind_edu_forum_likes", storedLikes);
-      render(<ForumPage />);
-      fireEvent.click(await screen.findByText("Topic A"));
-      await act(async () => { resolveA([makePost("a")]); });
-      expect(screen.getByText(/Thích \(/)).toBeInTheDocument();
-      expect(screen.queryByText(/Đã thích/)).not.toBeInTheDocument();
-    },
-  );
-
-  it("khôi phục lượt thích hợp lệ từ bộ nhớ trình duyệt", async () => {
+  it("không hiển thị số lượt thích bịa từ tiêu đề hay dữ liệu trình duyệt", async () => {
     window.localStorage.setItem("wind_edu_forum_likes", '["a"]');
     render(<ForumPage />);
     fireEvent.click(await screen.findByText("Topic A"));
     await act(async () => { resolveA([makePost("a")]); });
-    expect(screen.getByText(/Đã thích/)).toBeInTheDocument();
+    expect(screen.queryByText(/Thích \(/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Đã thích/)).not.toBeInTheDocument();
   });
 
   it("chuyển trang danh sách chủ đề và phân trang bình luận gốc từ API", async () => {

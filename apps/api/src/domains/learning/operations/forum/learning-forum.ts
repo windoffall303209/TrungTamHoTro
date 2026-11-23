@@ -542,12 +542,14 @@ export async function createPost(
     if (topic.isLocked) throw new BadRequestException("Chủ đề đã khóa.");
     if (topic.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    // Thành viên lớp gồm học viên đang ghi danh và giảng viên được phân công (trước đây giảng viên bị 404 trong lớp mình dạy).
     if (
       !topic.class.enrollments.some(
         (item) => item.learnerId === authorId && item.status === "ACTIVE",
-      )
+      ) &&
+      !topic.class.instructors.some((item) => item.instructorId === authorId)
     )
-      throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
+      throw new NotFoundException("Bạn không thuộc lớp của chủ đề.");
     if (parentId) {
       const parent = await prisma.forumPost.findFirst({
         where: { id: parentId, topicId },
@@ -632,8 +634,8 @@ export async function createPost(
   if (serviceContext.findClass(topic.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   const classItem = serviceContext.findClass(topic.classId);
-  if (!classItem.learnerIds.includes(authorId))
-    throw new NotFoundException("Học viên không thuộc lớp của chủ đề.");
+  if (!classItem.learnerIds.includes(authorId) && !classItem.instructorIds.includes(authorId))
+    throw new NotFoundException("Bạn không thuộc lớp của chủ đề.");
   const parent = parentId
     ? serviceContext.posts.find(
         (item) => item.id === parentId && item.topicId === topicId,
@@ -705,6 +707,25 @@ export async function createPost(
   };
 }
 
+/** Thành viên còn hiệu lực của diễn đàn lớp: học viên đang ghi danh hoặc giảng viên đang được phân công. */
+async function isActiveForumMember(
+  prisma: NonNullable<ReturnType<LearningServiceContext["database"]>>,
+  classId: string,
+  userId: string,
+): Promise<boolean> {
+  const [enrollment, instructor] = await Promise.all([
+    prisma.classEnrollment.findFirst({ where: { classId, learnerId: userId, status: "ACTIVE" }, select: { id: true } }),
+    prisma.classInstructor.findFirst({ where: { classId, instructorId: userId }, select: { classId: true } }),
+  ]);
+  return Boolean(enrollment || instructor);
+}
+
+/** Bản in-memory của isActiveForumMember cho chế độ không kết nối DB. */
+function isMemoryForumMember(serviceContext: LearningServiceContext, classId: string, userId: string): boolean {
+  const classItem = serviceContext.findClass(classId);
+  return classItem.learnerIds.includes(userId) || classItem.instructorIds.includes(userId);
+}
+
 /** Cho đúng tác giả sửa bài chưa bị xóa/ẩn và chạy lại chính sách nội dung. */
 export async function updatePost(
   serviceContext: LearningServiceContext,
@@ -730,15 +751,7 @@ export async function updatePost(
       throw new NotFoundException("Không tìm thấy phản hồi được phép sửa.");
     if (current.topic.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    const activeMembership = await prisma.classEnrollment.findFirst({
-      where: {
-        classId: current.topic.classId,
-        learnerId: authorId,
-        status: "ACTIVE",
-      },
-      select: { id: true },
-    });
-    if (!activeMembership)
+    if (!(await isActiveForumMember(prisma, current.topic.classId, authorId)))
       throw new ConflictException(
         "Bạn đã rời lớp và không còn quyền sửa bài viết cũ.",
       );
@@ -773,7 +786,7 @@ export async function updatePost(
   const topic = serviceContext.findTopic(current.topicId);
   if (serviceContext.findClass(topic.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (!serviceContext.findClass(topic.classId).learnerIds.includes(authorId))
+  if (!isMemoryForumMember(serviceContext, topic.classId, authorId))
     throw new ConflictException(
       "Bạn đã rời lớp và không còn quyền sửa bài viết cũ.",
     );
@@ -808,15 +821,7 @@ export async function deletePost(
       throw new NotFoundException("Không tìm thấy phản hồi được phép xóa.");
     if (current.topic.class.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-    const activeMembership = await prisma.classEnrollment.findFirst({
-      where: {
-        classId: current.topic.classId,
-        learnerId: authorId,
-        status: "ACTIVE",
-      },
-      select: { id: true },
-    });
-    if (!activeMembership)
+    if (!(await isActiveForumMember(prisma, current.topic.classId, authorId)))
       throw new ConflictException(
         "Bạn đã rời lớp và không còn quyền xóa bài viết cũ.",
       );
@@ -838,7 +843,7 @@ export async function deletePost(
   const topic = serviceContext.findTopic(current.topicId);
   if (serviceContext.findClass(topic.classId).status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  if (!serviceContext.findClass(topic.classId).learnerIds.includes(authorId))
+  if (!isMemoryForumMember(serviceContext, topic.classId, authorId))
     throw new ConflictException(
       "Bạn đã rời lớp và không còn quyền xóa bài viết cũ.",
     );

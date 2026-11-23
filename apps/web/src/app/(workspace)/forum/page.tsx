@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, AtSign, CornerDownRight, Heart, Lock, MessageCircle, MessageSquare, MessageSquareText, Paperclip, Pencil, Pin, Plus, Search, Send, Share2, Trash2, Unlock, X } from "lucide-react";
+import { ArrowLeft, AtSign, CornerDownRight, Lock, MessageCircle, MessageSquare, MessageSquareText, Paperclip, Pencil, Pin, Plus, Search, Send, Share2, Trash2, Unlock, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
@@ -72,23 +72,6 @@ export default function ForumPage() {
   // Trạng thái mở rộng bài viết dài ngoài Feed (Show more / Show less)
   const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(new Set());
 
-  // Lưu trạng thái lượt thích bài viết cục bộ
-  const [likedTopicIds, setLikedTopicIds] = useState<Set<string>>(new Set());
-
-  // Khôi phục danh sách thích sau khi mount để tránh sai lệch HTML giữa server và trình duyệt.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("wind_edu_forum_likes");
-      if (!raw) return;
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
-        setLikedTopicIds(new Set(parsed));
-      }
-    } catch (error) {
-      console.warn("Không thể khôi phục lượt thích diễn đàn đã lưu.", error);
-    }
-  }, []);
-
   // Học liệu và phản hồi
   const materialSearch = useMaterialSearch(
     session.roleCode,
@@ -133,21 +116,6 @@ export default function ForumPage() {
     });
   };
 
-  // Thả tim/thích bài viết và lưu trạng thái vào storage.
-  const toggleLike = (topicId: string, event?: React.MouseEvent) => {
-    if (event) event.stopPropagation();
-    setLikedTopicIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(topicId)) next.delete(topicId);
-      else next.add(topicId);
-      try {
-        localStorage.setItem("wind_edu_forum_likes", JSON.stringify(Array.from(next)));
-      } catch (error) {
-        console.warn("Không thể lưu lượt thích diễn đàn vào bộ nhớ trình duyệt.", error);
-      }
-      return next;
-    });
-  };
 
   // Sao chép liên kết bài viết vào bộ nhớ tạm.
   const copyShareLink = async (topicId: string, event?: React.MouseEvent) => {
@@ -604,26 +572,6 @@ export default function ForumPage() {
             {/* Thanh tương tác dưới bài viết chi tiết */}
             <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
               <div className="flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={(e) => toggleLike(selected.id, e)}
-                  className={`inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
-                    likedTopicIds.has(selected.id)
-                      ? "text-rose-600 dark:text-rose-400"
-                      : "text-slate-500 hover:text-rose-600 dark:text-slate-400"
-                  }`}
-                >
-                  <Heart
-                    size={16}
-                    className={likedTopicIds.has(selected.id) ? "fill-rose-500 text-rose-500" : ""}
-                  />
-                  <span>
-                    {likedTopicIds.has(selected.id) ? t("Đã thích") : t("Thích")} (
-                    {(selected.tags.length * 3 + selected.title.length % 7) +
-                      (likedTopicIds.has(selected.id) ? 1 : 0)}
-                    )
-                  </span>
-                </button>
 
                 <span className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-sky-600 dark:text-sky-400">
                   <MessageCircle size={16} />
@@ -731,6 +679,28 @@ export default function ForumPage() {
                     {replyTo ? "Trả lời" : t("Gửi bình luận")}
                   </Button>
                 </div>
+
+                {/* Chọn thành viên lớp được nhắc tên; máy chủ chỉ nhận thành viên đang thuộc lớp và gửi thông báo cho họ. */}
+                {showMentionDrawer && classMembers.length > 0 ? (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 max-h-40 overflow-y-auto space-y-1.5">
+                    <p className="text-[11px] font-bold text-slate-500 uppercase">Chọn thành viên được nhắc:</p>
+                    {classMembers.map((memberId) => (
+                      <label key={memberId} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={mentionedUserIds.includes(memberId)}
+                          onChange={() => {
+                            setMentionedUserIds((prev) =>
+                              prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId].slice(0, 10),
+                            );
+                          }}
+                          className="rounded text-sky-600"
+                        />
+                        <span className="truncate">{formatAuthorName(memberId, session.user.id, session.user.name)}</span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
 
                 {/* Danh sách đính kèm học liệu nhanh */}
                 {showAttachDrawer && materials.length > 0 ? (
@@ -1182,8 +1152,6 @@ export default function ForumPage() {
                 const topicClass = classes.find((c) => c.id === topic.classId);
                 const isExpanded = expandedPostIds.has(topic.id);
                 const isLong = topic.body.length > 220 || topic.body.split("\n").length > 3;
-                const isLiked = likedTopicIds.has(topic.id);
-                const likeCount = (topic.tags.length * 3 + topic.title.length % 7) + (isLiked ? 1 : 0);
 
                 return (
                   <article
@@ -1285,19 +1253,6 @@ export default function ForumPage() {
                     {/* Social Action Footer (Like, Comment, Share) */}
                     <div className="mt-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
                       <div className="flex items-center gap-5">
-                        {/* Nút Like */}
-                        <button
-                          type="button"
-                          onClick={(e) => toggleLike(topic.id, e)}
-                          className={`inline-flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                            isLiked
-                              ? "text-rose-600 dark:text-rose-400"
-                              : "text-slate-500 hover:text-rose-600 dark:text-slate-400"
-                          }`}
-                        >
-                          <Heart size={15} className={isLiked ? "fill-rose-500 text-rose-500" : ""} />
-                          <span>{likeCount}</span>
-                        </button>
 
                         {/* Nút Comment -> Xem cmt */}
                         <button
