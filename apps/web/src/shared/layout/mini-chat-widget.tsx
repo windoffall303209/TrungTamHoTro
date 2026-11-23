@@ -8,7 +8,6 @@ import {
   Search,
   ThumbsUp,
   Image as ImageIcon,
-  Mic,
   Smile,
   ChevronDown,
   SquarePen,
@@ -410,14 +409,6 @@ function SingleMiniChatWindow({
             ))}
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => alert(t("Chức năng ghi âm tin nhắn thoại"))}
-          className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
-          title="Ghi âm thoại"
-        >
-          <Mic size={16} />
-        </button>
 
         <button
           type="button"
@@ -570,6 +561,11 @@ function ContactPickerWindow({
       </div>
     </div>
   );
+}
+
+/** Nhãn hiển thị cho tin nhắn chỉ có tệp đính kèm (ảnh, tài liệu) trong ô chat thu gọn. */
+function attachmentLabel(attachments?: Array<{ originalName: string }>): string {
+  return attachments?.length ? `📎 ${attachments.map((item) => item.originalName).join(", ")}` : "";
 }
 
 // Key lưu trạng thái các ô chat đang mở và các bong bóng thu nhỏ theo từng tài khoản
@@ -797,13 +793,13 @@ export function MiniChatWidget() {
         try {
           const message = JSON.parse(event.data) as {
             id?: string; conversationId?: string; senderId?: string; clientMessageId?: string;
-            content?: string; createdAt?: string;
+            content?: string; createdAt?: string; attachments?: Array<{ originalName: string }>;
           };
           if (!message.id || message.conversationId !== conversationId || !message.senderId || typeof message.content !== "string" || !message.createdAt) return;
           const next: MiniChatMessage = {
             id: message.id,
             senderId: message.senderId,
-            content: message.content,
+            content: message.content || attachmentLabel(message.attachments),
             createdAt: new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
              createdAtIso: message.createdAt,
              clientMessageId: message.clientMessageId,
@@ -832,8 +828,8 @@ export function MiniChatWidget() {
         if (targetConvId) {
           try {
             const res = await apiRequest<
-              | { items?: Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string }> }
-              | Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string }>
+              | { items?: Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string; attachments?: Array<{ originalName: string }> }> }
+              | Array<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string; attachments?: Array<{ originalName: string }> }>
             >(`/chat/conversations/${targetConvId}/messages?limit=50`);
 
             if (!active) return;
@@ -842,7 +838,7 @@ export function MiniChatWidget() {
             const fetched = rawList.map((m) => ({
                 id: m.id,
                 senderId: m.senderId,
-                content: m.content,
+                content: m.content || attachmentLabel(m.attachments),
                 createdAt: new Date(m.createdAt).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -1221,25 +1217,67 @@ export function MiniChatWidget() {
     }
   };
 
-  // Đính kèm file ảnh từ máy tính gửi trong tin nhắn
-  const handleAttachImage = (contactId: string, file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageUrl = reader.result as string;
-      const newMsg: MiniChatMessage = {
-        id: `img-${Date.now()}`,
-        senderId: currentUserId,
-        content: "",
-        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        imageUrl,
-      };
+  /** Lấy hội thoại đã có với liên hệ hoặc tạo hội thoại trực tiếp 1-1 trên máy chủ. */
+  const ensureConversationId = async (contactId: string): Promise<string> => {
+    const known = openWindows.find((w) => w.id === contactId)?.conversationId
+      || contacts.find((c) => c.id === contactId)?.conversationId;
+    if (known) return known;
+    const conv = await apiRequest<{ id: string }>("/chat/conversations/direct", {
+      method: "POST",
+      body: JSON.stringify({ userId: contactId }),
+    });
+    if (!conv?.id) throw new Error("Không mở được hội thoại để gửi tin nhắn.");
+    setContacts((prev) => prev.map((c) => (c.id === contactId ? { ...c, conversationId: conv.id } : c)));
+    setOpenWindows((prev) => prev.map((w) => (w.id === contactId ? { ...w, conversationId: conv.id } : w)));
+    return conv.id;
+  };
 
+  // Gửi ảnh thật lên máy chủ dưới dạng tệp đính kèm; trước đây chỉ tạo DataURL cục bộ và hiện "Đã gửi" dù người nhận không nhận được gì.
+  const handleAttachImage = async (contactId: string, file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const clientMessageId = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const label = attachmentLabel([{ originalName: file.name }]);
+    setChatMessages((prev) => ({
+      ...prev,
+      [contactId]: mergeMiniChatMessages(prev[contactId] ?? [], [{
+        id: clientMessageId,
+        senderId: currentUserId,
+        content: label,
+        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAtIso: new Date().toISOString(),
+        status: "sending",
+      }]),
+    }));
+    try {
+      const conversationId = await ensureConversationId(contactId);
+      const body = new FormData();
+      body.set("content", "");
+      body.set("clientMessageId", clientMessageId);
+      body.append("files", file);
+      const sent = await apiRequest<{ id: string; senderId: string; clientMessageId?: string; content: string; createdAt: string; attachments?: Array<{ originalName: string }> }>(
+        `/chat/conversations/${conversationId}/messages`,
+        { method: "POST", body },
+      );
       setChatMessages((prev) => ({
         ...prev,
-        [contactId]: [...(prev[contactId] || []), newMsg],
+        [contactId]: mergeMiniChatMessages(prev[contactId] ?? [], [{
+          id: sent.id,
+          senderId: sent.senderId,
+          content: sent.content || attachmentLabel(sent.attachments) || label,
+          createdAt: new Date(sent.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          createdAtIso: sent.createdAt,
+          clientMessageId: sent.clientMessageId ?? clientMessageId,
+        }]),
       }));
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.warn("Không gửi được ảnh:", error);
+      setChatMessages((prev) => ({
+        ...prev,
+        [contactId]: (prev[contactId] ?? []).map((message) => message.id === clientMessageId ? { ...message, status: "failed" } : message),
+      }));
+    }
   };
 
   // Xác định các thành phần hiển thị ở Slot 2, Slot 1 và Cột Logo
@@ -1276,7 +1314,7 @@ export function MiniChatWidget() {
           onMinimize={() => handleMinimizeWindow(slot2Window)}
           onSendMessage={(text, isLike) => handleSendMessage(slot2Window.id, text, isLike)}
           onRetryMessage={(message) => handleSendMessage(slot2Window.id, message.content, message.isLike, message)}
-          onAttachImage={(file) => handleAttachImage(slot2Window.id, file)}
+          onAttachImage={(file) => void handleAttachImage(slot2Window.id, file)}
         />
       ) : null}
 
@@ -1297,7 +1335,7 @@ export function MiniChatWidget() {
           onMinimize={() => handleMinimizeWindow(slot1Window)}
           onSendMessage={(text, isLike) => handleSendMessage(slot1Window.id, text, isLike)}
           onRetryMessage={(message) => handleSendMessage(slot1Window.id, message.content, message.isLike, message)}
-          onAttachImage={(file) => handleAttachImage(slot1Window.id, file)}
+          onAttachImage={(file) => void handleAttachImage(slot1Window.id, file)}
         />
       ) : null}
 

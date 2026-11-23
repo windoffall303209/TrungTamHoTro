@@ -78,6 +78,8 @@ export default function MessagesScreen() {
     searchDirectory,
     openDirect,
     sendMessage,
+    failedMessage,
+    retryFailedMessage,
     searchConversation,
     toggleMute,
     openAttachment,
@@ -558,6 +560,14 @@ export default function MessagesScreen() {
                   className="p-2.5 bg-white dark:bg-[#18191a] border-t border-slate-200 dark:border-slate-800 select-none"
                   onSubmit={(event) => void sendMessage(event)}
                 >
+                  {failedMessage && (
+                    <div role="alert" className="mb-2 flex items-center justify-between gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                      <span>Tin nhắn trước chưa gửi được.</span>
+                      <button type="button" onClick={retryFailedMessage} disabled={sending} className="font-bold underline disabled:opacity-50">
+                        Gửi lại
+                      </button>
+                    </div>
+                  )}
                   {/* Trạng thái trả lời tin nhắn */}
                   {replyTo && (
                     <div className="mb-2 flex items-center justify-between rounded-md bg-slate-100 dark:bg-[#242526] border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200">

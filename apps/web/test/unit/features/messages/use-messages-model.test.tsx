@@ -116,6 +116,32 @@ describe("useMessagesModel asynchronous conversations", () => {
     vi.restoreAllMocks();
   });
 
+  it("không gửi lại tin lỗi cũ khi người dùng gửi nội dung mới, chỉ gửi lại khi bấm Gửi lại", async () => {
+    const bodies: string[] = [];
+    const base = mocks.request.getMockImplementation()!;
+    let failNext = true;
+    mocks.request.mockImplementation((path: string, options?: { method?: string; body?: unknown }) => {
+      if (path === "/chat/conversations/a/messages" && options?.method === "POST") {
+        bodies.push(String(options.body));
+        if (failNext) {
+          failNext = false;
+          return Promise.reject(new Error("Mạng lỗi"));
+        }
+        return Promise.resolve({});
+      }
+      return base(path, options);
+    });
+    const { result } = renderHook(() => useMessagesModel());
+    await waitFor(() => expect(result.current.selectedId).toBe("a"));
+    act(() => result.current.updateDraft("tin cũ"));
+    await act(async () => { await result.current.sendMessage(); });
+    expect(result.current.failedMessage?.content).toBe("tin cũ");
+    act(() => result.current.updateDraft("tin mới"));
+    void act(() => { void result.current.sendMessage(); });
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(JSON.parse(bodies[1]!)).toMatchObject({ content: "tin mới" });
+  });
+
   it("giữ bản nháp đang gõ khi trình duyệt chặn ghi localStorage", async () => {
     const { result } = renderHook(() => useMessagesModel());
     await waitFor(() => expect(result.current.selectedId).toBe("a"));

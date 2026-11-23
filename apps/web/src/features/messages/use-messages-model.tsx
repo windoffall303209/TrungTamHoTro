@@ -22,6 +22,16 @@ import { useI18n } from "@/providers/i18n-provider";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadStoredDrafts } from "./messages.shared";
 
+/** Tin nhắn đang chờ gửi/gửi lỗi, giữ nguyên clientMessageId để gửi lại không tạo bản trùng. */
+type PendingChatMessage = {
+  content: string;
+  clientMessageId: string;
+  replyToId?: string;
+  files?: File[];
+  contextType?: "ASSIGNMENT" | "EXAM" | "MATERIAL";
+  contextId?: string;
+};
+
 /** Quản lý trạng thái, tải dữ liệu từ CSDL và điều khiển hành động của màn hình tin nhắn 1-1. */
 export function useMessagesModel() {
   const { session, notify } = useApp();
@@ -41,14 +51,7 @@ export function useMessagesModel() {
   );
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
-  const [failedMessage, setFailedMessage] = useState<{
-    content: string;
-    clientMessageId: string;
-    replyToId?: string;
-    files?: File[];
-    contextType?: "ASSIGNMENT" | "EXAM" | "MATERIAL";
-    contextId?: string;
-  } | null>(null);
+  const [failedMessage, setFailedMessage] = useState<PendingChatMessage | null>(null);
 
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [messageQuery, setMessageQuery] = useState("");
@@ -487,9 +490,11 @@ export function useMessagesModel() {
   };
 
   /** Gửi tin nhắn thật vào CSDL qua API backend */
+  // Chỉ gửi lại tin lỗi khi người dùng bấm "Gửi lại"; trước đây tham số mặc định retry = failedMessage
+  // khiến mọi lần bấm Gửi sau một lần lỗi đều gửi lại tin cũ thay vì nội dung vừa gõ.
   const sendMessage = async (
     event?: React.FormEvent,
-    retry = failedMessage,
+    retry?: PendingChatMessage | null,
   ) => {
     event?.preventDefault();
     if (!selectedId || selected?.readOnly || sendingRef.current) return;
@@ -627,7 +632,14 @@ export function useMessagesModel() {
     }
   };
 
+  /** Gửi lại đúng tin nhắn vừa lỗi (giữ clientMessageId để máy chủ chống trùng). */
+  const retryFailedMessage = () => {
+    if (failedMessage) void sendMessage(undefined, failedMessage);
+  };
+
   return {
+    failedMessage,
+    retryFailedMessage,
     session,
     locale,
     conversations,
