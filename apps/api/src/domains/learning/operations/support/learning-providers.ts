@@ -9,17 +9,17 @@ import { id } from "../../core/learning.shared.js";
 import type { LearningExam, LiveSession } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
-/** Dựng URL chủ phòng/người học cho provider demo bằng token phòng ngẫu nhiên. */
+/**
+ * Dựng URL phòng Jitsi (phòng được tạo khi người đầu tiên vào) từ token ngẫu nhiên. Google Meet/Zoom chưa có adapter
+ * OAuth nên không bao giờ ghép URL kiểu meet.google.com/<uuid> không tồn tại; giảng viên dán link phòng thật.
+ */
 export function buildProviderUrls(
   provider: LiveSession["provider"],
   token: string,
 ): { hostUrl: string; attendeeUrl: string } {
-  const base =
-    provider === "ZOOM"
-      ? "https://zoom.us/wc/join"
-      : provider === "GOOGLE_MEET"
-        ? "https://meet.google.com"
-        : "https://meet.jit.si";
+  if (provider !== "JITSI")
+    throw new ServiceUnavailableException("Google Meet/Zoom chưa có adapter tạo phòng tự động; hãy dán link phòng học thật.");
+  const base = "https://meet.jit.si";
   return {
     hostUrl: `${base}/${token}?role=host`,
     attendeeUrl: `${base}/${token}`,
@@ -164,7 +164,8 @@ export async function provisionProviderMeeting(
   let attempts = 0;
   for (const provider of candidates) {
     if (readyProviders && !readyProviders.has(provider)) continue;
-    if (serviceContext.system && provider !== "JITSI") continue;
+    // Chỉ Jitsi tạo được phòng thật mà không cần OAuth; mọi môi trường đều bỏ qua Meet/Zoom thay vì sinh URL giả.
+    if (provider !== "JITSI") continue;
     for (let retry = 0; retry < retryLimit; retry += 1) {
       attempts += 1;
       if (failures.has(provider)) continue;

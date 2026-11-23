@@ -575,13 +575,17 @@ export default function LiveClassesPage() {
                         {daySessions.map((session) => {
                           const isLive = session.status === "LIVE";
                           const isUpcoming = clock < new Date(session.startsAt).getTime();
+                          // Buổi đã hủy/kết thúc không còn cho vào phòng dù vẫn trong khung giờ.
+                          const joinable = session.status === "SCHEDULED" || session.status === "LIVE";
                           const canJoin =
+                            joinable &&
                             clock >= new Date(session.startsAt).getTime() - 15 * 60_000 &&
                             clock <= new Date(session.endsAt).getTime() + 30 * 60_000;
 
                           return (
                             <div
                               key={session.id}
+                              id={`session-${session.id}`}
                               className="p-3 rounded-xl bg-[#0070ba] dark:bg-[#0b57d0] text-white shadow-md space-y-2 hover:shadow-lg transition-shadow"
                             >
                               <div className="flex items-center justify-between gap-1">
@@ -641,18 +645,20 @@ export default function LiveClassesPage() {
                                         {t("Kết thúc ca dạy")}
                                       </button>
                                     )}
-                                    <button
-                                      type="button"
-                                      onClick={() => void join(session)}
-                                      className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                    >
-                                      {t("Vào phòng")} <ExternalLink size={11} />
-                                    </button>
+                                    {joinable && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void join(session)}
+                                        className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                      >
+                                        {t("Vào phòng")} <ExternalLink size={11} />
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <>
 
-                                    { (
+                                    {joinable && (
                                       <button
                                         type="button"
                                         disabled={!canJoin && !isLive}
@@ -759,7 +765,7 @@ export default function LiveClassesPage() {
                         </Button>
                       </>
                     ) : null}
-                    {instructor ? (
+                    {item.status !== "SCHEDULED" && item.status !== "LIVE" ? null : instructor ? (
                       <Button onClick={() => void join(item)} variant="secondary">
                         Vào phòng <ExternalLink size={15} />
                       </Button>

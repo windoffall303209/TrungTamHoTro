@@ -7,6 +7,7 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Google Meet/Zoom chưa có adapter tạo phòng tự động; hãy dán link phòng học thật.": "Google Meet/Zoom rooms cannot be created automatically yet; paste a real meeting link.",
   "Chọn thành viên được nhắc:": "Choose members to mention:",
   "Bạn không thuộc lớp của chủ đề.": "You are not a member of this topic's class.",
   "Gửi lại": "Resend",

@@ -533,10 +533,14 @@ describe("LearningService", () => {
       provider: "ZOOM",
       reason: "Điều chỉnh theo lịch giảng viên",
     }, "usr-manager", "CENTER_MANAGER");
+    // Zoom chưa có adapter tạo phòng: hệ thống chuyển sang Jitsi thật thay vì sinh URL zoom.us giả.
     expect(updated).toMatchObject({
-      provider: "ZOOM",
+      provider: "JITSI",
+      requestedProvider: "ZOOM",
+      fallbackUsed: true,
       changeReason: "Điều chỉnh theo lịch giảng viên",
     });
+    expect(updated.attendeeUrl).toMatch(/^https:\/\/meet\.jit\.si\//);
     expect(
       (await service.cancelSession(created.id, "Nghỉ theo lịch của trung tâm", "usr-manager", "CENTER_MANAGER"))
         .status,
@@ -1397,8 +1401,9 @@ describe("LearningService", () => {
       requestedProvider: "ZOOM",
       provider: "JITSI",
       fallbackUsed: true,
-      provisioningAttempts: 3,
+      provisioningAttempts: 1,
     });
+    expect(session.attendeeUrl).not.toContain("zoom.us");
     expect(session.hostUrl).not.toBe(session.attendeeUrl);
     expect(session.hostUrl).toContain("role=host");
     expect(session.attendeeUrl).not.toContain("role=host");

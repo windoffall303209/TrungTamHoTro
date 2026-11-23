@@ -224,6 +224,21 @@ describe("Live sessions with direct Google Meet URLs", () => {
     );
     expect(updated.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
 
+    // Chỉ đổi tiêu đề/giờ học (không gửi meetingUrl, cùng provider) thì giữ nguyên link Meet thật đã dán.
+    const retimed = await learning.updateSession(
+      created.id,
+      {
+        title: "Buổi 01: Thực hành API (Dời giờ)",
+        startsAt: new Date(Date.now() + 6 * 86_400_000 + 60 * 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 6 * 86_400_000 + 150 * 60_000).toISOString(),
+        provider: "GOOGLE_MEET",
+        reason: "Dời giờ học theo lịch giảng viên",
+      },
+      coInstructorId,
+      "INSTRUCTOR",
+    );
+    expect(retimed).toMatchObject({ provider: "GOOGLE_MEET", attendeeUrl: "https://meet.google.com/klm-nopq-rst", hostUrl: "https://meet.google.com/klm-nopq-rst" });
+
     const coJoin = await learning.joinSession(
       created.id,
       coInstructorId,

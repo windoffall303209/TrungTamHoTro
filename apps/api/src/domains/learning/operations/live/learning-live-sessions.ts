@@ -503,11 +503,22 @@ export async function updateSession(
       throw new ConflictException(
         "Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.",
       );
-    const provisioned = await resolveProvisionedMeeting(
-      serviceContext,
-      input.provider,
-      input.meetingUrl,
-    );
+    // Chỉ sửa tiêu đề/giờ học thì giữ nguyên link phòng đang dùng (có thể là link Meet thật giảng viên đã dán).
+    const keepMeeting = input.meetingUrl === undefined && Boolean(current.attendeeUrl) && (!input.provider || input.provider === current.provider);
+    const provisioned = keepMeeting
+      ? {
+          provider: current.provider as LiveSession["provider"],
+          requestedProvider: current.requestedProvider as LiveSession["provider"],
+          hostUrl: current.hostUrl,
+          attendeeUrl: current.attendeeUrl,
+          fallbackUsed: current.fallbackUsed,
+          attempts: current.provisioningAttempts,
+        }
+      : await resolveProvisionedMeeting(
+          serviceContext,
+          input.provider,
+          input.meetingUrl,
+        );
     const updated = await prisma.liveSession.update({
       where: { id: sessionId },
       data: {
@@ -576,11 +587,21 @@ export async function updateSession(
     throw new ConflictException(
       "Lịch mới bị trùng lớp hoặc trùng lịch giảng viên.",
     );
-  const provisioned = await resolveProvisionedMeeting(
-    serviceContext,
-    input.provider,
-    input.meetingUrl,
-  );
+  const keepMeeting = input.meetingUrl === undefined && Boolean(item.attendeeUrl) && (!input.provider || input.provider === item.provider);
+  const provisioned = keepMeeting
+    ? {
+        provider: item.provider,
+        requestedProvider: item.requestedProvider ?? item.provider,
+        hostUrl: item.hostUrl,
+        attendeeUrl: item.attendeeUrl,
+        fallbackUsed: item.fallbackUsed ?? false,
+        attempts: item.provisioningAttempts ?? 1,
+      }
+    : await resolveProvisionedMeeting(
+        serviceContext,
+        input.provider,
+        input.meetingUrl,
+      );
   Object.assign(item, {
     title: validated.title,
     startsAt: validated.startsAt.toISOString(),
