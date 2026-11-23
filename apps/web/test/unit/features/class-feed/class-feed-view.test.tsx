@@ -1,87 +1,59 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClassFeedView } from "../../../../src/features/class-feed/class-feed-view";
 
-vi.mock("@/providers/app-provider", () => ({
-  useApp: () => ({
-    session: { roleCode: "INSTRUCTOR", user: { name: "Teacher A", username: "teacher" } },
-    notify: vi.fn(),
-  }),
+const { apiRequest, notify, session } = vi.hoisted(() => ({
+  apiRequest: vi.fn(),
+  notify: vi.fn(),
+  session: { current: { roleCode: "INSTRUCTOR", user: { name: "Teacher A", username: "teacher" } } },
 }));
+
+vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args) }));
+vi.mock("@/providers/app-provider", () => ({ useApp: () => ({ session: session.current, notify }) }));
+vi.mock("@/providers/i18n-provider", () => ({ useI18n: () => ({ locale: "vi-VN", t: (value: string) => value }) }));
+
+const announcement = { id: "a-1", classId: "class-a", classCode: "A", title: "Lịch kiểm tra", body: "Thứ Hai kiểm tra chương 1.", authorName: "Teacher A", publishedAt: "2026-11-20T02:00:00.000Z" };
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   localStorage.clear();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
+  session.current = { roleCode: "INSTRUCTOR", user: { name: "Teacher A", username: "teacher" } };
 });
 
 describe("ClassFeedView", () => {
-  it("mở cùng một ô phản hồi cho bình luận cấp một và cấp hai, đồng thời đặt lại bản nháp", () => {
+  it("hiển thị thông báo thật của lớp từ máy chủ, không chèn bài viết mẫu hay đọc localStorage", async () => {
+    localStorage.setItem("class_feed_posts_class-a", JSON.stringify([{ id: "fake" }]));
+    apiRequest.mockResolvedValueOnce([announcement]);
     render(<ClassFeedView classItem={{ id: "class-a", code: "A", name: "A" }} />);
-    fireEvent.click(screen.getByRole("button", { name: "3 bình luận" }));
-
-    const replyButtons = screen.getAllByRole("button", { name: "Trả lời" });
-    fireEvent.click(replyButtons[0]!);
-    expect(screen.getByText("@Trương Sỹ Quý:")).toBeInTheDocument();
-    const replyInput = screen.getByPlaceholderText("Viết phản hồi công khai...");
-    fireEvent.change(replyInput, { target: { value: "Bản nháp cấp một" } });
-
-    fireEvent.click(replyButtons[1]!);
-    expect(screen.getByText("@Trần Long:")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Viết phản hồi công khai...")).toHaveValue("");
-    expect(screen.getAllByPlaceholderText("Viết phản hồi công khai...")).toHaveLength(1);
+    expect(await screen.findByText("Lịch kiểm tra")).toBeInTheDocument();
+    expect(apiRequest).toHaveBeenCalledWith("/academic/announcements?classId=class-a", { roleCode: "INSTRUCTOR" });
+    expect(screen.queryByText(/REST hay GraphQL/)).not.toBeInTheDocument();
   });
 
-  it("resets the open post and unsent text when switching classes", () => {
-    const { rerender } = render(<ClassFeedView classItem={{ id: "class-a", code: "A", name: "A" }} teacherName="Teacher A" />);
-    fireEvent.change(screen.getByPlaceholderText("Chia sẻ bài viết, câu hỏi hoặc thông báo với lớp học..."), {
-      target: { value: "Unsent text from class A" },
+  it("giảng viên đăng thông báo qua API và chỉ báo thành công khi máy chủ đã lưu", async () => {
+    apiRequest.mockResolvedValueOnce([]).mockResolvedValueOnce({ ...announcement, id: "a-2", title: "Nghỉ học", body: "Lớp nghỉ ngày mai." });
+    render(<ClassFeedView classItem={{ id: "class-a", code: "A", name: "A" }} />);
+    expect(await screen.findByText("Lớp chưa có thông báo nào.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Tiêu đề thông báo"), { target: { value: "Nghỉ học" } });
+    fireEvent.change(screen.getByLabelText("Nội dung thông báo"), { target: { value: "Lớp nghỉ ngày mai." } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Đăng thông báo" }));
     });
-    fireEvent.click(screen.getByRole("button", { name: "0 bình luận" }));
-    expect(screen.getByRole("heading", { name: "Bài viết của Teacher A" })).toBeInTheDocument();
-
-    rerender(<ClassFeedView classItem={{ id: "class-b", code: "B", name: "B" }} teacherName="Teacher A" />);
-    expect(screen.queryByRole("heading", { name: "Bài viết của Teacher A" })).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Chia sẻ bài viết, câu hỏi hoặc thông báo với lớp học...")).toHaveValue("");
-    expect(localStorage.getItem("class_feed_posts_class-a")).not.toBeNull();
-    expect(localStorage.getItem("class_feed_posts_class-b")).not.toBeNull();
-  });
-
-  it("never adds more than five images when multiple reads complete out of order", () => {
-    const pendingReads: Array<() => void> = [];
-    vi.stubGlobal("FileReader", class {
-      onload: ((event: { target: { result: string } }) => void) | null = null;
-
-      // Hoãn hoàn thành đọc tệp để mô phỏng hai đợt chọn ảnh đang chạy đồng thời.
-      readAsDataURL(file: File) {
-        pendingReads.push(() => this.onload?.({ target: { result: `data:image/png;base64,${file.name}` } }));
-      }
+    expect(apiRequest).toHaveBeenLastCalledWith("/academic/classes/class-a/announcements", {
+      method: "POST",
+      roleCode: "INSTRUCTOR",
+      body: JSON.stringify({ title: "Nghỉ học", body: "Lớp nghỉ ngày mai." }),
     });
-    const { container } = render(<ClassFeedView classItem={{ id: "class-a", code: "A" }} />);
-    const fileInput = container.querySelector('input[type="file"]')!;
-    const files = Array.from({ length: 10 }, (_, index) => new File(["image"], `${index}.png`, { type: "image/png" }));
-    fireEvent.change(fileInput, { target: { files: files.slice(0, 5) } });
-    fireEvent.change(fileInput, { target: { files: files.slice(5) } });
-    expect(pendingReads).toHaveLength(10);
-
-    act(() => { pendingReads.reverse().forEach((complete) => complete()); });
-    expect(screen.getByRole("button", { name: "Đính kèm ảnh (5/5)" })).toBeInTheDocument();
-    expect(container.querySelectorAll('img[alt^="Ảnh đính kèm"]')).toHaveLength(5);
+    expect(await screen.findByText("Lớp nghỉ ngày mai.")).toBeInTheDocument();
+    expect(notify).toHaveBeenCalledWith("Đã đăng thông báo tới cả lớp.");
   });
 
-  it("keeps the draft when storage quota prevents publishing", () => {
-    render(<ClassFeedView classItem={{ id: "class-a", code: "A" }} />);
-    const editor = screen.getByPlaceholderText("Chia sẻ bài viết, câu hỏi hoặc thông báo với lớp học...");
-    fireEvent.change(editor, { target: { value: "Keep my unsent draft" } });
-    const original = localStorage.getItem("class_feed_posts_class-a");
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Quota exceeded", "QuotaExceededError"); });
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    fireEvent.click(screen.getByRole("button", { name: "Đăng bài" }));
-
-    expect(editor).toHaveValue("Keep my unsent draft");
-    expect(localStorage.getItem("class_feed_posts_class-a")).toBe(original);
-    expect(screen.queryByText("Keep my unsent draft", { selector: "p" })).not.toBeInTheDocument();
+  it("học viên chỉ xem, không có ô đăng bài", async () => {
+    session.current = { roleCode: "LEARNER", user: { name: "Learner", username: "learner" } };
+    apiRequest.mockResolvedValueOnce([announcement]);
+    render(<ClassFeedView classItem={{ id: "class-a", code: "A", name: "A" }} />);
+    await waitFor(() => expect(screen.getByText("Lịch kiểm tra")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Tiêu đề thông báo")).not.toBeInTheDocument();
   });
 });

@@ -7,6 +7,21 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "Làm mới bảng tin": "Refresh feed",
+  "Bảng tin lớp": "Class feed",
+  "Đã đăng thông báo tới cả lớp.": "The announcement was posted to the whole class.",
+  "Đang tải bảng tin...": "Loading the class feed...",
+  "Đăng thông báo": "Post announcement",
+  "Đăng thông báo cho lớp": "Post an announcement to class",
+  "Không đăng được thông báo.": "Could not post the announcement.",
+  "Không tải được bảng tin lớp.": "Could not load the class feed.",
+  "Lớp chưa có thông báo nào.": "This class has no announcements yet.",
+  "Nội dung gửi tới toàn bộ học viên và giảng viên của lớp...": "Message for all learners and instructors of the class...",
+  "Nội dung thông báo": "Announcement content",
+  "Thành viên lớp sẽ nhận thông báo trong hệ thống.": "Class members will receive an in-app notification.",
+  "Thông báo của lớp": "Class announcements",
+  "Tiêu đề thông báo": "Announcement title",
+  "Tiêu đề thông báo (ít nhất 3 ký tự)": "Announcement title (at least 3 characters)",
   "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.": "The system is handling too many sign-ins right now. Please try again in a few seconds.",
   "Ảnh đại diện bị hỏng hoặc có cấu trúc không hợp lệ.": "The avatar image is corrupted or has an invalid structure.",
   "Ảnh đại diện bị từ chối vì phát hiện mã độc.": "The avatar image was rejected because malware was detected.",
