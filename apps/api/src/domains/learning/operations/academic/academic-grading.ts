@@ -151,7 +151,8 @@ export async function gradebook(
       },
       assignments: {
         where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } },
-        include: { submissions: true },
+        // Sổ điểm chỉ cần trạng thái và điểm; không kéo nội dung bài luận/nhận xét (tới 20 KB mỗi bài) của cả lớp lên RAM.
+        include: { submissions: { select: { learnerId: true, status: true, score: true } } },
       },
     },
   });
@@ -382,8 +383,14 @@ export async function gradingQueue(
       },
       include: {
         class: { select: { code: true, grade: true, subject: true } },
+        // Hàng đợi chấm chỉ hiển thị metadata bài nộp, không cần nội dung/feedback.
         submissions: {
-          include: {
+          select: {
+            id: true,
+            learnerId: true,
+            status: true,
+            submittedAt: true,
+            revision: true,
             learner: { select: { displayName: true, email: true } },
           },
           orderBy: { submittedAt: "asc" },

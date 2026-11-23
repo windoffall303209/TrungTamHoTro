@@ -39,11 +39,20 @@ export async function getClassProgress(
           : {}),
       },
       include: {
-        enrollments: { where: { status: "ACTIVE" } },
+        enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } },
         exams: {
           where: { openAt: { lte: to }, closeAt: { gte: from } },
-          include: {
-            attempts: { where: { submittedAt: { gte: from, lte: to } }, orderBy: { attemptNo: "desc" } },
+          select: {
+            id: true,
+            status: true,
+            closeAt: true,
+            totalScore: true,
+            // Chỉ cột phục vụ tính điểm/hoạt động; không kéo đáp án, thứ tự câu hay metadata lượt thi.
+            attempts: {
+              where: { submittedAt: { gte: from, lte: to } },
+              orderBy: { attemptNo: "desc" },
+              select: { learnerId: true, status: true, score: true, submittedAt: true },
+            },
           },
         },
         assignments: {
@@ -51,7 +60,17 @@ export async function getClassProgress(
             status: { in: ["PUBLISHED", "CLOSED"] },
             dueAt: { gte: from, lte: to },
           },
-          include: { submissions: { where: { submittedAt: { lte: to } } } },
+          select: {
+            id: true,
+            status: true,
+            dueAt: true,
+            maxScore: true,
+            // Không kéo nội dung bài luận/nhận xét của cả lớp chỉ để đếm bài nộp và lấy điểm.
+            submissions: {
+              where: { submittedAt: { lte: to } },
+              select: { learnerId: true, status: true, score: true, submittedAt: true },
+            },
+          },
         },
       },
     });
@@ -60,35 +79,37 @@ export async function getClassProgress(
       where: { classId },
       orderBy: { createdAt: "desc" },
     });
+    // Lập chỉ mục một lượt theo (học viên, bài) thay vì lọc lại toàn bộ lượt thi/bài nộp cho từng học viên: O(L×M) → O(L+M).
+    type ExamAttemptRow = (typeof classItem.exams)[number]["attempts"][number];
+    const attemptIndex = new Map<string, ExamAttemptRow[]>();
+    for (const exam of classItem.exams)
+      for (const attempt of exam.attempts) {
+        const key = `${attempt.learnerId}:${exam.id}`;
+        const list = attemptIndex.get(key);
+        if (list) list.push(attempt);
+        else attemptIndex.set(key, [attempt]);
+      }
+    const submissionIndex = new Map<string, (typeof classItem.assignments)[number]["submissions"][number]>();
+    for (const assignment of classItem.assignments)
+      for (const submission of assignment.submissions) {
+        const key = `${submission.learnerId}:${assignment.id}`;
+        if (!submissionIndex.has(key)) submissionIndex.set(key, submission);
+      }
+    const interventionsByLearner = new Map<string, typeof interventions>();
+    for (const item of interventions) {
+      const list = interventionsByLearner.get(item.learnerId);
+      if (list) list.push(item);
+      else interventionsByLearner.set(item.learnerId, [item]);
+    }
     const learners = classItem.enrollments.map(({ learnerId }) => {
-      const attempts = classItem.exams.flatMap((exam) =>
-        exam.attempts
-          .filter((attempt) => attempt.learnerId === learnerId)
-          .map((attempt) => ({
-            ...attempt,
-            totalScore: Number(exam.totalScore),
-          })),
-      );
-      const assignmentSubmissions = classItem.assignments.flatMap(
-        (assignment) =>
-          assignment.submissions
-            .filter((submission) => submission.learnerId === learnerId)
-            .map((submission) => ({
-              ...submission,
-              assignmentMaxScore: Number(assignment.maxScore),
-            })),
-      );
-      const completedExamIds = new Set(
-        attempts
-          .filter((attempt) => attempt.status !== "IN_PROGRESS")
-          .map((attempt) => attempt.examId),
-      );
       let earned = 0;
       let possible = 0;
+      let completedAssessments = 0;
+      const activityDates: Date[] = [];
       for (const exam of classItem.exams) {
-        const learnerAttempts = exam.attempts.filter(
-          (attempt) => attempt.learnerId === learnerId,
-        );
+        const learnerAttempts = attemptIndex.get(`${learnerId}:${exam.id}`) ?? [];
+        if (learnerAttempts.some((attempt) => attempt.status !== "IN_PROGRESS")) completedAssessments += 1;
+        for (const attempt of learnerAttempts) if (attempt.submittedAt) activityDates.push(attempt.submittedAt);
         const graded = learnerAttempts.find(
           (attempt) => attempt.status === "GRADED",
         );
@@ -99,26 +120,17 @@ export async function getClassProgress(
           possible += Number(exam.totalScore);
       }
       for (const assignment of classItem.assignments) {
-        const submission = assignment.submissions.find(
-          (candidate) => candidate.learnerId === learnerId,
-        );
+        const submission = submissionIndex.get(`${learnerId}:${assignment.id}`);
+        if (submission) {
+          completedAssessments += 1;
+          activityDates.push(submission.submittedAt);
+        }
         if (submission?.status === "GRADED") {
           earned += Number(submission.score ?? 0);
           possible += Number(assignment.maxScore);
         } else if (assignment.status === "CLOSED" || assignment.dueAt <= to)
           possible += Number(assignment.maxScore);
       }
-      const activityDates = [
-        ...attempts.flatMap((attempt) =>
-          attempt.submittedAt ? [attempt.submittedAt] : [],
-        ),
-        ...assignmentSubmissions.map((submission) => submission.submittedAt),
-      ];
-      const completedAssessments =
-        completedExamIds.size +
-        new Set(
-          assignmentSubmissions.map((submission) => submission.assignmentId),
-        ).size;
       const totalAssessments =
         classItem.exams.length + classItem.assignments.length;
       return serviceContext.buildLearnerProgress({
@@ -133,8 +145,7 @@ export async function getClassProgress(
           : 0,
         lastActivityAt: serviceContext.latestDate(activityDates),
         thresholds,
-        interventions: interventions
-          .filter((item) => item.learnerId === learnerId)
+        interventions: (interventionsByLearner.get(learnerId) ?? [])
           .map((item) => serviceContext.mapProgressIntervention(item)),
       });
     });
