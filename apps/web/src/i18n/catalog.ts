@@ -7,6 +7,16 @@ export const DEFAULT_LOCALE: SupportedLocale = "vi-VN";
 export const LOCALE_STORAGE_KEY = "wind-edu-locale";
 
 const curatedEnglishCatalog: Record<string, string> = {
+  "1. Soạn câu hỏi thủ công": "1. Write questions manually",
+  "Bài tập của lớp": "Class assignments",
+  "Chưa có email": "No email yet",
+  "Chưa đặt": "Not set",
+  "Danh sách giảng viên được phân công. Việc thêm, gỡ hoặc đổi giảng viên chính do quản lý trung tâm thực hiện.": "Assigned instructors. Adding, removing or changing the primary instructor is done by the center manager.",
+  "Mở danh sách bài tập của lớp": "Open the class assignment list",
+  "Nhập nội dung, phương án, đáp án và lời giải cho từng câu hỏi mới của ngân hàng.": "Enter the content, options, answers and solution for each new bank question.",
+  "TÊN LỚP": "CLASS NAME",
+  "Tên, mô tả và quy định của lớp do quản lý trung tâm cập nhật. Số lượt làm bài, hạn nộp và việc cho nộp muộn được cấu hình trong từng đề thi hoặc bài tập.": "The class name, description and rules are maintained by the center manager. Attempt limits, due dates and late submission are configured on each exam or assignment.",
+  "Thông tin lớp do quản lý trung tâm quản lý": "Class information is managed by the center manager",
   "Làm mới bảng tin": "Refresh feed",
   "Bảng tin lớp": "Class feed",
   "Đã đăng thông báo tới cả lớp.": "The announcement was posted to the whole class.",

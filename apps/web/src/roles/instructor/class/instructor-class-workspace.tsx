@@ -50,7 +50,6 @@ import {
   Trash2,
   UploadCloud,
   UserCheck,
-  UserPlus,
   Users,
   Video,
   Wand2,
@@ -258,8 +257,6 @@ export function InstructorClassWorkspace({
   const [previewAssignment, setPreviewAssignment] = useState<Assignment | null>(null);
   const [trialAssignment, setTrialAssignment] = useState<Assignment | null>(null);
   const [editingClassExam, setEditingClassExam] = useState<Exam | null>(null);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareScope, setShareScope] = useState<"CLASS_ONLY" | "PUBLIC">("CLASS_ONLY");
   const [statsModalOpen, setStatsModalOpen] = useState(false);
   const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<AssignmentSubmission | null>(null);
 
@@ -640,26 +637,6 @@ export function InstructorClassWorkspace({
     }
   };
 
-  // Cài đặt lớp học (Settings)
-  const [classSettings, setClassSettings] = useState({
-    displayName: item.name,
-    description: course?.description || "Lớp học tiêu chuẩn theo chương trình phổ thông.",
-    allowStudentPost: true,
-    allowLateSubmission: false,
-    maxAttempts: 2,
-  });
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => {
-    if (settingsSaveTimer.current !== null) clearTimeout(settingsSaveTimer.current);
-  }, []);
-
-  // Modal thêm đồng giáo viên
-  const [addCoInstructorOpen, setAddCoInstructorOpen] = useState(false);
-  const [coInstructorRole, setCoInstructorRole] = useState<"CO_INSTRUCTOR" | "ASSISTANT">("CO_INSTRUCTOR");
-  const [selectedInstructorId, setSelectedInstructorId] = useState("");
-  const [allAvailableInstructors, setAllAvailableInstructors] = useState<DirectoryUser[]>([]);
   const classDataRequestRef = useRef(0);
   const classDataControllerRef = useRef<AbortController | null>(null);
   const gradebookLoadedClassRef = useRef<string | null>(null);
@@ -749,18 +726,6 @@ export function InstructorClassWorkspace({
         setSelectedAssignment((current) => assignmentsResult.value.find((assignment) => assignment.id === current?.id) ?? assignmentsResult.value[0] ?? null);
       }
 
-      // Tải danh sách giáo viên có thể mời làm đồng giáo viên
-      let directoryInstructors: DirectoryUser[] | null = null;
-      try {
-        directoryInstructors = await apiRequest<DirectoryUser[]>("/users?role=INSTRUCTOR", {
-          roleCode: session.roleCode,
-          signal: controller.signal,
-        });
-      } catch (error) {
-        if (!controller.signal.aborted) console.warn("Không tải được danh sách giáo viên:", error);
-      }
-      if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
-      if (directoryInstructors !== null) setAllAvailableInstructors(directoryInstructors);
     } catch (error) {
       if (!controller.signal.aborted) console.error("Lỗi tải dữ liệu lớp học:", error);
       if (requestId === classDataRequestRef.current && !controller.signal.aborted) {
@@ -2044,22 +2009,6 @@ export function InstructorClassWorkspace({
     }
   };
 
-  // Xóa câu hỏi khỏi ngân hàng của lớp
-  const handleDeleteClassQuestion = async (questionId: string) => {
-    if (window.confirm(t("Bạn có chắc muốn xóa câu hỏi này khỏi ngân hàng câu hỏi lớp không?"))) {
-      try {
-        await apiRequest(`/instructor/question-bank/questions/${questionId}`, {
-          method: "DELETE",
-          roleCode: session.roleCode,
-        });
-        await refreshQuestionData();
-        notify("Đã xóa câu hỏi khỏi ngân hàng lớp!", "success");
-      } catch (error) {
-        console.warn("Không thể xóa câu hỏi khỏi ngân hàng lớp:", error);
-        notify(error instanceof Error ? error.message : "Không thể xóa câu hỏi.", "error");
-      }
-    }
-  };
 
   // Lưu thêm tài liệu mới trực tiếp vào cơ sở dữ liệu PostgreSQL
   const handleSaveNewMaterial = async () => {
@@ -2285,10 +2234,10 @@ export function InstructorClassWorkspace({
                 </span>
               </div>
 
-              {/* Phần Bài tập & Tài liệu đính kèm (chuẩn Ảnh 2) */}
-              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              {/* Lối tắt tới bài tập của lớp: chỉ hiện khi lớp thực sự có bài tập. */}
+              {assignments.length > 0 && <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                  Bài tập & tài liệu đính kèm
+                  Bài tập của lớp
                 </span>
 
                 <div
@@ -2308,16 +2257,16 @@ export function InstructorClassWorkspace({
                     </div>
                     <div className="min-w-0">
                       <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 transition-colors block truncate">
-                        {assignments[0]?.title || "Kiểm tra giữa kỳ Web Full-stack"}
+                        {assignments[0]!.title}
                       </strong>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Trắc nghiệm tách câu
+                        Mở danh sách bài tập của lớp
                       </p>
                     </div>
                   </div>
                   <ChevronRight size={16} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
                 </div>
-              </div>
+              </div>}
             </div>
           </main>
 
@@ -2651,17 +2600,9 @@ export function InstructorClassWorkspace({
                   Vai trò & Phân quyền giảng dạy
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Thêm đồng giáo viên hoặc trợ giảng để cùng chấm bài và quản lý lớp học
+                  Danh sách giảng viên được phân công. Việc thêm, gỡ hoặc đổi giảng viên chính do quản lý trung tâm thực hiện.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setAddCoInstructorOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <UserPlus size={15} />
-                <span>Thêm đồng giáo viên</span>
-              </button>
             </div>
 
             <div className="space-y-3">
@@ -2699,7 +2640,7 @@ export function InstructorClassWorkspace({
                             {ins.role === "ASSISTANT" ? "Trợ giảng" : "Đồng giáo viên"}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500">{ins.email || "teacher@wind.edu.vn"}</p>
+                        <p className="text-[11px] text-slate-500">{ins.email || "Chưa có email"}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2721,13 +2662,6 @@ export function InstructorClassWorkspace({
                       >
                         <MessageCircle size={14} />
                         <span>Nhắn tin</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => notify("Đã gỡ quyền đồng giáo viên!", "success")}
-                        className="text-xs text-rose-600 hover:underline font-bold cursor-pointer"
-                      >
-                        Gỡ quyền
                       </button>
                     </div>
                   </div>
@@ -3916,14 +3850,6 @@ export function InstructorClassWorkspace({
                           <Edit3 size={12} />
                           <span>Chỉnh sửa</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteClassQuestion(q.id)}
-                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                          title="Xóa câu hỏi khỏi ngân hàng"
-                        >
-                          <Trash2 size={14} />
-                        </button>
                       </div>
                     </div>
 
@@ -3959,43 +3885,20 @@ export function InstructorClassWorkspace({
                 Cài đặt lớp học ({item.name})
               </h2>
               <p className="text-xs text-slate-500">
-                Điều chỉnh thông tin hiển thị, quy tắc bài tập và cấu hình thảo luận của lớp
+                Thông tin lớp do quản lý trung tâm quản lý
               </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs space-y-5">
-              {/* Thông tin lớp học */}
               <div className="space-y-4">
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
                   Thông tin lớp học
                 </h3>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tên hiển thị của lớp:
-                  </label>
-                  <input
-                    type="text"
-                    value={classSettings.displayName}
-                    onChange={(e) => setClassSettings({ ...classSettings, displayName: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Mô tả lớp học:
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={classSettings.description}
-                    onChange={(e) => setClassSettings({ ...classSettings, description: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-                  />
-                </div>
-
-                {/* Các trường Readonly do Quản lý đặt */}
                 <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 text-xs">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] font-bold">TÊN LỚP</span>
+                    <strong className="text-slate-700 dark:text-slate-200">{item.name}</strong>
+                  </div>
                   <div>
                     <span className="text-slate-400 block text-[10px] font-bold">MÃ LỚP CHÍNH THỨC</span>
                     <strong className="text-slate-700 dark:text-slate-200">{item.code}</strong>
@@ -4006,97 +3909,16 @@ export function InstructorClassWorkspace({
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px] font-bold">KHỐI HỌC</span>
-                    <strong className="text-slate-700 dark:text-slate-200">Khối {item.grade || 10}</strong>
+                    <strong className="text-slate-700 dark:text-slate-200">{item.grade ? `Khối ${item.grade}` : "Chưa đặt"}</strong>
                   </div>
                   <div>
                     <span className="text-slate-400 block text-[10px] font-bold">MÔN HỌC</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{item.subject || "Toán"}</strong>
+                    <strong className="text-slate-700 dark:text-slate-200">{item.subject || "Chưa đặt"}</strong>
                   </div>
                 </div>
-              </div>
-
-              {/* Bảng tin & Quy tắc bài tập */}
-              <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  Quy tắc & Thảo luận
-                </h3>
-
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                  <div>
-                    <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Cho phép học sinh đăng chủ đề mới lên bảng tin
-                    </strong>
-                    <span className="text-[11px] text-slate-500">
-                      Nếu tắt, chỉ giáo viên mới được đăng bài; học sinh chỉ được bình luận
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={classSettings.allowStudentPost}
-                    onChange={(e) => setClassSettings({ ...classSettings, allowStudentPost: e.target.checked })}
-                    className="size-4 text-blue-600 rounded cursor-pointer"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                  <div>
-                    <strong className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Cho phép nộp bài tập muộn
-                    </strong>
-                    <span className="text-[11px] text-slate-500">
-                      Học sinh nộp sau thời hạn sẽ được đánh dấu &quot;Nộp muộn&quot;
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={classSettings.allowLateSubmission}
-                    onChange={(e) => setClassSettings({ ...classSettings, allowLateSubmission: e.target.checked })}
-                    className="size-4 text-blue-600 rounded cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Số lần làm bài tập mặc định:
-                  </label>
-                  <select
-                    value={classSettings.maxAttempts}
-                    onChange={(e) => setClassSettings({ ...classSettings, maxAttempts: Number(e.target.value) })}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium cursor-pointer"
-                  >
-                    <option value={1}>1 lần duy nhất</option>
-                    <option value={2}>2 lần</option>
-                    <option value={3}>3 lần</option>
-                    <option value={999}>Không giới hạn</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Nút hành động Lưu & Hủy (KHÔNG có nút đóng lớp) */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => notify("Đã hủy các thay đổi", "info")}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                >
-                  Hủy thay đổi
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (settingsSaveTimer.current !== null) clearTimeout(settingsSaveTimer.current);
-                    setSettingsSaving(true);
-                    settingsSaveTimer.current = setTimeout(() => {
-                      settingsSaveTimer.current = null;
-                      setSettingsSaving(false);
-                      notify("Đã lưu cấu hình lớp học thành công!", "success");
-                    }, 500);
-                  }}
-                  disabled={settingsSaving}
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
-                >
-                  {settingsSaving ? "Đang lưu..." : "Lưu cài đặt"}
-                </button>
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Tên, mô tả và quy định của lớp do quản lý trung tâm cập nhật. Số lượt làm bài, hạn nộp và việc cho nộp muộn được cấu hình trong từng đề thi hoặc bài tập.
+                </p>
               </div>
             </div>
           </div>
@@ -4471,62 +4293,6 @@ export function InstructorClassWorkspace({
       {/* =========================================================================
           MODAL CHIA SẺ BÀI TẬP
           ========================================================================= */}
-      {shareModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-sm font-extrabold">Chia sẻ bài tập</h3>
-              <button type="button" onClick={() => setShareModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-3 text-xs">
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
-                <input
-                  type="radio"
-                  name="shareScope"
-                  checked={shareScope === "CLASS_ONLY"}
-                  onChange={() => setShareScope("CLASS_ONLY")}
-                />
-                <div>
-                  <strong className="block">Chỉ học sinh trong lớp</strong>
-                  <span className="text-slate-500 text-[11px]">Chỉ thành viên lớp mới được xem và làm bài</span>
-                </div>
-              </label>
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer">
-                <input
-                  type="radio"
-                  name="shareScope"
-                  checked={shareScope === "PUBLIC"}
-                  onChange={() => setShareScope("PUBLIC")}
-                />
-                <div>
-                  <strong className="block">Bất kỳ ai có liên kết</strong>
-                  <span className="text-slate-500 text-[11px]">Học sinh có liên kết đều có thể tham gia làm thử</span>
-                </div>
-              </label>
-            </div>
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await copyTextToClipboard(window.location.href);
-                    notify("Đã sao chép liên kết chia sẻ!", "success");
-                  } catch {
-                    notify("Không thể sao chép liên kết lớp học.", "error");
-                  }
-                  setShareModalOpen(false);
-                }}
-                className="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700"
-              >
-                Sao chép liên kết & Lưu
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* =========================================================================
           MODAL TẠO THƯ MỤC MỚI
           ========================================================================= */}
@@ -4564,74 +4330,6 @@ export function InstructorClassWorkspace({
       {/* =========================================================================
           MODAL THÊM ĐỒNG GIÁO VIÊN
           ========================================================================= */}
-      {addCoInstructorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-sm font-extrabold">Thêm đồng giáo viên vào lớp</h3>
-              <button type="button" onClick={() => setAddCoInstructorOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-xs font-bold mb-1">Chọn giáo viên trong hệ thống:</label>
-                <select
-                  value={selectedInstructorId}
-                  onChange={(e) => setSelectedInstructorId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                >
-                  <option value="">-- Chọn giảng viên --</option>
-                  {allAvailableInstructors
-                    .filter((ins) => ins.id !== session.user.id)
-                    .map((ins) => (
-                      <option key={ins.id} value={ins.id}>
-                        {ins.displayName} ({ins.email})
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">Vai trò phân công:</label>
-                <select
-                  value={coInstructorRole}
-                  onChange={(e) => setCoInstructorRole(e.target.value as "CO_INSTRUCTOR" | "ASSISTANT")}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                >
-                  <option value="CO_INSTRUCTOR">Đồng giảng viên (Tạo bài, chấm điểm, quản lý)</option>
-                  <option value="ASSISTANT">Trợ giảng (Hỗ trợ chấm điểm và diễn đàn)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setAddCoInstructorOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!selectedInstructorId) {
-                    notify("Vui lòng chọn giảng viên!", "error");
-                    return;
-                  }
-                  notify("Đã thêm đồng giáo viên thành công!", "success");
-                  setAddCoInstructorOpen(false);
-                }}
-                className="px-5 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700"
-              >
-                Xác nhận thêm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal làm thử đề trắc nghiệm dành cho giáo viên (không lưu lịch sử) */}
       <ExamTakingModal
         open={Boolean(previewExam)}
@@ -5196,7 +4894,9 @@ export function InstructorClassWorkspace({
                 type="button"
                 onClick={() => {
                   setCreationHubOpen(false);
-                  setManualExamModalOpen(true);
+                  // Ở ngân hàng câu hỏi, cách 1 là soạn câu hỏi thủ công; ở bài tập là ghép đề từ ngân hàng.
+                  if (creationTarget === "QUESTION") setAuthoringModalOpen(true);
+                  else setManualExamModalOpen(true);
                 }}
                 className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-slate-800/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
               >
@@ -5204,10 +4904,12 @@ export function InstructorClassWorkspace({
                   <Edit3 size={18} />
                 </div>
                 <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                    1. Tạo đề thủ công
+                    {creationTarget === "QUESTION" ? "1. Soạn câu hỏi thủ công" : "1. Tạo đề thủ công"}
                 </strong>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Chọn câu hỏi trong ngân hàng, sắp xếp thành đề thi và cấu hình thời lượng, hạn nộp.
+                    {creationTarget === "QUESTION"
+                      ? "Nhập nội dung, phương án, đáp án và lời giải cho từng câu hỏi mới của ngân hàng."
+                      : "Chọn câu hỏi trong ngân hàng, sắp xếp thành đề thi và cấu hình thời lượng, hạn nộp."}
                 </p>
               </button>
 
