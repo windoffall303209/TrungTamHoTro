@@ -91,12 +91,14 @@ function formatClock(seconds: number): string {
  * Đồng hồ đếm ngược tự cập nhật mỗi giây trong component riêng: modal cha (đề có công thức KaTeX) không còn
  * render lại toàn bộ mỗi giây; chỉ báo lên cha đúng một lần khi hết giờ.
  */
-function ExamCountdown({ deadlineAt, fallbackSeconds, running, onExpire }: {
+function ExamCountdown({ deadlineAt, fallbackSeconds, running, onExpire, onNearExpiry }: {
   /** Hạn chót đã quy đổi sang đồng hồ máy khách (đã trừ độ lệch với máy chủ). */
   deadlineAt: number | null;
   fallbackSeconds: number;
   running: boolean;
   onExpire: () => void;
+  /** Gọi một lần khi còn 5 giây để lưu dồn bài đang gõ trước khi máy chủ khóa lượt thi. */
+  onNearExpiry?: () => void;
 }) {
   /** Số giây còn lại tại thời điểm gọi theo hạn chót đã quy đổi về đồng hồ máy khách. */
   const compute = useCallback(
@@ -107,16 +109,21 @@ function ExamCountdown({ deadlineAt, fallbackSeconds, running, onExpire }: {
   useEffect(() => {
     setSeconds(compute());
     if (!running || deadlineAt === null) return;
+    let warned = false;
     const timer = setInterval(() => {
       const next = compute();
       setSeconds(next);
+      if (!warned && next <= 5) {
+        warned = true;
+        onNearExpiry?.();
+      }
       if (next === 0) {
         clearInterval(timer);
         onExpire();
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [compute, deadlineAt, onExpire, running]);
+  }, [compute, deadlineAt, onExpire, onNearExpiry, running]);
   return (
     <div
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-bold tabular-nums ${
@@ -181,6 +188,7 @@ export function ExamTakingModal({
   const answersRef = useRef<Record<number, string>>({});
   const multiAnswersRef = useRef<Record<number, string[]>>({});
   const essayAnswersRef = useRef<Record<number, string>>({});
+  const essaySaveTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // Trạng thái modal xác nhận
   const [startConfirmed, setStartConfirmed] = useState(isInstructorPreview);
@@ -200,6 +208,8 @@ export function ExamTakingModal({
   // Tải danh sách câu hỏi THẬT từ PostgreSQL Database khi mở bài thi
   useEffect(() => {
     if (!open || !examId) return;
+    // Học viên chỉ tạo/tiếp tục lượt thi sau khi bấm "Bắt đầu làm bài": mở modal rồi Hủy không còn đốt một lượt.
+    if (!isInstructorPreview && !startConfirmed) return;
 
     let isMounted = true;
     setIsLoadingQuestions(true);
@@ -333,7 +343,7 @@ export function ExamTakingModal({
     return () => {
       isMounted = false;
     };
-  }, [open, examId, examDurationMinutes, examCloseAt, isInstructorPreview]);
+  }, [open, examId, examDurationMinutes, examCloseAt, isInstructorPreview, startConfirmed]);
 
   // Khởi động đồng hồ đếm ngược chỉ khi đã xác nhận bắt đầu và chưa nộp bài
   useEffect(() => {
@@ -448,6 +458,34 @@ export function ExamTakingModal({
     });
   };
 
+  /** Lưu ngay nội dung tự luận của một câu (hủy lịch lưu trễ đang chờ). */
+  const saveEssayNow = (index: number) => {
+    const pending = essaySaveTimers.current[index];
+    if (pending) clearTimeout(pending);
+    delete essaySaveTimers.current[index];
+    const question = questions[index];
+    if (!question || question.options.length || !attemptId || isInstructorPreview || submittingRef.current) return;
+    const text = essayAnswersRef.current[index]?.trim();
+    queueAnswerSave(String(question.id), text ? [text] : []);
+  };
+
+  /** Hẹn lưu bài tự luận 1,5 giây sau lần gõ cuối thay vì chỉ lưu khi rời ô nhập (onBlur). */
+  const scheduleEssaySave = (index: number) => {
+    const pending = essaySaveTimers.current[index];
+    if (pending) clearTimeout(pending);
+    essaySaveTimers.current[index] = setTimeout(() => saveEssayNow(index), 1500);
+  };
+
+  /** Lưu dồn mọi câu tự luận đang chờ khi còn vài giây trước khi hết giờ. */
+  const flushPendingEssays = () => {
+    for (const key of Object.keys(essaySaveTimers.current)) saveEssayNow(Number(key));
+  };
+
+  useEffect(() => () => {
+    for (const timer of Object.values(essaySaveTimers.current)) clearTimeout(timer);
+    essaySaveTimers.current = {};
+  }, [open, examId]);
+
   /** Bật/tắt cắm cờ đánh dấu cần xem lại cho câu hỏi hiện tại */
   const handleToggleFlag = () => {
     if (isSubmitted) return;
@@ -553,7 +591,7 @@ export function ExamTakingModal({
       submittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [attemptId, exam, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingNow]);
+  }, [attemptId, exam, examTotalScore, initialDurationSeconds, isInstructorPreview, isSubmitted, onSubmitted, questions, remainingNow, setConfirmSubmitModalOpen]);
 
   // Gọi nộp bài bên ngoài updater để tránh tác dụng phụ khi React tính lại state.
   useEffect(() => {
@@ -963,6 +1001,7 @@ export function ExamTakingModal({
                   fallbackSeconds={initialDurationSeconds}
                   running={open && !isSubmitted && (isInstructorPreview ? startConfirmed : Boolean(attemptId))}
                   onExpire={handleTimeUp}
+                  onNearExpiry={flushPendingEssays}
                 />
 
                 <button
@@ -1087,6 +1126,7 @@ export function ExamTakingModal({
                         const next = { ...essayAnswersRef.current, [currentIdx]: val };
                         essayAnswersRef.current = next;
                         setEssayTextAnswers(next);
+                        scheduleEssaySave(currentIdx);
                         if (val.trim()) {
                           const answersNext = { ...answersRef.current, [currentIdx]: "COMPLETED" };
                           answersRef.current = answersNext;
@@ -1098,12 +1138,7 @@ export function ExamTakingModal({
                           setAnswers(answersNext);
                         }
                       }}
-                      onBlur={() => {
-                        if (attemptId && !isInstructorPreview && !submittingRef.current) {
-                          const currentQuestion = questions[currentIdx];
-                          if (currentQuestion) queueAnswerSave(String(currentQuestion.id), essayAnswersRef.current[currentIdx]?.trim() ? [essayAnswersRef.current[currentIdx].trim()] : []);
-                        }
-                      }}
+                      onBlur={() => saveEssayNow(currentIdx)}
                       rows={8}
                       placeholder="Gõ nội dung câu trả lời hoặc trình bày các bước giải chi tiết tại đây..."
                       className="w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1199,7 +1234,7 @@ export function ExamTakingModal({
       </div>
 
       {/* ================= TRẠNG THÁI CHỜ / XÁC NHẬN BẮT ĐẦU LÀM BÀI HOẶC HẾT LƯỢT ================= */}
-      {(isInstructorPreview ? isLoadingQuestions || questions.length === 0 : !startConfirmed) && !isSubmitted && (
+      {(isInstructorPreview ? isLoadingQuestions || questions.length === 0 : !startConfirmed || isLoadingQuestions || questions.length === 0) && !isSubmitted && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1a1b22] border border-slate-200 dark:border-slate-800 p-6 shadow-2xl text-center space-y-4">
             {isLoadingQuestions ? (
@@ -1212,7 +1247,7 @@ export function ExamTakingModal({
                   Vui lòng đợi trong giây lát trong khi hệ thống nạp dữ liệu câu hỏi.
                 </p>
               </div>
-            ) : questions.length === 0 ? (
+            ) : startConfirmed && questions.length === 0 ? (
               <>
                 <div className="size-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 grid place-items-center mx-auto">
                   <AlertTriangle size={32} />
@@ -1290,7 +1325,7 @@ export function ExamTakingModal({
 
                 <div className="text-xs text-slate-500 space-y-1 py-1">
                   <p>Thời lượng làm bài: <strong>{exam.durationMinutes} phút</strong></p>
-                  <p>Số lượng câu hỏi: <strong>{questions.length} câu</strong></p>
+                  <p>Số lượng câu hỏi: <strong>{exam.totalQuestions ?? questions.length} câu</strong></p>
                 </div>
 
                 <div className="flex gap-2.5 pt-2">

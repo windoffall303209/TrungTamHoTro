@@ -95,3 +95,25 @@ describe("ExamTakingModal instructor preview", () => {
     expect(screen.queryByText(/\$\\frac\{16\}\{24\}\$/)).not.toBeInTheDocument();
   });
 });
+
+describe("ExamTakingModal learner attempt lifecycle", () => {
+  it("không tạo lượt thi khi chỉ mở modal rồi Hủy; chỉ tạo sau khi bấm Bắt đầu làm bài", async () => {
+    mockApiRequest.mockImplementation((path: string) => {
+      if (path === "/learner/exams/exam-2/attempts") return Promise.resolve({ id: "attempt-1", startedAt: new Date().toISOString(), serverTime: new Date().toISOString(), answers: {} });
+      if (path === "/learner/exams/exam-2/questions") return Promise.resolve([{ id: "q-1", type: "ESSAY", content: "Trình bày khái niệm REST", options: [], correctAnswers: [] }]);
+      return Promise.resolve({});
+    });
+    const onClose = vi.fn();
+    const exam = { id: "exam-2", title: "Kiểm tra", durationMinutes: 15, totalScore: 10, totalQuestions: 1, remainingAttempts: 1 };
+    const { rerender } = render(<ExamTakingModal open exam={exam} onClose={onClose} />);
+    expect(await screen.findByText("Xác nhận bắt đầu làm bài")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(mockApiRequest).not.toHaveBeenCalled();
+
+    rerender(<ExamTakingModal open exam={exam} onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "Bắt đầu làm bài" }));
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledWith("/learner/exams/exam-2/attempts", { method: "POST" }));
+    expect(await screen.findByText("Trình bày khái niệm REST")).toBeInTheDocument();
+  });
+});
