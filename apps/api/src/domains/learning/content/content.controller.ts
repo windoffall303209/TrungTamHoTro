@@ -368,10 +368,15 @@ export class ContentController {
   async scanQuestionImage(
     @CurrentSession() session: AuthenticatedSession,
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    @Body("providerId") rawProviderId?: unknown,
   ): Promise<QuestionScanResult> {
     this.assertInstructorMutation(session);
     if (!file) throw new BadRequestException("Cần chọn ảnh đề thi để quét.");
-    return this.aiProviders.scanImage({ fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
+    // Provider giảng viên chọn phải thuộc danh sách đang bật và có khóa; bỏ trống thì dùng phân công SCAN_IMAGE của admin.
+    const providerId = typeof rawProviderId === "string" && rawProviderId.trim() ? rawProviderId.trim().slice(0, 191) : undefined;
+    if (providerId && !(await this.aiProviders.list()).some((item) => item.id === providerId && item.enabled && item.hasApiKey))
+      throw new BadRequestException("Nhà cung cấp AI đã chọn không còn khả dụng.");
+    return this.aiProviders.scanImage({ providerId, fileName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, buffer: file.buffer });
   }
 
   @Get("instructor/question-bank/ai-providers") @RequirePermissions("question:manage")

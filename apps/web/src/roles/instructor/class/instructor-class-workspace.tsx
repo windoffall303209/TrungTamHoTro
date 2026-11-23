@@ -5708,21 +5708,7 @@ export function InstructorClassWorkspace({
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Hướng dẫn giải chi tiết / Gợi ý:
-                </label>
-                <textarea
-                  aria-label="Hướng dẫn giải chi tiết / Gợi ý"
-                  rows={2}
-                  value={editingQuestionData.solution}
-                  onChange={(e) =>
-                    setEditingQuestionData({ ...editingQuestionData, solution: e.target.value })
-                  }
-                  placeholder="Nhập hướng dẫn giải, kiến thức áp dụng..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                />
-              </div>
+              {/* Máy chủ chưa lưu lời giải của câu hỏi: không hiển thị ô nhập để tránh mất dữ liệu âm thầm. */}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">

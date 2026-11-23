@@ -82,7 +82,6 @@ export interface GeneratedExamDraft {
 
 const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, AiModelOption[]> = {
   GEMINI: [
-    { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash", description: "Mới nhất · mạnh cho suy luận dài và tài liệu đa phương thức." },
     { value: "gemini-3.7-flash", label: "Gemini 3.7 Flash", description: "Ổn định · cân bằng chất lượng và tốc độ." },
     { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash", description: "Ổn định · phù hợp tác vụ đa phương thức hằng ngày." },
     { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash", description: "Thông lượng cao cho tác vụ phổ thông." },
@@ -95,7 +94,6 @@ const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, AiModelOption[]
     { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", description: "Chi phí thấp cho ảnh rõ, bố cục đơn giản." },
   ],
   NVIDIA_NIM: [
-    { value: "meta/muse-glimmer-30b", label: "Muse Glimmer 30B", description: "Mới · suy luận đa phương thức, tài liệu và ảnh." },
     { value: "nvidia/nemotron-nano-12b-v2-vl", label: "Nemotron Nano 12B VL", description: "Nhẹ hơn cho OCR và hiểu tài liệu." },
     { value: "meta/llama-3.2-90b-vision-instruct", label: "Llama 3.2 90B Vision", description: "Chất lượng cao cho suy luận từ ảnh." },
     { value: "meta/llama-3.2-11b-vision-instruct", label: "Llama 3.2 11B Vision", description: "Cân bằng tốc độ và khả năng đọc ảnh." },
@@ -106,7 +104,6 @@ const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, AiModelOption[]
   OPENAI: [
     { value: "gpt-6-astra", label: "GPT-6 Astra", description: "Mạnh nhất cho công việc phức tạp; quyền truy cập có thể giới hạn." },
     { value: "gpt-5.6-sol", label: "GPT-5.6 Sol", description: "Flagship cho suy luận và công việc chuyên môn." },
-    { value: "gpt-5.6-terra", label: "GPT-5.6 Terra", description: "Cân bằng năng lực và chi phí." },
     { value: "gpt-5.6-luna", label: "GPT-5.6 Luna", description: "Tiết kiệm cho khối lượng lớn." },
     { value: "gpt-5.5", label: "GPT-5.5", description: "Thế hệ trước ổn định cho tác vụ tổng quát." },
     { value: "gpt-5.4", label: "GPT-5.4", description: "Chất lượng cao cho đề nhiều tầng thông tin." },
@@ -122,10 +119,12 @@ const providerCatalog: Record<Exclude<AiProviderType, "CUSTOM">, AiModelOption[]
   ],
 };
 
+// Model mặc định phải là ID có thật trên API của nhà cung cấp (tên hư cấu trả 404 ngay lần gọi đầu);
+// admin vẫn có thể chọn model khác hoặc tải danh sách model thực tế từ tài khoản provider.
 const defaults: Record<Exclude<AiProviderType, "CUSTOM">, { name: string; model: string; baseUrl: string }> = {
-  GEMINI: { name: "Google Gemini", model: "gemini-3.8-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
-  NVIDIA_NIM: { name: "NVIDIA NIM", model: "meta/muse-glimmer-30b", baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions" },
-  OPENAI: { name: "OpenAI", model: "gpt-5.6-terra", baseUrl: "https://api.openai.com/v1/chat/completions" },
+  GEMINI: { name: "Google Gemini", model: "gemini-2.5-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
+  NVIDIA_NIM: { name: "NVIDIA NIM", model: "meta/llama-3.2-11b-vision-instruct", baseUrl: "https://integrate.api.nvidia.com/v1/chat/completions" },
+  OPENAI: { name: "OpenAI", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1/chat/completions" },
 };
 const MAX_PROVIDER_MODEL_RESPONSE_BYTES = 2 * 1024 * 1024;
 

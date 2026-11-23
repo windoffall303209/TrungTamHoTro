@@ -201,12 +201,14 @@ describe("AI provider configuration and image scanning", () => {
   it("publishes expanded current multimodal model catalogs", () => {
     const catalog = new AiProviderService(undefined, config).getCatalog();
 
-    expect(catalog.GEMINI.map((item) => item.value)).toEqual(expect.arrayContaining(["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]));
-    expect(catalog.NVIDIA_NIM.map((item) => item.value)).toEqual(expect.arrayContaining(["meta/muse-glimmer-30b", "nvidia/nemotron-nano-12b-v2-vl", "meta/llama-3.2-90b-vision-instruct"]));
-    expect(catalog.OPENAI.map((item) => item.value)).toEqual(expect.arrayContaining(["gpt-6-astra", "gpt-5.6-terra", "gpt-4o-mini"]));
+    expect(catalog.GEMINI.map((item) => item.value)).toEqual(expect.arrayContaining(["gemini-2.5-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro"]));
+    expect(catalog.NVIDIA_NIM.map((item) => item.value)).toEqual(expect.arrayContaining(["meta/llama-3.2-11b-vision-instruct", "nvidia/nemotron-nano-12b-v2-vl", "meta/llama-3.2-90b-vision-instruct"]));
+    expect(catalog.OPENAI.map((item) => item.value)).toEqual(expect.arrayContaining(["gpt-4.1", "gpt-4o-mini"]));
+    // Tên model hư cấu từng làm mặc định đã bị gỡ khỏi danh mục.
+    expect(JSON.stringify(catalog)).not.toMatch(/gemini-3\.8-flash|muse-glimmer|gpt-5\.6-terra/);
     expect(catalog.GEMINI.length).toBeGreaterThanOrEqual(10);
-    expect(catalog.NVIDIA_NIM.length).toBeGreaterThanOrEqual(7);
-    expect(catalog.OPENAI.length).toBeGreaterThanOrEqual(15);
+    expect(catalog.NVIDIA_NIM.length).toBeGreaterThanOrEqual(6);
+    expect(catalog.OPENAI.length).toBeGreaterThanOrEqual(14);
   });
 
   it("encrypts API keys with authenticated encryption", async () => {

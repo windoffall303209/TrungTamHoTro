@@ -80,7 +80,7 @@ export default function ScanQuestionsPage() {
     const requestId = ++scanRequestId.current;
     setScanning(true);
     try {
-      const body = new FormData(); body.append("file", file);
+      const body = new FormData(); body.append("file", file); body.append("providerId", providerId);
       const result = await apiRequest<ScanResult>("/instructor/question-bank/scan-image", { method: "POST", roleCode: session.roleCode, body });
       if (requestId !== scanRequestId.current) return;
       setDrafts(result.questions); setSelected(result.questions.map((_, index) => index)); setScanWarnings(result.warnings ?? []); notify(`Đã nhận diện ${result.questions.length} câu bằng ${result.model}.`);

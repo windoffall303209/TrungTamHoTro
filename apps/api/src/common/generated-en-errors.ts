@@ -1,5 +1,6 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Nhà cung cấp AI đã chọn không còn khả dụng.": "The selected AI provider is no longer available.",
   "Google Meet/Zoom chưa có adapter tạo phòng tự động; hãy dán link phòng học thật.": "Google Meet/Zoom rooms cannot be created automatically yet; paste a real meeting link.",
   "Bạn không thuộc lớp của chủ đề.": "You are not a member of this topic's class.",
   "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.": "The system is handling too many sign-ins right now. Please try again in a few seconds.",

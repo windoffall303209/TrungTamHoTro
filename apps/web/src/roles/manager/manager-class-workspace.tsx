@@ -448,7 +448,6 @@ export function ManagerClassWorkspace({
         ...updated,
         name: settingsForm.name.trim(),
         capacity: Number(settingsForm.capacity),
-        description: settingsForm.description.trim(),
         allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
       } as LearningClass));
       notify("Đã cập nhật cài đặt lớp học thành công.", "success");
@@ -1575,15 +1574,6 @@ export function ManagerClassWorkspace({
             />
           </Field>
 
-          <Field label="Mô tả lớp học (không bắt buộc)">
-            <input
-              type="text"
-              className={inputClass}
-              placeholder="1 dòng mô tả hoặc ghi chú lớp học..."
-              value={settingsForm.description}
-              onChange={(e) => setSettingsForm({ ...settingsForm, description: e.target.value })}
-            />
-          </Field>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
             <input

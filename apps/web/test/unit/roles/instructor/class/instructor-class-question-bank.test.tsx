@@ -103,9 +103,8 @@ describe("Tab Ngân hàng câu hỏi trong lớp học giảng viên", () => {
 
     expect(within(dialog).getByRole("textbox", { name: "Nội dung câu hỏi" })).toHaveValue(mathQuestion.content);
     expect(within(dialog).getByRole("textbox", { name: "Phương án A" })).toHaveValue("$\\frac{2}{3}$");
-    expect(within(dialog).getByRole("textbox", { name: "Hướng dẫn giải chi tiết / Gợi ý" })).toHaveValue(
-      mathQuestion.solution,
-    );
+    // Máy chủ chưa lưu lời giải nên modal không còn ô nhập lời giải (tránh mất dữ liệu âm thầm).
+    expect(within(dialog).queryByRole("textbox", { name: "Hướng dẫn giải chi tiết / Gợi ý" })).not.toBeInTheDocument();
     expect(dialog.querySelectorAll(".katex")).toHaveLength(0);
   });
 
