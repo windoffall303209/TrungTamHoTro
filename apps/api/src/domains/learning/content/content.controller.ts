@@ -486,7 +486,8 @@ export class ContentController {
       shuffleQuestions: input.shuffleQuestions,
       randomSeed: input.randomSeed,
     }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, canonicalRequestId, session.user.id);
-    return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: generated.warnings };
+    const draftWarning = exam.status === "PUBLISHED" ? [] : ["Đề đã được lưu ở dạng nháp vì chưa đủ điều kiện công bố; hãy kiểm tra rồi công bố thủ công."];
+    return { exam, generatedQuestionCount: generated.questions.length, providerId: generated.providerId, provider: generated.provider, model: generated.model, context: generated.context, warnings: [...generated.warnings, ...draftWarning] };
     }, async (canonicalRequestId) => {
     const existing = await this.learning.getGeneratedExamByRequest(canonicalRequestId, input.classId, session.user.id);
     if (existing) {

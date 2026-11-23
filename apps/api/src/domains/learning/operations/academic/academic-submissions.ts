@@ -27,6 +27,7 @@ import type { AcademicServiceContext } from "../../academic/academic.context.js"
 
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { assertSafeUpload } from "../../../../infrastructure/file-signature.js";
+import { isAcademicSupervisor } from "./academic-access.js";
 
 // Khóa các bản ghi bài tập, lớp học và ghi danh hợp lệ trước khi cập nhật bài nộp.
 async function lockOpenAssignment(
@@ -388,7 +389,8 @@ export async function readSubmissionAttachment(
   if (session.roleCode === "LEARNER") {
     if (attachment.submission.assignment.hidden || attachment.submission.learnerId !== session.user.id)
       throw new NotFoundException("Không tìm thấy tệp đính kèm.");
-  } else {
+  } else if (!isAcademicSupervisor(session)) {
+    // Quản lý được mở tệp bài nộp để giám sát (chỉ đọc); giảng viên phải được phân công vào lớp.
     await serviceContext.requireTeachingAccess(
       attachment.submission.assignment.classId,
       session,
@@ -459,7 +461,8 @@ export async function listSubmissions(
     where: { id: assignmentId },
   });
   if (!assignment) throw new NotFoundException("Không tìm thấy bài tập.");
-  await serviceContext.requireTeachingAccess(assignment.classId, session);
+  // Cấp quản lý xem danh sách bài nộp ở chế độ chỉ đọc; thao tác chấm vẫn yêu cầu giảng viên được phân công.
+  if (!isAcademicSupervisor(session)) await serviceContext.requireTeachingAccess(assignment.classId, session);
   const rows = await serviceContext.prisma.assignmentSubmission.findMany({
     where: { assignmentId },
     include: {

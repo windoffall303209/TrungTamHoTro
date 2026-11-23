@@ -376,7 +376,17 @@ export async function createGeneratedExam(
           },
         },
       });
-      return submitExamForReview(serviceContext, exam.id, actorId, true, undefined, false, transaction);
+      try {
+        return await submitExamForReview(serviceContext, exam.id, actorId, true, undefined, false, transaction);
+      } catch (error) {
+        // Công bố bị từ chối do kiểm tra nghiệp vụ (lịch, câu hỏi…): giữ đề AI ở dạng nháp thay vì rollback toàn bộ
+        // kết quả đã tốn chi phí sinh; giảng viên sửa rồi công bố thủ công. Lỗi hạ tầng vẫn rollback như cũ.
+        if (!(error instanceof ConflictException) && !(error instanceof BadRequestException)) throw error;
+        return serviceContext.mapExam(await transaction.exam.findUniqueOrThrow({
+          where: { id: exam.id },
+          include: { questions: { orderBy: { position: "asc" } } },
+        }));
+      }
     });
   }
   const classItem = serviceContext.findClass(input.classId);
@@ -433,6 +443,7 @@ export async function createGeneratedExam(
   try {
     return await submitExamForReview(serviceContext, exam.id, actorId, true);
   } catch (error) {
+    if (error instanceof ConflictException || error instanceof BadRequestException) return { ...exam };
     serviceContext.exams.splice(serviceContext.exams.indexOf(exam), 1);
     for (const question of newQuestions) serviceContext.questions.splice(serviceContext.questions.indexOf(question), 1);
     throw error;

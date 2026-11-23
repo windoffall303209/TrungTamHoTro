@@ -1,5 +1,7 @@
 // Được sinh bởi apps/web/scripts/generate-i18n-catalog.mjs; chỉnh bản dịch chọn lọc trong danh mục của web.
 export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze({
+  "Không tìm thấy đề cần duyệt hoặc đã công bố.": "No exam pending review or published was found.",
+  "Đề đã được lưu ở dạng nháp vì chưa đủ điều kiện công bố; hãy kiểm tra rồi công bố thủ công.": "The exam was saved as a draft because it is not ready to publish; review it and publish manually.",
   "Nhà cung cấp AI đã chọn không còn khả dụng.": "The selected AI provider is no longer available.",
   "Google Meet/Zoom chưa có adapter tạo phòng tự động; hãy dán link phòng học thật.": "Google Meet/Zoom rooms cannot be created automatically yet; paste a real meeting link.",
   "Bạn không thuộc lớp của chủ đề.": "You are not a member of this topic's class.",

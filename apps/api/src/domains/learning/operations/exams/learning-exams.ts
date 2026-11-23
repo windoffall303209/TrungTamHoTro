@@ -311,8 +311,9 @@ export async function getReviewerExamPreview(
 ): Promise<LearningQuestion[]> {
   const prisma = serviceContext.database();
   if (prisma) {
+    // Người duyệt cần xem cả đề đang chờ duyệt (và đề đã ẩn) để quyết định; chỉ loại bản nháp chưa gửi duyệt.
     const exam = await prisma.exam.findFirst({
-      where: { id: examId, hidden: false, status: "PUBLISHED" },
+      where: { id: examId, status: { in: ["PENDING_REVIEW", "PUBLISHED", "CLOSED"] } },
       include: {
         questions: {
           include: { question: true },
@@ -321,7 +322,7 @@ export async function getReviewerExamPreview(
       },
     });
     if (!exam)
-      throw new NotFoundException("Không tìm thấy đề đã công bố.");
+      throw new NotFoundException("Không tìm thấy đề cần duyệt hoặc đã công bố.");
     await prisma.auditLog.create({
       data: { actorId, action: "EXAM_PREVIEWED_BY_REVIEWER", entityType: "exam", entityId: examId, context: { classId: exam.classId, questionCount: exam.questions.length } },
     });
@@ -330,8 +331,8 @@ export async function getReviewerExamPreview(
     );
   }
   const exam = serviceContext.findExam(examId);
-  if (exam.hidden || exam.status !== "PUBLISHED")
-    throw new NotFoundException("Không tìm thấy đề đã công bố.");
+  if (exam.status === "DRAFT")
+    throw new NotFoundException("Không tìm thấy đề cần duyệt hoặc đã công bố.");
   return exam.questionIds.map((questionId) =>
     serviceContext.cloneQuestion(
       serviceContext.questions.find((question) => question.id === questionId)!,

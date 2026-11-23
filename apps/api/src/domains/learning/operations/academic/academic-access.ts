@@ -66,3 +66,8 @@ export async function requireTeachingAccess(
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
   }
 }
+
+/** Cấp quản lý (quản lý trung tâm/quản trị) được đọc dữ liệu học thuật của mọi lớp ở chế độ chỉ đọc. */
+export function isAcademicSupervisor(session: AuthenticatedSession): boolean {
+  return (session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN") && session.permissions.includes("class:view");
+}

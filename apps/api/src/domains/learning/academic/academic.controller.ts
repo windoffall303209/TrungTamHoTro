@@ -293,7 +293,7 @@ export class AcademicController {
   }
 
   @Get("instructor/assignments/:assignmentId/submissions")
-  @RequirePermissions("exam:manage")
+  @RequirePermissions("class:view")
   /** Liệt kê bài nộp cho người có quyền giảng dạy bài tập. */
   submissions(
     @Param("assignmentId") assignmentId: string,
