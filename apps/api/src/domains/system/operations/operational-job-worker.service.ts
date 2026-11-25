@@ -23,14 +23,14 @@ export class OperationalJobWorkerService implements OnModuleInit, OnModuleDestro
   }
 
   /** Xử lý một batch an toàn và ghi lỗi đã thu gọn để vòng worker kế tiếp vẫn tiếp tục. */
-  async drain(): Promise<{ backup: number; export: number }> {
-    if (this.draining) return { backup: 0, export: 0 };
+  async drain(): Promise<{ backup: number; export: number; audit: number }> {
+    if (this.draining) return { backup: 0, export: 0, audit: 0 };
     this.draining = true;
     try {
       return await this.system.drainOperationalJobs();
     } catch (error) {
       this.logger.error(error instanceof Error ? error.message : "Không thể quét hàng đợi vận hành.");
-      return { backup: 0, export: 0 };
+      return { backup: 0, export: 0, audit: 0 };
     } finally {
       this.draining = false;
     }

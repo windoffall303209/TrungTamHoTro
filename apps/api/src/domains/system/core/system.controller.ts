@@ -4,7 +4,7 @@ import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infr
 import type { Observable } from "rxjs";
 import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
 import { ApiTags } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
@@ -17,6 +17,7 @@ import {
   type IntegrationConfig,
   type RestoreRun,
   type SnapshotAssetAudit,
+  type StorageAuditRun,
   type StorageCleanupFailure,
   type StorageOverview,
   type SystemSettings,
@@ -40,6 +41,7 @@ class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
 class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsString() @MinLength(10) @MaxLength(500) reason!: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
+class QueueStorageAuditDto { @IsOptional() @IsNumber() @Min(0) @Max(1) sampleRate?: number }
 class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType; @IsOptional() @IsString() @MaxLength(100) name?: string; @IsString() @MinLength(1) @MaxLength(200) model!: string; @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string; @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string; @IsOptional() @IsBoolean() enabled?: boolean; @IsOptional() @IsBoolean() isDefault?: boolean }
 
 @ApiTags("System") @Controller("system")
@@ -150,6 +152,12 @@ export class SystemController {
   @Get("storage-overview") @RequirePermissions("system:configure") storageOverview(): Promise<StorageOverview> { return this.system.getStorageOverview(); }
   /** Đối soát snapshot bị thiếu, object dùng chung và metadata trỏ tới object mất. */
   @Get("snapshot-asset-audit") @RequirePermissions("system:configure") snapshotAssetAudit(): Promise<SnapshotAssetAudit> { return this.system.snapshotAssetAudit(); }
+  /** Xếp job nền đối soát lưu trữ phân trang (HEAD/metadata + checksum lấy mẫu) vào hàng đợi operational_jobs. */
+  @Post("storage-audits") @RequirePermissions("system:configure") queueStorageAudit(@Body() input: QueueStorageAuditDto, @CurrentSession() session: AuthenticatedSession): Promise<StorageAuditRun> { return this.system.queueStorageAudit(session.user.id, input.sampleRate); }
+  /** Liệt kê lịch sử và tiến độ các job nền đối soát lưu trữ. */
+  @Get("storage-audits") @RequirePermissions("system:configure") listStorageAudits(): Promise<StorageAuditRun[]> { return this.system.listStorageAudits(); }
+  /** Đọc tiến độ và báo cáo chi tiết của một job đối soát lưu trữ. */
+  @Get("storage-audits/:auditId") @RequirePermissions("system:configure") getStorageAudit(@Param("auditId") auditId: string): Promise<StorageAuditRun> { return this.system.getStorageAudit(auditId); }
   /** Liệt kê các object đã xóa mềm nhưng storage cleanup chưa thành công. */
   @Get("storage-cleanup-failures") @RequirePermissions("system:configure") storageCleanupFailures(): Promise<StorageCleanupFailure[]> { return this.system.listStorageCleanupFailures(); }
   /** Thử lại một object cleanup thất bại bằng actor của phiên quản trị. */

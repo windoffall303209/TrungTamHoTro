@@ -39,6 +39,7 @@ export interface SystemServiceContext {
   ): Promise<RestoreRun>;
   processQueuedBackup(prisma: PrismaService): Promise<boolean>;
   processQueuedExport(prisma: PrismaService): Promise<boolean>;
+  processQueuedStorageAudit?(prisma: PrismaService): Promise<boolean>;
   retryBackupJob(
     prisma: PrismaService,
     idValue: string,
@@ -46,6 +47,12 @@ export interface SystemServiceContext {
     error: unknown,
   ): Promise<void>;
   retryExportJob(
+    prisma: PrismaService,
+    idValue: string,
+    attempts: number,
+    error: unknown,
+  ): Promise<void>;
+  retryStorageAuditJob?(
     prisma: PrismaService,
     idValue: string,
     attempts: number,

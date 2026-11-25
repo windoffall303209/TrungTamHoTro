@@ -118,6 +118,28 @@ export interface SnapshotAssetAudit {
   uniqueObjectCount: number;
   sharedObjects: Array<{ objectKey: string; references: string[] }>;
   missingObjects: Array<{ objectKey: string; references: string[] }>;
+  verificationMode?: "STAT_HEAD_AND_SAMPLE" | "STREAM_FALLBACK";
+  sampledChecksumCount?: number;
+  checksumMismatches?: Array<{
+    objectKey: string;
+    expectedChecksum: string;
+    actualChecksum: string;
+    references: string[];
+  }>;
+}
+
+export interface StorageAuditRun {
+  id: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  sampleRate: number;
+  progress: number;
+  attempts: number;
+  checkedObjects: number;
+  requestedBy: string;
+  createdAt: string;
+  completedAt?: string;
+  errorMessage?: string;
+  report?: SnapshotAssetAudit;
 }
 
 export interface StorageCleanupFailure {

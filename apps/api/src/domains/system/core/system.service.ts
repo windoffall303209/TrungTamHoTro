@@ -33,6 +33,7 @@ import {
   IntegrationConfig,
   RestoreRun,
   SnapshotAssetAudit,
+  StorageAuditRun,
   StorageCleanupFailure,
   StorageOverview,
   SystemSettings,
@@ -153,8 +154,10 @@ export class SystemService {
       requestRestore: (...args) => owner.requestRestore(...args),
       processQueuedBackup: (...args) => owner.processQueuedBackup(...args),
       processQueuedExport: (...args) => owner.processQueuedExport(...args),
+      processQueuedStorageAudit: (...args) => owner.processQueuedStorageAudit(...args),
       retryBackupJob: (...args) => owner.retryBackupJob(...args),
       retryExportJob: (...args) => owner.retryExportJob(...args),
+      retryStorageAuditJob: (...args) => owner.retryStorageAuditJob(...args),
       jobLeaseExpiry: (...args) => owner.jobLeaseExpiry(...args),
       jobRetryAt: (...args) => owner.jobRetryAt(...args),
       jobError: (...args) => owner.jobError(...args),
@@ -371,10 +374,11 @@ export class SystemService {
     );
   }
 
-  /** Thu hồi lease hết hạn rồi xử lý một batch backup và export trên operational_jobs. */
+  /** Thu hồi lease hết hạn rồi xử lý một batch backup, export và storage audit trên operational_jobs. */
   async drainOperationalJobs(limit = 6): Promise<{
     backup: number;
     export: number;
+    audit: number;
   }> {
     return await worker_ops.drainOperationalJobs(this.operationContext, limit);
   }
@@ -387,6 +391,11 @@ export class SystemService {
   /** Claim và tạo một export thật; chỉ COMPLETED sau khi đọc lại object và khớp checksum. */
   private async processQueuedExport(prisma: PrismaService): Promise<boolean> {
     return await worker_ops.processQueuedExport(this.operationContext, prisma);
+  }
+
+  /** Claim và chạy job nền đối soát lưu trữ phân trang (HEAD/metadata + lấy mẫu checksum). */
+  private async processQueuedStorageAudit(prisma: PrismaService): Promise<boolean> {
+    return await worker_ops.processQueuedStorageAudit(this.operationContext, prisma);
   }
 
   /** Đặt lại backup để retry hoặc chuyển FAILED sau lần thử cuối. */
@@ -413,6 +422,22 @@ export class SystemService {
     error: unknown,
   ): Promise<void> {
     return await worker_ops.retryExportJob(
+      this.operationContext,
+      prisma,
+      idValue,
+      attempts,
+      error,
+    );
+  }
+
+  /** Đặt lại job đối soát lưu trữ để retry có backoff hoặc chuyển FAILED sau lần thử cuối. */
+  private async retryStorageAuditJob(
+    prisma: PrismaService,
+    idValue: string,
+    attempts: number,
+    error: unknown,
+  ): Promise<void> {
+    return await worker_ops.retryStorageAuditJob(
       this.operationContext,
       prisma,
       idValue,
@@ -573,6 +598,28 @@ export class SystemService {
   /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
   async snapshotAssetAudit(): Promise<SnapshotAssetAudit> {
     return await storage_audit_ops.snapshotAssetAudit(this.operationContext);
+  }
+
+  /** Xếp job nền đối soát lưu trữ phân trang (HEAD/metadata + lấy mẫu checksum) vào hàng đợi. */
+  async queueStorageAudit(
+    actorId: string,
+    sampleRate?: number,
+  ): Promise<StorageAuditRun> {
+    return await storage_audit_ops.queueStorageAudit(
+      this.operationContext,
+      actorId,
+      sampleRate,
+    );
+  }
+
+  /** Liệt kê lịch sử các job nền đối soát lưu trữ mới nhất. */
+  async listStorageAudits(): Promise<StorageAuditRun[]> {
+    return await storage_audit_ops.listStorageAudits(this.operationContext);
+  }
+
+  /** Đọc tiến độ và báo cáo kết quả của một job đối soát lưu trữ. */
+  async getStorageAudit(auditId: string): Promise<StorageAuditRun> {
+    return await storage_audit_ops.getStorageAudit(this.operationContext, auditId);
   }
 
   /** Liệt kê metadata đã xóa mềm nhưng object cleanup thất bại để vận hành có thể retry. */

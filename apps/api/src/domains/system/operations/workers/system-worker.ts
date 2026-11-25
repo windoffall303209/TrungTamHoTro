@@ -6,23 +6,25 @@ import {
   ownedJobWhere,
   startOperationalLease,
 } from "../operational-lease.js";
+import { runPaginatedStorageAudit } from "../storage/system-storage-audit.js";
 import { DataExport } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
-/** Thu hồi lease hết hạn rồi xử lý một batch backup và export theo hàng đợi DB. */
+/** Thu hồi lease hết hạn rồi xử lý một batch backup, export và storage audit theo hàng đợi DB. */
 export async function drainOperationalJobs(
   serviceContext: SystemServiceContext,
   limit = 6,
 ): Promise<{
   backup: number;
   export: number;
+  audit: number;
 }> {
   const prisma = serviceContext.database();
-  if (!prisma) return { backup: 0, export: 0 };
+  if (!prisma) return { backup: 0, export: 0, audit: 0 };
   const now = new Date();
   await prisma.operationalJob.updateMany({
     where: {
-      kind: { in: ["BACKUP", "EXPORT"] },
+      kind: { in: ["BACKUP", "EXPORT", "AUDIT"] },
       status: { in: ["RUNNING", "PENDING"] },
       attempts: { gte: 5 },
       availableAt: { lte: now },
@@ -36,7 +38,7 @@ export async function drainOperationalJobs(
   });
   await prisma.operationalJob.updateMany({
     where: {
-      kind: { in: ["BACKUP", "EXPORT"] },
+      kind: { in: ["BACKUP", "EXPORT", "AUDIT"] },
       status: "RUNNING",
       attempts: { lt: 5 },
       availableAt: { lte: now },
@@ -59,7 +61,7 @@ export async function drainOperationalJobs(
       errorMessage: "Restore bị gián đoạn quá hạn lease.",
     },
   });
-  const processed = { backup: 0, export: 0 };
+  const processed = { backup: 0, export: 0, audit: 0 };
   for (let index = 0; index < Math.max(1, Math.min(limit, 30)); index += 1) {
     if (await serviceContext.processQueuedBackup(prisma)) {
       processed.backup += 1;
@@ -67,6 +69,13 @@ export async function drainOperationalJobs(
     }
     if (await serviceContext.processQueuedExport(prisma)) {
       processed.export += 1;
+      continue;
+    }
+    if (
+      serviceContext.processQueuedStorageAudit &&
+      (await serviceContext.processQueuedStorageAudit(prisma))
+    ) {
+      processed.audit += 1;
       continue;
     }
     break;
@@ -376,6 +385,144 @@ export async function retryExportJob(
     prisma,
     row.requestedBy,
     terminal ? "DATA_EXPORT_FAILED" : "DATA_EXPORT_RETRY_SCHEDULED",
+    row.id,
+    `Lần ${attempts}/5 · ${message}`,
+  );
+}
+
+/** Claim và thực thi một job nền đối soát lưu trữ phân trang (HEAD/metadata + lấy mẫu checksum) kèm lease và tiến độ. */
+export async function processQueuedStorageAudit(
+  serviceContext: SystemServiceContext,
+  prisma: PrismaService,
+): Promise<boolean> {
+  const candidate = await prisma.operationalJob.findFirst({
+    where: {
+      kind: "AUDIT",
+      status: "PENDING",
+      availableAt: { lte: new Date() },
+      attempts: { lt: 5 },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!candidate) return false;
+  const claimed = await prisma.operationalJob.updateMany({
+    where: {
+      kind: "AUDIT",
+      id: candidate.id,
+      status: "PENDING",
+      attempts: candidate.attempts,
+    },
+    data: {
+      status: "RUNNING",
+      attempts: { increment: 1 },
+      progress: 5,
+      availableAt: serviceContext.jobLeaseExpiry(),
+      errorMessage: null,
+    },
+  });
+  if (claimed.count !== 1) return true;
+  const lease = startOperationalLease(() =>
+    prisma.operationalJob.updateMany({
+      where: { kind: "AUDIT", ...ownedJobWhere(candidate) },
+      data: { availableAt: serviceContext.jobLeaseExpiry() },
+    }),
+  );
+  try {
+    const parsedSample = Number(candidate.category ?? "0.1");
+    const sampleRate =
+      Number.isFinite(parsedSample) && parsedSample >= 0 && parsedSample <= 1
+        ? parsedSample
+        : 0.1;
+    const report = await runPaginatedStorageAudit(serviceContext, {
+      sampleRate,
+      seed: candidate.id,
+      onProgress: async (progress, checkedObjects) => {
+        await lease.assertOwned();
+        await prisma.operationalJob.updateMany({
+          where: { kind: "AUDIT", ...ownedJobWhere(candidate) },
+          data: { progress, rowCount: checkedObjects },
+        });
+      },
+    });
+    await lease.assertOwned();
+    const completed = await prisma.operationalJob.updateMany({
+      where: { kind: "AUDIT", ...ownedJobWhere(candidate) },
+      data: {
+        status: "COMPLETED",
+        progress: 100,
+        rowCount: report.uniqueObjectCount,
+        verification: JSON.stringify(report),
+        completedAt: new Date(),
+      },
+    });
+    if (completed.count !== 1) return true;
+    await serviceContext.logDatabase(
+      prisma,
+      candidate.requestedBy,
+      "STORAGE_AUDIT_COMPLETED",
+      candidate.id,
+      `Đối soát ${report.uniqueObjectCount} object (lấy mẫu ${report.sampledChecksumCount ?? 0} checksum, thiếu ${report.missingObjects.length}, sai checksum ${report.checksumMismatches?.length ?? 0}).`,
+    );
+  } catch (error) {
+    if (serviceContext.retryStorageAuditJob) {
+      await serviceContext.retryStorageAuditJob(
+        prisma,
+        candidate.id,
+        candidate.attempts + 1,
+        error,
+      );
+    } else {
+      await retryStorageAuditJob(
+        serviceContext,
+        prisma,
+        candidate.id,
+        candidate.attempts + 1,
+        error,
+      );
+    }
+  } finally {
+    await lease.stop();
+  }
+  return true;
+}
+
+/** Đặt lại job đối soát lưu trữ để retry có backoff hoặc chuyển FAILED ở lần thử cuối. */
+export async function retryStorageAuditJob(
+  serviceContext: SystemServiceContext,
+  prisma: PrismaService,
+  idValue: string,
+  attempts: number,
+  error: unknown,
+): Promise<void> {
+  const terminal = attempts >= 5;
+  const message = serviceContext.jobError(
+    error,
+    "Không thể hoàn tất đối soát lưu trữ.",
+  );
+  const updated = await prisma.operationalJob.updateMany({
+    where: {
+      kind: "AUDIT",
+      id: idValue,
+      status: "RUNNING",
+      attempts,
+      availableAt: { gt: new Date() },
+    },
+    data: {
+      status: terminal ? "FAILED" : "PENDING",
+      progress: 0,
+      availableAt: serviceContext.jobRetryAt(attempts),
+      errorMessage: message,
+      completedAt: terminal ? new Date() : null,
+    },
+  });
+  if (updated.count !== 1) return;
+  const row = await prisma.operationalJob.findUniqueOrThrow({
+    where: { kind: "AUDIT", id: idValue },
+  });
+  await serviceContext.logDatabase(
+    prisma,
+    row.requestedBy,
+    terminal ? "STORAGE_AUDIT_FAILED" : "STORAGE_AUDIT_RETRY_SCHEDULED",
     row.id,
     `Lần ${attempts}/5 · ${message}`,
   );
